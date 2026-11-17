@@ -1,0 +1,51 @@
+name: build-plugin
+on: [push, workflow_dispatch]
+
+env:
+  # Check https://developer.x-plane.com/sdk/plugin-sdk-downloads/ for the current link and adjust if needed.
+  SDK_URL: https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/XPSDK420.zip
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-15, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch X-Plane SDK
+        shell: bash
+        run: |
+          curl -fsSL "$SDK_URL" -o sdk.zip
+          unzip -q sdk.zip -d sdk
+          echo "SDK_DIR=$(find "$PWD/sdk" -type d -name CHeaders -exec dirname {} \; | head -1)" >> "$GITHUB_ENV"
+      - name: Configure
+        shell: bash
+        run: cmake -S . -B build -DXPLANE_SDK="$SDK_DIR"
+      - run: cmake --build build --config Release
+      - name: Check Linux plugin dependencies
+        if: runner.os == 'Linux'
+        # the plugin may only need libc, libm, libdl and the loader (X-Plane provides XPLM and OpenGL at run time)
+        run: |
+          X=build/package/XPTablet/lin_x64/XPTablet.xpl
+          objdump -p "$X" | grep NEEDED || true
+          if objdump -p "$X" | grep NEEDED | grep -vE 'libc\.so|libm\.so|libdl\.so|ld-linux'; then echo "unexpected shared library dependency"; exit 1; fi
+      - run: ctest --test-dir build -C Release --output-on-failure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XPTablet-${{ runner.os }}
+          path: build/package/XPTablet   # contains lin_x64 / mac_x64 / win_x64
+
+  bundle:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: parts }
+      - name: Merge platforms
+        run: |
+          mkdir -p out/XPTablet
+          cp -r parts/*/* out/XPTablet/
+          find out -type f
+      - uses: actions/upload-artifact@v4
+        with: { name: XPTablet, path: out }
