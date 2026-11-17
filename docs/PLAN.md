@@ -48,7 +48,9 @@ ForeFlight, Browser, Settings. No logbook.
   icon carries the chosen name.
 - SimBrief, Live Map and ForeFlight can be switched off in Settings.
 - Web apps open as pages of their own (title bar only). The Browser icon opens the full browser with address bar and bookmarks.
-- Icons are rearranged by pressing and moving them. A favorites bar along the bottom takes up to six icons dragged into it.
+- Icons are rearranged by pressing and moving them. A favorites bar along the bottom takes icons dragged into it; its size is 1 to 5
+  places, chosen in Settings (4 by default).
+- In ToLiss aircraft the Performance icon is left out: their own tablet does the performance calculations.
 - The status bar shows the tablet's battery: it charges while an aircraft bus is live and runs down otherwise.
 - The arrangement and the choices are kept in Output/preferences/XPTablet.prf.
 

@@ -11,7 +11,7 @@ in its window only; remove AviTab from `Resources/plugins` to let XPTablet take 
 
 ## Status
 
-Version 0.2.0 is a test build: the tablet in the AviTab slot with touch input, the home screen with rearrangeable icons and a
+Version 0.2.1 is a test build: the tablet in the AviTab slot with touch input, the home screen with rearrangeable icons and a
 favorites bar, Settings, and the pages web apps will load into. The browser engine and the other apps are not in yet. See
 `docs/PLAN.md` for what is planned.
 

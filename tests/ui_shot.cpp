@@ -117,7 +117,6 @@ int main(int argc, char** argv) {
     s.panel[0] = 1024; s.panel[1] = 0; s.panel[2] = 800; s.panel[3] = 480;
     s.panelEnabled = s.panelPowered = true; s.wxPlane = true; s.pixelScale = scale;
     s.batteryPct = 86; s.charging = true;
-    settings().favorites = {APP_MAP, APP_CHARTS, APP_WEATHER, APP_SIMBRIEF};
 
     int failures = 0;
     const float widths[] = {800, 640, 1024, 360};   // 5:3 (AviTab's shape), 4:3, wide, portrait
@@ -186,6 +185,19 @@ int main(int argc, char** argv) {
         if (appVisible(APP_FOREFLIGHT) || !appVisible(APP_SIMBRIEF)) { std::printf("FAIL: web app switch\n"); ++failures; }
         settings() = Settings();
     }
+    // a ToLiss aircraft has its own performance calculator: the Performance app is not offered there
+    {
+        SimState t = s; t.toliss = true;
+        openApp(APP_PERFORMANCE);
+        io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f;
+        ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render();
+        if (appVisible(APP_PERFORMANCE) || currentApp() != APP_HOME) { std::printf("FAIL: Performance must go in a ToLiss\n"); ++failures; }
+        { std::vector<Batch> b; clipDrawData(ImGui::GetDrawData(), b); Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_toliss.png"); }
+        openApp(APP_PERFORMANCE);
+        if (currentApp() != APP_HOME) { std::printf("FAIL: a hidden app must not open\n"); ++failures; }
+        ImGui::NewFrame(); build(fonts, s, 800, kLogicalH, act); ImGui::Render();
+        if (!appVisible(APP_PERFORMANCE)) { std::printf("FAIL: Performance must return in other aircraft\n"); ++failures; }
+    }
     // dragging: press the first grid icon, carry it into the favorites bar, let go: it must now be a favorite
     {
         openApp(APP_HOME);
@@ -216,6 +228,19 @@ int main(int argc, char** argv) {
         for (int a : settings().favorites) fav = fav || a == first;
         if (!fav || settings().favorites.size() != 3) { std::printf("FAIL: drag to favorites\n"); ++failures; }
         if (!takeSettingsChanged()) { std::printf("FAIL: a rearranged home screen must be saved\n"); ++failures; }
+        settings() = Settings();
+    }
+    // the favorites bar's size: 4 by default; made smaller, the extra favorites go back to the grid and nothing is lost
+    {
+        settings() = Settings();
+        if (settings().favoriteSlots != 4 || settings().favorites.size() != 4) { std::printf("FAIL: favorites default\n"); ++failures; }
+        settings().favoriteSlots = 2;
+        const std::string txt = settingsToText();
+        settings() = Settings();
+        settingsFromText(txt);
+        if (settings().favoriteSlots != 2 || settings().favorites.size() != 2 || settings().order.size() != (size_t)APP_COUNT - 2 || settings().order[0] != APP_WEATHER) { std::printf("FAIL: favorites bar size\n"); ++failures; }
+        settingsFromText("favorite_slots=9\n");
+        if (settings().favoriteSlots != kMaxFavorites) { std::printf("FAIL: favorites bar size limit\n"); ++failures; }
         settings() = Settings();
     }
     ImGui::DestroyContext();

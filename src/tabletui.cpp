@@ -49,6 +49,8 @@ enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM };   // the Live Map icon's two pic
 Settings g_settings;
 bool g_settingsChanged = false;
 std::string g_url = "https://chartfox.org", g_site = "Browser";   // what the web page shows
+int favSlots() { return std::max(1, std::min(kMaxFavorites, g_settings.favoriteSlots)); }
+bool g_ownPerformance = false;   // the aircraft brings its own performance calculator (ToLiss): no Performance app
 bool g_chrome = true;                                             // with the browser's own controls
 
 void openWeb(const char* site, const char* url, bool chrome);
@@ -67,10 +69,10 @@ void normalizeLayout() {
         v.swap(out);
     };
     clean(g_settings.favorites);
-    if ((int)g_settings.favorites.size() > kMaxFavorites) {
-        for (size_t i = kMaxFavorites; i < g_settings.favorites.size(); ++i) seen[g_settings.favorites[i]] = false;
-        g_settings.favorites.resize(kMaxFavorites);
-    }
+    std::vector<int> spill;   // favorites beyond the bar's size go back to the front of the grid
+    while ((int)g_settings.favorites.size() > favSlots()) { spill.insert(spill.begin(), g_settings.favorites.back()); g_settings.favorites.pop_back(); }
+    for (int a : spill) seen[a] = false;
+    g_settings.order.insert(g_settings.order.begin(), spill.begin(), spill.end());
     clean(g_settings.order);
     for (int a = 0; a < APP_COUNT; ++a) if (!seen[a]) g_settings.order.push_back(a);
 }
@@ -289,10 +291,9 @@ void home(ImDrawList* dl, const Fonts& f, float w, float h) {
     const int rows = std::max(1, (gridCount + cols - 1) / cols);
     const float gy0 = kStatusH + std::max(8.0f, std::floor((dockTop - kStatusH - rows * cellH) * 0.5f));
     if (drag >= 0) {
-        toDock = m.y >= dockTop - 8 && (int)dock.size() < kMaxFavorites;
+        toDock = m.y >= dockTop - 8 && (int)dock.size() < favSlots();
         if (toDock) {
-            const float dw = ((int)dock.size() + 1) * dockCell;
-            gap = std::max(0, std::min((int)dock.size(), (int)std::floor((m.x - (w - dw) * 0.5f) / dockCell)));
+            gap = std::max(0, std::min((int)dock.size(), (int)std::floor((m.x - ((w - favSlots() * dockCell) * 0.5f)) / dockCell)));
         } else {
             const int col = std::max(0, std::min(cols - 1, (int)std::floor((m.x - gx0) / cellW)));
             const int row = std::max(0, std::min(rows - 1, (int)std::floor((m.y - gy0) / cellH)));
@@ -312,12 +313,15 @@ void home(ImDrawList* dl, const Fonts& f, float w, float h) {
         drawTile(dl, f, grid[k], c, tile, true, held ? 0.94f : 1.0f, held ? 0.86f : over ? 1.12f : 1.0f);
         hits.push_back({grid[k], ImVec2(cx, cy), ImVec2(cx + cellW, cy + cellH)});
     }
-    // the favorites bar
-    const int dockSlots = (int)dock.size() + ((drag >= 0 && toDock) ? 1 : 0);
-    const float dw = std::max(1, dockSlots) * dockCell + dockPad * 2;
+    // the favorites bar: as many places as Settings gives it, the free ones shown as outlines
+    const int dockSlots = favSlots();
+    const float dw = dockSlots * dockCell + dockPad * 2;
     const float dx0 = std::floor((w - dw) * 0.5f);
     dl->AddRectFilled(ImVec2(dx0, dockTop), ImVec2(dx0 + dw, dockTop + dockH), IM_COL32(255, 255, 255, drag >= 0 && toDock ? 52 : 30), 22.0f);
-    if (dockSlots == 0) textCentered(dl, f.small, w * 0.5f, dockTop + (dockH - fontPx(f.small)) * 0.5f, IM_COL32(200, 212, 232, 200), "Favorites");
+    for (int k = (int)dock.size() + ((drag >= 0 && toDock) ? 1 : 0); k < dockSlots; ++k) {
+        const ImVec2 c(dx0 + dockPad + k * dockCell + dockCell * 0.5f, dockTop + dockH * 0.5f);
+        dl->AddRect(ImVec2(c.x - dockTile * 0.5f, c.y - dockTile * 0.5f), ImVec2(c.x + dockTile * 0.5f, c.y + dockTile * 0.5f), IM_COL32(255, 255, 255, 46), dockTile * 0.24f, 0, snap(1.5f));
+    }
     for (int k = 0; k < (int)dock.size(); ++k) {
         const int slot = (drag >= 0 && toDock && k >= gap) ? k + 1 : k;
         const float cx = dx0 + dockPad + slot * dockCell;
@@ -466,12 +470,28 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     };
     choice("Charts icon", kChartNames, g_settings.chartsProvider);
     choice("Live map icon", kLiveNames, g_settings.liveProvider);
+    sectionTitle(f, "Favorites bar size");
+    {
+        const float sp = ImGui::GetStyle().ItemSpacing.x;
+        const float bw = std::floor((ImGui::GetContentRegionAvail().x - sp * (kMaxFavorites - 1)) / kMaxFavorites);
+        for (int n = 1; n <= kMaxFavorites; ++n) {
+            const bool on = favSlots() == n;
+            char lbl[8];
+            std::snprintf(lbl, sizeof lbl, "%d", n);
+            if (on) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.30f, 0.55f, 1.0f, 0.85f));
+            if (ImGui::Button(lbl, ImVec2(bw, 32)) && !on) { g_settings.favoriteSlots = n; g_settingsChanged = true; }
+            if (on) ImGui::PopStyleColor();
+            if (n < kMaxFavorites) ImGui::SameLine();
+        }
+        ImGui::Dummy(ImVec2(0, 4));
+    }
     sectionTitle(f, "Show on the home screen");
     struct Tog { const char* name; bool* v; };
     const Tog togs[] = {{"SimBrief", &g_settings.showSimbrief}, {"Live map", &g_settings.showLive}, {"ForeFlight", &g_settings.showForeflight}};
+    const float third = std::floor(ImGui::GetContentRegionAvail().x / 3);
     for (int i = 0; i < 3; ++i) {
         if (ImGui::Checkbox(togs[i].name, togs[i].v)) g_settingsChanged = true;
-        if (i % 2 == 0 && i < 2) ImGui::SameLine(half + ImGui::GetStyle().ItemSpacing.x);
+        if (i < 2) ImGui::SameLine(third * (i + 1));
     }
     ImGui::EndChild();
 
@@ -483,7 +503,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     ImGui::PushFont(f.mono);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 3));
     ImGui::Text("Version     %s", XPT_VERSION);
-    ImGui::Text("Aircraft    %s", s.acfIcao.empty() ? "-" : s.acfIcao.c_str());
+    ImGui::Text("Aircraft    %s%s", s.acfIcao.empty() ? "-" : s.acfIcao.c_str(), s.toliss ? " (ToLiss)" : "");
     ImGui::Text("Shown on    %s", s.onPanel ? "cockpit tablet" : "window only");
     if (s.panel[2] > 0 && s.panel[3] > 0) ImGui::Text("Panel area  %d,%d  %dx%d", s.panel[0], s.panel[1], s.panel[2], s.panel[3]);
     else ImGui::TextUnformatted("Panel area  none (no AviTab slot)");
@@ -574,6 +594,8 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("##tablet", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                                           ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollWithMouse);
+    g_ownPerformance = s.toliss;
+    if (g_app == APP_PERFORMANCE && g_ownPerformance) g_app = APP_HOME;
     g_px = std::max(1.0f, s.pixelScale);
     ImGuiStyle& st = ImGui::GetStyle();
     st.CircleTessellationMaxError = 0.30f / g_px;   // curves are as smooth on a dense screen as on a plain one
@@ -611,13 +633,14 @@ bool appVisible(int app) {
     case APP_SIMBRIEF: return g_settings.showSimbrief;
     case APP_LIVEMAP: return g_settings.showLive;
     case APP_FOREFLIGHT: return g_settings.showForeflight;
+    case APP_PERFORMANCE: return !g_ownPerformance;
     default: return app >= 0 && app < APP_COUNT;
     }
 }
 
 // Charts, Live Map, SimBrief and ForeFlight are sites shown as pages of their own. The Browser icon opens the full browser.
 void openApp(int app) {
-    if (app < 0 || app >= APP_COUNT) { g_app = APP_HOME; return; }
+    if (app < 0 || app >= APP_COUNT || !appVisible(app)) { g_app = APP_HOME; return; }
     if (app == APP_CHARTS) { openWeb(kChartNames[chartsP()], kChartUrls[chartsP()], false); return; }
     if (app == APP_LIVEMAP) { openWeb(kLiveNames[liveP()], kLiveUrls[liveP()], false); return; }
     if (kApps[app].url) { openWeb(kApps[app].name, kApps[app].url, false); return; }
@@ -631,7 +654,7 @@ bool takeSettingsChanged() { const bool c = g_settingsChanged; g_settingsChanged
 std::string settingsToText() {
     normalizeLayout();
     char buf[256];
-    std::snprintf(buf, sizeof buf, "charts_provider=%d\nlive_provider=%d\nshow_simbrief=%d\nshow_live=%d\nshow_foreflight=%d\n", chartsP(), liveP(),
+    std::snprintf(buf, sizeof buf, "charts_provider=%d\nlive_provider=%d\nfavorite_slots=%d\nshow_simbrief=%d\nshow_live=%d\nshow_foreflight=%d\n", chartsP(), liveP(), favSlots(),
                   g_settings.showSimbrief ? 1 : 0, g_settings.showLive ? 1 : 0, g_settings.showForeflight ? 1 : 0);
     std::string out = buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
@@ -669,6 +692,7 @@ void settingsFromText(const std::string& text) {
         const int v = std::atoi(val.c_str());
         if (key == "charts_provider") g_settings.chartsProvider = v == 1 ? 1 : 0;
         else if (key == "live_provider") g_settings.liveProvider = v == 1 ? 1 : 0;
+        else if (key == "favorite_slots") g_settings.favoriteSlots = std::max(1, std::min(kMaxFavorites, v));
         else if (key == "show_simbrief") g_settings.showSimbrief = v != 0;
         else if (key == "show_live") g_settings.showLive = v != 0;
         else if (key == "show_foreflight") g_settings.showForeflight = v != 0;

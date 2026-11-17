@@ -179,6 +179,22 @@ bool readFile(const std::string& path, std::string& out) {
     return true;
 }
 
+// A ToLiss aircraft is known by its systems plugin: one with "toliss" in its signature (XP11.ToLiss.A320.systems), loaded from the
+// aircraft's own folder. (Plugins in Resources/plugins with ToLiss in their name are add-ons, loaded with every aircraft.)
+bool isToLissAircraft() {
+    auto lower = [](std::string s) { for (char& c : s) { if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a'); else if (c == '\\') c = '/'; } return s; };
+    const std::string dir = lower(aircraftDir());
+    if (dir.empty()) return false;
+    const int n = XPLMCountPlugins();
+    for (int i = 0; i < n; ++i) {
+        char name[256] = "", path[1024] = "", sig[256] = "", desc[256] = "";
+        const XPLMPluginID id = XPLMGetNthPlugin(i);
+        XPLMGetPluginInfo(id, name, path, sig, desc);
+        if (lower(sig).find("toliss") != std::string::npos && lower(path).compare(0, dir.size(), dir) == 0) return true;
+    }
+    return false;
+}
+
 // ---- settings, kept in Output/preferences/XPTablet.prf ---------------------------------------------------------------------------------
 std::string settingsPath() {
     char p[2048] = "";
@@ -633,6 +649,7 @@ float flightLoop(float dt, float, int, void*) {
         icao[std::max(0, std::min(40, n))] = 0;
         g_sim.acfIcao = icao;
     }
+    if ((XPLMGetCycleNumber() & 127) == 0) g_sim.toliss = isToLissAircraft();   // its plugin loads after the aircraft does
     if ((XPLMGetCycleNumber() & 255) == 0) g_sim.wxPlane = XPLMFindPluginBySignature(kWxPlaneSignature) != XPLM_NO_PLUGIN_ID;   // it may load after us
     updateCaptureWindow();
     return -1.0f;   // every frame
@@ -715,6 +732,7 @@ PLUGIN_API void XPluginStop(void) {
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int msg, void* param) {
     if (msg == XPLM_MSG_PLANE_LOADED && (intptr_t)param == 0) {   // the user's aircraft
         loadAircraftConfig();
+        g_sim.toliss = false;   // looked for again once the new aircraft's plugins are in
         xpt::openApp(xpt::APP_HOME);
     } else if (msg == XPLM_MSG_ENTERED_VR) {
         if (g_win) XPLMSetWindowPositioningMode(g_win, xplm_WindowVR, -1);
