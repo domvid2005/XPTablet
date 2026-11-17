@@ -15,15 +15,15 @@ constexpr float kLogicalH = 480.0f;   // the tablet is always laid out 480 units
 enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_ROUTES, APP_WEATHER, APP_GROUND, APP_CHECKLISTS,
            APP_PERFORMANCE, APP_TRAFFIC, APP_NOTES, APP_SIMBRIEF, APP_LIVEMAP, APP_FOREFLIGHT, APP_BROWSER, APP_SETTINGS, APP_COUNT };
 
-constexpr int kMaxFavorites = 5;   // the favorites bar holds 1 to 5 icons, chosen in Settings
+constexpr int kMaxFavorites = 5;   // the favorites bar holds up to 5 icons; its size is chosen in Settings, 0 removes it
 
 // What the user chose. Kept between sessions by the host (settingsToText / settingsFromText).
 struct Settings {
     int chartsProvider = 0;       // what the Charts icon is: 0 ChartFox, 1 Navigraph
     int liveProvider = 0;         // what the Live Map icon is: 0 Volanta, 1 VATSIM Map
-    bool showSimbrief = true, showLive = true, showForeflight = true;   // web app icons on the home screen
+    bool showCharts = true, showSimbrief = true, showLive = true, showForeflight = true;   // web app icons on the home screen
     std::vector<int> order;       // the home screen's icons, in the order the user arranged them
-    int favoriteSlots = 4;        // how many icons the favorites bar holds, 1 to kMaxFavorites
+    int favoriteSlots = 4;        // how many icons the favorites bar holds, 0 (no bar) to kMaxFavorites
     std::vector<int> favorites = {APP_MAP, APP_CHARTS, APP_WEATHER, APP_SIMBRIEF};   // the icons in the bar along the bottom (they leave the grid)
 };
 Settings& settings();

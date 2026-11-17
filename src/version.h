@@ -1,2 +1,2 @@
 #pragma once
-#define XPT_VERSION "0.2.1"
+#define XPT_VERSION "0.2.2"

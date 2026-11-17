@@ -46,10 +46,11 @@ ForeFlight, Browser, Settings. No logbook.
 
 - The Charts icon is ChartFox or Navigraph, and the Live Map icon is Volanta or VATSIM Map; each is chosen in Settings and the
   icon carries the chosen name.
-- SimBrief, Live Map and ForeFlight can be switched off in Settings.
+- Charts, Live Map, SimBrief and ForeFlight can be switched off in Settings; with Charts or Live Map off, its source choice is
+  greyed out.
 - Web apps open as pages of their own (title bar only). The Browser icon opens the full browser with address bar and bookmarks.
-- Icons are rearranged by pressing and moving them. A favorites bar along the bottom takes icons dragged into it; its size is 1 to 5
-  places, chosen in Settings (4 by default).
+- Icons are rearranged by pressing and moving them. A favorites bar along the bottom takes icons dragged into it; its size is a
+  slider in Settings under the brightness, 0 to 5 places (4 by default; 0 removes the bar).
 - In ToLiss aircraft the Performance icon is left out: their own tablet does the performance calculations.
 - The status bar shows the tablet's battery: it charges while an aircraft bus is live and runs down otherwise.
 - The arrangement and the choices are kept in Output/preferences/XPTablet.prf.

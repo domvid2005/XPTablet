@@ -241,6 +241,22 @@ int main(int argc, char** argv) {
         if (settings().favoriteSlots != 2 || settings().favorites.size() != 2 || settings().order.size() != (size_t)APP_COUNT - 2 || settings().order[0] != APP_WEATHER) { std::printf("FAIL: favorites bar size\n"); ++failures; }
         settingsFromText("favorite_slots=9\n");
         if (settings().favoriteSlots != kMaxFavorites) { std::printf("FAIL: favorites bar size limit\n"); ++failures; }
+        // 0 takes the bar away: every favorite returns to the grid, and the home screen still draws
+        settings() = Settings(); settings().favoriteSlots = 0;
+        settingsFromText(settingsToText());
+        if (!settings().favorites.empty() || settings().order.size() != (size_t)APP_COUNT) { std::printf("FAIL: favorites bar off\n"); ++failures; }
+        openApp(APP_HOME);
+        std::vector<Batch> b;
+        for (int i = 0; i < 2; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
+            ImGui::NewFrame(); Actions act; build(fonts, s, 800, kLogicalH, act); ImGui::Render(); clipDrawData(ImGui::GetDrawData(), b); }
+        { Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_nobar.png"); }
+        // Charts switched off: its icon goes, the setting is kept, and Settings still draws (with the source choice greyed out)
+        settings() = Settings(); settings().showCharts = false;
+        settingsFromText(settingsToText());
+        if (settings().showCharts || appVisible(APP_CHARTS)) { std::printf("FAIL: charts switch\n"); ++failures; }
+        openApp(APP_SETTINGS);
+        for (int i = 0; i < 2; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); ImGui::NewFrame(); Actions act; build(fonts, s, 800, kLogicalH, act); ImGui::Render(); clipDrawData(ImGui::GetDrawData(), b); }
+        { Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_settings_off.png"); }
         settings() = Settings();
     }
     ImGui::DestroyContext();
