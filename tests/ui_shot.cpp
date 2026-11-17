@@ -116,6 +116,8 @@ int main(int argc, char** argv) {
     s.acfIcao = "A321"; s.zuluSec = 23 * 3600 + 7 * 60; s.onPanel = true;
     s.panel[0] = 1024; s.panel[1] = 0; s.panel[2] = 800; s.panel[3] = 480;
     s.panelEnabled = s.panelPowered = true; s.wxPlane = true; s.pixelScale = scale;
+    s.batteryPct = 86; s.charging = true;
+    settings().favorites = {APP_MAP, APP_CHARTS, APP_WEATHER, APP_SIMBRIEF};
 
     int failures = 0;
     const float widths[] = {800, 640, 1024, 360};   // 5:3 (AviTab's shape), 4:3, wide, portrait
@@ -147,10 +149,11 @@ int main(int argc, char** argv) {
                     if (v.pos.x < -0.01f || v.pos.y < -0.01f || v.pos.x > W + 0.01f || v.pos.y > H + 0.01f) { ++failures; break; }
             }
             if (tris == 0) { std::printf("FAIL: nothing drawn for %s at %gx%g\n", appName(app), W, H); ++failures; }
-            if (W == 800 && (app == APP_HOME || app == APP_SETTINGS || app == APP_MAP)) {
+            if (app != APP_HOME && appVisible(app) && currentApp() == APP_HOME) { std::printf("FAIL: %s did not open\n", appName(app)); ++failures; }
+            if (W == 800 && (app == APP_HOME || app == APP_SETTINGS || app == APP_MAP || app == APP_SIMBRIEF)) {
                 Canvas cv((int)(W * scale), (int)(H * scale));
                 raster(cv, batches, tex, tw, th, scale);
-                const std::string path = out + "/tablet_" + (app == APP_HOME ? "home" : app == APP_SETTINGS ? "settings" : "placeholder") + ".png";
+                const std::string path = out + "/tablet_" + (app == APP_HOME ? "home" : app == APP_SETTINGS ? "settings" : app == APP_SIMBRIEF ? "browser" : "placeholder") + ".png";
                 if (!writePng(cv, path)) { std::printf("FAIL: cannot write %s\n", path.c_str()); ++failures; }
             }
         }
@@ -163,6 +166,57 @@ int main(int argc, char** argv) {
         scaleColors(b, 0.5f);
         const ImU32 c = b[0].v[0].col;
         if (((c >> IM_COL32_A_SHIFT) & 255) != 128 || ((c >> IM_COL32_R_SHIFT) & 255) != 100) { std::printf("FAIL: scaleColors\n"); ++failures; }
+    }
+    // settings: the text form round-trips, the two switchable icons follow their settings, a switched-off web app leaves the home screen
+    {
+        settings().chartsProvider = 1; settings().liveProvider = 1; settings().showForeflight = false;
+        settings().favorites = {APP_WEATHER, APP_MAP}; settings().order = {APP_SETTINGS, APP_NOTES};
+        const std::string txt = settingsToText();
+        settings() = Settings();
+        settingsFromText(txt);
+        const Settings& st = settings();
+        if (st.chartsProvider != 1 || st.liveProvider != 1 || st.showForeflight || !st.showSimbrief) { std::printf("FAIL: settings round trip\n"); ++failures; }
+        if (st.favorites != std::vector<int>({APP_WEATHER, APP_MAP}) || st.order.size() != (size_t)APP_COUNT - 2 || st.order[0] != APP_SETTINGS || st.order[1] != APP_NOTES) { std::printf("FAIL: layout round trip\n"); ++failures; }
+        openApp(APP_CHARTS);
+        if (currentApp() != APP_BROWSER || browserChrome() || std::string(browserUrl()).find("navigraph") == std::string::npos) { std::printf("FAIL: charts provider\n"); ++failures; }
+        openApp(APP_LIVEMAP);
+        if (std::string(browserUrl()).find("vatsim") == std::string::npos || std::string(appName(APP_LIVEMAP)) != "VATSIM Map") { std::printf("FAIL: live map provider\n"); ++failures; }
+        openApp(APP_BROWSER);
+        if (!browserChrome()) { std::printf("FAIL: the Browser icon opens the full browser\n"); ++failures; }
+        if (appVisible(APP_FOREFLIGHT) || !appVisible(APP_SIMBRIEF)) { std::printf("FAIL: web app switch\n"); ++failures; }
+        settings() = Settings();
+    }
+    // dragging: press the first grid icon, carry it into the favorites bar, let go: it must now be a favorite
+    {
+        openApp(APP_HOME);
+        const float W = 800, H = kLogicalH;
+        const int first = APP_MAP;   // default order: Map is the first icon, top-left
+        std::vector<Batch> batches;
+        auto frame = [&](float x, float y, bool down) {
+            io.DisplaySize = ImVec2(W, H); io.DeltaTime = 1.0f / 60.0f;
+            io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, down);
+            ImGui::NewFrame(); Actions act; build(fonts, s, W, H, act); ImGui::Render();
+            clipDrawData(ImGui::GetDrawData(), batches);
+        };
+        settings() = Settings(); settings().favorites = {APP_WEATHER, APP_CHARTS};
+        frame(-1000, -1000, false); frame(-1000, -1000, false);
+        const float cols = std::floor((W - 24) / 104), gx = std::floor((W - cols * 104) * 0.5f) + 52;
+        float gy = 0;   // find the first row: probe downwards until a press picks the icon up
+        frame(gx, 60, false); frame(gx, 60, false);
+        for (gy = 40; gy < 300; gy += 10) { frame(gx, gy, false); frame(gx, gy, true); frame(gx + 40, gy + 40, true); frame(gx + 40, gy + 40, true);
+            frame(W * 0.5f, H - 40, true); frame(W * 0.5f, H - 40, true);
+            { Canvas cv((int)(W * scale), (int)(H * scale)); raster(cv, batches, tex, tw, th, scale); writePng(cv, out + "/tablet_drag.png"); }
+            frame(W * 0.5f, H - 40, false); frame(W * 0.5f, H - 40, false);
+            bool fav = false;
+            for (int a : settings().favorites) fav = fav || a == first;
+            if (fav) break;
+            if (currentApp() != APP_HOME) openApp(APP_HOME);
+        }
+        bool fav = false;
+        for (int a : settings().favorites) fav = fav || a == first;
+        if (!fav || settings().favorites.size() != 3) { std::printf("FAIL: drag to favorites\n"); ++failures; }
+        if (!takeSettingsChanged()) { std::printf("FAIL: a rearranged home screen must be saved\n"); ++failures; }
+        settings() = Settings();
     }
     ImGui::DestroyContext();
     std::printf(failures ? "ui_shot: %d failure(s)\n" : "ui_shot: ok\n", failures);

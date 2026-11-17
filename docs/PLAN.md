@@ -33,11 +33,32 @@ Ground services: aircraft icon by ICAO type; jetway button (OpenSAM when present
 aircraft a page with every passenger and cargo door, the service vehicles and the jetways; generic controls for other aircraft.
 
 Flight tools: SimBrief import (OFP, route, fuel, weights); geo-referenced charts with the aircraft drawn on them; vertical profile;
-interactive checklists; performance (take-off and landing distance, weight and balance, crosswind); timers, logbook, landing rate;
+interactive checklists; performance (take-off and landing distance, weight and balance, crosswind); timers, landing rate;
 live VATSIM/IVAO traffic; scratchpad; quick sim controls.
 
 Later ideas: phone or iPad companion over the local network; an app API for aircraft developers; Navigraph charts (needs their
 approval).
+
+## Home screen (decided 2026-11-17)
+
+Apps: Map, Airports, Charts, Documents, Routes, Weather, Ground, Checklists, Performance, Traffic, Notes, SimBrief, Live Map,
+ForeFlight, Browser, Settings. No logbook.
+
+- The Charts icon is ChartFox or Navigraph, and the Live Map icon is Volanta or VATSIM Map; each is chosen in Settings and the
+  icon carries the chosen name.
+- SimBrief, Live Map and ForeFlight can be switched off in Settings.
+- Web apps open as pages of their own (title bar only). The Browser icon opens the full browser with address bar and bookmarks.
+- Icons are rearranged by pressing and moving them. A favorites bar along the bottom takes up to six icons dragged into it.
+- The status bar shows the tablet's battery: it charges while an aircraft bus is live and runs down otherwise.
+- The arrangement and the choices are kept in Output/preferences/XPTablet.prf.
+
+## Browser engine
+
+X-Plane 12 ships Chromium Embedded Framework itself (Resources/dlls/64/cef; 12.4.4 has CEF 117.1.4+ga26f38b, Chromium 117.0.5938.92).
+A process can hold only one copy of it, so XPTablet uses X-Plane's copy rather than bringing its own: build against the matching CEF
+headers, render off-screen into the tablet's texture, keep cookies and sessions in a profile folder under Output so sites stay
+logged in. To check when wiring it up: whether X-Plane has already started CEF in its own process, and the helper process each
+platform needs.
 
 ## Known gaps in 0.1.0
 

@@ -3,6 +3,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "imgui.h"
 
@@ -10,8 +11,24 @@ namespace xpt {
 
 constexpr float kLogicalH = 480.0f;   // the tablet is always laid out 480 units tall; its width follows the screen's shape
 
-enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_ROUTES, APP_WEATHER, APP_BROWSER, APP_GROUND,
-           APP_CHECKLISTS, APP_PERFORMANCE, APP_LOGBOOK, APP_TRAFFIC, APP_NOTES, APP_SETTINGS, APP_COUNT };
+// The tablet's apps. Charts, Live Map, SimBrief and ForeFlight are web apps: each opens its site as a page of its own.
+enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_ROUTES, APP_WEATHER, APP_GROUND, APP_CHECKLISTS,
+           APP_PERFORMANCE, APP_TRAFFIC, APP_NOTES, APP_SIMBRIEF, APP_LIVEMAP, APP_FOREFLIGHT, APP_BROWSER, APP_SETTINGS, APP_COUNT };
+
+constexpr int kMaxFavorites = 6;
+
+// What the user chose. Kept between sessions by the host (settingsToText / settingsFromText).
+struct Settings {
+    int chartsProvider = 0;       // what the Charts icon is: 0 ChartFox, 1 Navigraph
+    int liveProvider = 0;         // what the Live Map icon is: 0 Volanta, 1 VATSIM Map
+    bool showSimbrief = true, showLive = true, showForeflight = true;   // web app icons on the home screen
+    std::vector<int> order;       // the home screen's icons, in the order the user arranged them
+    std::vector<int> favorites = {APP_MAP, APP_CHARTS, APP_WEATHER};   // the icons in the bar along the bottom (they leave the grid)
+};
+Settings& settings();
+std::string settingsToText();
+void settingsFromText(const std::string& text);
+bool takeSettingsChanged();   // true once after the user changed a setting: time to save
 
 struct Fonts {
     ImFont* body = nullptr;
@@ -31,6 +48,8 @@ struct SimState {
     bool wxPlane = false;         // WXPlane is installed
     float brightness = 1.0f;
     float pixelScale = 1.0f;      // screen pixels per layout unit
+    int batteryPct = 100;         // the tablet's own battery
+    bool charging = false;        // the aircraft's electrical system is feeding it
 };
 
 struct Actions {
@@ -44,6 +63,9 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act);  
 
 int currentApp();
 void openApp(int app);   // APP_HOME: the home screen
-const char* appName(int app);
+const char* appName(int app);                // the icon's label (Charts and Live Map carry their provider's name)
+bool appVisible(int app);                 // on the home screen (web app icons can be switched off)
+const char* browserUrl();                 // the address the web page shows
+bool browserChrome();                     // the full browser (address bar, bookmarks) rather than a web app's own page
 
 } // namespace xpt

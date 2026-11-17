@@ -148,7 +148,8 @@ int g_winHoverCycle = -10;           // the last sim frame the mouse was over th
 float g_winScale = 1.0f;             // screen units per layout unit in the floating window, and where the layout starts in it
 float g_winOx = 0, g_winOy = 0;
 
-XPLMDataRef g_drClickX = nullptr, g_drClickY = nullptr, g_drZulu = nullptr, g_drIcao = nullptr, g_drVr = nullptr, g_drUiScale = nullptr;
+XPLMDataRef g_drClickX = nullptr, g_drClickY = nullptr, g_drZulu = nullptr, g_drIcao = nullptr, g_drVr = nullptr, g_drUiScale = nullptr, g_drBus = nullptr;
+float g_battery = 100.0f;            // the tablet's own battery, percent
 std::vector<XPLMDataRef> g_ownedRefs;
 struct Cmd { XPLMCommandRef ref; int id; };
 std::vector<Cmd> g_cmds;
@@ -176,6 +177,27 @@ bool readFile(const std::string& path, std::string& out) {
     while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
     std::fclose(f);
     return true;
+}
+
+// ---- settings, kept in Output/preferences/XPTablet.prf ---------------------------------------------------------------------------------
+std::string settingsPath() {
+    char p[2048] = "";
+    XPLMGetPrefsPath(p);   // .../Output/preferences/Set X-Plane.prf
+    std::string s = p;
+    const size_t cut = s.find_last_of("/\\");
+    return cut == std::string::npos ? std::string() : s.substr(0, cut + 1) + "XPTablet.prf";
+}
+void loadSettings() {
+    std::string text;
+    if (!settingsPath().empty() && readFile(settingsPath(), text)) xpt::settingsFromText(text);
+}
+void saveSettings() {
+    const std::string path = settingsPath();
+    FILE* f = path.empty() ? nullptr : std::fopen(path.c_str(), "wb");
+    if (!f) { logMsg("cannot write %s", path.c_str()); return; }
+    const std::string text = xpt::settingsToText();
+    std::fwrite(text.data(), 1, text.size(), f);
+    std::fclose(f);
 }
 
 void loadAircraftConfig() {
@@ -591,7 +613,19 @@ void registerCommands(const std::string& p) {
 
 void menuHandler(void*, void*) { toggleWindow(); }
 
-float flightLoop(float, float, int, void*) {
+float flightLoop(float dt, float, int, void*) {
+    // The battery: fed while any of the aircraft's buses is live (full in about 1.5 h), otherwise it runs down (about 6 h).
+    bool fed = false;
+    if (g_drBus) {
+        float v[6] = {0, 0, 0, 0, 0, 0};
+        const int n = XPLMGetDatavf(g_drBus, v, 0, 6);
+        for (int i = 0; i < n; ++i) fed = fed || v[i] > 10.0f;
+    }
+    const float sec = std::max(0.0f, std::min(1.0f, dt));
+    g_battery = std::max(0.0f, std::min(100.0f, g_battery + sec * (fed ? 100.0f / 5400.0f : -100.0f / 21600.0f)));
+    g_sim.batteryPct = (int)std::lround(g_battery);
+    g_sim.charging = fed;
+    if (xpt::takeSettingsChanged()) saveSettings();
     if (g_drZulu) g_sim.zuluSec = (int)XPLMGetDataf(g_drZulu);
     if (g_drIcao) {
         char icao[41] = "";
@@ -618,6 +652,7 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
     g_drIcao = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
     g_drVr = XPLMFindDataRef("sim/graphics/VR/enabled");
     g_drUiScale = XPLMFindDataRef("sim/graphics/misc/user_interface_scale");
+    g_drBus = XPLMFindDataRef("sim/cockpit2/electrical/bus_volts");
 
     // AviTab's interface is taken over only when AviTab itself is not there (it loads before us: plugin folders load in name order)
     g_aviTabRunning = XPLMFindPluginBySignature(kAviTabSignature) != XPLM_NO_PLUGIN_ID || XPLMFindDataRef("avitab/panel_enabled") != nullptr;
@@ -637,6 +672,7 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
     ImGui::GetIO().IniFilename = nullptr;
     ImGui::GetIO().LogFilename = nullptr;
     xpt::applyStyle();
+    loadSettings();
 
     g_menuItem = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "XPTablet", nullptr, 0);
     g_menu = XPLMCreateMenu("XPTablet", XPLMFindPluginsMenu(), g_menuItem, menuHandler, nullptr);
