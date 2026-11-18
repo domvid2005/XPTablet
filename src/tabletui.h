@@ -26,6 +26,7 @@ struct Settings {
     float brightness = 1.0f;      // the screen's brightness set in Settings, 0.1 to 1 (on top of what the aircraft sets)
     int favoriteSlots = 4;        // how many icons the favorites bar holds, 0 (no bar) to kMaxFavorites
     std::vector<int> favorites = {APP_MAP, APP_CHARTS, APP_WEATHER, APP_SIMBRIEF};   // the icons in the bar along the bottom (they leave the grid)
+    std::vector<std::pair<std::string, std::string>> bookmarks;   // the browser's own bookmarks: title, address
 };
 Settings& settings();
 std::string settingsToText();
@@ -78,7 +79,21 @@ struct GroundState {
     int jwDoorPax[3] = {0, 2, 4};
     bool jwDocked[3] = {false, false, false};
     int slides = -1;              // ToLiss: the cabin doors' slides, 1 armed, 0 disarmed, -1 unknown
+    // what keeps a jetway from connecting (the Ground page's status)
+    bool beacon = false, enginesRunning = false, parkBrake = false;
+    float groundSpeedKt = 0;
     float cabinLight = -1;        // ToLiss: the cabin lights, 0..1, -1 unknown
+};
+
+// The web browser (a program of its own, run by the plugin): what it shows.
+struct BrowserState {
+    int status = -2;              // -3 not on this computer (message), -2 not started, 0 starting, 1 running, -1 stopped (message)
+    std::string message;
+    ImTextureID tex = 0;          // the page's picture, texW x texH screen pixels
+    int texW = 0, texH = 0;
+    std::string url, title;
+    bool loading = false, canBack = false, canForward = false;
+    bool wantsKeyboard = false;   // a text field on the page has the focus
 };
 
 struct SimState {
@@ -96,6 +111,7 @@ struct SimState {
     int batteryPct = 100;         // the tablet's own battery
     bool charging = false;        // the aircraft's electrical system is feeding it
     SimWeather wx;
+    BrowserState browser;
     MetarLookup metar;
     GroundState ground;
 };
@@ -107,8 +123,15 @@ enum GroundAction { GA_NONE, GA_JETWAY, GA_GPU, GA_CHOCKS, GA_HP_AIR, GA_LP_AIR,
 
 struct Actions {
     int ground = GA_NONE;
-    int groundIndex = 0;          // which door (GA_PAX_DOOR, GA_CARGO_DOOR, GA_JETWAY_DOOR); GA_CABIN_LIGHT: 0 off, 1 dim, 2 bright
+    int groundIndex = 0;          // which door (GA_PAX_DOOR, GA_CARGO_DOOR, GA_JETWAY_DOOR); GA_CABIN_LIGHT: the level, 0-100 %
     std::string metarSearch;      // look this airport's METAR up (the Weather page's search)
+    // the browser: shown this frame (start it if it is not running), where the page is (layout units) and what to send it
+    struct WebEvent { int type; float x, y; int code; };   // type: an xptb::CmdType (mouse, wheel, char, key)
+    bool webShown = false, webRetry = false;
+    float webX = 0, webY = 0, webW = 0, webH = 0;
+    std::vector<WebEvent> web;
+    std::string webNavigate;
+    int webNav = 0;               // 1 back, 2 forward, 3 reload, 4 stop
 };
 
 Fonts loadFonts(float pixelScale);   // (re)builds the font atlas for this many pixels per layout unit

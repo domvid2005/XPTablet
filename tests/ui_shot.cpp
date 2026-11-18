@@ -414,10 +414,26 @@ int main(int argc, char** argv) {
           for (float yy = 90; yy < 460 && !second; yy += 4) { const Actions q = press(g2, 78, yy); second = q.ground == GA_JETWAY_DOOR && q.groundIndex == 1; }
           if (!second) { std::printf("FAIL: no bubble at door 2L of an A321\n"); ++failures; }
           shot(g2, APP_GROUND, "ground_a321_jetways"); openApp(APP_GROUND); }
-        // not a ToLiss: the jetway is the first row of the services
-        { SimState t2 = t; t2.ground.openSam = true; t2.ground.jetway = 1;
-          const Actions q = press(t2, 722, 139);
-          if (q.ground != GA_JETWAY) { std::printf("FAIL: the jetway row (%d)\n", q.ground); ++failures; } }
+        // not a ToLiss: an airliner still gets the 1L bubble (X-Plane's own jetways, or openSAM's)
+        { SimState t2 = t; t2.acfIcao = "B738"; t2.toliss = false; t2.ground.toliss = false; t2.ground.openSam = false; t2.ground.jetway = 1; t2.ground.jwDoors = 1;
+          t2.ground.parkBrake = true;
+          bool hit = false;
+          for (float yy = 90; yy < 460 && !hit; yy += 4) { const Actions q = press(t2, 78, yy); hit = q.ground == GA_JETWAY_DOOR && q.groundIndex == 0; }
+          if (!hit) { std::printf("FAIL: no 1L bubble on a B738\n"); ++failures; }
+          t2.ground.beacon = true; t2.ground.enginesRunning = true; t2.ground.parkBrake = false;
+          shot(t2, APP_GROUND, "ground_b738_limits"); openApp(APP_GROUND); }
+        // the cabin lights: the slider sets the level in steps of 10 %, On sets it full
+        { bool slid = false, on = false, arm = false;
+          for (float yy = 90; yy < 330 && !(slid && on && arm); yy += 3) {
+              const Actions q = press(g, 660, yy);
+              if (q.ground == GA_CABIN_LIGHT && q.groundIndex % 10 == 0 && q.groundIndex > 0 && q.groundIndex < 100) slid = true;
+              const Actions o = press(g, 450, yy);
+              if (o.ground == GA_CABIN_LIGHT && o.groundIndex == 100) on = true;
+              if (o.ground == GA_SLIDES_ARM) arm = true;
+          }
+          if (!slid) { std::printf("FAIL: the cabin light slider\n"); ++failures; }
+          if (!on) { std::printf("FAIL: the cabin light On button\n"); ++failures; }
+          if (!arm) { std::printf("FAIL: the slides Arm button\n"); ++failures; } }
         g.ground.onGround = false;
         const Actions r = press(g, 78, jy);
         if (r.ground != GA_NONE) { std::printf("FAIL: no jetway in the air\n"); ++failures; }

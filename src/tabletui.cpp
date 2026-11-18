@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -394,68 +395,6 @@ void placeholderPage(ImDrawList* dl, const Fonts& f, int app, float w, float h) 
 }
 
 // The browser: a toolbar (back, forward, reload, the address, bookmark), the bookmarks, then the page itself.
-void webContent(ImDrawList* dl, const Fonts& f, float w, float h, float py) {
-    // the page: until the browser engine is in, a card saying what will load here
-    dl->AddRectFilled(ImVec2(0, py), ImVec2(w, h), IM_COL32(244, 246, 250, 255));
-    const ImVec2 c(w * 0.5f, py + (h - py) * 0.42f);
-    dl->AddCircleFilled(c, 30, kApps[APP_BROWSER].color, 40);
-    icon(dl, APP_BROWSER, c, 18, IM_COL32(255, 255, 255, 255));
-    textCentered(dl, f.bold, c.x, c.y + 42, IM_COL32(30, 40, 60, 255), g_url.c_str());
-    textCentered(dl, f.body, c.x, c.y + 64, IM_COL32(90, 100, 120, 255), "The page loads here once the browser engine is in (next build).");
-}
-
-void browserPage(ImDrawList* dl, const Fonts& f, float w, float h) {
-    if (!g_chrome) { webContent(dl, f, w, h, kStatusH + kHeaderH); return; }   // a web app: the site fills the page, like any other app
-    const float top = kStatusH + kHeaderH, barH = 40, bmH = 34;
-    dl->AddRectFilled(ImVec2(0, top), ImVec2(w, top + barH + bmH), IM_COL32(10, 24, 48, 235));
-    const ImU32 ink = IM_COL32(210, 222, 242, 255), dim = IM_COL32(120, 140, 172, 255);
-    const float my = top + barH * 0.5f;
-    // back, forward, reload
-    { const ImVec2 p[3] = {ImVec2(26, my - 7), ImVec2(19, my), ImVec2(26, my + 7)}; dl->AddPolyline(p, 3, dim, 0, 2.0f); }
-    { const ImVec2 p[3] = {ImVec2(50, my - 7), ImVec2(57, my), ImVec2(50, my + 7)}; dl->AddPolyline(p, 3, dim, 0, 2.0f); }
-    dl->PathArcTo(ImVec2(86, my), 7.5f, kPi * 0.25f, kPi * 1.85f, 20);
-    dl->PathStroke(ink, 0, 2.0f);
-    dl->AddTriangleFilled(ImVec2(95.5f, my - 7.5f), ImVec2(95.5f, my - 0.5f), ImVec2(88.5f, my - 4.0f), ink);
-    // the address
-    const ImVec2 a(112, top + 6), b(w - 52, top + barH - 6);
-    dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, 26), 14.0f);
-    dl->PushClipRect(a, b, true);
-    dl->AddText(f.body, fontPx(f.body), ImVec2(a.x + 14, std::floor(my - fontPx(f.body) * 0.5f)), ink, g_url.c_str());
-    dl->PopClipRect();
-    // bookmark star
-    {
-        ImVec2 pts[10];
-        for (int i = 0; i < 10; ++i) {
-            const float ang = -kPi * 0.5f + i * kPi / 5, rad = (i & 1) ? 4.2f : 9.5f;
-            pts[i] = ImVec2(w - 28 + std::cos(ang) * rad, my + std::sin(ang) * rad);
-        }
-        dl->AddPolyline(pts, 10, IM_COL32(255, 196, 80, 255), ImDrawFlags_Closed, 1.6f);
-    }
-    // bookmarks: the starter set; pressing one loads it
-    float x = 14;
-    const float by = top + barH + 3;
-    struct Bm { const char* name; const char* url; };
-    const Bm bms[] = {{"ChartFox", kChartUrls[0]}, {"Navigraph", kChartUrls[1]}, {"SimBrief", kApps[APP_SIMBRIEF].url}, {"Volanta", kLiveUrls[0]},
-                      {"VATSIM Map", kLiveUrls[1]}, {"ForeFlight", kApps[APP_FOREFLIGHT].url}};
-    for (const Bm& bm : bms) {
-        const ImVec2 sz = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, bm.name);
-        const float bw = sz.x + 22;
-        if (x + bw > w - 10) break;
-        ImGui::SetCursorScreenPos(ImVec2(x, by));
-        ImGui::PushID(bm.name);
-        const bool hit = ImGui::InvisibleButton("bm", ImVec2(bw, bmH - 8));
-        const bool hot = ImGui::IsItemHovered();
-        ImGui::PopID();
-        const bool cur = g_url == bm.url;
-        dl->AddRectFilled(ImVec2(x, by), ImVec2(x + bw, by + bmH - 8), cur ? IM_COL32(90, 150, 255, 90) : hot ? IM_COL32(255, 255, 255, 40) : IM_COL32(255, 255, 255, 20), 13.0f);
-        dl->AddText(f.small, fontPx(f.small), ImVec2(x + 11, std::floor(by + (bmH - 8 - fontPx(f.small)) * 0.5f)), ink, bm.name);
-        if (hit) openWeb("Browser", bm.url, true);
-        x += bw + 8;
-    }
-    dl->AddLine(ImVec2(0, top + barH + bmH), ImVec2(w, top + barH + bmH), IM_COL32(255, 255, 255, 28));
-    webContent(dl, f, w, h, top + barH + bmH);
-}
-
 // ---- small pieces the pages share ---------------------------------------------------------------------------------------------------
 const ImU32 kCard = IM_COL32(10, 22, 44, 210), kCardLine = IM_COL32(255, 255, 255, 30), kInk = IM_COL32(236, 241, 250, 255),
             kMuted = IM_COL32(150, 168, 198, 255), kGood = IM_COL32(80, 214, 124, 255), kWarn = IM_COL32(255, 190, 90, 255);
@@ -481,6 +420,270 @@ bool pill(ImDrawList* dl, const Fonts& f, const char* id, const char* label, ImV
     dl->AddRectFilled(a, b, bg, (b.y - a.y) * 0.5f);
     textCentered(dl, f.small, (a.x + b.x) * 0.5f, std::floor((a.y + b.y - fontPx(f.small)) * 0.5f), enabled ? kInk : IM_COL32(236, 241, 250, 90), label);
     return hit && enabled;
+}
+
+// ---- the web browser ---------------------------------------------------------------------------------------------------------------
+// The page itself is drawn by the browser program (the plugin passes its picture in s.browser); here are its controls, the
+// pointer and keys going to it, and an on-screen keyboard (the cockpit tablet has no keyboard).
+std::string g_navPending;            // an address to send to the browser
+bool g_navForce = false;             // send it even when the page is already on that site
+bool g_kbd = false;                  // the on-screen keyboard is up
+int g_kbdTarget = 0;                 // what it types into: 0 the page, 1 the address
+bool g_kbdShift = false, g_kbdSymbols = false;
+bool g_wantedKbd = false;            // the page's own wish for a keyboard, last frame
+std::string g_addrEdit;
+bool g_webHover = false;
+ImVec2 g_webLast(-1, -1);
+
+std::string hostOf(const std::string& url) {
+    size_t a = url.find("://");
+    a = a == std::string::npos ? 0 : a + 3;
+    size_t b = url.find_first_of("/?#", a);
+    std::string h = url.substr(a, b == std::string::npos ? std::string::npos : b - a);
+    if (h.compare(0, 4, "www.") == 0) h.erase(0, 4);
+    return h;
+}
+
+// What was typed in the address bar, as an address: as it is, with https:// added, or a web search.
+std::string addressFrom(std::string s) {
+    while (!s.empty() && s.back() == ' ') s.pop_back();
+    while (!s.empty() && s.front() == ' ') s.erase(0, 1);
+    if (s.empty()) return s;
+    if (s.find("://") != std::string::npos) return s;
+    if (s.find(' ') == std::string::npos && s.find('.') != std::string::npos) return "https://" + s;
+    std::string q;
+    for (unsigned char c : s) {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.') q += (char)c;
+        else if (c == ' ') q += '+';
+        else { char hx[4]; std::snprintf(hx, sizeof hx, "%%%02X", c); q += hx; }
+    }
+    return "https://duckduckgo.com/?q=" + q;
+}
+
+int bookmarkIndex(const std::string& url) {
+    for (size_t i = 0; i < g_settings.bookmarks.size(); ++i) if (g_settings.bookmarks[i].second == url) return (int)i;
+    return -1;
+}
+
+// A small icon button drawn by hand: returns true when pressed.
+bool iconButton(const char* id, ImVec2 a, ImVec2 b, bool enabled) {
+    ImGui::SetCursorScreenPos(a);
+    ImGui::BeginDisabled(!enabled);
+    const bool hit = ImGui::InvisibleButton(id, ImVec2(b.x - a.x, b.y - a.y));
+    ImGui::EndDisabled();
+    return hit && enabled;
+}
+void arrow(ImDrawList* dl, ImVec2 c, bool left, ImU32 col) {
+    const float d = left ? 1.0f : -1.0f;
+    const ImVec2 p[3] = {ImVec2(c.x + 4 * d, c.y - 7), ImVec2(c.x - 3 * d, c.y), ImVec2(c.x + 4 * d, c.y + 7)};
+    dl->AddPolyline(p, 3, col, 0, 2.0f);
+}
+void reloadIcon(ImDrawList* dl, ImVec2 c, ImU32 col) {
+    dl->PathArcTo(c, 7.5f, kPi * 0.25f, kPi * 1.85f, 20);
+    dl->PathStroke(col, 0, 2.0f);
+    dl->AddTriangleFilled(ImVec2(c.x + 9.5f, c.y - 7.5f), ImVec2(c.x + 9.5f, c.y - 0.5f), ImVec2(c.x + 2.5f, c.y - 4.0f), col);
+}
+void keyboardIcon(ImDrawList* dl, ImVec2 c, ImU32 col) {
+    dl->AddRect(ImVec2(c.x - 11, c.y - 7), ImVec2(c.x + 11, c.y + 7), col, 2.5f, 0, 1.6f);
+    for (int r = 0; r < 2; ++r) for (int k = 0; k < 4; ++k) dl->AddRectFilled(ImVec2(c.x - 8 + k * 4.5f, c.y - 4 + r * 4), ImVec2(c.x - 6 + k * 4.5f, c.y - 2 + r * 4), col);
+    dl->AddRectFilled(ImVec2(c.x - 5, c.y + 3.5f), ImVec2(c.x + 5, c.y + 5), col);
+}
+void star(ImDrawList* dl, ImVec2 c, bool filled, ImU32 col) {
+    ImVec2 pts[10];
+    for (int i = 0; i < 10; ++i) {
+        const float ang = -kPi * 0.5f + i * kPi / 5, rad = (i & 1) ? 4.2f : 9.5f;
+        pts[i] = ImVec2(c.x + std::cos(ang) * rad, c.y + std::sin(ang) * rad);
+    }
+    if (filled) dl->AddConcavePolyFilled(pts, 10, col); else dl->AddPolyline(pts, 10, col, ImDrawFlags_Closed, 1.6f);
+}
+
+void typeKey(Actions& act, int code, bool isChar) {
+    if (g_kbdTarget == 1) {   // the address bar
+        if (!isChar && code == 8) { if (!g_addrEdit.empty()) g_addrEdit.pop_back(); }
+        else if (!isChar && code == 13) { const std::string u = addressFrom(g_addrEdit); if (!u.empty()) { g_navPending = u; g_navForce = true; } g_kbd = false; g_kbdTarget = 0; }
+        else if (isChar && code >= 32 && code < 127) g_addrEdit += (char)code;
+        return;
+    }
+    if (isChar) act.web.push_back({12 /*CMD_CHAR*/, 0, 0, code});
+    else { act.web.push_back({13 /*CMD_KEY*/, 0, 0, code}); act.web.back().x = 1; act.web.push_back({13, 0, 0, code}); act.web.back().x = 0; }
+}
+
+// The on-screen keyboard across the bottom of the page, top at y. Returns its height.
+float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
+    const float pad = 8, gap = 5, kh = 34, H = 5 * kh + 4 * gap + 2 * pad;
+    dl->AddRectFilled(ImVec2(0, y), ImVec2(w, y + H), IM_COL32(20, 26, 38, 250));
+    dl->AddLine(ImVec2(0, y), ImVec2(w, y), IM_COL32(255, 255, 255, 40));
+    const char* letters[4] = {"1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"};
+    const char* symbols[4] = {"1234567890", "!@#$%^&*()", "-_=+:;'\"?", "~`|\\<>,"};
+    const char* const* rows = g_kbdSymbols ? symbols : letters;
+    const float kw = std::floor((w - 2 * pad - 9 * gap) / 10);
+    const float x00 = std::floor((w - (10 * kw + 9 * gap)) * 0.5f);
+    auto key = [&](const char* id, const char* label, float x, float yy, float ww, bool lit) {
+        ImGui::SetCursorScreenPos(ImVec2(x, yy));
+        const bool hit = ImGui::InvisibleButton(id, ImVec2(ww, kh));
+        const bool down = ImGui::IsItemActive();
+        dl->AddRectFilled(ImVec2(x, yy), ImVec2(x + ww, yy + kh), lit ? IM_COL32(70, 140, 255, 230) : IM_COL32(255, 255, 255, down ? 80 : 30), 7.0f);
+        ImFont* fn = std::strlen(label) > 2 ? f.small : f.bold;
+        textCentered(dl, fn, x + ww * 0.5f, std::floor(yy + (kh - fontPx(fn)) * 0.5f), kInk, label);
+        return hit;
+    };
+    for (int r = 0; r < 4; ++r) {
+        const int n = (int)std::strlen(rows[r]);
+        const float yy = y + pad + r * (kh + gap);
+        float x = x00 + (r == 2 ? (kw + gap) * 0.5f : r == 3 ? (kw + gap) * 1.5f : 0.0f);
+        if (r == 3) {   // shift, at the left of the last letter row
+            if (key("##kshift", g_kbdSymbols ? "" : "Shift", x00, yy, kw * 1.5f + gap * 0.5f, g_kbdShift) && !g_kbdSymbols) g_kbdShift = !g_kbdShift;
+        }
+        for (int k = 0; k < n; ++k, x += kw + gap) {
+            char c = rows[r][k];
+            if (g_kbdShift && c >= 'a' && c <= 'z') c = (char)(c - 32);
+            char id[16], lbl[2] = {c, 0};
+            std::snprintf(id, sizeof id, "##k%d_%d", r, k);
+            if (key(id, lbl, x, yy, kw, false)) { typeKey(act, (unsigned char)c, true); g_kbdShift = false; }
+        }
+        if (r == 3 && key("##kback", "Delete", x, yy, x00 + 10 * kw + 9 * gap - x, false)) typeKey(act, 8, false);
+    }
+    // the last row: switch layers, @, space, full stop, slash, and Enter / Go
+    const float yy = y + pad + 4 * (kh + gap);
+    float x = x00;
+    const float w15 = kw * 1.5f + gap * 0.5f;
+    if (key("##klayer", g_kbdSymbols ? "ABC" : "?123", x, yy, w15, false)) { g_kbdSymbols = !g_kbdSymbols; g_kbdShift = false; }
+    x += w15 + gap;
+    if (key("##kat", "@", x, yy, kw, false)) typeKey(act, '@', true);
+    x += kw + gap;
+    const float spaceW = 10 * kw + 9 * gap - (w15 + gap) * 2 - (kw + gap) * 3;
+    if (key("##kspace", "space", x, yy, spaceW, false)) typeKey(act, ' ', true);
+    x += spaceW + gap;
+    if (key("##kdot", ".", x, yy, kw, false)) typeKey(act, '.', true);
+    x += kw + gap;
+    if (key("##kslash", "/", x, yy, kw, false)) typeKey(act, '/', true);
+    x += kw + gap;
+    if (key("##kenter", g_kbdTarget == 1 ? "Go" : "Enter", x, yy, w15, true)) typeKey(act, 13, false);
+    return H;
+}
+
+// The page: the browser's picture in the rectangle, with the pointer and the wheel going to it.
+void webView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float y0, float w, float h, Actions& act) {
+    act.webShown = true;
+    act.webX = x0; act.webY = y0; act.webW = w; act.webH = h;
+    const BrowserState& b = s.browser;
+    dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + w, y0 + h), IM_COL32(244, 246, 250, 255));
+    const ImVec2 c(x0 + w * 0.5f, y0 + h * 0.42f);
+    if (b.status != 1 || !b.tex) {
+        const bool bad = b.status == -1 || b.status == -3;
+        textCentered(dl, f.bold, c.x, c.y - 10, IM_COL32(30, 40, 60, 255), b.status == -3 ? "The browser is not available here" : b.status == -1 ? "The browser stopped" : b.status == 1 ? "Loading..." : "Starting the browser...");
+        if (!b.message.empty()) dl->AddText(f.small, fontPx(f.small), ImVec2(x0 + 30, c.y + 16), IM_COL32(90, 100, 120, 255), b.message.c_str(), nullptr, w - 60);
+        if (b.status == -1 && pill(dl, f, "##webretry", "Try again", ImVec2(c.x - 60, c.y + 64), ImVec2(c.x + 60, c.y + 92), true, true)) act.webRetry = true;
+        (void)bad;
+        return;
+    }
+    dl->AddImage(b.tex, ImVec2(x0, y0), ImVec2(x0 + w, y0 + h));
+    // the pointer: moves, presses and the wheel, in the page's own units (one per layout unit)
+    ImGui::SetCursorScreenPos(ImVec2(x0, y0));
+    ImGui::InvisibleButton("##web", ImVec2(w, h));
+    const ImGuiIO& io = ImGui::GetIO();
+    const bool hovered = ImGui::IsItemHovered(), active = ImGui::IsItemActive();
+    const ImVec2 p(std::floor(io.MousePos.x - x0), std::floor(io.MousePos.y - y0));
+    if ((hovered || active) && (p.x != g_webLast.x || p.y != g_webLast.y)) { act.web.push_back({7 /*MOUSE_MOVE*/, p.x, p.y, 0}); g_webLast = p; }
+    if (ImGui::IsItemActivated()) act.web.push_back({8 /*MOUSE_DOWN*/, p.x, p.y, 0});
+    if (ImGui::IsItemDeactivated()) act.web.push_back({9 /*MOUSE_UP*/, p.x, p.y, 0});
+    if (hovered && io.MouseWheel != 0) act.web.push_back({11 /*WHEEL*/, p.x, p.y, (int)std::lround(io.MouseWheel * 100)});
+    if (g_webHover && !hovered && !active) { act.web.push_back({10 /*MOUSE_LEAVE*/, g_webLast.x, g_webLast.y, 0}); g_webLast = ImVec2(-1, -1); }
+    g_webHover = hovered || active;
+}
+
+void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const BrowserState& b = s.browser;
+    // the page's own wish for a keyboard: up when a text field takes the focus, down when it lets go
+    if (b.wantsKeyboard != g_wantedKbd) { g_wantedKbd = b.wantsKeyboard; if (b.wantsKeyboard) { g_kbd = true; g_kbdTarget = 0; } else if (g_kbdTarget == 0) g_kbd = false; }
+    // an address waiting: sent unless the page is already on that site (a web app opened again stays where it was)
+    if (!g_navPending.empty() && b.status == 1) {
+        if (g_navForce || b.url.empty() || hostOf(b.url) != hostOf(g_navPending)) act.webNavigate = g_navPending;
+        g_navPending.clear(); g_navForce = false;
+    }
+    const float top = kStatusH + kHeaderH;
+    const ImU32 ink = IM_COL32(210, 222, 242, 255), dim = IM_COL32(100, 118, 148, 255);
+    float pageTop = top;
+    if (!g_chrome) {
+        // a web app: its site fills the page; back, reload and the keyboard sit at the right of the title bar
+        const float my = kStatusH + kHeaderH * 0.5f;
+        if (iconButton("##wback", ImVec2(w - 132, kStatusH + 6), ImVec2(w - 96, kStatusH + kHeaderH - 6), b.canBack)) act.webNav = 1;
+        arrow(dl, ImVec2(w - 114, my), true, b.canBack ? ink : dim);
+        if (iconButton("##wreload", ImVec2(w - 92, kStatusH + 6), ImVec2(w - 56, kStatusH + kHeaderH - 6), true)) act.webNav = b.loading ? 4 : 3;
+        reloadIcon(dl, ImVec2(w - 74, my), ink);
+        if (iconButton("##wkbd", ImVec2(w - 52, kStatusH + 6), ImVec2(w - 12, kStatusH + kHeaderH - 6), true)) { g_kbd = !g_kbd; g_kbdTarget = 0; }
+        keyboardIcon(dl, ImVec2(w - 32, my), g_kbd ? IM_COL32(110, 170, 255, 255) : ink);
+    } else {
+        const float barH = 40, bmH = 34;
+        dl->AddRectFilled(ImVec2(0, top), ImVec2(w, top + barH + bmH), IM_COL32(10, 24, 48, 235));
+        const float my = top + barH * 0.5f;
+        if (iconButton("##bback", ImVec2(8, top + 4), ImVec2(36, top + barH - 4), b.canBack)) act.webNav = 1;
+        arrow(dl, ImVec2(22, my), true, b.canBack ? ink : dim);
+        if (iconButton("##bfwd", ImVec2(38, top + 4), ImVec2(66, top + barH - 4), b.canForward)) act.webNav = 2;
+        arrow(dl, ImVec2(52, my), false, b.canForward ? ink : dim);
+        if (iconButton("##breload", ImVec2(70, top + 4), ImVec2(102, top + barH - 4), true)) act.webNav = b.loading ? 4 : 3;
+        reloadIcon(dl, ImVec2(84, my), ink);
+        // the address: tapped, it takes what is typed on the keyboard
+        const ImVec2 a(110, top + 6), e(w - 92, top + barH - 6);
+        const bool editing = g_kbd && g_kbdTarget == 1;
+        if (iconButton("##baddr", a, e, true)) { g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear(); }
+        dl->AddRectFilled(a, e, IM_COL32(255, 255, 255, editing ? 44 : 26), 14.0f);
+        if (editing) dl->AddRect(a, e, IM_COL32(110, 170, 255, 200), 14.0f, 0, 1.5f);
+        dl->PushClipRect(a, e, true);
+        const std::string shown = editing ? g_addrEdit : (b.url.empty() ? g_url : b.url);
+        const float ty = std::floor(my - fontPx(f.body) * 0.5f);
+        if (editing && g_addrEdit.empty()) dl->AddText(f.body, fontPx(f.body), ImVec2(a.x + 14, ty), dim, "Type an address or a search");
+        else dl->AddText(f.body, fontPx(f.body), ImVec2(a.x + 14, ty), ink, shown.c_str());
+        if (editing) {   // the caret
+            const float cx = a.x + 14 + f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, g_addrEdit.c_str()).x + 1;
+            if (std::fmod(ImGui::GetTime(), 1.0) < 0.6) dl->AddLine(ImVec2(cx, ty), ImVec2(cx, ty + fontPx(f.body)), ink, 1.5f);
+        }
+        dl->PopClipRect();
+        // bookmark this page, and the keyboard
+        const std::string cur = b.url;
+        const int bmi = cur.empty() ? -1 : bookmarkIndex(cur);
+        if (iconButton("##bstar", ImVec2(w - 86, top + 4), ImVec2(w - 52, top + barH - 4), !cur.empty() && b.status == 1)) {
+            if (bmi >= 0) g_settings.bookmarks.erase(g_settings.bookmarks.begin() + bmi);
+            else g_settings.bookmarks.push_back({b.title.empty() ? hostOf(cur) : b.title, cur});
+            g_settingsChanged = true;
+        }
+        star(dl, ImVec2(w - 69, my), bmi >= 0, IM_COL32(255, 196, 80, 255));
+        if (iconButton("##bkbd", ImVec2(w - 48, top + 4), ImVec2(w - 8, top + barH - 4), true)) { g_kbd = !(g_kbd && g_kbdTarget == 0); g_kbdTarget = 0; }
+        keyboardIcon(dl, ImVec2(w - 28, my), g_kbd && g_kbdTarget == 0 ? IM_COL32(110, 170, 255, 255) : ink);
+        // bookmarks: the starter set, then the user's own; pressing one loads it
+        float x = 14;
+        const float by = top + barH + 3;
+        struct Bm { std::string name, url; };
+        std::vector<Bm> bms = {{"ChartFox", kChartUrls[0]}, {"Navigraph", kChartUrls[1]}, {"SimBrief", kApps[APP_SIMBRIEF].url}, {"Volanta", kLiveUrls[0]},
+                               {"VATSIM Map", kLiveUrls[1]}, {"ForeFlight", kApps[APP_FOREFLIGHT].url}};
+        for (const auto& u : g_settings.bookmarks) bms.push_back({u.first.size() > 24 ? u.first.substr(0, 22) + ".." : u.first, u.second});
+        int idx = 0;
+        for (const Bm& bm : bms) {
+            const ImVec2 sz = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, bm.name.c_str());
+            const float bw = sz.x + 22;
+            if (x + bw > w - 10) break;
+            char id[16];
+            std::snprintf(id, sizeof id, "##bm%d", idx++);
+            ImGui::SetCursorScreenPos(ImVec2(x, by));
+            const bool hit = ImGui::InvisibleButton(id, ImVec2(bw, bmH - 8));
+            const bool hot = ImGui::IsItemHovered();
+            const bool on = !cur.empty() && hostOf(cur) == hostOf(bm.url);
+            dl->AddRectFilled(ImVec2(x, by), ImVec2(x + bw, by + bmH - 8), on ? IM_COL32(90, 150, 255, 90) : hot ? IM_COL32(255, 255, 255, 40) : IM_COL32(255, 255, 255, 20), 13.0f);
+            dl->AddText(f.small, fontPx(f.small), ImVec2(x + 11, std::floor(by + (bmH - 8 - fontPx(f.small)) * 0.5f)), ink, bm.name.c_str());
+            if (hit) { g_navPending = bm.url; g_navForce = true; g_url = bm.url; }
+            x += bw + 8;
+        }
+        pageTop = top + barH + bmH;
+        dl->AddLine(ImVec2(0, pageTop), ImVec2(w, pageTop), IM_COL32(255, 255, 255, 28));
+    }
+    if (b.loading && b.status == 1) {   // a thin moving bar while the page loads
+        const float t = (float)std::fmod(ImGui::GetTime() * 0.8, 1.0);
+        dl->AddRectFilled(ImVec2(w * t - w * 0.25f, pageTop - 2), ImVec2(w * t, pageTop + 1), IM_COL32(90, 160, 255, 255));
+    }
+    float kbH = 0;
+    if (g_kbd) kbH = 5 * 34 + 4 * 5 + 16;
+    webView(dl, f, s, 0, pageTop + 1, w, h - pageTop - 1 - kbH, act);
+    if (g_kbd) keyboard(dl, f, w, h - kbH, act);
 }
 
 // ---- Weather without WXPlane: X-Plane's own weather where the aircraft is ---------------------------------------------------------------
@@ -850,8 +1053,12 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     textRight(dl, f.small, e.x - 14, a.y + 10, kMuted, b);
     // ToLiss: the doors a jetway can reach, each with its block on the fuselage and a Connect / Disconnect bubble beside it.
     // When the jetway is docked, the door opens; when it leaves, the door closes (the plugin does that, see doGround).
-    const bool doors = g.toliss && g.jwDoors > 0;
-    const float boxTop = a.y + 34, boxBot = e.y - (doors && g.jwDoors > 1 && g.openSam ? 30 : 14);
+    // the doors with a jetway bubble, as the plugin found them (a ToLiss's; openSAM's count otherwise); only airliners, 24 m or longer
+    const int jwDoors = g.toliss ? g.jwDoors : (acLen >= 24.0f ? std::max(1, g.jwDoors) : 0);
+    const bool doors = jwDoors > 0;
+    bool anyDocked = false;
+    for (int k = 0; k < jwDoors && k < 3; ++k) anyDocked = anyDocked || (g.openSam ? g.jwDocked[k] : g.jetway == 2);
+    const float boxTop = a.y + 34, boxBot = e.y - (doors && jwDoors > 1 ? 30 : 14);
     const float px = std::min((boxBot - boxTop) / acLen, (leftW - (doors ? 150 : 40)) / acSpan);   // room at the left for the bubbles
     const ImVec2 nose((a.x + e.x) * 0.5f + (doors ? 30.0f : 0.0f), std::floor((boxTop + boxBot - acLen * px) * 0.5f));
     // the drawing, resized to the type's length and span (kx, ky: from the drawing's metres to the type's)
@@ -862,7 +1069,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     const float hwPx = (shape && hw0 > 0 ? hw0 * kx : spec.fus * 0.5f) * px;
     if (doors) {
         const int pairs = (g.paxDoors + 1) / 2;
-        for (int k = 0; k < g.jwDoors && k < 3; ++k) {
+        for (int k = 0; k < jwDoors && k < 3; ++k) {
             const int pax = g.jwDoorPax[k];
             const float frac = paxDoorAt(pax / 2, std::max(1, pairs));
             const float y = nose.y + frac * acLen * px;
@@ -870,7 +1077,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             if (shape && hw0 > 0) { const float hh = fuselageHalf(*shape, frac, hw0); if (hh > 0) hw = hh * kx * px; }
             const float side = nose.x - hw;
             const bool docked = g.openSam ? g.jwDocked[k] : g.jetway == 2;
-            const bool open = pax >= 0 && pax < 8 && g.paxDoor[pax] == 2;
+            const bool open = g.toliss && pax >= 0 && pax < 8 && g.paxDoor[pax] == 2;
             // the block: the door, green while a jetway is on it, blue while the door is open without one
             const ImU32 blockCol = docked ? kGood : open ? IM_COL32(110, 170, 255, 255) : IM_COL32(140, 156, 184, 255);
             dl->AddRectFilled(ImVec2(side - 9, y - 7), ImVec2(side + 1, y + 7), blockCol, 2.0f);
@@ -884,95 +1091,96 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             dl->AddRectFilled(ImVec2(bx, y - 14), ImVec2(bx + bw, y + 14), IM_COL32(16, 30, 56, 255), 14.0f);
             if (pill(dl, f, id, lbl, ImVec2(bx, y - 14), ImVec2(bx + bw, y + 14), docked, canPress)) { act.ground = GA_JETWAY_DOOR; act.groundIndex = k; }
             // under the bubble: the door's name and what the jetway is doing
-            const char* st = !g.openSam ? (docked ? "jetway on" : "X-Plane jetway")
-                           : docked ? "docked, door open" : g.jetway == 1 ? "jetway ready" : g.jetway == 0 ? "no jetway here" : g.jetway == 2 ? "jetway at the other door" : "jetway moving";
+            const char* st = !g.openSam ? (docked ? (g.toliss ? "connected, door open" : "connected") : "X-Plane jetway")
+                           : docked ? (g.toliss ? "docked, door open" : "docked") : g.jetway == 1 ? "jetway ready" : g.jetway == 0 ? "no jetway here" : g.jetway == 2 ? "jetway at the other door" : "jetway moving";
             std::snprintf(b, sizeof b, "%d%c  \xC2\xB7  %s", pax / 2 + 1, 'L', st);
             textAt(dl, f.small, bx + 4, y + 17, docked ? kGood : kMuted, b);
         }
-        if (g.jwDoors > 1 && g.openSam) textCentered(dl, f.small, (a.x + e.x) * 0.5f, e.y - 24, kMuted, "openSAM moves every jetway at the stand together.");
+        if (jwDoors > 1) textCentered(dl, f.small, (a.x + e.x) * 0.5f, e.y - 24, kMuted, g.openSam ? "openSAM moves every jetway at the stand together." : "X-Plane connects every door's jetway together.");
     }
 
-    // ---- the services
+    // ---- the right side: the cabin (top two thirds) and whether a jetway can connect (bottom third)
     const float rx = e.x + 10, rw = w - 12 - rx;
-    card(dl, ImVec2(rx, top), ImVec2(rx + rw, bot), f, "SERVICES");
-    float y = top + 32;
-    const int rows = (doors ? 0 : 1) + 1 + (g.toliss ? 2 + (g.deice ? 1 : 0) + (g.slides >= 0 ? 1 : 0) + (g.cabinLight >= 0 ? 1 : 0) : 0) + 2;
-    const float rowH = std::min(50.0f, std::floor((bot - 12 - y) / rows)), bx1 = rx + rw - 14, bh = std::min(28.0f, rowH - 14);
-    auto rowLabel = [&](const char* name, const char* state, ImU32 stateCol, bool lit) {
-        dl->AddCircleFilled(ImVec2(rx + 20, y + rowH * 0.5f - 2), 4.0f, lit ? kGood : IM_COL32(255, 255, 255, 40), 12);   // a lamp: lit when connected
-        textAt(dl, f.bold, rx + 34, y + rowH * 0.5f - 19, kInk, name);
-        if (state && *state) textAt(dl, f.small, rx + 34, y + rowH * 0.5f, stateCol, state);
-    };
-    auto btn = [&](const char* id, const char* label, float right, float width, bool on, bool enabled) {
-        const float by = y + (rowH - 4 - bh) * 0.5f;
-        return pill(dl, f, id, label, ImVec2(right - width, by), ImVec2(right, by + bh), on, enabled);
-    };
-    auto rowEnd = [&]() { y += rowH; dl->AddLine(ImVec2(rx + 14, y - 3), ImVec2(rx + rw - 14, y - 3), IM_COL32(255, 255, 255, 18)); };
-    if (!doors) {   // jetway (on a ToLiss it is at the doors, on the left)
-        const bool docked = g.openSam && g.jetway == 2;
-        const char* st = !g.openSam ? "X-Plane's own jetways" : docked ? "Connected" : g.jetway == 1 ? "Ready to connect" : g.jetway == 0 ? "No jetway at this stand" : "Moving";
-        rowLabel("Jetway", st, docked ? kGood : kMuted, docked);
-        if (btn("##jw", docked ? "Disconnect" : "Connect", bx1, 104, docked, gnd && (!g.openSam || g.jetway == 1 || g.jetway == 2))) act.ground = GA_JETWAY;
-        rowEnd();
+    const float split = top + std::floor((bot - top) * 2.0f / 3.0f);
+    card(dl, ImVec2(rx, top), ImVec2(rx + rw, split - 5), f, "CABIN");
+    card(dl, ImVec2(rx, split + 5), ImVec2(rx + rw, bot), f, "JETWAY STATUS");
+    const float cx0 = rx + 16, cx1 = rx + rw - 16;
+    if (!g.toliss) {
+        dl->AddText(f.body, fontPx(f.body), ImVec2(cx0, top + 40), kMuted, "Cabin lights and slide arming are for ToLiss aircraft.", nullptr, cx1 - cx0);
+    } else {
+        float y = top + 38;
+        // the lights: a slider in steps of 10 %, with On (full) and Off under it
+        textAt(dl, f.bold, cx0, y, kInk, "Cabin lights");
+        char lv[16];
+        const int pct = g.cabinLight < 0 ? -1 : (int)std::lround(g.cabinLight * 100);
+        if (pct < 0) std::snprintf(lv, sizeof lv, "-");
+        else if (pct == 0) std::snprintf(lv, sizeof lv, "Off");
+        else std::snprintf(lv, sizeof lv, "%d %%", pct);
+        textRight(dl, f.bold, cx1, y, pct > 0 ? kInk : kMuted, lv);
+        y += 30;
+        if (g.cabinLight >= 0) {
+            // the track, its fill, ticks at every 10 % and the handle; pressing or dragging on it sets the level, in 10 % clicks
+            const float tx0 = cx0 + 10, tx1 = cx1 - 10, ty = y + 14;
+            ImGui::SetCursorScreenPos(ImVec2(cx0, y));
+            ImGui::InvisibleButton("##cablight", ImVec2(cx1 - cx0, 28));
+            int shown = pct;
+            if (ImGui::IsItemActive()) {
+                const float t = std::max(0.0f, std::min(1.0f, (ImGui::GetIO().MousePos.x - tx0) / (tx1 - tx0)));
+                const int want = (int)std::lround(t * 10) * 10;
+                shown = want;
+                if (want != pct) { act.ground = GA_CABIN_LIGHT; act.groundIndex = want; }
+            }
+            const float hx = tx0 + (tx1 - tx0) * std::max(0, shown) / 100.0f;
+            dl->AddRectFilled(ImVec2(tx0, ty - 3), ImVec2(tx1, ty + 3), IM_COL32(255, 255, 255, 40), 3.0f);
+            dl->AddRectFilled(ImVec2(tx0, ty - 3), ImVec2(hx, ty + 3), IM_COL32(255, 214, 120, 255), 3.0f);
+            for (int i = 0; i <= 10; ++i) {
+                const float x = tx0 + (tx1 - tx0) * i / 10.0f;
+                dl->AddLine(ImVec2(x, ty + 7), ImVec2(x, ty + (i % 5 == 0 ? 13 : 10)), IM_COL32(255, 255, 255, 90), 1.0f);
+            }
+            dl->AddCircleFilled(ImVec2(hx, ty), 10.0f, IM_COL32(245, 248, 255, 255), 24);
+            dl->AddCircle(ImVec2(hx, ty), 10.0f, IM_COL32(255, 214, 120, 255), 24, 2.0f);
+            y += 40;
+            const float bw = (cx1 - cx0 - 10) * 0.5f;
+            if (pill(dl, f, "##clon", "On", ImVec2(cx0, y), ImVec2(cx0 + bw, y + 30), pct >= 100, true)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = 100; }
+            if (pill(dl, f, "##cloff", "Off", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), pct == 0, true)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = 0; }
+            y += 46;
+        } else {
+            textAt(dl, f.small, cx0, y, kMuted, "This aircraft does not offer its cabin lights.");
+            y += 34;
+        }
+        dl->AddLine(ImVec2(cx0, y - 6), ImVec2(cx1, y - 6), IM_COL32(255, 255, 255, 18));
+        // the slides
+        textAt(dl, f.bold, cx0, y + 4, kInk, "Slides");
+        if (g.slides >= 0) textRight(dl, f.bold, cx1, y + 4, g.slides == 1 ? kWarn : kMuted, g.slides == 1 ? "Armed" : "Disarmed");
+        y += 32;
+        const float bw = (cx1 - cx0 - 10) * 0.5f;
+        if (pill(dl, f, "##arm", "Arm", ImVec2(cx0, y), ImVec2(cx0 + bw, y + 30), g.slides == 1, true)) act.ground = GA_SLIDES_ARM;
+        if (pill(dl, f, "##disarm", "Disarm", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), g.slides == 0, true)) act.ground = GA_SLIDES_DISARM;
     }
-    {   // ground power
-        rowLabel("Ground power", g.toliss ? (g.extPower ? "Connected" : "Not connected") : "Ask the ground crew", g.toliss && g.extPower ? kGood : kMuted, g.toliss && g.extPower);
-        if (btn("##gpu", g.toliss ? (g.extPower ? "Remove" : "Connect") : "Request", bx1, 104, g.toliss && g.extPower, gnd)) act.ground = GA_GPU;
-        rowEnd();
-    }
-    if (g.toliss) {   // chocks, ground air and de-icing: where the aircraft lets them be set
-        rowLabel("Chocks", g.chocks ? "In place" : "Removed", g.chocks ? kGood : kMuted, g.chocks);
-        if (btn("##chk", g.chocks ? "Remove" : "Set", bx1, 104, g.chocks, gnd)) act.ground = GA_CHOCKS;
-        rowEnd();
-        rowLabel("Ground air", g.hpAir || g.lpAir ? "Connected" : "Not connected", g.hpAir || g.lpAir ? kGood : kMuted, g.hpAir || g.lpAir);
-        if (btn("##hp", "HP start", bx1 - 84, 78, g.hpAir, gnd)) act.ground = GA_HP_AIR;
-        if (btn("##lp", "LP cond", bx1, 78, g.lpAir, gnd)) act.ground = GA_LP_AIR;
-        rowEnd();
-        if (g.deice) {
-            rowLabel("De-icing", "The trucks spray, or done at once", kMuted, false);
-            if (btn("##di", "Trucks", bx1 - 84, 78, false, gnd)) act.ground = GA_DEICE;
-            if (btn("##diq", "Instant", bx1, 78, false, gnd)) act.ground = GA_DEICE_QUICK;
-            rowEnd();
+    {   // the jetway status: Good, or what keeps a jetway from connecting
+        std::vector<std::string> why;
+        if (!g.onGround) why.push_back("Not on the ground");
+        else if (g.groundSpeedKt > 1.0f) why.push_back("Aircraft moving");
+        if (g.beacon) why.push_back("Beacon light on");
+        if (g.enginesRunning) why.push_back("Engines running");
+        if (!g.parkBrake && !g.chocks) why.push_back("Chocks or parking brake not set");
+        if (g.openSam && why.empty()) {
+            if (g.jetway == 0) why.push_back("No jetway at this stand");
+            else if (g.jetway == -1 && !anyDocked) why.push_back("Jetway moving, or none within reach");
+        }
+        float y = split + 5 + 32;
+        if (why.empty()) {
+            textAt(dl, f.title, cx0, y, kGood, anyDocked ? "Good  \xC2\xB7  connected" : "Good");
+            textAt(dl, f.small, cx0, y + 30, kMuted, g.openSam ? "openSAM jetways" : "X-Plane's own jetways");
+        } else {
+            for (const std::string& t : why) {
+                if (y > bot - 22) break;
+                dl->AddCircleFilled(ImVec2(cx0 + 4, y + fontPx(f.body) * 0.5f + 1), 3.5f, kWarn, 10);
+                textAt(dl, f.body, cx0 + 16, y, kInk, t.c_str());
+                y += 22;
+            }
         }
     }
-    if (g.toliss && g.slides >= 0) {   // the cabin doors' slides
-        rowLabel("Cabin doors", g.slides == 1 ? "Slides armed" : "Slides disarmed", g.slides == 1 ? kWarn : kMuted, g.slides == 1);
-        if (btn("##arm", "Arm", bx1 - 84, 78, g.slides == 1, true)) act.ground = GA_SLIDES_ARM;
-        if (btn("##disarm", "Disarm", bx1, 78, g.slides == 0, true)) act.ground = GA_SLIDES_DISARM;
-        rowEnd();
-    }
-    if (g.toliss && g.cabinLight >= 0) {   // the cabin lights
-        char lv[32];
-        std::snprintf(lv, sizeof lv, g.cabinLight < 0.02f ? "Off" : "%d %%", (int)std::lround(g.cabinLight * 100));
-        rowLabel("Cabin lights", lv, kMuted, g.cabinLight >= 0.02f);
-        const float bw = 64;
-        const char* names[3] = {"Off", "Dim", "Bright"};
-        const int lvl = g.cabinLight < 0.02f ? 0 : g.cabinLight < 0.75f ? 1 : 2;
-        for (int i = 0; i < 3; ++i) {
-            char id[8];
-            std::snprintf(id, sizeof id, "##cl%d", i);
-            if (btn(id, names[i], bx1 - (2 - i) * (bw + 5), bw, lvl == i, true)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = i; }
-        }
-        rowEnd();
-    }
-    {   // service vehicles
-        rowLabel("Service vehicles", g.toliss ? "Stairs, catering and loaders come with the doors" : "Fuel, catering, baggage (X-Plane's trucks)", kMuted, false);
-        if (btn("##trk", g.toliss ? "X-Plane's" : "Call", bx1, 104, false, gnd)) act.ground = GA_TRUCKS;
-        rowEnd();
-    }
-    {   // pushback
-        rowLabel("Pushback", "X-Plane's tug", kMuted, false);
-        const float bw = 54;
-        const char* names[4] = {"Left", "Back", "Right", "Stop"};
-        const int acts[4] = {GA_PUSH_LEFT, GA_PUSH_STRAIGHT, GA_PUSH_RIGHT, GA_PUSH_STOP};
-        for (int i = 0; i < 4; ++i) {
-            char id[8];
-            std::snprintf(id, sizeof id, "##pb%d", i);
-            if (btn(id, names[i], bx1 - (3 - i) * (bw + 5), bw, false, gnd)) act.ground = acts[i];
-        }
-        rowEnd();
-    }
-    if (!gnd) textCentered(dl, f.small, rx + rw * 0.5f, top + 10, kWarn, "Ground services are available on the ground.");
 }
 
 // Weather: WXPlane's own screen when WXPlane is installed (it draws itself into the page: the host passes the area on), otherwise
@@ -1134,6 +1342,8 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
 
 void openWeb(const char* site, const char* url, bool chrome) {
     g_site = site; g_url = url; g_chrome = chrome;
+    g_navPending = url; g_navForce = false;
+    if (g_kbdTarget == 1) { g_kbd = false; g_kbdTarget = 0; }
     g_app = APP_BROWSER;
 }
 
@@ -1204,7 +1414,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         const int app = g_app;
         if (pageHeader(dl, f, w, app == APP_BROWSER ? g_site.c_str() : appName(app))) g_app = APP_HOME;
         if (app == APP_SETTINGS) settingsPage(dl, f, s, w, h, act);
-        else if (app == APP_BROWSER) browserPage(dl, f, w, h);
+        else if (app == APP_BROWSER) browserPage(dl, f, s, w, h, act);
         else if (app == APP_WEATHER) weatherPage(dl, f, s, w, h, act);
         else if (app == APP_GROUND) groundPage(dl, f, s, w, h, act);
         else placeholderPage(dl, f, app, w, h);
@@ -1326,6 +1536,11 @@ std::string settingsToText() {
     };
     list("order", g_settings.order);
     list("favorites", g_settings.favorites);
+    for (const auto& bm : g_settings.bookmarks) {   // title, a tab, the address (tabs and line ends taken out of the title)
+        std::string t = bm.first;
+        for (char& c : t) if (c == '\t' || c == '\n' || c == '\r') c = ' ';
+        out += "bookmark=" + t + "\t" + bm.second + "\n";
+    }
     return out;
 }
 
@@ -1362,6 +1577,10 @@ void settingsFromText(const std::string& text) {
         else if (key == "show_foreflight") g_settings.showForeflight = v != 0;
         else if (key == "order") parseList(val, g_settings.order);
         else if (key == "favorites") parseList(val, g_settings.favorites);
+        else if (key == "bookmark") {
+            const size_t tab = val.find('\t');
+            if (tab != std::string::npos && tab + 1 < val.size()) g_settings.bookmarks.push_back({val.substr(0, tab), val.substr(tab + 1)});
+        }
     }
     normalizeLayout();
 }
