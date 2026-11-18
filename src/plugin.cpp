@@ -187,6 +187,9 @@ struct SimRefs {
     bool wasDocked[3] = {false, false, false};                         // for opening and closing the doors with the jetways
     bool xpJetway = false;                                             // without openSAM: X-Plane's own jetways, as last pressed
     bool wantDoor[3] = {false, false, false};                          // the doors the user connected (only those open and show docked)
+    double xpJetwayT0 = -100;                                          // when X-Plane's own jetways were last sent for, or away (they take a while)
+    double jwPressT[3] = {-100, -100, -100};                           // when each door's bubble was last pressed
+    bool cabinReady = false, cabinReadyGround = true;                  // ToLiss: Cabin Ready given; on the ground when it was (cleared on takeoff, landing)
     XPLMDataRef jwNumber = nullptr;                                    // openSAM: how many jetways serve the plane
     XPLMDataRef beacon = nullptr, engRun = nullptr, parkBrake = nullptr, isChocked = nullptr, gs = nullptr, tlParkBrake = nullptr;
     XPLMDataRef paxDoor = nullptr, cargoDoor = nullptr, chocks = nullptr, extPower = nullptr, hpAir = nullptr, lpAir = nullptr;   // ToLiss
@@ -688,6 +691,7 @@ void planStep(const xpt::Actions& act) {
             simbriefFetch(st.simbriefUser, true);
         }
     }
+    if (act.planAccept || act.planDismiss) { const bool took = act.planAccept; xpt::planDecide(g_sim, act); if (took) planToRoute(); }
     if (act.planClear) {
         if (g_sbThread.joinable()) g_sbThread.join();
         g_sim.plan = xpt::FlightPlan();
@@ -698,22 +702,10 @@ void planStep(const xpt::Actions& act) {
     if (g_sbDone) {
         g_sbDone = false;
         if (g_sbThread.joinable()) g_sbThread.join();
-        if (g_sbQuiet) {   // the 2-minute check: only a plan not seen before counts
-            if (g_sbPlan.loaded && g_sbPlan.ofpId != g_sim.plan.ofpId) {
-                g_sim.plan = g_sbPlan;
-                g_sim.plan.status = "New plan found " + g_sbPlan.importedAt;
-                ++g_sim.newPlanSeq;
-                g_sim.newPlanText = g_sbPlan.origin + " to " + g_sbPlan.dest + (g_sbPlan.callsign.empty() ? std::string() : " (" + g_sbPlan.callsign + ")") + ". Tap for the Flight Plan.";
-                planToRoute();
-                logMsg("SimBrief: new plan %s", g_sbPlan.ofpId.c_str());
-            }
-            return;
-        }
-        if (g_sbPlan.loaded) g_sim.plan = g_sbPlan;
-        else { g_sim.plan.busy = false; g_sim.plan.status = g_sbPlan.status; }   // a failed import keeps the plan there was
-        g_sim.plan.busy = false;
-        planToRoute();
-        logMsg("SimBrief: %s", g_sim.plan.status.c_str());
+        const int seq = g_sim.newPlanSeq;
+        xpt::planFetched(g_sim, g_sbPlan, g_sbQuiet);   // into the preview: the flight plan stays until its Import
+        if (g_sim.newPlanSeq != seq) logMsg("SimBrief: new plan %s offered", g_sbPlan.ofpId.c_str());
+        else if (!g_sbQuiet) logMsg("SimBrief: %s", g_sbPlan.loaded ? "plan fetched for review" : g_sbPlan.status.c_str());
     }
 }
 
@@ -1695,6 +1687,24 @@ void adoptDocked(const xpt::GroundState& g, const int docked[3]) {
     if (!anyDocked && g.jetway != 2 && g.jetway != -1) { static int quiet = 0; if (any && ++quiet > 600) { for (bool& w : r.wantDoor) w = false; quiet = 0; } }
 }
 
+// Each door's jetway, as openSAM shows it: connected only once the jetway is there, moving until then. openSAM says by door; X-Plane's
+// own jetways (all of a stand's at once) take about 12 s to come or go, from the press that sent for them or sent them away.
+constexpr double kXpJetwayS = 12.0;
+void jetwayDoors(xpt::GroundState& g, const int docked[3]) {
+    SimRefs& r = g_refs;
+    const double now = XPLMGetElapsedTime();
+    const bool xpThere = r.xpJetway && now - r.xpJetwayT0 >= kXpJetwayS;
+    for (int k = 0; k < 3; ++k) {
+        const bool here = k < g.jwDoors;
+        if (g.openSam) {
+            g.jwDocked[k] = here && r.wantDoor[k] && docked[k] != 0;
+            g.jwMoving[k] = here && r.wantDoor[k] != (docked[k] != 0) && now - r.jwPressT[k] < 60;
+        } else {
+            g.jwDocked[k] = here && r.wantDoor[k] && xpThere;
+            g.jwMoving[k] = here && now - r.xpJetwayT0 < kXpJetwayS && (r.wantDoor[k] ? r.xpJetway : now - r.jwPressT[k] < kXpJetwayS);
+        }
+    }
+}
 void readSimState() {
     SimRefs& r = g_refs;
     const float mToFt = 3.28084f;
@@ -1751,14 +1761,19 @@ void readSimState() {
         int docked[3] = {0, 0, 0};
         if (g.openSam && r.jwDoorStatus) XPLMGetDatavi(r.jwDoorStatus, docked, 0, 3);
         adoptDocked(g, docked);
-        for (int k = 0; k < 3; ++k) { g.jwDoorPax[k] = 2 * k; g.jwDocked[k] = k < g.jwDoors && r.wantDoor[k] && (g.openSam ? docked[k] != 0 : r.xpJetway); }
-        g.paxDoors = 2 * (g.jwDoors + 1);
+        for (int k = 0; k < 3; ++k) g.jwDoorPax[k] = 2 * k;
+        g.jwDoors = std::min(g.jwDoors, 2);   // 1L, and 2L ahead of the wing: never a door behind it
+        jetwayDoors(g, docked);
+        g.paxDoors = g.jwDoors >= 2 ? 8 : 4;   // (the layout with 2L forward)
     }
     if (g.toliss) {
         // the arrays are as long as the largest ToLiss needs: the A319/A320 have two pairs of cabin doors, the A321 four
         const int have = XPLMGetDatavi(r.paxDoor, nullptr, 0, 0);
-        const bool long321 = g_sim.acfIcao.compare(0, 3, "A21") == 0 || g_sim.acfIcao == "A321";
-        g.paxDoors = std::min(have, long321 ? 8 : 4);
+        // four pairs on the A321s and the widebodies (A330-900, A340-600), two on the A319 and A320s
+        const std::string& ic = g_sim.acfIcao;
+        const bool long321 = ic.compare(0, 3, "A21") == 0 || ic == "A321";
+        const bool wide = ic.compare(0, 2, "A3") == 0 && ic != "A318" && ic != "A319" && ic != "A320" && ic != "A321";
+        g.paxDoors = std::min(have, long321 || wide ? 8 : 4);
         XPLMGetDatavi(r.paxDoor, g.paxDoor, 0, g.paxDoors);
         if (r.cargoDoor) { g.cargoDoors = std::min(XPLMGetDatavi(r.cargoDoor, nullptr, 0, 0), 3); XPLMGetDatavi(r.cargoDoor, g.cargoDoor, 0, g.cargoDoors); }   // forward, aft, bulk
         g.deice = offered("toliss_airbus/iscsinterface/animatedDeice") || offered("toliss_airbus/iscsinterface/quickDeice");
@@ -1767,15 +1782,19 @@ void readSimState() {
         g.extPower = r.extPower && XPLMGetDatai(r.extPower) != 0;
         g.hpAir = r.hpAir && XPLMGetDatai(r.hpAir) != 0;
         g.lpAir = r.lpAir && XPLMGetDatai(r.lpAir) != 0;
-        // the doors a jetway can reach: 1L, and 2L on an A321 with the classic door layout (A321ExitConfig 0), as openSAM docks them
+        // the doors a jetway can reach, as openSAM docks them: 1L; and 2L on the widebodies, and on an A321 / A321neo with the classic
+        // door layout (A321ExitConfig 0: the second door ahead of the wing)
         g.jwDoors = 1;
         g.jwDoorPax[0] = 0;
-        if (g_sim.acfIcao == "A321" && r.exitConfig && readNum(r.exitConfig) == 0 && g.paxDoors > 2) { g.jwDoors = 2; g.jwDoorPax[1] = 2; }
+        if (wide && g.paxDoors > 2) { g.jwDoors = 2; g.jwDoorPax[1] = 2; }
+        else if (long321 && r.exitConfig && readNum(r.exitConfig) == 0 && g.paxDoors > 2) { g.jwDoors = 2; g.jwDoorPax[1] = 2; }
         int docked[3] = {0, 0, 0};
         if (r.jwDoorStatus) XPLMGetDatavi(r.jwDoorStatus, docked, 0, 3);
         adoptDocked(g, docked);
-        // a door counts as connected once the user connected it and a jetway is there (X-Plane's own: the stand's jetways came)
-        for (int k = 0; k < 3; ++k) g.jwDocked[k] = k < g.jwDoors && r.wantDoor[k] && (g.openSam ? docked[k] != 0 : r.xpJetway);
+        jetwayDoors(g, docked);
+        // Cabin Ready holds for the phase it was given in: gone once the aircraft takes off, or lands
+        if (r.cabinReady && g.onGround != r.cabinReadyGround) r.cabinReady = false;
+        g.cabinReady = r.cabinReady;
         // slides: armed if any door's is
         g.slides = -1;
         if (r.slides) {
@@ -1848,10 +1867,11 @@ void doGround(const xpt::Actions& act) {
         for (bool w : rr.wantDoor) before = before || w;
         rr.wantDoor[k] = !rr.wantDoor[k];
         for (bool w : rr.wantDoor) after = after || w;
+        rr.jwPressT[k] = XPLMGetElapsedTime();
         if (!before && after) {
-            if (g.openSam) once("openSAM/dock_jwy"); else { once("sim/ground_ops/jetway"); rr.xpJetway = true; }
+            if (g.openSam) once("openSAM/dock_jwy"); else { once("sim/ground_ops/jetway"); rr.xpJetway = true; rr.xpJetwayT0 = XPLMGetElapsedTime(); }
         } else if (before && !after) {
-            if (g.openSam) once("openSAM/undock_jwy"); else { once("sim/ground_ops/jetway"); rr.xpJetway = false; }
+            if (g.openSam) once("openSAM/undock_jwy"); else { once("sim/ground_ops/jetway"); rr.xpJetway = false; rr.xpJetwayT0 = XPLMGetElapsedTime(); }
         }
         logMsg("jetway: door %d %s (%s jetways)", k + 1, rr.wantDoor[k] ? "connected" : "disconnected", g.openSam ? "openSAM" : "X-Plane's");
         break;
@@ -1859,6 +1879,9 @@ void doGround(const xpt::Actions& act) {
     case xpt::GA_SLIDES_ARM: g_slidesAuto = false; if (g.toliss) trigger("toliss_airbus/door_commands/arm_slides"); break;
     case xpt::GA_SLIDES_DISARM: g_slidesAuto = false; if (g.toliss) trigger("toliss_airbus/door_commands/disarm_slides"); break;
     case xpt::GA_SLIDES_AUTO: g_slidesAuto = true; break;
+    case xpt::GA_CABIN_READY:   // the cabin is secure: ToLiss's CABIN READY memo (as its flight attendant panel sends it)
+        if (g.toliss) { once("AirbusFBW/CheckCabin"); g_refs.cabinReady = true; g_refs.cabinReadyGround = g.onGround; }
+        break;
     case xpt::GA_CABIN_LIGHT: {   // the level, 0-100 % in steps of 10; ToLiss's 0 / 1 / 2 switch when there is no percentage
         const int pct = std::max(0, std::min(100, act.groundIndex));
         if (r.cabinPerc && XPLMCanWriteDataRef(r.cabinPerc)) writeNum(r.cabinPerc, (float)pct);

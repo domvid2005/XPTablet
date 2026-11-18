@@ -290,6 +290,18 @@ int main(int argc, char** argv) {
             frame(fx, fy, false); frame(fx, fy, true); frame(fx + 20, fy + 10, true); frame(cx, cy, true); frame(cx, cy, true); frame(cx, cy, false); frame(cx, cy, false);
             if (settings().order[last] != app || settings().order[from] != -1) { std::printf("FAIL: an icon put on a free place (%d at %d, %d at %d)\n", settings().order[last], last, settings().order[from], from); ++failures; }
             { Canvas cv((int)(W * scale), (int)(H * scale)); batches.clear(); frame(-1000, -1000, false); raster(cv, batches, tex, tw, th, scale); writePng(cv, out + "/tablet_arrange.png"); }
+            // an icon dropped on another icon: the two change places, nothing else moves
+            {
+                std::vector<int> at;
+                for (int i = 0; i < (int)settings().order.size() && at.size() < 3; ++i) if (settings().order[i] >= 0 && appVisible(settings().order[i])) at.push_back(i);
+                if (at.size() >= 3) {
+                    const int i = at[0], j = at[2], ai = settings().order[i], aj = settings().order[j], mid = settings().order[at[1]];
+                    auto px = [&](int k) { return std::floor((W - cols * 104) * 0.5f) + (k % (int)cols) * 104 + 52; };
+                    auto py = [&](int k) { return gy0 + (k / (int)cols) * 100 + 36; };
+                    frame(px(i), py(i), false); frame(px(i), py(i), true); frame(px(i) + 20, py(i) + 10, true); frame(px(j), py(j), true); frame(px(j), py(j), true); frame(px(j), py(j), false); frame(px(j), py(j), false);
+                    if (settings().order[i] != aj || settings().order[j] != ai || settings().order[at[1]] != mid) { std::printf("FAIL: icons dropped on each other must swap\n"); ++failures; }
+                }
+            }
             frame(W - 56, H - 28, false); frame(W - 56, H - 28, true); frame(W - 56, H - 28, false); frame(-1000, -1000, false);   // Done
         }
         settings() = Settings();
@@ -518,6 +530,7 @@ int main(int argc, char** argv) {
             shot(t, APP_HOME, "home_all_apps");
             settings() = keep;
         }
+        SimState g_previewState;
         {   // the Flight Plan page with a plan
             SimState fp = t;
             FlightPlan& p = fp.plan;
@@ -530,6 +543,13 @@ int main(int argc, char** argv) {
             for (int i = 0; i < 6; ++i) { FlightPlan::Leg l; l.ident = ids[i]; l.airway = i == 4 ? "WATSN4" : ""; l.alt = i == 0 || i == 5 ? "" : "FL240"; l.legNm = std::to_string(10 + i * 7); l.totalTime = "0:" + std::to_string(10 + i * 5); fp.plan.legs.push_back(l); }
             settings().simbriefUser = "alpineaviation";
             shot(fp, APP_ROUTES, "flightplan");
+            {   // a newer plan from SimBrief, in its window before Import (the plan in use stays under it)
+                SimState pv = fp;
+                pv.planPreview = fp.plan; pv.planPreview.alternateName = "Chicago Midway Intl"; pv.planPreview.callsign = "AAL1235"; pv.planPreview.ofpId = "2/1";
+                pv.planPreview.dest = "KORD"; pv.planPreview.sid = "SBN2";
+                for (int k = 0; k < 25; ++k) shot(pv, APP_ROUTES, "flightplan_preview");   // (it grows in)
+                g_previewState = pv;
+            }
             SimState empty = t;
             shot(empty, APP_ROUTES, "flightplan_empty");
             settings().simbriefUser.clear();
@@ -689,7 +709,7 @@ int main(int argc, char** argv) {
             Actions got;
             const bool downs[6] = {false, false, true, true, false, false};
             for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, d);
-                ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); if (act.ground != GA_NONE) got = act; }
+                ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); if (act.ground != GA_NONE || act.planAccept || act.planDismiss || act.planImport || act.planClear) got = act; }
             return got;
         };
         openApp(APP_GROUND);
@@ -729,14 +749,28 @@ int main(int argc, char** argv) {
             if (!got.webTabNew || got.webTabUrl.find("simbrief") == std::string::npos) { std::printf("FAIL: SimBrief opens in a new tab\n"); ++failures; } }
           openApp(APP_BROWSER); shot(wb, APP_BROWSER, "browser_tabs");
           SimState wa = s; wa.browser.status = -3; wa.browser.message = "On macOS the web pages are not available yet."; shot(wa, APP_CHARTS, "browser_unavailable"); openApp(APP_GROUND); }
-        // the cabin lights: the slider sets the level in steps of 10 %, On sets it full
+        {   // the plan window: Import and Dismiss take presses; the page's own buttons under it do not
+            openApp(APP_ROUTES);
+            bool took = false, dismissed = false;
+            for (float yy = 300; yy < 470 && !(took && dismissed); yy += 4) {
+                const Actions q1 = press(g_previewState, 560, yy); if (q1.planAccept) took = true;
+                const Actions q2 = press(g_previewState, 240, yy); if (q2.planDismiss) dismissed = true;
+            }
+            if (!took || !dismissed) { std::printf("FAIL: the plan window's Import and Dismiss\n"); ++failures; }
+            const Actions under = press(g_previewState, 760, 110);
+            if (under.planImport || under.planClear) { std::printf("FAIL: the page under the plan window took a press\n"); ++failures; }
+            openApp(APP_GROUND);
+        }
+        // the cabin lights: the slider sets the level in steps of 10 %; with them off, On brings back the level they last had
         { bool slid = false, on = false, arm = false;
+          SimState off = g; off.ground.cabinLight = 0;
           for (float yy = 90; yy < 330 && !(slid && on && arm); yy += 3) {
               const Actions q = press(g, 660, yy);
               if (q.ground == GA_CABIN_LIGHT && q.groundIndex % 10 == 0 && q.groundIndex > 0 && q.groundIndex < 100) slid = true;
-              const Actions o = press(g, 450, yy);
-              if (o.ground == GA_CABIN_LIGHT && o.groundIndex == 100) on = true;
-              if (o.ground == GA_SLIDES_ARM) arm = true;
+              const Actions o = press(off, 668, yy);
+              if (o.ground == GA_CABIN_LIGHT && o.groundIndex > 0) on = true;
+              const Actions o2 = press(g, 450, yy);
+              if (o2.ground == GA_SLIDES_ARM) arm = true;
           }
           if (!slid) { std::printf("FAIL: the cabin light slider\n"); ++failures; }
           if (!on) { std::printf("FAIL: the cabin light On button\n"); ++failures; }

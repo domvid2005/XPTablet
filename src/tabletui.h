@@ -117,6 +117,8 @@ struct GroundState {
     bool beacon = false, enginesRunning = false, parkBrake = false;
     float groundSpeedKt = 0;
     float cabinLight = -1;        // ToLiss: the cabin lights, 0..1, -1 unknown
+    bool cabinReady = false;      // ToLiss: Cabin Ready was given (AirbusFBW/CheckCabin) for this phase; again after takeoff or landing
+    bool jwMoving[3] = {false, false, false};   // a jetway is still moving to or from this door (not connected until it is there)
     bool slidesAuto = false;      // ToLiss: the slides follow the aircraft's own rule (armed once the beacon is on and the doors shut, disarmed parked)
 };
 
@@ -197,7 +199,7 @@ struct FlightPlan {
     bool loaded = false, busy = false;
     std::string status;           // what happened ("Imported 18:42Z", "No plan for that name"...)
     std::string callsign, aircraft, registration, units;   // units: lbs or kgs
-    std::string origin, originName, originRunway, dest, destName, destRunway, alternate;
+    std::string origin, originName, originRunway, dest, destName, destRunway, alternate, alternateName;
     std::string route, cruise, distanceNm, ete, costIndex, avgWind, sid, star;
     std::string blockFuel, tripFuel, reserveFuel, altnFuel, taxiFuel, extraFuel, zfw, tow, ldw;
     std::string pdfUrl;           // the briefing (the OFP as SimBrief's PDF)
@@ -263,6 +265,8 @@ struct SimState {
     std::vector<std::pair<std::string, std::string>> dataInfo;   // Settings, Data: where the tablet's data comes from, and how it is
     bool mac = false;             // macOS: no media controls (no Music app, no Media settings)
     MediaState media;
+    FlightPlan planPreview;       // a plan fetched from SimBrief, waiting for Import or Dismiss (loaded: the window shows it)
+    std::string planDismissed;    // the last plan dismissed (its ofpId): the 2-minute check does not offer it again
     int newPlanSeq = 0;           // goes up when the 2-minute check finds a new SimBrief plan (then newPlanText says which)
     std::string newPlanText;
 };
@@ -270,7 +274,7 @@ struct SimState {
 // What the user asked for on the Ground page; the host carries it out.
 enum GroundAction { GA_NONE, GA_JETWAY, GA_GPU, GA_CHOCKS, GA_HP_AIR, GA_LP_AIR, GA_TRUCKS, GA_PUSH_LEFT, GA_PUSH_STRAIGHT, GA_PUSH_RIGHT, GA_PUSH_STOP,
                     GA_PAX_DOOR, GA_CARGO_DOOR, GA_DOORS_CLOSE, GA_DOORS_AUTO, GA_DEICE, GA_DEICE_QUICK,
-                    GA_JETWAY_DOOR, GA_SLIDES_ARM, GA_SLIDES_DISARM, GA_CABIN_LIGHT, GA_SLIDES_AUTO };
+                    GA_JETWAY_DOOR, GA_SLIDES_ARM, GA_SLIDES_DISARM, GA_CABIN_LIGHT, GA_SLIDES_AUTO, GA_CABIN_READY };
 
 struct Actions {
     int ground = GA_NONE;
@@ -295,7 +299,9 @@ struct Actions {
     // the Documents page: list the folders (again), show a picture
     bool docsList = false;
     std::string trafficSelected;  // the Map's traffic card is open on this call sign (look it up on VATSIM)
-    bool planImport = false;      // fetch the SimBrief plan (with the saved name / ID)
+    bool planImport = false;      // fetch the SimBrief plan (with the saved name / ID) into the preview
+    bool planAccept = false;      // the preview's Import: it becomes the flight plan
+    bool planDismiss = false;     // the preview's Dismiss: it goes, the flight plan stays as it was
     bool planClear = false;       // forget it
     bool clearTileCache = false;  // delete the map tiles kept on disk
     std::string docOpen;

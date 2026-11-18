@@ -51,7 +51,7 @@ const AppDef kApps[APP_COUNT] = {
     {"map", "Map", IM_COL32(52, 168, 110, 255), nullptr},                  {"airports", "Airports", IM_COL32(64, 132, 230, 255), nullptr},
     {"charts", "ChartFox", IM_COL32(236, 152, 50, 255), "https://chartfox.org"},            {"documents", "Documents", IM_COL32(120, 132, 156, 255), nullptr},
     {"routes", "Flight Plan", IM_COL32(150, 96, 250, 255), nullptr},            {"weather", "Weather", IM_COL32(40, 180, 214, 255), nullptr},
-    {"ground", "Cabin", IM_COL32(246, 190, 48, 255), nullptr},            {"checklists", "Checklists", IM_COL32(60, 190, 130, 255), nullptr},
+    {"ground", "Aircraft", IM_COL32(246, 190, 48, 255), nullptr},            {"checklists", "Checklists", IM_COL32(60, 190, 130, 255), nullptr},
     {"performance", "Performance", IM_COL32(236, 92, 104, 255), nullptr},  {"traffic", "Traffic", IM_COL32(40, 190, 170, 255), nullptr},
     {"notes", "Notes", IM_COL32(255, 138, 40, 255), nullptr},   // orange (Cabin keeps the yellow)
     {"simbrief", "SimBrief", IM_COL32(196, 58, 66, 255), "https://dispatch.simbrief.com"},
@@ -644,14 +644,11 @@ void home(ImDrawList* dl, const Fonts& f, float w, float h) {
                     if (fromDock) fav.erase(std::find(fav.begin(), fav.end(), app));
                     order[target] = app;
                     g_settingsChanged = true;
-                } else {   // onto an icon: it takes the place, and the icons after it move along to the next free place
-                    if (from >= 0) order[from] = -1;
-                    if (fromDock) fav.erase(std::find(fav.begin(), fav.end(), app));
-                    int carry = app;
-                    for (int k = target; carry >= 0; ++k) {
-                        if (k >= (int)order.size()) { order.push_back(carry); break; }
-                        std::swap(carry, order[k]);
-                    }
+                } else {   // onto an icon: the two change places (from the bar, the other icon goes into the bar in its place)
+                    if (fromDock) *std::find(fav.begin(), fav.end(), app) = there;
+                    else if (from >= 0) order[from] = there;
+                    order[target] = app;
+                    if (fromDock && from >= 0) order[from] = -1;   // (it was in both: its old grid place is free now)
                     g_settingsChanged = true;
                 }
             }
@@ -2689,7 +2686,7 @@ bool g_docMarkup = false, g_docEraser = false;
 int g_docPen = 0;
 std::vector<std::vector<Stroke>> g_docUndo;   // this document's drawing before each line or rub
 std::string g_docUndoFor;
-const ImU32 kDocPens[4] = {IM_COL32(230, 40, 40, 255), IM_COL32(30, 110, 235, 255), IM_COL32(20, 160, 80, 255), IM_COL32(255, 214, 0, 110)};   // red, blue, green, highlighter
+#define kDocPens kPens   // the same pens as the notes' scratchpad: white, yellow, blue, and the highlighter
 bool g_penMode = true, g_notesChanged = false;
 const ImU32 kPens[4] = {IM_COL32(240, 244, 250, 255), IM_COL32(255, 210, 70, 255), IM_COL32(110, 200, 255, 255),
                         IM_COL32(255, 214, 0, 150)};   // white, yellow, blue, and the highlighter (wide, see-through)
@@ -3149,8 +3146,8 @@ void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
 }
 
 // ---- Documents: PDFs (in the browser's PDF viewer) and pictures (here), from the tablet's folder, the aircraft's and AviTab's charts ----
-float g_docZoom = 1.0f;
-ImVec2 g_docPan(0, 0);
+float g_docZoom = 1.0f, g_docZoomShown = 1.0f;   // the zoom asked for, and the one shown (it glides there)
+ImVec2 g_docPan(0, 0), g_docPanShown(0, 0);
 std::string g_docLast;
 std::string fileUrl(std::string path) {
     for (char& c : path) if (c == '\\') c = '/';
@@ -3235,7 +3232,7 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     // the picture: fitted, then the wheel or + / - to zoom and a drag to move
     const ImVec2 va(24 + lw, top), vb(w - 12, h - 12);
     dl->AddRectFilled(va, vb, IM_COL32(8, 14, 26, 240), 10.0f);
-    if (d.shownPath != g_docLast) { g_docLast = d.shownPath; g_docZoom = 1.0f; g_docPan = ImVec2(0, 0); }
+    if (d.shownPath != g_docLast) { g_docLast = d.shownPath; g_docZoom = g_docZoomShown = 1.0f; g_docPan = g_docPanShown = ImVec2(0, 0); }
     if (d.busy) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kMuted, "Opening..."); return; }
     if (!d.error.empty()) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kWarn, d.error.c_str()); return; }
     if (!d.tex || d.texW <= 0 || d.texH <= 0) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kMuted, "Choose a document. PDFs open in the browser."); return; }
@@ -3244,8 +3241,15 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     ImGui::InvisibleButton("##docview", ImVec2(vb.x - va.x, vb.y - va.y));
     const ImGuiIO& io = ImGui::GetIO();
     if (ImGui::IsItemHovered() && io.MouseWheel != 0) g_docZoom = std::max(0.5f, std::min(8.0f, g_docZoom * (io.MouseWheel > 0 ? 1.25f : 0.8f)));
-    const float fit = std::min((vb.x - va.x - 16) / d.texW, (vb.y - va.y - 16) / d.texH) * g_docZoom;
-    const ImVec2 c((va.x + vb.x) * 0.5f + g_docPan.x, (va.y + vb.y) * 0.5f + g_docPan.y);
+    {   // zoom and Fit glide (as the map's moves do); a drag moves it at once
+        const float k = 1.0f - std::exp(-io.DeltaTime * 14.0f);
+        g_docZoomShown += (g_docZoom - g_docZoomShown) * k;
+        if (std::fabs(g_docZoom - g_docZoomShown) < 0.001f) g_docZoomShown = g_docZoom;
+        if (ImGui::IsItemActive() && !g_docMarkup) g_docPanShown = g_docPan;
+        else { g_docPanShown.x += (g_docPan.x - g_docPanShown.x) * k; g_docPanShown.y += (g_docPan.y - g_docPanShown.y) * k; }
+    }
+    const float fit = std::min((vb.x - va.x - 16) / d.texW, (vb.y - va.y - 16) / d.texH) * g_docZoomShown;
+    const ImVec2 c((va.x + vb.x) * 0.5f + g_docPanShown.x, (va.y + vb.y) * 0.5f + g_docPanShown.y);
     const ImVec2 i0(c.x - d.texW * fit * 0.5f, c.y - d.texH * fit * 0.5f), isz(d.texW * fit, d.texH * fit);   // the picture on screen
     std::vector<Stroke>& marks = g_docMarks[d.shownPath];
     if (g_docUndoFor != d.shownPath) { g_docUndoFor = d.shownPath; g_docUndo.clear(); }
@@ -3305,7 +3309,8 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
 
 // ---- Flight Plan: the latest SimBrief plan (Import uses the SimBrief ID saved in Settings, Data); the briefing PDF in a tab -------------
 float g_fplScroll = 0;
-void flightPlanPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+double g_previewT0 = 0;   // when the plan preview window appeared (it grows in)
+void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const FlightPlan& p = s.plan;
     const float top = kStatusH + kHeaderH + 8;
     const bool haveId = !g_settings.simbriefUser.empty();
@@ -3423,9 +3428,114 @@ void flightPlanPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     dl->PopClipRect();
 }
 
+void glass(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha = 1.0f);
+std::string fitText(ImFont* fnt, const std::string& t, float width);
+// The plan SimBrief has, before it is taken: the route as a chain (departure, destination, the alternate to divert to) and what
+// matters for the flight, then Dismiss (the flight plan stays as it was) or Import (this becomes the flight plan)
+void planPreview(ImDrawList* dl, const Fonts& f, const FlightPlan& p, float w, float h, Actions& act) {
+    const float t = smooth01((float)(ImGui::GetTime() - g_previewT0) / 0.25f);
+    dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(120 * t)));
+    ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("##pvback", ImVec2(w, h - kStatusH));   // nothing under the window takes a press
+    const float pw = std::min(640.0f, w - 40), ph = std::min(360.0f, h - kStatusH - 30);
+    const float sc = 0.94f + 0.06f * t;
+    const ImVec2 c(w * 0.5f, kStatusH + (h - kStatusH) * 0.5f);
+    const ImVec2 a(std::floor(c.x - pw * 0.5f * sc), std::floor(c.y - ph * 0.5f * sc)), b(std::floor(c.x + pw * 0.5f * sc), std::floor(c.y + ph * 0.5f * sc));
+    dl->AddRectFilled(a, b, IM_COL32(14, 22, 40, (int)(235 * t)), 20.0f);   // solid enough that the page under it does not read through
+    glass(dl, a, b, 20.0f, t);
+    const int A = (int)(255 * t);
+    auto col = [&](ImU32 c0) { return (c0 & 0x00FFFFFF) | ((ImU32)(((c0 >> 24) & 255) * t) << 24); };
+    const float x0 = a.x + 22, x1 = b.x - 22;
+    float y = a.y + 16;
+    textAt(dl, f.bold, x0, y, col(kInk), "SimBrief flight plan");
+    if (!p.importedAt.empty()) textRight(dl, f.small, x1, y + 3, col(kMuted), ("Fetched " + p.importedAt).c_str());
+    y += 24;
+    std::string who = p.callsign;
+    for (const std::string& x : {p.aircraft, p.registration}) if (!x.empty()) who += (who.empty() ? "" : "  \xC2\xB7  ") + x;
+    if (!who.empty()) textAt(dl, f.small, x0, y, col(kMuted), fitText(f.small, who, x1 - x0).c_str());
+    y += 30;
+    // the chain: departure -- destination - - alternate
+    const bool alt = !p.alternate.empty();
+    const float nx[3] = {x0 + 40, alt ? x0 + (x1 - x0) * 0.60f : x1 - 40, x1 - 40};
+    const ImU32 nodeCol[3] = {IM_COL32(80, 160, 255, A), IM_COL32(80, 214, 124, A), IM_COL32(255, 170, 60, A)};
+    const float cy = y + 12;
+    {   // the flight: a solid line with the aircraft on it, the distance and time over it
+        dl->AddLine(ImVec2(nx[0] + 12, cy), ImVec2(nx[1] - 12, cy), IM_COL32(200, 214, 240, (int)(170 * t)), 2.5f);
+        const ImVec2 mid((nx[0] + nx[1]) * 0.5f, cy);
+        dl->AddTriangleFilled(ImVec2(mid.x + 9, cy), ImVec2(mid.x - 6, cy - 6), ImVec2(mid.x - 6, cy + 6), IM_COL32(220, 230, 250, A));
+        std::string over;
+        if (!p.distanceNm.empty()) over = p.distanceNm + " nm";
+        if (!p.ete.empty()) over += (over.empty() ? "" : "  \xC2\xB7  ") + p.ete;
+        if (!over.empty()) textCentered(dl, f.small, mid.x, cy - 22, col(kMuted), over.c_str());
+    }
+    if (alt) {   // the diversion: dashed
+        for (float x = nx[1] + 14; x < nx[2] - 14; x += 10) dl->AddLine(ImVec2(x, cy), ImVec2(std::min(x + 5, nx[2] - 14), cy), IM_COL32(255, 170, 60, (int)(200 * t)), 2.0f);
+        textCentered(dl, f.small, (nx[1] + nx[2]) * 0.5f, cy - 22, col(IM_COL32(255, 190, 110, 255)), "diversion");
+    }
+    const std::string ids[3] = {p.origin, p.dest, p.alternate}, names[3] = {p.originName, p.destName, p.alternateName};
+    const std::string rwy[3] = {p.originRunway.empty() ? "" : "RWY " + p.originRunway, p.destRunway.empty() ? "" : "RWY " + p.destRunway, ""};
+    const char* role[3] = {"DEPARTURE", "DESTINATION", "ALTERNATE"};
+    for (int i = 0; i < (alt ? 3 : 2); ++i) {
+        dl->AddCircleFilled(ImVec2(nx[i], cy), 9.0f, nodeCol[i], 0);
+        dl->AddCircle(ImVec2(nx[i], cy), 13.0f, (nodeCol[i] & 0x00FFFFFF) | ((ImU32)(90 * t) << 24), 0, 2.0f);
+        const float colW = i == 0 ? (nx[1] - nx[0]) * 0.9f : 150.0f;
+        textCentered(dl, f.small, nx[i], cy + 20, col(kMuted), role[i]);
+        textCentered(dl, f.title, nx[i], cy + 36, col(kInk), ids[i].empty() ? "----" : ids[i].c_str());
+        if (!names[i].empty()) textCentered(dl, f.small, nx[i], cy + 64, col(kMuted), fitText(f.small, names[i], colW).c_str());
+        if (!rwy[i].empty()) textCentered(dl, f.small, nx[i], cy + 80, col(kInk), rwy[i].c_str());
+    }
+    y = cy + 104;
+    dl->AddLine(ImVec2(x0, y), ImVec2(x1, y), IM_COL32(255, 255, 255, (int)(26 * t)));
+    y += 10;
+    // what matters for the flight, in two rows of four
+    const std::string u = p.units.empty() ? "" : " " + p.units;
+    const std::string cells[8][2] = {{"Cruise", p.cruise}, {"Cost index", p.costIndex}, {"Avg wind", p.avgWind}, {"SID / STAR", p.sid + (p.star.empty() ? "" : " / " + p.star)},
+                                     {"Block fuel", p.blockFuel.empty() ? "" : p.blockFuel + u}, {"Trip fuel", p.tripFuel.empty() ? "" : p.tripFuel + u},
+                                     {"ZFW", p.zfw.empty() ? "" : p.zfw + u}, {"TOW", p.tow.empty() ? "" : p.tow + u}};
+    const float cw = (x1 - x0) / 4;
+    for (int i = 0; i < 8; ++i) {
+        const float cx = x0 + (i % 4) * cw, ry = y + (i / 4) * 40;
+        textAt(dl, f.small, cx, ry, col(kMuted), cells[i][0].c_str());
+        const std::string v = cells[i][1].empty() || cells[i][1] == " / " ? std::string("-") : cells[i][1];
+        textAt(dl, f.bold, cx, ry + 15, col(kInk), fitText(f.bold, v, cw - 8).c_str());
+    }
+    y += 82;
+    if (!p.route.empty()) {
+        textAt(dl, f.small, x0, y, col(kMuted), "Route");
+        textAt(dl, f.small, x0 + 46, y, col(kInk), fitText(f.small, p.route, x1 - x0 - 46).c_str());
+    }
+    // Dismiss or Import
+    const float by = b.y - 50, bw = (x1 - x0 - 12) * 0.5f;
+    if (pill(dl, f, "##pvdismiss", "Dismiss", ImVec2(x0, by), ImVec2(x0 + bw, by + 34), false, true)) act.planDismiss = true;
+    if (pill(dl, f, "##pvimport", "Import", ImVec2(x1 - bw, by), ImVec2(x1, by + 34), true, true)) act.planAccept = true;
+}
+void flightPlanPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const bool preview = s.planPreview.loaded;
+    static bool shown = false;
+    if (preview && !shown) g_previewT0 = ImGui::GetTime();
+    shown = preview;
+    // the page; while the window is up the pointer is hidden from it (nothing under the window is pressed)
+    ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 mp = io.MousePos; const bool down = io.MouseDown[0], clicked = io.MouseClicked[0], released = io.MouseReleased[0]; const float wh = io.MouseWheel;
+    if (preview) { io.MousePos = ImVec2(-FLT_MAX, -FLT_MAX); io.MouseDown[0] = io.MouseClicked[0] = io.MouseReleased[0] = false; io.MouseWheel = 0; }
+    flightPlanBody(dl, f, s, w, h, act);
+    if (preview) { io.MousePos = mp; io.MouseDown[0] = down; io.MouseClicked[0] = clicked; io.MouseReleased[0] = released; io.MouseWheel = wh; }
+    if (preview) planPreview(dl, f, s.planPreview, w, h, act);
+}
+
 // Where a ToLiss's doors are along the fuselage, as fractions of its length from the nose (cabin doors front to back, then the
 // cargo doors: forward, aft, bulk; all cargo doors are on the right).
-float paxDoorAt(int pair, int pairs) {
+// where a pair of cabin doors is, as a fraction of the length from the nose: the ToLiss types' own layouts (from the types' airport
+// planning drawings, roughly: door centres over overall length), else a typical airliner's
+float paxDoorAt(const std::string& icao, int pair, int pairs) {
+    struct Lay { const char* icao; int n; float at[4]; };
+    static const Lay lays[] = {
+        {"A319", 2, {0.150f, 0.812f}}, {"A320", 2, {0.135f, 0.823f}}, {"A20N", 2, {0.135f, 0.823f}},
+        {"A321", 4, {0.113f, 0.300f, 0.640f, 0.860f}}, {"A21N", 4, {0.113f, 0.300f, 0.640f, 0.860f}},   // 2: just ahead of the wing
+        {"A339", 4, {0.120f, 0.272f, 0.633f, 0.857f}}, {"A346", 4, {0.108f, 0.250f, 0.590f, 0.850f}},
+    };
+    for (const Lay& l : lays) if (icao == l.icao && pairs == l.n) return l.at[std::max(0, std::min(pair, l.n - 1))];
     static const float two[2] = {0.135f, 0.845f}, four[4] = {0.115f, 0.355f, 0.600f, 0.865f}, three[3] = {0.125f, 0.50f, 0.855f};
     if (pairs <= 2) return two[std::min(pair, 1)];
     if (pairs == 3) return three[std::min(pair, 2)];
@@ -3469,9 +3579,11 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     const float hwPx = (shape && hw0 > 0 ? hw0 * kx : spec.fus * 0.5f) * px;
     if (doors) {
         const int pairs = (g.paxDoors + 1) / 2;
+        float lastBy = -1e9f;   // the bubble above's place: bubbles keep apart (their door's block stays on the door)
         for (int k = 0; k < jwDoors && k < 3; ++k) {
             const int pax = g.jwDoorPax[k];
-            const float frac = paxDoorAt(pax / 2, std::max(1, pairs));
+            const float frac = paxDoorAt(s.acfIcao, pax / 2, std::max(1, pairs));
+            if (frac > 0.45f) continue;   // a jetway never goes to a door behind the wing
             const float y = nose.y + frac * acLen * px;
             float hw = hwPx;   // the fuselage's edge at this door (it narrows towards the tail)
             if (shape && hw0 > 0) { const float hh = fuselageHalf(*shape, frac, hw0); if (hh > 0) hw = hh * kx * px; }
@@ -3483,18 +3595,24 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             dl->AddRectFilled(ImVec2(side - 9, y - 7), ImVec2(side + 1, y + 7), blockCol, 2.0f);
             // the bubble, at the card's left edge, with a leader to the block
             const float bw = 108, bx = a.x + 12;
-            dl->AddLine(ImVec2(bx + bw, y), ImVec2(side - 9, y), IM_COL32(255, 255, 255, 46), 1.0f);
+            const float by = std::max(y, lastBy + 54);   // under the one above and its line of text (the leader angles to the door)
+            lastBy = by;
+            dl->AddLine(ImVec2(bx + bw, by), ImVec2(bx + bw + 14, by), IM_COL32(255, 255, 255, 46), 1.0f);
+            dl->AddLine(ImVec2(bx + bw + 14, by), ImVec2(side - 9, y), IM_COL32(255, 255, 255, 46), 1.0f);
             char id[16], lbl[16];
             std::snprintf(id, sizeof id, "##jw%d", k);
             std::snprintf(lbl, sizeof lbl, "%s", docked ? "Disconnect" : "Connect");
-            const bool canPress = gnd && (!g.openSam || g.jetway == 1 || g.jetway == 2);
-            dl->AddRectFilled(ImVec2(bx, y - 14), ImVec2(bx + bw, y + 14), IM_COL32(16, 30, 56, 255), 14.0f);
-            if (pill(dl, f, id, lbl, ImVec2(bx, y - 14), ImVec2(bx + bw, y + 14), docked, canPress)) { act.ground = GA_JETWAY_DOOR; act.groundIndex = k; }
+            const bool moving = g.jwMoving[k];
+            const bool canPress = gnd && !moving && (!g.openSam || g.jetway == 1 || g.jetway == 2);
+            dl->AddRectFilled(ImVec2(bx, by - 14), ImVec2(bx + bw, by + 14), IM_COL32(16, 30, 56, 255), 14.0f);
+            if (pill(dl, f, id, lbl, ImVec2(bx, by - 14), ImVec2(bx + bw, by + 14), docked, canPress)) { act.ground = GA_JETWAY_DOOR; act.groundIndex = k; }
             // under the bubble: the door's name and what the jetway is doing
-            const char* st = !g.openSam ? (docked ? (g.toliss ? "connected, door open" : "connected") : "X-Plane jetway")
+            // as openSAM shows it: connected only once the jetway is there, "jetway moving" until then (both kinds of jetway)
+            const char* st = moving ? "jetway moving"
+                           : !g.openSam ? (docked ? (g.toliss ? "connected, door open" : "connected") : "X-Plane jetway")
                            : docked ? (g.toliss ? "docked, door open" : "docked") : g.jetway == 1 ? "jetway ready" : g.jetway == 0 ? "no jetway here" : g.jetway == 2 ? "jetway at the other door" : "jetway moving";
             std::snprintf(b, sizeof b, "%d%c  \xC2\xB7  %s", pax / 2 + 1, 'L', st);
-            textAt(dl, f.small, bx + 4, y + 17, docked ? kGood : kMuted, b);
+            textAt(dl, f.small, bx + 4, by + 17, docked ? kGood : moving ? kWarn : kMuted, b);
         }
         if (jwDoors > 1) textCentered(dl, f.small, (a.x + e.x) * 0.5f, e.y - 24, kMuted, "Each door connects on its own; the jetways leave with the last door.");
     }
@@ -3509,15 +3627,23 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         dl->AddText(f.body, fontPx(f.body), ImVec2(cx0, top + 40), kMuted, "Cabin lights and slide arming are for ToLiss aircraft.", nullptr, cx1 - cx0);
     } else {
         float y = top + 38;
-        // the lights: a slider in steps of 10 %, with On (full) and Off under it
-        textAt(dl, f.bold, cx0, y, kInk, "Cabin lights");
+        // the lights: On and Off beside the name (On lit while they are on, Off while off; On comes back to the level they had),
+        // and a slider in steps of 10 % under them
+        textAt(dl, f.bold, cx0, y + 4, kInk, "Cabin lights");
         char lv[16];
         const int pct = g.cabinLight < 0 ? -1 : (int)std::lround(g.cabinLight * 100);
+        static int lastOn = 100;   // the level they were last on at
+        if (pct > 0) lastOn = pct;
         if (pct < 0) std::snprintf(lv, sizeof lv, "-");
         else if (pct == 0) std::snprintf(lv, sizeof lv, "Off");
         else std::snprintf(lv, sizeof lv, "%d %%", pct);
-        textRight(dl, f.bold, cx1, y, pct > 0 ? kInk : kMuted, lv);
-        y += 30;
+        textAt(dl, f.bold, cx0 + 112, y + 4, pct > 0 ? kInk : kMuted, lv);
+        if (g.cabinLight >= 0) {
+            const float bw = 64;
+            if (pill(dl, f, "##clon", "On", ImVec2(cx1 - 2 * bw - 8, y), ImVec2(cx1 - bw - 8, y + 30), pct > 0, true) && pct <= 0) { act.ground = GA_CABIN_LIGHT; act.groundIndex = lastOn; }
+            if (pill(dl, f, "##cloff", "Off", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), pct == 0, true) && pct != 0) { act.ground = GA_CABIN_LIGHT; act.groundIndex = 0; }
+        }
+        y += 36;
         if (g.cabinLight >= 0) {
             // the track, its fill, ticks at every 10 % and the handle; pressing or dragging on it sets the level, in 10 % clicks
             const float tx0 = cx0 + 10, tx1 = cx1 - 10, ty = y + 14;
@@ -3546,11 +3672,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             }
             dl->AddCircleFilled(ImVec2(hx, ty), 10.0f, IM_COL32(245, 248, 255, 255), 0);
             dl->AddCircle(ImVec2(hx, ty), 10.0f, IM_COL32(255, 214, 120, 255), 0, 2.0f);
-            y += 40;
-            const float bw = (cx1 - cx0 - 10) * 0.5f;
-            if (pill(dl, f, "##clon", "On", ImVec2(cx0, y), ImVec2(cx0 + bw, y + 30), pct >= 100, true)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = 100; }
-            if (pill(dl, f, "##cloff", "Off", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), pct == 0, true)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = 0; }
-            y += 46;
+            y += 44;
         } else {
             textAt(dl, f.small, cx0, y, kMuted, "This aircraft does not offer its cabin lights.");
             y += 34;
@@ -3568,6 +3690,20 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         if (pill(dl, f, "##arm", "Arm", ImVec2(cx0, y), ImVec2(cx0 + bw, y + 30), !g.slidesAuto && g.slides == 1, true)) act.ground = GA_SLIDES_ARM;
         if (pill(dl, f, "##disarm", "Disarm", ImVec2(cx0 + bw + 8, y), ImVec2(cx0 + 2 * bw + 8, y + 30), !g.slidesAuto && g.slides == 0, true)) act.ground = GA_SLIDES_DISARM;
         if (pill(dl, f, "##sauto", "Auto", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), g.slidesAuto, true)) act.ground = GA_SLIDES_AUTO;
+        y += 42;
+        // Cabin Ready: tells the aircraft the cabin is secure (the CABIN READY memo); greyed once given, until after takeoff or landing
+        const ImVec2 ra(cx0, y), rb(cx1, std::min(split - 14, y + 44));
+        if (g.cabinReady) {
+            dl->AddRectFilled(ra, rb, IM_COL32(255, 255, 255, 14), 14.0f);
+            textCentered(dl, f.bold, (ra.x + rb.x) * 0.5f, std::floor((ra.y + rb.y) * 0.5f - fontPx(f.bold) * 0.5f), kMuted, "Cabin Ready  \xE2\x9C\x93");
+        } else {
+            ImGui::SetCursorScreenPos(ra);
+            const bool hit = ImGui::InvisibleButton("##cabready", ImVec2(rb.x - ra.x, rb.y - ra.y));
+            const Ease ez = eased("##cabready", false, ImGui::IsItemHovered(), ImGui::IsItemActive());
+            dl->AddRectFilled(ra, rb, mixCol(IM_COL32(52, 132, 240, 255), IM_COL32(84, 158, 255, 255), ez.hot), 14.0f);
+            textCentered(dl, f.bold, (ra.x + rb.x) * 0.5f, std::floor((ra.y + rb.y) * 0.5f - fontPx(f.bold) * 0.5f), IM_COL32(255, 255, 255, 255), "Cabin Ready");
+            if (hit) act.ground = GA_CABIN_READY;
+        }
     }
     {   // the jetway status: Good, or what keeps a jetway from connecting
         std::vector<std::string> why;
@@ -3714,7 +3850,7 @@ std::string agoText(double t) {
     return b;
 }
 // glass, as iOS draws it: a light veil over what is behind, a hairline edge, a faint sheen at the top
-void glass(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha = 1.0f) {
+void glass(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha) {
     const int A = (int)(255 * alpha);
     dl->AddRectFilled(a, b, IM_COL32(18, 28, 50, 215 * A / 255), r);   // a dark frosted base: what is behind barely shows
     dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, 24 * A / 255), r);

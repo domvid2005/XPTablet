@@ -55,7 +55,7 @@ FlightPlan parseSimbrief(const std::string& body) {
         const wx::Json* fix = nav ? nav->get("fix") : nullptr;
         p.origin = str(org, "icao_code"); p.originName = str(org, "name"); p.originRunway = str(org, "plan_rwy");
         p.dest = str(dst, "icao_code"); p.destName = str(dst, "name"); p.destRunway = str(dst, "plan_rwy");
-        p.alternate = str(alt, "icao_code");
+        p.alternate = str(alt, "icao_code"); p.alternateName = str(alt, "name");
         p.callsign = str(atc, "callsign");
         if (p.callsign.empty()) p.callsign = str(gen, "icao_airline") + str(gen, "flight_number");
         p.aircraft = str(acf, "icaocode"); if (p.aircraft.empty()) p.aircraft = str(acf, "icao_code");
@@ -119,6 +119,31 @@ void planToRoute(const FlightPlan& p, MapState& m) {
     if (!p.loaded) { m.routeStatus = "Import a plan on the Flight Plan page"; return; }
     for (const auto& l : p.legs) if (l.lat != 0 || l.lon != 0) m.route.push_back({l.lat, l.lon, l.ident});
     m.routeStatus = p.origin + " to " + p.dest + " (SimBrief)";
+}
+
+void planFetched(SimState& s, const FlightPlan& p, bool quiet) {
+    if (quiet) {
+        if (!p.loaded || p.ofpId.empty() || p.ofpId == s.plan.ofpId || p.ofpId == s.planDismissed || p.ofpId == s.planPreview.ofpId) return;
+        s.planPreview = p;
+        ++s.newPlanSeq;
+        s.newPlanText = p.origin + " to " + p.dest + (p.callsign.empty() ? std::string() : " (" + p.callsign + ")") + ". Tap to review it.";
+        return;
+    }
+    s.plan.busy = false;
+    if (p.loaded) { s.planPreview = p; s.plan.status = s.plan.loaded ? s.plan.status : std::string(); }
+    else s.plan.status = p.status;   // a failed fetch keeps the plan there was
+}
+void planDecide(SimState& s, const Actions& a) {
+    if (a.planAccept && s.planPreview.loaded) {
+        s.plan = s.planPreview;
+        s.plan.busy = false;
+        s.plan.status = "Imported " + s.planPreview.importedAt;
+        s.planPreview = FlightPlan();
+        planToRoute(s.plan, s.map);
+    } else if (a.planDismiss && s.planPreview.loaded) {
+        s.planDismissed = s.planPreview.ofpId;
+        s.planPreview = FlightPlan();
+    }
 }
 
 } // namespace xpt

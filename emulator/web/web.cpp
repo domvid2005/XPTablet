@@ -80,6 +80,9 @@ double g_jetwayUntil = 0;
 int g_jetwayTo = 1;
 bool g_wantDoor[2] = {false, false};
 bool g_xpJetway = false;               // without openSAM: X-Plane's own jetways, as last pressed (sim/ground_ops/jetway)
+double g_xpJetwayT0 = -100;            // when they were sent for or away (they take 12 s, as the plugin reckons)
+double g_jwPressT[2] = {-100, -100};
+bool g_cabinReady = false, g_cabinReadyGround = true;
 bool g_wasDocked[2] = {false, false};  // ToLiss: the door under a jetway opens when it docks   // the doors asked for: each connects on its own, the jetways leave with the last one
 bool g_slidesAuto = false;             // ToLiss's own rule: armed with the beacon on and the doors shut, disarmed parked
 // a pretend music player (the sim reads Windows' or Linux's own); the radio switch on the page stands for xPilot receiving
@@ -344,15 +347,27 @@ void step(double dt, double now) {
     if (g_openSam && g_jetway == -1 && now >= g_jetwayUntil) g_jetway = g_jetwayTo;
     gr.jetway = g_openSam ? g_jetway : 0;
     if (g_ac.toliss) {
-        gr.paxDoors = g_ac.icao == "A321" ? 8 : g_ac.icao == "A346" ? 8 : 4; gr.cargoDoors = 3; gr.deice = true;
+        const bool four = g_ac.icao == "A321" || g_ac.icao == "A21N" || g_ac.icao == "A339" || g_ac.icao == "A346";   // four pairs of doors
+        gr.paxDoors = four ? 8 : 4; gr.cargoDoors = 3; gr.deice = true;
+        if (g_cabinReady && g_onGround != g_cabinReadyGround) g_cabinReady = false;   // until the next takeoff or landing
+        gr.cabinReady = g_cabinReady;
         if (gr.slides < 0) gr.slides = 0;
         if (gr.cabinLight < 0) gr.cabinLight = 0.7f;
     } else { gr.paxDoors = gr.cargoDoors = 0; gr.deice = false; gr.slides = -1; gr.cabinLight = -1; }
     // jetways: openSAM's (they move, by door), else X-Plane's own (one command brings or sends them all), as the plugin reads them
     if (!g_onGround || g_gs > 3) { g_xpJetway = false; g_wantDoor[0] = g_wantDoor[1] = false; }
     if (!g_openSam) gr.jetway = g_xpJetway ? 2 : 1;
-    gr.jwDoors = g_openSam ? 2 : (g_ac.toliss && g_ac.icao == "A321") ? 2 : 1;
-    for (int k = 0; k < 2; ++k) { gr.jwDoorPax[k] = 2 * k; gr.jwDocked[k] = k < gr.jwDoors && g_wantDoor[k] && (g_openSam ? g_jetway == 2 : g_xpJetway); }
+    // the jetway doors as the plugin finds them: 1L, and 2L on the four-pair types (openSAM: two)
+    gr.jwDoors = g_openSam ? 2 : (g_ac.toliss && gr.paxDoors == 8) ? 2 : 1;
+    if (!g_ac.toliss) gr.paxDoors = gr.jwDoors >= 2 ? 8 : 4;   // (the layout with 2L ahead of the wing, as the plugin gives it)
+    const bool xpThere = g_xpJetway && now - g_xpJetwayT0 >= 12;
+    for (int k = 0; k < 2; ++k) {
+        gr.jwDoorPax[k] = 2 * k;
+        const bool here = k < gr.jwDoors;
+        gr.jwDocked[k] = here && g_wantDoor[k] && (g_openSam ? g_jetway == 2 : xpThere);   // connected once it is there
+        gr.jwMoving[k] = here && (g_openSam ? (g_jetway == -1 && g_wantDoor[k] != (g_jetwayTo == 1))
+                                            : now - g_xpJetwayT0 < 12 && (g_wantDoor[k] ? g_xpJetway : now - g_jwPressT[k] < 12));
+    }
     if (g_ac.toliss) for (int k = 0; k < gr.jwDoors; ++k) if (gr.jwDocked[k] != g_wasDocked[k]) {
         g_wasDocked[k] = gr.jwDocked[k];
         if (2 * k < gr.paxDoors) gr.paxDoor[2 * k] = gr.jwDocked[k] ? 2 : 0;   // the door under it opens, and closes when it leaves
@@ -418,16 +433,17 @@ void groundAction(const Actions& a, double now) {
     case GA_SLIDES_ARM: gr.slides = 1; g_slidesAuto = false; break;
     case GA_SLIDES_DISARM: gr.slides = 0; g_slidesAuto = false; break;
     case GA_SLIDES_AUTO: g_slidesAuto = true; break;
+    case GA_CABIN_READY: if (g_ac.toliss) { g_cabinReady = true; g_cabinReadyGround = g_onGround; } break;
     case GA_CABIN_LIGHT: gr.cabinLight = std::max(0, std::min(100, a.groundIndex)) / 100.0f; break;
     case GA_JETWAY: case GA_JETWAY_DOOR: {
         if (g_openSam && g_jetway == -1) break;
         const bool any0 = g_wantDoor[0] || g_wantDoor[1];
-        if (a.ground == GA_JETWAY_DOOR && a.groundIndex >= 0 && a.groundIndex < 2) g_wantDoor[a.groundIndex] = !g_wantDoor[a.groundIndex];
+        if (a.ground == GA_JETWAY_DOOR && a.groundIndex >= 0 && a.groundIndex < 2) { g_wantDoor[a.groundIndex] = !g_wantDoor[a.groundIndex]; g_jwPressT[a.groundIndex] = now; }
         else { const bool on = !(g_openSam ? g_jetway == 2 : g_xpJetway); g_wantDoor[0] = g_wantDoor[1] = on; }
         const bool any1 = g_wantDoor[0] || g_wantDoor[1];
         if (!g_openSam) {   // X-Plane's own: sim/ground_ops/jetway with the first door, again with the last
-            if (!any0 && any1) g_xpJetway = true;
-            else if (any0 && !any1) g_xpJetway = false;
+            if (!any0 && any1) { g_xpJetway = true; g_xpJetwayT0 = now; }
+            else if (any0 && !any1) { g_xpJetway = false; g_xpJetwayT0 = now; }
         } else if (!any0 && any1 && g_jetway != 2) { g_jetwayTo = 2; g_jetway = -1; g_jetwayUntil = now + 6; }   // the first door: the jetways come
         else if (any0 && !any1 && g_jetway == 2) { g_jetwayTo = 1; g_jetway = -1; g_jetwayUntil = now + 6; }   // the last door: they go
         break;
@@ -461,6 +477,7 @@ void handle(const Actions& a, double now) {
         g_s.plan.busy = true; g_s.plan.status = "Asking SimBrief..."; g_sbQuiet = false;
         js_fetch_text(K_SIMBRIEF, simbriefUrl(settings().simbriefUser).c_str());
     }
+    planDecide(g_s, a);
     if (a.planClear) { g_s.plan = FlightPlan(); g_s.plan.status = "Cleared"; planToRoute(g_s.plan, g_s.map); }
     // a traffic card: its VATSIM details (simulated traffic is not on VATSIM, so most say so)
     if (a.mapShown && !a.trafficSelected.empty()) {
@@ -551,18 +568,8 @@ EMSCRIPTEN_KEEPALIVE void emu_text(int kind, int status, const char* text) {
         else if (status == 400) p.status = "SimBrief has no plan for that ID";
         else if (status != 200) p.status = "SimBrief answered " + std::to_string(status);
         else p = parseSimbrief(body);
-        if (g_sbQuiet) {   // the 2-minute check: only a plan not seen before counts
-            g_sbQuiet = false;
-            if (!p.loaded || p.ofpId == g_s.plan.ofpId) return;
-            g_s.plan = p; g_s.plan.status = "New plan found " + p.importedAt;
-            ++g_s.newPlanSeq;
-            g_s.newPlanText = p.origin + " to " + p.dest + (p.callsign.empty() ? std::string() : " (" + p.callsign + ")") + ". Tap for the Flight Plan.";
-            planToRoute(g_s.plan, g_s.map);
-            return;
-        }
-        if (p.loaded) g_s.plan = p; else g_s.plan.status = p.status;
-        g_s.plan.busy = false;
-        planToRoute(g_s.plan, g_s.map);
+        planFetched(g_s, p, g_sbQuiet);   // into the preview: the flight plan stays until its Import
+        g_sbQuiet = false;
     } else if (kind == K_VATSIM) {
         g_vatsimBusy = false;
         std::unordered_map<std::string, VatsimPilot> p;
