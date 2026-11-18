@@ -156,6 +156,69 @@ if(XPT_BUILD_PLUGIN)
   endif()
 endif()
 
+# --- The emulator: the real plugin against a stand-in for X-Plane (emulator/), to try changes without X-Plane ------------------
+# XPT_BUILD_EMULATOR: the desktop app (GLFW, fetched; needs the SDK headers only). XPT_BUILD_EMULATOR_HEADLESS: Linux, no screen (EGL),
+# driven by a script; for tests and CI.
+option(XPT_BUILD_EMULATOR "Build the desktop emulator (fetches GLFW)" OFF)
+option(XPT_BUILD_EMULATOR_HEADLESS "Build the screen-less emulator (Linux, EGL)" OFF)
+if((XPT_BUILD_EMULATOR OR XPT_BUILD_EMULATOR_HEADLESS) AND XPLANE_SDK)
+  # the plugin's own sources, built into the emulator, with the XPLM functions coming from the emulator instead of X-Plane
+  add_library(xpt_emu_core STATIC
+    src/plugin.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp src/tiles.cpp src/aptdat.cpp src/ourairports.cpp
+    src/navdata.cpp src/vatsim.cpp
+    emulator/xplm_emu.cpp emulator/emu_sim.cpp emulator/emu_panel.cpp emulator/emu_script.cpp emulator/emu_paths.cpp emulator/emu_png.cpp)
+  target_include_directories(xpt_emu_core PUBLIC "${XPLANE_SDK}/CHeaders/XPLM" src emulator third_party/stb)
+  target_compile_definitions(xpt_emu_core PUBLIC XPLM=1 XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM303=1
+    XPT_EMU_SOURCE_ASSETS="${CMAKE_SOURCE_DIR}/assets")
+  target_link_libraries(xpt_emu_core PUBLIC xpt_ui ${XPT_CURL} Threads::Threads ${CMAKE_DL_LIBS})
+  if(WIN32)
+    target_compile_definitions(xpt_emu_core PUBLIC IBM=1 NOMINMAX=1 WIN32_LEAN_AND_MEAN=1)
+  elseif(APPLE)
+    target_compile_definitions(xpt_emu_core PUBLIC APL=1)
+  else()
+    target_compile_definitions(xpt_emu_core PUBLIC LIN=1)
+  endif()
+  # XPTablet's files beside the emulator: its aircraft shapes (and the browser helper, where it is built)
+  function(xpt_emu_files target)
+    add_custom_command(TARGET ${target} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${CMAKE_SOURCE_DIR}/assets/shapes" "$<TARGET_FILE_DIR:${target}>/XPTablet/shapes")
+    if(TARGET xptbrowser)
+      add_dependencies(${target} xptbrowser)
+      add_custom_command(TARGET ${target} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:xptbrowser>" "$<TARGET_FILE_DIR:${target}>/XPTablet/${XPT_PLATFORM_DIR}/$<TARGET_FILE_NAME:xptbrowser>")
+    endif()
+  endfunction()
+
+  if(XPT_BUILD_EMULATOR)
+    include(FetchContent)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)   # X11 on Linux (XWayland covers Wayland desktops)
+    FetchContent_Declare(glfw GIT_REPOSITORY https://github.com/glfw/glfw.git GIT_TAG 3.4 GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(glfw)
+    add_executable(xptablet_emulator emulator/main_glfw.cpp)
+    target_link_libraries(xptablet_emulator PRIVATE xpt_emu_core glfw)
+    if(WIN32)
+      target_link_libraries(xptablet_emulator PRIVATE opengl32)
+      set_property(TARGET xptablet_emulator PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    elseif(APPLE)
+      target_link_libraries(xptablet_emulator PRIVATE "-framework OpenGL")
+    else()
+      find_library(XPT_LIBGL NAMES GL libGL.so.1 REQUIRED)   # global, so the plugin finds the GL functions as in X-Plane
+      target_link_libraries(xptablet_emulator PRIVATE ${XPT_LIBGL})
+    endif()
+    set_target_properties(xptablet_emulator PROPERTIES OUTPUT_NAME "XPTablet Emulator")
+    xpt_emu_files(xptablet_emulator)
+  endif()
+  if(XPT_BUILD_EMULATOR_HEADLESS AND NOT WIN32 AND NOT APPLE)
+    add_executable(xptablet_emu_headless emulator/main_headless.cpp)
+    target_link_libraries(xptablet_emu_headless PRIVATE xpt_emu_core)
+    xpt_emu_files(xptablet_emu_headless)
+  endif()
+endif()
+
 # --- Tests (no X-Plane needed): ctest -------------------------------------------------------------------------------------
 option(XPT_BUILD_TESTS "Build the off-line UI test" ON)
 if(XPT_BUILD_TESTS)

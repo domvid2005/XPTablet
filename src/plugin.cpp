@@ -1969,6 +1969,9 @@ PLUGIN_API void XPluginStop(void) {
     if (g_menu) { XPLMDestroyMenu(g_menu); g_menu = nullptr; }
     if (g_menuItem >= 0) { XPLMRemoveMenuItem(XPLMFindPluginsMenu(), g_menuItem); g_menuItem = -1; }
     if (g_ctx) { ImGui::DestroyContext(g_ctx); g_ctx = nullptr; }
+    g_fontScale = 0;   // the fonts went with the context: a later start (without unloading) builds them again
+    g_fonts = xpt::Fonts();
+    g_batches.clear();
 }
 
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int msg, void* param) {
