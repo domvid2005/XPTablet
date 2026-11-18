@@ -545,7 +545,7 @@ int main(int argc, char** argv) {
             shot(fp, APP_ROUTES, "flightplan");
             {   // a newer plan from SimBrief, in its window before Import (the plan in use stays under it)
                 SimState pv = fp;
-                pv.planPreview = fp.plan; pv.planPreview.alternateName = "Chicago Midway Intl"; pv.planPreview.callsign = "AAL1235"; pv.planPreview.ofpId = "2/1";
+                pv.planPreview = fp.plan; pv.planPreviewOpen = true; pv.planPreview.alternateName = "Chicago Midway Intl"; pv.planPreview.callsign = "AAL1235"; pv.planPreview.ofpId = "2/1";
                 pv.planPreview.dest = "KORD"; pv.planPreview.sid = "SBN2";
                 for (int k = 0; k < 25; ++k) shot(pv, APP_ROUTES, "flightplan_preview");   // (it grows in)
                 g_previewState = pv;

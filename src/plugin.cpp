@@ -691,7 +691,7 @@ void planStep(const xpt::Actions& act) {
             simbriefFetch(st.simbriefUser, true);
         }
     }
-    if (act.planAccept || act.planDismiss) { const bool took = act.planAccept; xpt::planDecide(g_sim, act); if (took) planToRoute(); }
+    if (act.planAccept || act.planDismiss || act.planReview) { const bool took = act.planAccept; xpt::planDecide(g_sim, act); if (took) planToRoute(); }
     if (act.planClear) {
         if (g_sbThread.joinable()) g_sbThread.join();
         g_sim.plan = xpt::FlightPlan();
@@ -1016,6 +1016,11 @@ void docsStep(const xpt::Actions& act) {
     XPLMBindTexture2d(0, 0);
     d.tex = (ImTextureID)(intptr_t)g_docTex;
     d.texW = g_docW; d.texH = g_docH;
+    {   // light or dark: the average brightness over a sample of its pixels
+        double sum = 0; size_t n = 0;
+        for (size_t i = 0; i + 3 < g_docPixels.size(); i += 4 * 97) { sum += 0.30 * g_docPixels[i] + 0.59 * g_docPixels[i + 1] + 0.11 * g_docPixels[i + 2]; ++n; }
+        d.light = n > 0 && sum / n > 150;
+    }
     std::vector<uint8_t>().swap(g_docPixels);
 }
 
@@ -1910,7 +1915,9 @@ void doGround(const xpt::Actions& act) {
     case xpt::GA_SLIDES_DISARM: g_slidesAuto = false; if (g.toliss) trigger("toliss_airbus/door_commands/disarm_slides"); break;
     case xpt::GA_SLIDES_AUTO: g_slidesAuto = true; break;
     case xpt::GA_CABIN_READY:   // the cabin is secure: ToLiss's CABIN READY memo (as its flight attendant panel sends it)
-        if (g.toliss) { once("AirbusFBW/CheckCabin"); g_refs.cabinReady = true; g_refs.cabinReadyGround = g.onGround; }
+        // pressed again: not ready (ToLiss has no command to take its memo back, so only the tablet's button goes back)
+        if (g.toliss && g_refs.cabinReady) g_refs.cabinReady = false;
+        else if (g.toliss) { once("AirbusFBW/CheckCabin"); g_refs.cabinReady = true; g_refs.cabinReadyGround = g.onGround; }
         break;
     case xpt::GA_CABIN_LIGHT: {   // the level, 0-100 % in steps of 10; ToLiss's 0 / 1 / 2 switch when there is no percentage
         const int pct = std::max(0, std::min(100, act.groundIndex));

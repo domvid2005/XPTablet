@@ -447,7 +447,7 @@ void groundAction(const Actions& a, double now) {
     case GA_SLIDES_ARM: gr.slides = 1; g_slidesAuto = false; break;
     case GA_SLIDES_DISARM: gr.slides = 0; g_slidesAuto = false; break;
     case GA_SLIDES_AUTO: g_slidesAuto = true; break;
-    case GA_CABIN_READY: if (g_ac.toliss) { g_cabinReady = true; g_cabinReadyGround = g_onGround; } break;
+    case GA_CABIN_READY: if (g_ac.toliss) { g_cabinReady = !g_cabinReady; g_cabinReadyGround = g_onGround; } break;
     case GA_CABIN_LIGHT: gr.cabinLight = std::max(0, std::min(100, a.groundIndex)) / 100.0f; break;
     case GA_JETWAY: case GA_JETWAY_DOOR: {
         if (g_openSam && g_jetway == -1) break;
@@ -530,7 +530,7 @@ void handle(const Actions& a, double now) {
             rect(560, 600, 740, 780, 200, 204, 212); rect(600, 640, 720, 740, 150, 156, 168);   // the apron and the terminal
             chart = uploadLevels(px.data(), W, H, 1);
         }
-        g_s.docs.shownPath = a.docOpen; g_s.docs.tex = (ImTextureID)(intptr_t)chart; g_s.docs.texW = W; g_s.docs.texH = H;
+        g_s.docs.shownPath = a.docOpen; g_s.docs.tex = (ImTextureID)(intptr_t)chart; g_s.docs.texW = W; g_s.docs.texH = H; g_s.docs.light = true;
     }
     // the Airports page: X-Plane's airports are not here
     if (a.airportsShown) g_s.airportStatus = "Airports come from X-Plane's scenery: try them in the desktop emulator with your X-Plane folder.";
@@ -648,6 +648,8 @@ EMSCRIPTEN_KEEPALIVE void emu_sample_plan() {
     p.alternate = "KMDW"; p.alternateName = "Chicago Midway Intl";
     p.route = "GIJ DCT PMM DCT OBK"; p.sid = "SBN2"; p.star = "WATSN4"; p.cruise = "FL240"; p.distanceNm = "92"; p.ete = "38 min"; p.costIndex = "30"; p.avgWind = "head 22 kt";
     p.blockFuel = "9800"; p.tripFuel = "4200"; p.reserveFuel = "2900"; p.altnFuel = "1600"; p.taxiFuel = "600"; p.extraFuel = "500"; p.zfw = "141200"; p.tow = "150400"; p.ldw = "146200";
+    p.oew = "107000"; p.paxCount = "171"; p.paxWeight = "32490"; p.bags = "171"; p.bagWeight = "8550"; p.freight = "2400"; p.payload = "34200";
+    p.maxZfw = "160937"; p.maxTow = "206132"; p.maxLdw = "171519";
     struct Fx { const char* id; double lat, lon; const char* alt; };
     const Fx fx[] = {{"KSBN", 41.7087, -86.3173, ""}, {"GIJ", 41.7685, -86.3186, "FL240"}, {"PMM", 42.4644, -86.1059, "FL240"},
                      {"OBK", 42.2206, -87.9520, "FL240"}, {"WATSN", 42.0500, -87.7000, "FL110"}, {"KORD", 41.9786, -87.9048, ""}};

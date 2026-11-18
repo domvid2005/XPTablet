@@ -154,8 +154,26 @@ void textCentered(ImDrawList* dl, ImFont* f, float cx, float y, ImU32 col, const
 float fontPx(ImFont* f) { return f->FontSize * ImGui::GetIO().FontGlobalScale; }
 
 // The default wallpaper: a navy sky that lightens downwards, with a mountain range along the bottom edge.
+// The looks to choose in Settings, Display, all from the XPTablet logo: its navy, and the colours of its letters (violet, magenta,
+// coral, orange, gold). A background is a sky (top, bottom) and two mountain ranges; an accent is the colour of what is chosen.
+struct Backdrop { const char* name; ImU32 top, bot, back, front; };
+const Backdrop kBackdrops[5] = {
+    {"Navy", IM_COL32(9, 22, 44, 255), IM_COL32(24, 58, 104, 255), IM_COL32(20, 46, 86, 255), IM_COL32(14, 34, 66, 255)},
+    {"Violet", IM_COL32(16, 12, 42, 255), IM_COL32(60, 40, 118, 255), IM_COL32(46, 30, 96, 255), IM_COL32(32, 22, 72, 255)},
+    {"Dusk", IM_COL32(22, 10, 34, 255), IM_COL32(100, 36, 96, 255), IM_COL32(76, 28, 78, 255), IM_COL32(52, 20, 58, 255)},
+    {"Sunset", IM_COL32(20, 14, 40, 255), IM_COL32(150, 66, 72, 255), IM_COL32(104, 44, 64, 255), IM_COL32(64, 28, 52, 255)},
+    {"Amber", IM_COL32(20, 16, 30, 255), IM_COL32(146, 96, 42, 255), IM_COL32(104, 66, 38, 255), IM_COL32(64, 40, 30, 255)},
+};
+struct Accent { const char* name; int r, g, b; };
+const Accent kAccents[5] = {{"Violet", 150, 100, 235}, {"Magenta", 205, 80, 170}, {"Coral", 240, 96, 96}, {"Orange", 240, 140, 70}, {"Gold", 236, 176, 56}};
+ImU32 accentCol(int a) { const Accent& c = kAccents[std::max(0, std::min(4, g_settings.accent))]; return IM_COL32(c.r, c.g, c.b, std::max(0, std::min(255, a))); }
+ImU32 accentLite(int a) {   // the lighter one: rings, lines, focus
+    const Accent& c = kAccents[std::max(0, std::min(4, g_settings.accent))];
+    return IM_COL32(c.r + (255 - c.r) * 2 / 5, c.g + (255 - c.g) * 2 / 5, c.b + (255 - c.b) * 2 / 5, std::max(0, std::min(255, a)));
+}
 void wallpaper(ImDrawList* dl, float w, float h) {
-    const ImU32 top = IM_COL32(9, 22, 44, 255), bot = IM_COL32(24, 58, 104, 255);
+    const Backdrop& bd = kBackdrops[std::max(0, std::min(4, g_settings.wallpaper))];
+    const ImU32 top = bd.top, bot = bd.bot;
     dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(w, h), top, top, bot, bot);
     const float back[][2] = {{0.00f, 0.80f}, {0.12f, 0.62f}, {0.22f, 0.74f}, {0.36f, 0.50f}, {0.50f, 0.72f}, {0.62f, 0.56f}, {0.76f, 0.76f}, {0.88f, 0.60f}, {1.00f, 0.78f}};
     const float front[][2] = {{0.00f, 0.92f}, {0.10f, 0.80f}, {0.24f, 0.90f}, {0.42f, 0.70f}, {0.56f, 0.88f}, {0.70f, 0.76f}, {0.84f, 0.90f}, {1.00f, 0.80f}};
@@ -165,8 +183,8 @@ void wallpaper(ImDrawList* dl, float w, float h) {
             dl->AddQuadFilled(a, b, ImVec2(b.x, h), ImVec2(a.x, h), col);
         }
     };
-    range(back, 9, IM_COL32(20, 46, 86, 255));
-    range(front, 8, IM_COL32(14, 34, 66, 255));
+    range(back, 9, bd.back);
+    range(front, 8, bd.front);
 }
 
 // A small white pictogram for each app, drawn from lines and circles inside a circle of radius r around c.
@@ -573,7 +591,7 @@ void home(ImDrawList* dl, const Fonts& f, float w, float h) {
             if (arranging) dl->AddRectFilled(ImVec2(c.x - tile * 0.5f, c.y - tile * 0.5f), ImVec2(c.x + tile * 0.5f, c.y + tile * 0.5f), IM_COL32(255, 255, 255, 22), tile * 0.24f);
             continue;
         }
-        const bool over = drag < 0 && !g_editMode && m.x >= cx && m.x < cx + cellW && m.y >= cy && m.y < cy + cellH;
+        const bool over = drag < 0 && m.x >= cx && m.x < cx + cellW && m.y >= cy && m.y < cy + cellH;
         const bool held = g_pressApp == app && io.MouseDown[0];
         const int v0 = dl->VtxBuffer.Size;
         hoverTile(dl, f, app, c, tile, over, held);
@@ -594,7 +612,7 @@ void home(ImDrawList* dl, const Fonts& f, float w, float h) {
         const int slot = (drag >= 0 && toDock && k >= gap) ? k + 1 : k;
         const float cx = dx0 + dockPad + slot * dockCell;
         const ImVec2 c(cx + dockCell * 0.5f, dockTop + 8 + dockTile * 0.5f);   // the icon, its name under it
-        const bool over = drag < 0 && !g_editMode && m.x >= cx && m.x < cx + dockCell && m.y >= dockTop && m.y < dockTop + dockH;
+        const bool over = drag < 0 && m.x >= cx && m.x < cx + dockCell && m.y >= dockTop && m.y < dockTop + dockH;
         const bool held = g_pressApp == dock[k] && io.MouseDown[0];
         const int v0 = dl->VtxBuffer.Size;
         hoverTile(dl, f, dock[k], c, dockTile, over, held);
@@ -765,8 +783,8 @@ bool pill(ImDrawList* dl, const Fonts& f, const char* id, const char* label, ImV
     const Ease e = eased(id, on && enabled, hot && enabled, down && enabled);
     // off: a light veil (brighter when hovered); on: blue; pressed: a touch smaller and brighter
     ImU32 bg = mixCol(IM_COL32(255, 255, 255, 30), IM_COL32(255, 255, 255, 52), e.hot);
-    bg = mixCol(bg, IM_COL32(70, 140, 255, 225), e.on);
-    bg = mixCol(bg, e.on > 0.5f ? IM_COL32(96, 160, 255, 255) : IM_COL32(255, 255, 255, 74), e.down);
+    bg = mixCol(bg, accentCol(225), e.on);
+    bg = mixCol(bg, e.on > 0.5f ? accentLite(255) : IM_COL32(255, 255, 255, 74), e.down);
     if (!enabled) bg = IM_COL32(255, 255, 255, 14);
     const float inset = e.down * 1.5f;
     const ImVec2 a2(a.x + inset, a.y + inset), b2(b.x - inset, b.y - inset);
@@ -801,7 +819,7 @@ bool smoothSlider(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, ImVe
     }
     shownAt.SetFloat(key, shown);
     const float kx = x0 + (x1 - x0) * shown;
-    const ImU32 fill = !enabled ? IM_COL32(150, 160, 180, 120) : IM_COL32(70, 140, 255, 255);
+    const ImU32 fill = !enabled ? IM_COL32(150, 160, 180, 120) : accentCol(255);
     dl->AddRectFilled(ImVec2(x0, cy - 3), ImVec2(x1, cy + 3), IM_COL32(255, 255, 255, enabled ? 34 : 18), 3.0f);
     dl->AddRectFilled(ImVec2(x0, cy - 3), ImVec2(kx, cy + 3), fill, 3.0f);
     for (int i = 0; steps > 0 && steps <= 10 && i <= steps; ++i) {
@@ -956,7 +974,7 @@ float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
         ImGui::SetCursorScreenPos(ImVec2(x, yy));
         const bool hit = ImGui::InvisibleButton(id, ImVec2(ww, kh));
         const bool down = ImGui::IsItemActive(), hot = ImGui::IsItemHovered();
-        dl->AddRectFilled(ImVec2(x, yy), ImVec2(x + ww, yy + kh), lit ? IM_COL32(70, 140, 255, down ? 255 : hot ? 245 : 230) : IM_COL32(255, 255, 255, down ? 80 : hot ? 46 : 30), 7.0f);
+        dl->AddRectFilled(ImVec2(x, yy), ImVec2(x + ww, yy + kh), lit ? accentCol(down ? 255 : hot ? 245 : 230) : IM_COL32(255, 255, 255, down ? 80 : hot ? 46 : 30), 7.0f);
         ImFont* fn = std::strlen(label) > 2 ? f.small : f.bold;
         textCentered(dl, fn, x + ww * 0.5f, std::floor(yy + (kh - fontPx(fn)) * 0.5f), kInk, label);
         return hit;
@@ -1081,7 +1099,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         if (iconButton("##wreload", ImVec2(w - 92, kStatusH + 6), ImVec2(w - 56, kStatusH + kHeaderH - 6), true)) act.webNav = b.loading ? 4 : 3;
         reloadIcon(dl, ImVec2(w - 74, my), ink);
         if (iconButton("##wkbd", ImVec2(w - 52, kStatusH + 6), ImVec2(w - 12, kStatusH + kHeaderH - 6), true)) { g_kbd = !g_kbd; g_kbdTarget = 0; }
-        keyboardIcon(dl, ImVec2(w - 32, my), g_kbd ? IM_COL32(110, 170, 255, 255) : ink);
+        keyboardIcon(dl, ImVec2(w - 32, my), g_kbd ? accentLite(255) : ink);
     } else {
         // the tabs: each with its page's title and a close button; + opens a blank one (and the address bar, to type where)
         const float tabsH = 32;
@@ -1142,7 +1160,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         const bool editing = g_kbd && g_kbdTarget == 1;
         if (iconButton("##baddr", a, e, true)) { g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear(); }
         dl->AddRectFilled(a, e, IM_COL32(255, 255, 255, editing ? 44 : 26), 14.0f);
-        if (editing) dl->AddRect(a, e, IM_COL32(110, 170, 255, 200), 14.0f, 0, 1.5f);
+        if (editing) dl->AddRect(a, e, accentLite(200), 14.0f, 0, 1.5f);
         dl->PushClipRect(a, e, true);
         const std::string shown = editing ? g_addrEdit : (b.url.empty() ? g_url : b.url);
         const float ty = std::floor(my - fontPx(f.body) * 0.5f);
@@ -1163,7 +1181,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         }
         star(dl, ImVec2(w - 69, my), bmi >= 0, IM_COL32(255, 196, 80, 255));
         if (iconButton("##bkbd", ImVec2(w - 48, top + 4), ImVec2(w - 8, top + barH - 4), true)) { g_kbd = !(g_kbd && g_kbdTarget == 0); g_kbdTarget = 0; }
-        keyboardIcon(dl, ImVec2(w - 28, my), g_kbd && g_kbdTarget == 0 ? IM_COL32(110, 170, 255, 255) : ink);
+        keyboardIcon(dl, ImVec2(w - 28, my), g_kbd && g_kbdTarget == 0 ? accentLite(255) : ink);
         // bookmarks: only the user's own (the star adds and removes them); pressing one loads it
         float x = 14;
         const float by = top + barH + 3;
@@ -1219,7 +1237,7 @@ void metarPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
     const float ix = a.x + 14, iw = lw - 28;
     const ImVec2 i0(ix, a.y + 34), i1(ix + iw - 110, a.y + 34 + 40);
     dl->AddRectFilled(i0, i1, IM_COL32(255, 255, 255, 22), 10.0f);
-    dl->AddRect(i0, i1, IM_COL32(110, 170, 255, 160), 10.0f);
+    dl->AddRect(i0, i1, accentLite(160), 10.0f);
     if (g_metarInput.empty()) textAt(dl, f.body, i0.x + 14, i0.y + 11, kMuted, "ICAO code, e.g. KBOS");
     else textAt(dl, f.title, i0.x + 14, i0.y + 9, kInk, g_metarInput.c_str());
     const bool can = g_metarInput.size() >= 3 && !s.metar.busy;
@@ -1329,9 +1347,9 @@ void simWeatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         if (x.valid && x.windKt >= 1) {   // an arrow flying with the wind: from where it blows, through the centre
             const float an = (x.windDir - 90) * kPi / 180;
             const ImVec2 from(c.x + std::cos(an) * (r - 6), c.y + std::sin(an) * (r - 6)), to(c.x - std::cos(an) * (r - 22), c.y - std::sin(an) * (r - 22));
-            dl->AddLine(from, to, IM_COL32(110, 170, 255, 255), 3.0f);
+            dl->AddLine(from, to, accentLite(255), 3.0f);
             const ImVec2 n(std::cos(an), std::sin(an)), t(-n.y, n.x);
-            dl->AddTriangleFilled(ImVec2(to.x - n.x * 4, to.y - n.y * 4), ImVec2(to.x + n.x * 10 + t.x * 7, to.y + n.y * 10 + t.y * 7), ImVec2(to.x + n.x * 10 - t.x * 7, to.y + n.y * 10 - t.y * 7), IM_COL32(110, 170, 255, 255));
+            dl->AddTriangleFilled(ImVec2(to.x - n.x * 4, to.y - n.y * 4), ImVec2(to.x + n.x * 10 + t.x * 7, to.y + n.y * 10 + t.y * 7), ImVec2(to.x + n.x * 10 - t.x * 7, to.y + n.y * 10 - t.y * 7), accentLite(255));
         }
         float y = a.y + 176;
         auto row = [&](const char* k, const char* v) { textAt(dl, f.body, a.x + 14, y, kMuted, k); textRight(dl, f.bold, e.x - 14, y, kInk, v); y += 24; };
@@ -1688,7 +1706,7 @@ bool mapBubble(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, const c
     ImU32 bg = mixCol(IM_COL32(12, 22, 40, 225), IM_COL32(26, 40, 64, 238), e.hot);
     bg = mixCol(bg, IM_COL32(24, 52, 98, 240), e.on * 0.8f);
     dl->AddRectFilled(a2, b2, bg, 9.0f);
-    dl->AddRect(a2, b2, mixCol(IM_COL32(255, 255, 255, 46), IM_COL32(110, 170, 255, 255), e.on), 9.0f, 0, 1.0f + 0.6f * e.on);
+    dl->AddRect(a2, b2, mixCol(IM_COL32(255, 255, 255, 46), accentLite(255), e.on), 9.0f, 0, 1.0f + 0.6f * e.on);
     const float tx = a.x + (b.x - a.x - lw - tw) * 0.5f;
     if (label) textAt(dl, f.small, tx, std::floor(a.y + (30 - fontPx(f.small)) * 0.5f + 1), kMuted, label);
     textAt(dl, f.body, tx + lw, std::floor(a.y + (30 - fontPx(f.body)) * 0.5f), enabled ? mixCol(kInk, IM_COL32(150, 196, 255, 255), e.on) : IM_COL32(236, 241, 250, 80), text);
@@ -2087,13 +2105,30 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         double la0, lo0, la1, lo1;
         latLonOf(MercPt{mx0, my1}, la0, lo0);
         latLonOf(MercPt{mx1, my0}, la1, lo1);
+        // the view's box in degrees, whichever corner is which, with a margin (else lines pop in and out at the edges as it zooms)
+        if (la0 > la1) std::swap(la0, la1);
+        if (lo0 > lo1) std::swap(lo0, lo1);
+        const double padLa = (la1 - la0) * 0.1 + 0.5, padLo = (lo1 - lo0) * 0.1 + 0.5;
+        la0 -= padLa; la1 += padLa; lo0 -= padLo; lo1 += padLo;
+        if (lo1 - lo0 >= 360) { lo0 = -1e9; lo1 = 1e9; }   // the whole world across
         std::vector<ImVec2> pts;
         for (const TzLine& L : tzLines()) {
             if (L.lo1 < lo0 || L.lo0 > lo1 || L.la1 < la0 || L.la0 > la1) continue;
+            // near the poles the map stretches the zones' meridian edges into long straight lines: none past 75 degrees (a line
+            // that goes there is drawn in its pieces either side)
+            auto flush = [&] {
+                if (pts.size() >= 2) {
+                    if (g_mapZoom < 6) dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(182, 120, 255, 200), 0, 1.2f);   // far out: plain
+                    else dashed(dl, pts, IM_COL32(182, 120, 255, 230), 1.6f, 7.0f, 5.0f);
+                }
+                pts.clear();
+            };
             pts.clear();
-            for (const ImVec2& q : L.pts) pts.push_back(toS(mercOf(q.y, q.x)));
-            if (g_mapZoom < 6) dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(182, 120, 255, 200), 0, 1.2f);   // far out: plain (fewer vertices)
-            else dashed(dl, pts, IM_COL32(182, 120, 255, 230), 1.6f, 7.0f, 5.0f);
+            for (const ImVec2& q : L.pts) {
+                if (std::fabs(q.y) > 75.0f) { flush(); continue; }
+                pts.push_back(toS(mercOf(q.y, q.x)));
+            }
+            flush();
         }
     }
 
@@ -2326,7 +2361,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 fillConcave(dl, {P(0, -9), P(6, 7), P(0, 3), P(-6, 7)}, IM_COL32(10, 16, 28, 200));   // a dark edge under it
                 fillConcave(dl, {P(0, -7.5f), P(4.6f, 5.4f), P(0, 2.2f), P(-4.6f, 5.4f)}, col);
             }
-            if (g_selKind == 1 && g_selKey == t.callsign) dl->AddCircle(q, 16.0f, IM_COL32(110, 170, 255, 255), 0, 2.0f);   // its card is open
+            if (g_selKind == 1 && g_selKey == t.callsign) dl->AddCircle(q, 16.0f, accentLite(255), 0, 2.0f);   // its card is open
             if (g_mapZoom >= 8) {
                 char b[48];
                 if (t.onGround) std::snprintf(b, sizeof b, "%s", t.callsign.c_str());
@@ -2626,7 +2661,7 @@ bool textField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, I
     if (hit) { g_kbd = true; g_kbdTarget = 2; g_typeInto = &v; g_typeMultiline = multiline; }
     const bool focus = g_kbd && g_kbdTarget == 2 && g_typeInto == &v, hot = ImGui::IsItemHovered();
     dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, focus ? 30 : hot ? 22 : 14), 8.0f);
-    dl->AddRect(a, b, focus ? IM_COL32(110, 170, 255, 220) : IM_COL32(255, 255, 255, 30), 8.0f, 0, focus ? 1.5f : 1.0f);
+    dl->AddRect(a, b, focus ? accentLite(220) : IM_COL32(255, 255, 255, 30), 8.0f, 0, focus ? 1.5f : 1.0f);
     dl->PushClipRect(ImVec2(a.x + 2, a.y + 2), ImVec2(b.x - 2, b.y - 2), true);
     const float px = fontPx(f.body);
     const float ty = multiline ? a.y + 8 : std::floor(a.y + (b.y - a.y - px) * 0.5f);
@@ -2694,7 +2729,7 @@ const ImU32 kPens[4] = {IM_COL32(240, 244, 250, 255), IM_COL32(255, 210, 70, 255
 void penDot(ImDrawList* dl, ImVec2 c, ImU32 col, bool highlighter, bool sel, bool hot) {
     if (highlighter) dl->AddRectFilled(ImVec2(c.x - 9, c.y - 6), ImVec2(c.x + 9, c.y + 6), (col & 0x00FFFFFF) | 0xFF000000, 3.0f);
     else dl->AddCircleFilled(c, 10.0f, col, 0);
-    if (sel) dl->AddCircle(c, 13.0f, IM_COL32(110, 170, 255, 255), 0, 2.0f);
+    if (sel) dl->AddCircle(c, 13.0f, accentLite(255), 0, 2.0f);
     else if (hot) dl->AddCircle(c, 13.0f, IM_COL32(255, 255, 255, 90), 0, 1.5f);
 }
 
@@ -2745,7 +2780,7 @@ void notesPage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
             const float y = r.y - shift;
             if (g_notesTab == 0 && i < 5) {   // the CRAFT letter
                 const char L[2] = {"CRAFT"[i], 0};
-                dl->AddCircleFilled(ImVec2(32, y + 30), 15.0f, IM_COL32(70, 140, 255, 200), 0);
+                dl->AddCircleFilled(ImVec2(32, y + 30), 15.0f, accentCol(200), 0);
                 textCentered(dl, f.bold, 32, y + 30 - fontPx(f.bold) * 0.5f, kInk, L);
             }
             textAt(dl, f.small, r.x0 + 2, y, kMuted, labels[i]);
@@ -2915,7 +2950,7 @@ void checklistsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         std::snprintf(id, sizeof id, "##clsec%zu", i);
         ImGui::SetCursorScreenPos(ImVec2(18, y));
         if (ImGui::InvisibleButton(id, ImVec2(leftW - 12, rh - 2))) g_clSection = (int)i;
-        if ((int)i == g_clSection) dl->AddRectFilled(ImVec2(18, y), ImVec2(6 + leftW, y + rh - 2), IM_COL32(70, 140, 255, 80), 8.0f);
+        if ((int)i == g_clSection) dl->AddRectFilled(ImVec2(18, y), ImVec2(6 + leftW, y + rh - 2), accentCol(80), 8.0f);
         else if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(18, y), ImVec2(6 + leftW, y + rh - 2), IM_COL32(255, 255, 255, 18), 8.0f);
         textAt(dl, f.body, 28, std::floor(y + (rh - 2 - fontPx(f.body)) * 0.5f), all ? kGood : kInk, list[i].title.c_str());
         char c[16];
@@ -2998,7 +3033,7 @@ void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         std::snprintf(id, sizeof id, "##aptl%zu", i);
         ImGui::SetCursorScreenPos(ImVec2(18, y));
         if (ImGui::InvisibleButton(id, ImVec2(lw - 12, 40))) { g_aptSel = p.icao; g_kbd = false; g_typeInto = nullptr; g_aptScroll = 0; }
-        if (p.icao == g_aptSel) dl->AddRectFilled(ImVec2(18, y), ImVec2(6 + lw, y + 40), IM_COL32(70, 140, 255, 80), 8.0f);
+        if (p.icao == g_aptSel) dl->AddRectFilled(ImVec2(18, y), ImVec2(6 + lw, y + 40), accentCol(80), 8.0f);
         else if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(18, y), ImVec2(6 + lw, y + 40), IM_COL32(255, 255, 255, 18), 8.0f);
         textAt(dl, f.bold, 28, y + 3, kInk, p.icao.c_str());
         if (s.map.havePos) {
@@ -3215,7 +3250,7 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
             if (e.pdf) { openWeb(e.name.c_str(), fileUrl(e.path).c_str(), true); return; }
             act.docOpen = e.path; g_docZoom = 1.0f; g_docPan = ImVec2(0, 0);
         }
-        if (e.path == d.shownPath) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(lb.x - 6, y + 34), IM_COL32(70, 140, 255, 80), 8.0f);
+        if (e.path == d.shownPath) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(lb.x - 6, y + 34), accentCol(80), 8.0f);
         else if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(lb.x - 6, y + 34), IM_COL32(255, 255, 255, 18), 8.0f);
         // a small page: red for a PDF, blue for a picture
         const ImVec2 ic(la.x + 22, y + 17);
@@ -3276,7 +3311,7 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
         for (const Stroke& st : marks) {
             pts.clear();
             for (const ImVec2& p : st.pts) pts.push_back(ImVec2(i0.x + p.x * isz.x, i0.y + p.y * isz.y));
-            const ImU32 col = kDocPens[st.color % 4];
+            const ImU32 col = (st.color % 4 == 0 && d.light) ? IM_COL32(24, 26, 32, 255) : kDocPens[st.color % 4];   // white on paper: black
             const float th = (st.color % 4 == 3 ? 12.0f : 2.6f) * std::max(0.5f, z);
             if (pts.size() == 1) dl->AddCircleFilled(pts[0], th * 0.6f, col, 0);
             else dl->AddPolyline(pts.data(), (int)pts.size(), col, 0, th);
@@ -3296,7 +3331,8 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
             std::snprintf(id, sizeof id, "##dpen%d", i);
             ImGui::SetCursorScreenPos(ImVec2(pc.x - 13, pc.y - 13));
             if (ImGui::InvisibleButton(id, ImVec2(26, 26))) { g_docPen = i; g_docEraser = false; }
-            penDot(dl, pc, kDocPens[i], i == 3, g_docPen == i && !g_docEraser, ImGui::IsItemHovered());
+            penDot(dl, pc, (i == 0 && d.light) ? IM_COL32(24, 26, 32, 255) : kDocPens[i], i == 3, g_docPen == i && !g_docEraser, ImGui::IsItemHovered());
+            if (i == 0 && d.light) dl->AddCircle(pc, 10.0f, IM_COL32(255, 255, 255, 120), 0, 1.0f);   // (its edge, on the dark bar)
         }
         if (pill(dl, f, "##deraser", "Eraser", ImVec2(va.x + 138, va.y + 10), ImVec2(va.x + 210, va.y + 40), g_docEraser, true)) g_docEraser = !g_docEraser;
         if (pill(dl, f, "##dundo", "Undo", ImVec2(vb.x - 214, va.y + 10), ImVec2(vb.x - 158, va.y + 40), false, !g_docUndo.empty())) { marks = g_docUndo.back(); g_docUndo.pop_back(); g_notesChanged = true; }
@@ -3309,7 +3345,62 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
 
 // ---- Flight Plan: the latest SimBrief plan (Import uses the SimBrief ID saved in Settings, Data); the briefing PDF in a tab -------------
 float g_fplScroll = 0;
+
+// ---- flight progress: along the imported route, from where the aircraft is (the nearest leg, then the fixes left)
+struct Progress { bool ok = false; float frac = 0; double flownNm = 0, leftNm = 0; int etaMin = -1; };
+double nmBetween(double la1, double lo1, double la2, double lo2) {
+    const double r = kPi / 180.0, dla = (la2 - la1) * r, dlo = (lo2 - lo1) * r;
+    const double a = std::sin(dla / 2) * std::sin(dla / 2) + std::cos(la1 * r) * std::cos(la2 * r) * std::sin(dlo / 2) * std::sin(dlo / 2);
+    return 2 * 3440.065 * std::asin(std::min(1.0, std::sqrt(a)));
+}
+Progress flightProgress(const SimState& s) {
+    Progress pr;
+    const FlightPlan& p = s.plan;
+    const MapState& m = s.map;
+    if (!p.loaded || p.legs.size() < 2 || !m.havePos) return pr;
+    std::vector<double> cum(p.legs.size(), 0);   // the route's length up to each fix
+    for (size_t i = 1; i < p.legs.size(); ++i) cum[i] = cum[i - 1] + nmBetween(p.legs[i - 1].lat, p.legs[i - 1].lon, p.legs[i].lat, p.legs[i].lon);
+    const double total = cum.back();
+    if (total < 1) return pr;
+    // the leg the aircraft is on: the one whose ends it is closest to between (the least detour)
+    size_t best = 1;
+    double bestDetour = 1e18;
+    for (size_t i = 1; i < p.legs.size(); ++i) {
+        const double a = nmBetween(m.lat, m.lon, p.legs[i - 1].lat, p.legs[i - 1].lon), b = nmBetween(m.lat, m.lon, p.legs[i].lat, p.legs[i].lon);
+        const double detour = a + b - (cum[i] - cum[i - 1]);
+        if (detour < bestDetour) { bestDetour = detour; best = i; }
+    }
+    const double toNext = nmBetween(m.lat, m.lon, p.legs[best].lat, p.legs[best].lon);
+    pr.leftNm = std::max(0.0, toNext + (total - cum[best]));
+    pr.flownNm = std::max(0.0, total - pr.leftNm);
+    pr.frac = (float)std::max(0.0, std::min(1.0, pr.flownNm / total));
+    if (m.gsKt > 40) pr.etaMin = (int)std::lround(pr.leftNm / m.gsKt * 60.0);
+    pr.ok = true;
+    return pr;
+}
+// the bar: departure, the line flown (in the accent colour), the aircraft on it, destination; the figures over it
+void progressStrip(ImDrawList* dl, const Fonts& f, const SimState& s, const Progress& pr, ImVec2 a, ImVec2 b, bool compact) {
+    const FlightPlan& p = s.plan;
+    const float cy = compact ? b.y - 12 : (a.y + b.y) * 0.5f + 4;
+    const float lw = f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, p.origin.c_str()).x, rw = f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, p.dest.c_str()).x;
+    const float x0 = a.x + lw + 12, x1 = b.x - rw - 12;
+    textAt(dl, f.bold, a.x, std::floor(cy - fontPx(f.bold) * 0.5f), kInk, p.origin.c_str());
+    textAt(dl, f.bold, b.x - rw, std::floor(cy - fontPx(f.bold) * 0.5f), kInk, p.dest.c_str());
+    dl->AddRectFilled(ImVec2(x0, cy - 2.5f), ImVec2(x1, cy + 2.5f), IM_COL32(255, 255, 255, 40), 3.0f);
+    const float px = x0 + (x1 - x0) * pr.frac;
+    dl->AddRectFilled(ImVec2(x0, cy - 2.5f), ImVec2(px, cy + 2.5f), accentCol(255), 3.0f);
+    dl->AddCircleFilled(ImVec2(x0, cy), 4.0f, accentCol(255), 0);
+    dl->AddCircleFilled(ImVec2(x1, cy), 4.0f, IM_COL32(255, 255, 255, 120), 0);
+    // the aircraft: a small arrowhead pointing along
+    dl->AddTriangleFilled(ImVec2(px + 9, cy), ImVec2(px - 6, cy - 7), ImVec2(px - 6, cy + 7), IM_COL32(255, 255, 255, 255));
+    char t[96];
+    if (pr.etaMin >= 0) std::snprintf(t, sizeof t, "%.0f nm flown  \xC2\xB7  %.0f nm to go  \xC2\xB7  %d:%02d left", pr.flownNm, pr.leftNm, pr.etaMin / 60, pr.etaMin % 60);
+    else std::snprintf(t, sizeof t, "%.0f nm flown  \xC2\xB7  %.0f nm to go", pr.flownNm, pr.leftNm);
+    if (compact) textAt(dl, f.small, a.x, a.y, kMuted, t);
+    else textRight(dl, f.small, b.x, a.y - 2, kMuted, t);
+}
 double g_previewT0 = 0;   // when the plan preview window appeared (it grows in)
+float rowStep = 21;   // the Flight Plan rows' spacing (the fuel and weights card closes it up)
 void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const FlightPlan& p = s.plan;
     const float top = kStatusH + kHeaderH + 8;
@@ -3323,7 +3414,9 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         bx -= 6;
         return hit;
     };
-    if (button("##fpimport", p.busy ? "Importing..." : "Import from SimBrief", true, haveId && !p.busy)) act.planImport = true;
+    // Import: the window at once on a plan dismissed earlier, and SimBrief asked for anything newer (its answer updates the window)
+    const bool waiting = s.planPreview.loaded && !s.planPreviewOpen;
+    if (button("##fpimport", p.busy ? "Importing..." : "Import from SimBrief", true, (haveId || waiting) && !p.busy)) { act.planReview = waiting; act.planImport = haveId; }
     if (button("##fpclear", "Clear", false, p.loaded)) act.planClear = true;
     if (button("##fppdf", "Briefing PDF", false, p.loaded && !p.pdfUrl.empty())) { openWeb("Briefing", p.pdfUrl.c_str(), true); return; }
     if (button("##fpmap", "Show on map", false, p.loaded && !p.legs.empty())) {
@@ -3350,7 +3443,13 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         if (!p.importedAt.empty()) who += "  \xC2\xB7  imported " + p.importedAt;
         textAt(dl, f.small, 16, top + 26, kMuted, who.c_str());
     }
-    const float y0 = top + 48, bot = h - 12;
+    const Progress pr = flightProgress(s);
+    float y0 = top + 48;
+    const float bot = h - 12;
+    if (pr.ok) {   // the flight's progress, across the page under the title
+        progressStrip(dl, f, s, pr, ImVec2(16, top + 50), ImVec2(w - 16, top + 76), false);
+        y0 += 34;
+    }
     // the route
     const float c1 = 12, w1 = 300;
     card(dl, ImVec2(c1, y0), ImVec2(c1 + w1, bot), f, "ROUTE");
@@ -3359,7 +3458,7 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         if (v.empty()) return;
         textAt(dl, f.small, x0, y, kMuted, k);
         textRight(dl, f.bold, x1, y, kInk, v.c_str());
-        y += 21;
+        y += rowStep;
     };
     {
         const std::string dep = p.originRunway.empty() ? p.originName : p.originName + "  rwy " + p.originRunway;
@@ -3386,6 +3485,12 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     y = y0 + 32;
     const std::string u = p.units.empty() ? "" : " " + p.units;
     auto withUnit = [&](const std::string& v) { return v.empty() ? v : v + u; };
+    auto ofMax = [&](const std::string& v, const std::string& mx) { return v.empty() ? v : mx.empty() ? v + u : v + " / " + mx + u; };
+    {   // the rows close up to fit the card: fuel, then the load, then the weights against their limits
+        int n = 0;
+        for (const std::string* v : {&p.blockFuel, &p.tripFuel, &p.reserveFuel, &p.altnFuel, &p.taxiFuel, &p.extraFuel, &p.oew, &p.paxWeight, &p.bagWeight, &p.freight, &p.payload, &p.zfw, &p.tow, &p.ldw}) n += !v->empty();
+        rowStep = std::max(15.0f, std::min(21.0f, (bot - y - 30) / std::max(1, n)));
+    }
     row(c2 + 14, c2 + w2 - 14, "Block", withUnit(p.blockFuel));
     row(c2 + 14, c2 + w2 - 14, "Trip", withUnit(p.tripFuel));
     row(c2 + 14, c2 + w2 - 14, "Reserve", withUnit(p.reserveFuel));
@@ -3394,9 +3499,17 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     row(c2 + 14, c2 + w2 - 14, "Extra", withUnit(p.extraFuel));
     y += 10;
     dl->AddLine(ImVec2(c2 + 14, y - 6), ImVec2(c2 + w2 - 14, y - 6), IM_COL32(255, 255, 255, 20));
-    row(c2 + 14, c2 + w2 - 14, "Zero fuel weight", withUnit(p.zfw));
-    row(c2 + 14, c2 + w2 - 14, "Takeoff weight", withUnit(p.tow));
-    row(c2 + 14, c2 + w2 - 14, "Landing weight", withUnit(p.ldw));
+    row(c2 + 14, c2 + w2 - 14, "Empty (OEW)", withUnit(p.oew));
+    row(c2 + 14, c2 + w2 - 14, p.paxCount.empty() ? "Passengers" : ("Passengers (" + p.paxCount + ")").c_str(), withUnit(p.paxWeight));
+    row(c2 + 14, c2 + w2 - 14, p.bags.empty() ? "Bags" : ("Bags (" + p.bags + ")").c_str(), withUnit(p.bagWeight));
+    row(c2 + 14, c2 + w2 - 14, "Freight", withUnit(p.freight));
+    row(c2 + 14, c2 + w2 - 14, "Payload", withUnit(p.payload));
+    y += 10;
+    dl->AddLine(ImVec2(c2 + 14, y - 6), ImVec2(c2 + w2 - 14, y - 6), IM_COL32(255, 255, 255, 20));
+    row(c2 + 14, c2 + w2 - 14, "ZFW / max", ofMax(p.zfw, p.maxZfw));   // (short names: the figures and their limits are wide)
+    row(c2 + 14, c2 + w2 - 14, "TOW / max", ofMax(p.tow, p.maxTow));
+    row(c2 + 14, c2 + w2 - 14, "LW / max", ofMax(p.ldw, p.maxLdw));
+    rowStep = 21;
     // the navigation log, scrolling
     const float c3 = c2 + w2 + 10, w3 = w - 12 - c3;
     const ImVec2 la(c3, y0), lb(c3 + w3, bot);
@@ -3511,7 +3624,7 @@ void planPreview(ImDrawList* dl, const Fonts& f, const FlightPlan& p, float w, f
     if (pill(dl, f, "##pvimport", "Import", ImVec2(x1 - bw, by), ImVec2(x1, by + 34), true, true)) act.planAccept = true;
 }
 void flightPlanPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
-    const bool preview = s.planPreview.loaded;
+    const bool preview = s.planPreview.loaded && s.planPreviewOpen;
     static bool shown = false;
     if (preview && !shown) g_previewT0 = ImGui::GetTime();
     shown = preview;
@@ -3591,7 +3704,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             const bool docked = g.jwDocked[k];
             const bool open = g.toliss && pax >= 0 && pax < 8 && g.paxDoor[pax] == 2;
             // the block: the door, green while a jetway is on it, blue while the door is open without one
-            const ImU32 blockCol = docked ? kGood : open ? IM_COL32(110, 170, 255, 255) : IM_COL32(140, 156, 184, 255);
+            const ImU32 blockCol = docked ? kGood : open ? accentLite(255) : IM_COL32(140, 156, 184, 255);
             dl->AddRectFilled(ImVec2(side - 9, y - 7), ImVec2(side + 1, y + 7), blockCol, 2.0f);
             // the bubble, at the card's left edge, with a leader to the block
             const float bw = 108, bx = a.x + 12;
@@ -3693,14 +3806,16 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         y += 42;
         // Cabin Ready: tells the aircraft the cabin is secure (the CABIN READY memo); greyed once given, until after takeoff or landing
         const ImVec2 ra(cx0, y), rb(cx1, std::min(split - 14, y + 44));
-        if (g.cabinReady) {
-            dl->AddRectFilled(ra, rb, IM_COL32(52, 168, 96, 255), 14.0f);   // green: the cabin is ready
+        if (g.cabinReady) {   // green: ready; pressed again, not ready any more
+            ImGui::SetCursorScreenPos(ra);
+            if (ImGui::InvisibleButton("##cabunready", ImVec2(rb.x - ra.x, rb.y - ra.y))) act.ground = GA_CABIN_READY;
+            dl->AddRectFilled(ra, rb, ImGui::IsItemHovered() ? IM_COL32(64, 184, 110, 255) : IM_COL32(52, 168, 96, 255), 14.0f);
             textCentered(dl, f.bold, (ra.x + rb.x) * 0.5f, std::floor((ra.y + rb.y) * 0.5f - fontPx(f.bold) * 0.5f), IM_COL32(255, 255, 255, 255), "Cabin Ready");
         } else {
             ImGui::SetCursorScreenPos(ra);
             const bool hit = ImGui::InvisibleButton("##cabready", ImVec2(rb.x - ra.x, rb.y - ra.y));
             const Ease ez = eased("##cabready", false, ImGui::IsItemHovered(), ImGui::IsItemActive());
-            dl->AddRectFilled(ra, rb, mixCol(IM_COL32(52, 132, 240, 255), IM_COL32(84, 158, 255, 255), ez.hot), 14.0f);
+            dl->AddRectFilled(ra, rb, mixCol(accentCol(255), accentLite(255), ez.hot), 14.0f);
             textCentered(dl, f.bold, (ra.x + rb.x) * 0.5f, std::floor((ra.y + rb.y) * 0.5f - fontPx(f.bold) * 0.5f), IM_COL32(255, 255, 255, 255), "Cabin Ready");
             if (hit) act.ground = GA_CABIN_READY;
         }
@@ -3824,7 +3939,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
 
 // ---- notifications, the pull-down (music and the notification list) and the Music app --------------------------------------------------
 struct Note { int id; std::string title, body; int app; double t; bool banner = true; float dx = 0; bool dying = false; double dieT = 0;
-              double awayT = -1; float awayFrom = 0; };   // swiped up: sliding away since awayT (from awayFrom above its place)
+              double awayT = -1; float awayFrom = 0; float yShown = -1e9f; };   // yShown: where its card is drawn (it glides up when one above goes)   // swiped up: sliding away since awayT (from awayFrom above its place)
 std::vector<Note> g_notes;         // newest first
 int g_noteId = 0;
 double g_bannerDrag = -1;          // the banner being pushed up: where the press was (y)
@@ -4105,7 +4220,7 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     dl->PushClipRect(ImVec2(0, kStatusH), ImVec2(w, h), true);   // never over the status bar
     // the veil: what is behind, dimmed and softened (a frosted look)
     dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(6, 12, 26, (int)(130 * k)));
-    dl->AddRectFilled(ImVec2(0, kStatusH + oy), ImVec2(w, h + oy), IM_COL32(14, 24, 46, 205));   // frosted: the page only just shows through   // light: the page shows through
+    dl->AddRectFilled(ImVec2(0, kStatusH + oy), ImVec2(w, h + oy), IM_COL32(12, 20, 40, 235));   // frosted: the page only just shows through   // light: the page shows through
     dl->AddRectFilledMultiColor(ImVec2(0, kStatusH + oy), ImVec2(w, kStatusH + oy + H * 0.5f), IM_COL32(120, 160, 255, 26), IM_COL32(255, 120, 200, 18), IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 0));
     ImGui::SetCursorScreenPos(ImVec2(0, kStatusH + oy));
     ImGui::SetNextItemAllowOverlap();   // the buttons, sliders and the bar drawn over it still get their presses
@@ -4151,6 +4266,16 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         // auto dim, right of the slider as in Settings, Display
         if (pill(dl, f, "##ccautodim", "Auto dim", ImVec2(b.x - 12 - 96, a.y + 45), ImVec2(b.x - 12, a.y + 75), g_settings.autoDim, true)) { g_settings.autoDim = !g_settings.autoDim; g_settingsChanged = true; }
     }
+    {   // the flight's progress, under the brightness (only with a flight plan)
+        const Progress pr = flightProgress(s);
+        if (pr.ok) {
+            const float py = (music ? top + 34 + 214 + 12 : top + 34) + 92 + 12;
+            const ImVec2 a(m, py), b(m + colL, py + 70);
+            glass(dl, a, b, 24.0f);
+            textAt(dl, f.bold, a.x + 16, a.y + 10, kInk, "Flight");
+            progressStrip(dl, f, s, pr, ImVec2(a.x + 16, a.y + 32), ImVec2(b.x - 16, b.y - 4), true);
+        }
+    }
     // the notifications
     const float nx0 = m + colL + 14, nx1 = w - m;
     textAt(dl, f.title, nx0 + 4, top + 2, kInk, "Notifications");
@@ -4159,7 +4284,11 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         const ImVec2 a(nx0, y), b(nx1, y + 40);
         ImGui::SetCursorScreenPos(a);
         const bool any = !g_notes.empty();
-        if (ImGui::InvisibleButton("##ccclear", ImVec2(b.x - a.x, b.y - a.y)) && any) g_notes.clear();
+        if (ImGui::InvisibleButton("##ccclear", ImVec2(b.x - a.x, b.y - a.y)) && any) {   // they slide away one after another
+            const double now = ImGui::GetTime();
+            int k = 0;
+            for (Note& n : g_notes) if (!n.dying) { n.dying = true; n.dieT = now + 0.045 * k++; n.dx = 0.001f; }
+        }
         const bool hot = ImGui::IsItemHovered() && any;
         dl->AddRectFilled(a, b, any ? (hot ? IM_COL32(255, 255, 255, 60) : IM_COL32(255, 255, 255, 40)) : IM_COL32(255, 255, 255, 16), 20.0f);
         textCentered(dl, f.bold, (a.x + b.x) * 0.5f, std::floor(a.y + 20 - fontPx(f.bold) * 0.5f), any ? kInk : kMuted, "Clear All");
@@ -4176,10 +4305,14 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     y = listTop - g_ccScroll;
     for (size_t i = 0; i < g_notes.size(); ++i) {
         Note& n = g_notes[i];
-        if (n.dying) n.dx += (n.dx >= 0 ? 1 : -1) * dt * 2200;
-        const ImVec2 a(nx0 + n.dx, y), b(nx1 + n.dx, y + cardH);
+        if (n.dying && ImGui::GetTime() >= n.dieT) n.dx += (n.dx >= 0 ? 1 : -1) * dt * (900 + 3 * std::fabs(n.dx));   // speeding up as it goes
+        if (n.yShown < -1e8f) n.yShown = y;
+        n.yShown += (y - n.yShown) * (1.0f - std::exp(-dt * 14.0f));   // closing up the gap smoothly
+        if (std::fabs(n.yShown - y) < 0.3f) n.yShown = y;
+        const float yy = n.yShown;
+        const ImVec2 a(nx0 + n.dx, yy), b(nx1 + n.dx, yy + cardH);
         if (b.y > listTop && a.y < listBot) {
-            const float al = n.dying ? std::max(0.0f, 1.0f - std::fabs(n.dx) / (w * 0.6f)) : 1.0f;
+            const float al = n.dying ? std::max(0.0f, 1.0f - std::fabs(n.dx) / (w * 0.5f)) : 1.0f;
             noteCard(dl, f, n, a, b, al);
             if (!n.dying) {
                 char id[24];
@@ -4235,7 +4368,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             if (selY < 0 || std::fabs(selY - wantY) > 400) selY = wantY;
             selY += (wantY - selY) * (1.0f - std::exp(-ImGui::GetIO().DeltaTime * 16.0f));
             if (std::fabs(selY - wantY) < 0.3f) selY = wantY;
-            dl->AddRectFilled(ImVec2(18, selY), ImVec2(6 + sW, selY + 40), IM_COL32(70, 140, 255, 110), 10.0f);
+            dl->AddRectFilled(ImVec2(18, selY), ImVec2(6 + sW, selY + 40), accentCol(110), 10.0f);
         }
         for (size_t t = 0; t < tabs.size(); ++t) {
             const int i = tabs[t].id;
@@ -4437,6 +4570,46 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         int pk = g_settings.physicalKeys ? 1 : 0;
         choice("##chkeys", lx, y, colW, "Typing in a text box", keyNames, pk, true);
         if ((pk == 1) != g_settings.physicalKeys) { g_settings.physicalKeys = pk == 1; g_kbdKeysShown = false; }
+        {   // the right column: the background and the accent colour (all from the XPTablet logo's colours)
+            float ry = top;
+            textAt(dl, f.bold, rx, ry, kInk, "Background");
+            ry += 24;
+            const float tw = std::floor((colW - 4 * 8) / 5), th = std::floor(tw * 0.62f);
+            for (int i = 0; i < 5; ++i) {   // a little picture of each: its sky and mountains
+                const Backdrop& bd = kBackdrops[i];
+                const ImVec2 a(rx + i * (tw + 8), ry), b(a.x + tw, ry + th);
+                char id[16];
+                std::snprintf(id, sizeof id, "##wp%d", i);
+                ImGui::SetCursorScreenPos(a);
+                if (ImGui::InvisibleButton(id, ImVec2(tw, th + 18))) { g_settings.wallpaper = i; g_settingsChanged = true; }
+                const bool sel = g_settings.wallpaper == i, hot = ImGui::IsItemHovered();
+                dl->PushClipRect(a, b, true);
+                dl->AddRectFilledMultiColor(a, b, bd.top, bd.top, bd.bot, bd.bot);
+                dl->AddTriangleFilled(ImVec2(a.x - 4, b.y), ImVec2(a.x + tw * 0.35f, a.y + th * 0.45f), ImVec2(a.x + tw * 0.75f, b.y), bd.back);
+                dl->AddTriangleFilled(ImVec2(a.x + tw * 0.35f, b.y), ImVec2(a.x + tw * 0.72f, a.y + th * 0.58f), ImVec2(b.x + 6, b.y), bd.front);
+                dl->PopClipRect();
+                dl->AddRect(ImVec2(a.x - 2, a.y - 2), ImVec2(b.x + 2, b.y + 2), sel ? accentLite(255) : hot ? IM_COL32(255, 255, 255, 90) : IM_COL32(255, 255, 255, 30), 8.0f, 0, sel ? 2.5f : 1.0f);
+                textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y + 4, sel ? kInk : kMuted, bd.name);
+            }
+            ry += th + 34;
+            textAt(dl, f.bold, rx, ry, kInk, "Accent colour");
+            ry += 26;
+            for (int i = 0; i < 5; ++i) {   // its dot, ringed when chosen
+                const Accent& ac = kAccents[i];
+                const ImVec2 c(rx + tw * 0.5f + i * (tw + 8), ry + 16);
+                char id[16];
+                std::snprintf(id, sizeof id, "##ac%d", i);
+                ImGui::SetCursorScreenPos(ImVec2(c.x - tw * 0.5f, ry));
+                if (ImGui::InvisibleButton(id, ImVec2(tw, 52))) { g_settings.accent = i; g_settingsChanged = true; }
+                const bool sel = g_settings.accent == i, hot = ImGui::IsItemHovered();
+                dl->AddCircleFilled(c, 13.0f, IM_COL32(ac.r, ac.g, ac.b, 255), 0);
+                if (sel) dl->AddCircle(c, 18.0f, IM_COL32(255, 255, 255, 230), 0, 2.0f);
+                else if (hot) dl->AddCircle(c, 18.0f, IM_COL32(255, 255, 255, 90), 0, 1.5f);
+                textCentered(dl, f.small, c.x, ry + 36, sel ? kInk : kMuted, ac.name);
+            }
+            ry += 64;
+            dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "Both from the XPTablet logo's colours. The accent colours what is chosen: buttons, sliders, highlights.", nullptr, colW);
+        }
         return;
     }
 
@@ -4724,7 +4897,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
             const bool hit = ImGui::InvisibleButton(id, ImVec2(p1.x - p0.x, p1.y - p0.y));
             // the highlight fits the button: square on the inside, the alert's own rounded corner on the outside
             if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(p0.x + 1, p0.y + 1), ImVec2(p1.x - 1, p1.y - 1), IM_COL32(255, 255, 255, ImGui::IsItemActive() ? 30 : 18), 17.0f * sc, corner);
-            textCentered(dl, bold ? f.bold : f.body, (p0.x + p1.x) * 0.5f, std::floor((p0.y + p1.y) * 0.5f - fontPx(f.body) * 0.5f), IM_COL32(110, 170, 255, A), label);
+            textCentered(dl, bold ? f.bold : f.body, (p0.x + p1.x) * 0.5f, std::floor((p0.y + p1.y) * 0.5f - fontPx(f.body) * 0.5f), accentLite(A), label);
             return hit;
         };
         if (button("##lowclose", "Close", ImVec2(a.x, by), ImVec2(c.x, b.y), false, ImDrawFlags_RoundCornersBottomLeft)) g_lowAlert = 0;
@@ -5033,9 +5206,9 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
-    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\nmap_rings=%d\nphysical_keys=%d\nbattery=%d\ncharger=%d\n",
+    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\nmap_rings=%d\nphysical_keys=%d\nwallpaper=%d\naccent=%d\nbattery=%d\ncharger=%d\n",
                   g_settings.mapSource == 1 ? 1 : 0, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
-                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0, g_settings.physicalKeys ? 1 : 0, (int)std::ceil(g_batt - 0.001f), g_charger ? 1 : 0);
+                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0, g_settings.physicalKeys ? 1 : 0, g_settings.wallpaper, g_settings.accent, (int)std::ceil(g_batt - 0.001f), g_charger ? 1 : 0);
     out += buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
         out += key; out += "=";
@@ -5097,6 +5270,8 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_ils") g_settings.mapIls = v != 0;
         else if (key == "map_rings") g_settings.mapRings = v != 0;
         else if (key == "physical_keys") g_settings.physicalKeys = v != 0;
+        else if (key == "wallpaper") g_settings.wallpaper = std::max(0, std::min(4, v));
+        else if (key == "accent") g_settings.accent = std::max(0, std::min(4, v));
         else if (key == "battery") g_batt = (float)std::max(0, std::min(100, v));
         else if (key == "charger") g_charger = v != 0;
         else if (key == "media_enabled") g_settings.mediaEnabled = v != 0;

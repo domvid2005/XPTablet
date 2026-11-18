@@ -42,6 +42,8 @@ struct Settings {
     bool mapTraffic = true;       // AI and multiplayer aircraft
     bool mapOutlines = false;     // coastlines, borders, states and provinces
     bool mapNavaids = true;       // VORs, NDBs and DMEs
+    int wallpaper = 0;            // Display: the background (0 navy .. 4 amber), from the XPTablet logo's colours
+    int accent = 0;               // Display: the colour of what is chosen (0 violet .. 4 gold), from the logo's letters
     bool physicalKeys = false;    // typing: the computer's own keyboard (a thin bar instead of the on-screen keys)
     bool mapRings = true;         // range rings round the aircraft (a quarter, half and all of the range), as on WXPlane's map
     bool mapIls = true;           // ILS and localizer courses (a layer of their own)
@@ -202,6 +204,7 @@ struct FlightPlan {
     std::string origin, originName, originRunway, dest, destName, destRunway, alternate, alternateName;
     std::string route, cruise, distanceNm, ete, costIndex, avgWind, sid, star;
     std::string blockFuel, tripFuel, reserveFuel, altnFuel, taxiFuel, extraFuel, zfw, tow, ldw;
+    std::string oew, paxCount, paxWeight, bags, bagWeight, freight, payload, maxZfw, maxTow, maxLdw;   // the load, from SimBrief's weights
     std::string pdfUrl;           // the briefing (the OFP as SimBrief's PDF)
     std::string importedAt;       // when (Zulu)
     std::string ofpId;            // SimBrief's request id and generation time: a new plan has a new one
@@ -231,6 +234,7 @@ struct DocsState {
     std::string shownPath;        // the picture shown
     ImTextureID tex = 0;
     int texW = 0, texH = 0;
+    bool light = false;           // the picture is mostly light (paper): the white pen draws black on it
     bool busy = false;
     std::string error;
 };
@@ -266,6 +270,7 @@ struct SimState {
     bool mac = false;             // macOS: no media controls (no Music app, no Media settings)
     MediaState media;
     FlightPlan planPreview;       // a plan fetched from SimBrief, waiting for Import or Dismiss (loaded: the window shows it)
+    bool planPreviewOpen = false; // its window is up (Dismiss closes it; the plan stays, to review again)
     std::string planDismissed;    // the last plan dismissed (its ofpId): the 2-minute check does not offer it again
     int newPlanSeq = 0;           // goes up when the 2-minute check finds a new SimBrief plan (then newPlanText says which)
     std::string newPlanText;
@@ -301,7 +306,8 @@ struct Actions {
     std::string trafficSelected;  // the Map's traffic card is open on this call sign (look it up on VATSIM)
     bool planImport = false;      // fetch the SimBrief plan (with the saved name / ID) into the preview
     bool planAccept = false;      // the preview's Import: it becomes the flight plan
-    bool planDismiss = false;     // the preview's Dismiss: it goes, the flight plan stays as it was
+    bool planDismiss = false;
+    bool planReview = false;      // open the window again on the plan dismissed     // the preview's Dismiss: it goes, the flight plan stays as it was
     bool planClear = false;       // forget it
     bool clearTileCache = false;  // delete the map tiles kept on disk
     std::string docOpen;

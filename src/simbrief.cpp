@@ -73,6 +73,16 @@ FlightPlan parseSimbrief(const std::string& body) {
         p.altnFuel = str(fuel, "alternate_burn"); p.taxiFuel = str(fuel, "taxi"); p.extraFuel = str(fuel, "extra");
         p.ofpId = str(prm, "request_id") + "/" + str(prm, "time_generated");
         p.zfw = str(wts, "est_zfw"); p.tow = str(wts, "est_tow"); p.ldw = str(wts, "est_ldw");
+        // the load: empty weight, passengers and their bags, freight, the payload of them all; and the limits
+        p.oew = str(wts, "oew"); p.payload = str(wts, "payload"); p.freight = str(wts, "freight_added");
+        p.paxCount = str(wts, "pax_count_actual"); if (p.paxCount.empty()) p.paxCount = str(wts, "pax_count");
+        p.bags = str(wts, "bag_count_actual"); if (p.bags.empty()) p.bags = str(wts, "bag_count");
+        {
+            const double nPax = std::atof(p.paxCount.c_str()), per = num(wts, "pax_weight"), nBag = std::atof(p.bags.c_str()), perBag = num(wts, "bag_weight");
+            if (nPax > 0 && per > 0) p.paxWeight = std::to_string((long long)std::llround(nPax * per));
+            if (nBag > 0 && perBag > 0) p.bagWeight = std::to_string((long long)std::llround(nBag * perBag));
+        }
+        p.maxZfw = str(wts, "max_zfw"); p.maxTow = str(wts, "max_tow"); p.maxLdw = str(wts, "max_ldw");
         {   // the briefing: SimBrief's PDF of the OFP
             const wx::Json* pdf = files ? files->get("pdf") : nullptr;
             const std::string dir = str(files, "directory"), link = str(pdf, "link");
@@ -124,13 +134,13 @@ void planToRoute(const FlightPlan& p, MapState& m) {
 void planFetched(SimState& s, const FlightPlan& p, bool quiet) {
     if (quiet) {
         if (!p.loaded || p.ofpId.empty() || p.ofpId == s.plan.ofpId || p.ofpId == s.planDismissed || p.ofpId == s.planPreview.ofpId) return;
-        s.planPreview = p;
+        s.planPreview = p; s.planPreviewOpen = true;
         ++s.newPlanSeq;
         s.newPlanText = p.origin + " to " + p.dest + (p.callsign.empty() ? std::string() : " (" + p.callsign + ")") + ". Tap to review it.";
         return;
     }
     s.plan.busy = false;
-    if (p.loaded) { s.planPreview = p; s.plan.status = s.plan.loaded ? s.plan.status : std::string(); }
+    if (p.loaded) { s.planPreview = p; s.planPreviewOpen = true; s.plan.status = s.plan.loaded ? s.plan.status : std::string(); }
     else s.plan.status = p.status;   // a failed fetch keeps the plan there was
 }
 void planDecide(SimState& s, const Actions& a) {
@@ -138,12 +148,12 @@ void planDecide(SimState& s, const Actions& a) {
         s.plan = s.planPreview;
         s.plan.busy = false;
         s.plan.status = "Imported " + s.planPreview.importedAt;
-        s.planPreview = FlightPlan();
+        s.planPreview = FlightPlan(); s.planPreviewOpen = false;
         planToRoute(s.plan, s.map);
-    } else if (a.planDismiss && s.planPreview.loaded) {
+    } else if (a.planDismiss && s.planPreview.loaded) {   // closed, not forgotten: Review on the page opens it again
         s.planDismissed = s.planPreview.ofpId;
-        s.planPreview = FlightPlan();
-    }
+        s.planPreviewOpen = false;
+    } else if (a.planReview && s.planPreview.loaded) s.planPreviewOpen = true;
 }
 
 } // namespace xpt
