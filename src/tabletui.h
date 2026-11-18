@@ -154,6 +154,9 @@ int loadShapes(const std::string& text);
 bool hasShape(const std::string& icao);   // a drawing for this type (its own, or its family's)
 
 int currentApp();
+// The browser's address bar is taking typed keys (the floating window's keyboard goes there instead of to the page).
+bool webTypingAddress();
+void webAddressKey(int code, bool isChar);   // code: a character, or 8 (back) / 13 (enter)
 void openApp(int app);   // APP_HOME: the home screen
 const char* appName(int app);                // the icon's label (Charts and Live Map carry their provider's name)
 bool appVisible(int app);                 // on the home screen (web app icons can be switched off)

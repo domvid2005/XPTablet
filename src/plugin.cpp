@@ -25,6 +25,8 @@
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
 
+#include "browser.h"
+
 #include "imgui.h"
 #include "json_mini.h"
 #include "http.h"
@@ -39,6 +41,7 @@
 #define XPT_GL __stdcall
 #else
 #include <dlfcn.h>
+#include <sys/stat.h>
 #define XPT_GL
 #endif
 
@@ -71,6 +74,7 @@ struct GL {
     void(XPT_GL* BlendFunc)(GLenum, GLenum) = nullptr;
     void(XPT_GL* TexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*) = nullptr;
     void(XPT_GL* TexParameteri)(GLenum, GLenum, GLint) = nullptr;
+    void(XPT_GL* TexSubImage2D)(GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const void*) = nullptr;   // the browser's pictures (optional)
     void(XPT_GL* PixelStorei)(GLenum, GLint) = nullptr;
     void(XPT_GL* EnableClientState)(GLenum) = nullptr;
     void(XPT_GL* VertexPointer)(GLint, GLenum, GLsizei, const void*) = nullptr;
@@ -116,6 +120,7 @@ bool loadGl() {
         ok &= glGet(gl.DrawArrays, "glDrawArrays"); ok &= glGet(gl.MatrixMode, "glMatrixMode"); ok &= glGet(gl.PushMatrix, "glPushMatrix");
         ok &= glGet(gl.PopMatrix, "glPopMatrix"); ok &= glGet(gl.Translatef, "glTranslatef"); ok &= glGet(gl.Scalef, "glScalef");
         ok &= glGet(gl.PushClientAttrib, "glPushClientAttrib"); ok &= glGet(gl.PopClientAttrib, "glPopClientAttrib"); ok &= glGet(gl.Color4f, "glColor4f");
+        glGet(gl.TexSubImage2D, "glTexSubImage2D");
         gl.state = ok ? 1 : -1;
         if (!ok) logMsg("OpenGL functions not found, the tablet cannot be drawn");
     }
@@ -345,6 +350,133 @@ void windowLayout(float& ww, float& wh) {
     ww = (float)std::max(1, r - l); wh = (float)std::max(1, t - b);
 }
 
+// ---- the web browser ---------------------------------------------------------------------------------------------------------
+// xptbrowser runs X-Plane's own Chromium (Resources/dlls/64/cef/<platform>) outside X-Plane, started the first time a web page
+// is shown and kept running (logins and open pages stay) until the plugin is disabled. Its pictures become one texture.
+int g_webTex = 0, g_webTexW = 0, g_webTexH = 0;
+int g_webViewW = 0, g_webViewH = 0;
+float g_webViewScale = 0;
+bool g_webTried = false;
+bool g_webShown = false;
+
+bool fileExists(const std::string& p) { FILE* f = std::fopen(p.c_str(), "rb"); if (f) std::fclose(f); return f != nullptr; }
+void makeDirs(const std::string& path) {
+    for (size_t i = 1; i <= path.size(); ++i) {
+        if (i < path.size() && path[i] != '/' && path[i] != '\\') continue;
+        const std::string d = path.substr(0, i);
+#if defined(_WIN32)
+        CreateDirectoryA(d.c_str(), nullptr);
+#else
+        mkdir(d.c_str(), 0755);
+#endif
+    }
+}
+std::string pluginFolder() {   // .../plugins/XPTablet (the platform folder's parent)
+    char path[2048] = "";
+    XPLMGetPluginInfo(XPLMGetMyID(), nullptr, path, nullptr, nullptr);
+    std::string p = path;
+    for (int up = 0; up < 2; ++up) { const size_t cut = p.find_last_of("/\\"); if (cut != std::string::npos) p.resize(cut); }
+    return p;
+}
+
+void browserStart() {
+    g_webTried = true;
+    xpt::BrowserState& b = g_sim.browser;
+#if defined(__APPLE__)
+    b.status = -3;
+    b.message = "On macOS the web pages are not available yet: X-Plane's Chromium there can only run inside X-Plane itself.";
+#else
+    char sys[2048] = "";
+    XPLMGetSystemPath(sys);
+    const std::string root = sys;
+  #if defined(_WIN32)
+    const char* cands[] = {"Resources/dlls/64/cef/win", "Resources/dlls/64/cef"};
+    const char* lib = "/libcef.dll";
+    const std::string helper = pluginFolder() + "/win_x64/xptbrowser.exe";
+  #else
+    const char* cands[] = {"Resources/dlls/64/cef/lin", "Resources/dlls/64/cef/linux", "Resources/dlls/64/cef", "Resources/dlls/64"};
+    const char* lib = "/libcef.so";
+    const std::string helper = pluginFolder() + "/lin_x64/xptbrowser";
+  #endif
+    std::string cef;
+    for (const char* c : cands) if (fileExists(root + c + lib)) { cef = root + c; break; }
+    if (cef.empty()) { b.status = -3; b.message = "X-Plane's Chromium (libcef) was not found under Resources/dlls/64/cef."; logMsg("browser: %s", b.message.c_str()); return; }
+    if (!fileExists(helper)) { b.status = -1; b.message = "xptbrowser is missing from the plugin folder; reinstall XPTablet."; logMsg("browser: %s not found", helper.c_str()); return; }
+    const std::string out = root + "Output/XPTablet/browser";
+    makeDirs(out);
+    std::string err;
+    if (!xpt::browser::start(helper, cef, out, err)) { b.status = -1; b.message = err; logMsg("browser: %s", err.c_str()); return; }
+    b.status = 0; b.message.clear();
+    g_webViewW = g_webViewH = 0; g_webViewScale = 0;
+    logMsg("browser: started with CEF from %s, profile %s", cef.c_str(), out.c_str());
+#endif
+}
+
+void browserStop() {
+    if (xpt::browser::started()) xpt::browser::stop();
+    g_sim.browser = xpt::BrowserState();
+    g_webTexW = g_webTexH = 0;
+    g_webTried = false;
+}
+
+// After each UI build: start the browser when a page wants it, send it what happened, and take its newest picture.
+void browserStep(const xpt::Actions& act) {
+    namespace br = xpt::browser;
+    xpt::BrowserState& b = g_sim.browser;
+    if (act.webRetry) browserStop();
+    if (act.webShown && !br::started() && !g_webTried) browserStart();
+    if (!br::started()) return;
+    br::heartbeat();
+    const int st = br::state();
+    if (st == -1) { if (b.status != -1) logMsg("browser: %s", br::error().c_str()); b.status = -1; b.message = br::error(); b.tex = 0; return; }
+    b.status = st == 1 ? 1 : 0;
+    if (act.webShown) {   // the view's size, in layout units; the picture is drawn at the tablet's pixels per unit
+        const int w = (int)std::lround(act.webW), h = (int)std::lround(act.webH);
+        const float sc = std::max(1.0f, std::min(2.0f, g_fontScale));
+        if (w > 0 && h > 0 && (w != g_webViewW || h != g_webViewH || std::fabs(sc - g_webViewScale) > 0.01f)) {
+            g_webViewW = w; g_webViewH = h; g_webViewScale = sc;
+            br::push(xptb::CMD_RESIZE, w, h, 0, 0, sc);
+        }
+    }
+    for (const xpt::Actions::WebEvent& e : act.web) {
+        if (e.type == xptb::CMD_KEY) br::push(e.type, 0, 0, e.code, (int)e.x);
+        else if (e.type == xptb::CMD_CHAR) br::push(e.type, 0, 0, e.code);
+        else br::push(e.type, (int)e.x, (int)e.y, e.code);
+    }
+    if (!act.webNavigate.empty()) br::push(xptb::CMD_NAVIGATE, 0, 0, 0, 0, 0, act.webNavigate);
+    switch (act.webNav) {
+    case 1: br::push(xptb::CMD_BACK); break;
+    case 2: br::push(xptb::CMD_FORWARD); break;
+    case 3: br::push(xptb::CMD_RELOAD); break;
+    case 4: br::push(xptb::CMD_STOP); break;
+    default: break;
+    }
+    bool loading = false, back = false, fwd = false, kbd = false;
+    if (br::info(b.url, b.title, loading, back, fwd, kbd)) { b.loading = loading; b.canBack = back; b.canForward = fwd; b.wantsKeyboard = kbd; }
+    const uint8_t* px = nullptr;
+    int w = 0, h = 0;
+    if (br::frame(px, w, h)) {
+        if (!g_webTex) XPLMGenerateTextureNumbers(&g_webTex, 1);
+        XPLMBindTexture2d(g_webTex, 0);
+        gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        gl.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        if (w != g_webTexW || h != g_webTexH || !gl.TexSubImage2D) {
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_CLAMP_TO_EDGE);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_CLAMP_TO_EDGE);
+            gl.TexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGBA, w, h, 0, 0x80E1 /* GL_BGRA */, GL_UNSIGNED_BYTE, px);
+            g_webTexW = w; g_webTexH = h;
+        } else {
+            gl.TexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, 0x80E1, GL_UNSIGNED_BYTE, px);
+        }
+        XPLMBindTexture2d(0, 0);
+        br::done();
+        b.tex = (ImTextureID)(intptr_t)g_webTex;
+        b.texW = w; b.texH = h;
+    }
+}
+
 // One UI frame per sim frame, built by whichever of the two surfaces is drawn first and shared by the other.
 void ensureFrame() {
     const int cycle = XPLMGetCycleNumber();
@@ -399,6 +531,10 @@ void ensureFrame() {
     xpt::clipDrawData(ImGui::GetDrawData(), g_batches);
     if (!act.metarSearch.empty()) { xpt::metarRequest(act.metarSearch); g_sim.metar = xpt::MetarLookup(); g_sim.metar.icao = act.metarSearch; g_sim.metar.busy = true; }
     if (act.ground != xpt::GA_NONE) g_pendingGround = act;   // carried out from the flight loop, not from inside drawing
+    browserStep(act);
+    g_webShown = act.webShown;
+    // the floating window keeps the keyboard only while a web page is on it
+    if (!g_webShown && g_win && XPLMHasKeyboardFocus(g_win)) XPLMTakeKeyboardFocus(nullptr);
 }
 
 // Draws the frame with its top-left corner at (left, top) and sx/sy screen units per layout unit (y up on screen).
@@ -528,6 +664,29 @@ int captureWheel(XPLMWindowID, int, int, int wheel, int clicks, void*) {
     return 1;
 }
 void noKey(XPLMWindowID, char, XPLMKeyFlags, char, void*, int) {}
+// The floating window's keyboard, while a web page is shown: into the address bar while it is being typed in, else to the page.
+// XPLM's virtual key codes for the editing keys are Windows' (back 8, tab 9, enter 13, escape 27, page/home/end/arrows 33-40,
+// delete 46).
+void winKey(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey, void*, int losingFocus) {
+    if (losingFocus || !g_webShown) return;
+    const unsigned char vk = (unsigned char)vkey, ch = (unsigned char)key;
+    const bool down = (flags & xplm_DownFlag) != 0, up = (flags & xplm_UpFlag) != 0;
+    const bool editKey = vk == 8 || vk == 9 || vk == 13 || vk == 27 || (vk >= 33 && vk <= 40) || vk == 46;
+    if (xpt::webTypingAddress()) {
+        if (!down) return;
+        if (vk == 8 || vk == 13) xpt::webAddressKey(vk, false);
+        else if (ch >= 32 && ch < 127) xpt::webAddressKey(ch, true);
+        return;
+    }
+    namespace br = xpt::browser;
+    if (!br::started()) return;
+    if (editKey) {
+        if (down || up) br::push(xptb::CMD_KEY, 0, 0, vk, down ? 1 : 0);
+        if (down && vk == 13) br::push(xptb::CMD_CHAR, 0, 0, 13);
+    } else if (down && ch >= 32) {
+        br::push(xptb::CMD_CHAR, 0, 0, ch);
+    }
+}
 
 // The click-catching window covers the whole screen, so it is only there while the mouse points at the cockpit tablet (or a press
 // that began on it is still held). Left up all the time it sat over X-Plane's own pop-up messages, whose buttons then could not
@@ -593,6 +752,7 @@ int winClick(XPLMWindowID, int x, int y, XPLMMouseStatus status, void*) {
     io.AddMousePosEvent(lx, ly);
     if (status == xplm_MouseDown) io.AddMouseButtonEvent(0, true);
     else if (status == xplm_MouseUp) io.AddMouseButtonEvent(0, false);
+    if (status == xplm_MouseDown && g_webShown && g_win && !XPLMHasKeyboardFocus(g_win)) XPLMTakeKeyboardFocus(g_win);
     g_winHoverCycle = XPLMGetCycleNumber();
     return 1;
 }
@@ -636,7 +796,7 @@ void toggleWindow() {
         p.handleMouseClickFunc = winClick;
         p.handleRightClickFunc = winRightClick;
         p.handleMouseWheelFunc = winWheel;
-        p.handleKeyFunc = noKey;
+        p.handleKeyFunc = winKey;
         p.handleCursorFunc = winCursor;
         p.decorateAsFloatingWindow = xplm_WindowDecorationRoundRectangle;
         p.layer = xplm_WindowLayerFloatingWindows;
@@ -1112,6 +1272,7 @@ PLUGIN_API void XPluginDisable(void) {
     if (g_capture) { XPLMDestroyWindow(g_capture); g_capture = nullptr; }
     g_captureDown = false;
     xpt::metarStop();
+    browserStop();
     wx::httpGlobalCleanup();
 }
 

@@ -89,10 +89,21 @@ PaxDoorModeArray has 4 values, CargoDoorModeArray 3 (forward, aft, bulk), both w
 ## Browser engine
 
 X-Plane 12 ships Chromium Embedded Framework itself (Resources/dlls/64/cef; 12.4.4 has CEF 117.1.4+ga26f38b, Chromium 117.0.5938.92).
-A process can hold only one copy of it, so XPTablet uses X-Plane's copy rather than bringing its own: build against the matching CEF
-headers, render off-screen into the tablet's texture, keep cookies and sessions in a profile folder under Output so sites stay
-logged in. To check when wiring it up: whether X-Plane has already started CEF in its own process, and the helper process each
-platform needs.
+XPTablet uses X-Plane's copy, outside X-Plane's own process (0.5.0): the plugin starts xptbrowser (src/browser_helper.cpp), a small
+program beside it that loads libcef from X-Plane's folder through the CEF C API (headers in third_party/cef, matching 117.1.4), and
+renders windowless. They share one block of memory (src/browser_ipc.h): commands from the plugin in a ring (navigate, back, reload,
+resize, pointer, wheel, keys), the page's pictures back in two BGRA buffers, and the address, title and loading state. The plugin
+uploads the newest picture to a texture the tablet draws. Cookies, logins and cache live in Output/XPTablet/browser. The helper
+quits by itself if the plugin stops sending heartbeats or X-Plane exits.
+
+Typing: an on-screen keyboard on the tablet (up by itself when a text field on the page takes the focus, or from the keyboard
+button); the floating window also takes the physical keyboard while a web page is on it.
+
+Platforms: Windows (cef/win) is the first target. Linux looks in cef/lin, cef/linux, cef and dlls/64. macOS: X-Plane's CEF is a
+framework inside its app bundle and is not used yet; the web pages say they are unavailable there.
+
+Still to confirm in X-Plane: that X-Plane's libcef runs from a second program (sandbox off, its resources and locales folder),
+and GPU-free rendering speed on big pages.
 
 ## Known gaps in 0.1.0
 

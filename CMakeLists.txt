@@ -95,7 +95,7 @@ target_link_libraries(xpt_ui PUBLIC xpt_imgui)
 
 # --- The plugin: <build>/package/XPTablet/<lin_x64|mac_x64|win_x64>/XPTablet.xpl ------------------------------------------
 if(XPT_BUILD_PLUGIN)
-  add_library(XPTablet MODULE src/plugin.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp)
+  add_library(XPTablet MODULE src/plugin.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp)
   target_include_directories(XPTablet PRIVATE "${XPLANE_SDK}/CHeaders/XPLM")
   target_compile_definitions(XPTablet PRIVATE XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM303=1)
   target_link_libraries(XPTablet PRIVATE xpt_ui ${XPT_CURL} Threads::Threads ${CMAKE_DL_LIBS})
@@ -112,6 +112,7 @@ if(XPT_BUILD_PLUGIN)
     target_compile_definitions(XPTablet PRIVATE LIN=1)
     # XPLM symbols are resolved by X-Plane when the plugin loads, so undefined references are expected.
     target_link_options(XPTablet PRIVATE -static-libgcc -static-libstdc++ -Wl,--exclude-libs,ALL)
+    target_link_libraries(XPTablet PRIVATE rt)
   endif()
   set(XPT_OUT "${CMAKE_BINARY_DIR}/package/XPTablet/${XPT_PLATFORM_DIR}")
   add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -127,6 +128,32 @@ if(XPT_BUILD_PLUGIN)
     set_target_properties(XPTablet PROPERTIES
       LIBRARY_OUTPUT_DIRECTORY_${CFG} "${XPT_OUT}" RUNTIME_OUTPUT_DIRECTORY_${CFG} "${XPT_OUT}")
   endforeach()
+
+  # --- The web browser: xptbrowser, a program of its own beside the plugin, running X-Plane's own Chromium (CEF, loaded at
+  # run time; only its C headers are needed to build). Not on macOS: X-Plane ships CEF there as a framework inside its app.
+  if(NOT APPLE)
+    add_executable(xptbrowser src/browser_helper.cpp)
+    target_include_directories(xptbrowser PRIVATE src third_party/cef)
+    target_compile_features(xptbrowser PRIVATE cxx_std_17)
+    if(WIN32)
+      target_compile_definitions(xptbrowser PRIVATE NOMINMAX=1 WIN32_LEAN_AND_MEAN=1 UNICODE=1 _UNICODE=1)
+      # a windows program (no console window), started from main()
+      set_target_properties(xptbrowser PROPERTIES WIN32_EXECUTABLE ON)
+      if(MSVC)
+        target_link_options(xptbrowser PRIVATE /ENTRY:mainCRTStartup)
+        set_property(TARGET xptbrowser PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+      endif()
+    else()
+      target_link_libraries(xptbrowser PRIVATE ${CMAKE_DL_LIBS} rt Threads::Threads)
+      target_link_options(xptbrowser PRIVATE -static-libgcc -static-libstdc++)
+    endif()
+    set_target_properties(xptbrowser PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${XPT_OUT}")
+    foreach(cfg ${CMAKE_CONFIGURATION_TYPES})
+      string(TOUPPER ${cfg} CFG)
+      set_target_properties(xptbrowser PROPERTIES RUNTIME_OUTPUT_DIRECTORY_${CFG} "${XPT_OUT}")
+    endforeach()
+    add_dependencies(XPTablet xptbrowser)
+  endif()
 endif()
 
 # --- Tests (no X-Plane needed): ctest -------------------------------------------------------------------------------------

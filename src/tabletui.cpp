@@ -505,8 +505,19 @@ void typeKey(Actions& act, int code, bool isChar) {
         return;
     }
     if (isChar) act.web.push_back({12 /*CMD_CHAR*/, 0, 0, code});
-    else { act.web.push_back({13 /*CMD_KEY*/, 0, 0, code}); act.web.back().x = 1; act.web.push_back({13, 0, 0, code}); act.web.back().x = 0; }
+    else {   // a key down and up (x: 1 down); Enter also as a character, which is what submits a form
+        act.web.push_back({13 /*CMD_KEY*/, 1, 0, code});
+        if (code == 13) act.web.push_back({12, 0, 0, 13});
+        act.web.push_back({13, 0, 0, code});
+    }
 }
+
+} // namespace
+
+bool webTypingAddress() { return g_kbd && g_kbdTarget == 1; }
+void webAddressKey(int code, bool isChar) { Actions none; typeKey(none, code, isChar); }
+
+namespace {
 
 // The on-screen keyboard across the bottom of the page, top at y. Returns its height.
 float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
@@ -1227,6 +1238,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         {"User interface", "Dear ImGui by Omar Cornut and contributors", "MIT"},
         {"Text", "IBM Plex Sans (IBM Corp.), JetBrains Mono (The JetBrains Mono Project Authors)", "SIL Open Font License 1.1"},
         {"Downloads", "libcurl (Daniel Stenberg and contributors), zlib (Jean-loup Gailly, Mark Adler), OpenSSL on Linux", "curl, zlib, Apache 2.0"},
+        {"Web pages", "Chromium Embedded Framework (Marshall A. Greenblatt and contributors), X-Plane's own copy of Chromium", "BSD 3-clause"},
         {"METAR reports", "NOAA / National Weather Service, Aviation Weather Center (aviationweather.gov)", "Public domain"},
         {"Weather page with WXPlane installed", "WXPlane by Alpine Aviation", ""},
     };

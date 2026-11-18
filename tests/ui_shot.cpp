@@ -422,6 +422,10 @@ int main(int argc, char** argv) {
           if (!hit) { std::printf("FAIL: no 1L bubble on a B738\n"); ++failures; }
           t2.ground.beacon = true; t2.ground.enginesRunning = true; t2.ground.parkBrake = false;
           shot(t2, APP_GROUND, "ground_b738_limits"); openApp(APP_GROUND); }
+        // the browser before its program is up, and with the on-screen keyboard (pressed from the address bar)
+        { SimState wb = s; wb.browser.status = 0; shot(wb, APP_BROWSER, "browser_starting");
+          wb.browser.status = 1; wb.browser.url = "https://chartfox.org/"; press(wb, 300, 28 + 46 + 20); shot(wb, APP_BROWSER, "browser_keyboard");
+          SimState wa = s; wa.browser.status = -3; wa.browser.message = "On macOS the web pages are not available yet."; shot(wa, APP_CHARTS, "browser_unavailable"); openApp(APP_GROUND); }
         // the cabin lights: the slider sets the level in steps of 10 %, On sets it full
         { bool slid = false, on = false, arm = false;
           for (float yy = 90; yy < 330 && !(slid && on && arm); yy += 3) {
