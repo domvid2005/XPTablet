@@ -92,6 +92,7 @@ int glyphCell(int app) {
     case APP_BROWSER: return 7;      // web
     case APP_WEATHER: return 15;     // weather-partly-snowy-rainy (the Weather page without WXPlane)
     case APP_MUSIC: return 17;       // music
+    case APP_MAP: return 18;         // map (the folded map)
     default: return -1;
     }
 }
@@ -369,6 +370,7 @@ void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
         ImGui::SetCursorScreenPos(ImVec2(0, 0));
         if (ImGui::InvisibleButton("##power", ImVec2(30, kStatusH)) && g_power == POWER_ON) powerOff();
         const ImVec2 pc(16, kStatusH * 0.5f);
+        if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(3, 3), ImVec2(29, kStatusH - 3), IM_COL32(255, 255, 255, 26), 6.0f);   // as the clock's
         icon(dl, APP_COUNT + 100, pc, 7.6f, ImGui::IsItemHovered() ? IM_COL32(255, 255, 255, 255) : col);   // (no ring around it)   // (the power pictogram)
         const float cx = 32, tw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, buf).x;
         ImGui::SetCursorScreenPos(ImVec2(cx - 6, 0));
@@ -457,6 +459,20 @@ void turnSince(ImDrawList* dl, int vtx0, ImVec2 c, float angle) {
 }
 float wiggle(int app) { return g_editMode ? 0.040f * (float)std::sin(ImGui::GetTime() * 2 * 3.14159 * 2.6 + app * 1.7) : 0.0f; }
 
+struct Ease { float on, hot, down; };
+Ease eased(const char* id, bool on, bool hot, bool down);
+// A home icon with its hover: it eases brighter (a soft white glow, the logo tiles too) and lifts a little; pressed, it sinks
+void hoverTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, bool over, bool held) {
+    char id[24];
+    std::snprintf(id, sizeof id, "##hov%d", app);
+    const Ease ez = eased(id, false, over && !held, held);
+    const float scale = 1.0f + 0.05f * ez.hot - 0.06f * ez.down;
+    drawTile(dl, f, app, c, tile, true, scale, 1.0f + 0.12f * ez.hot - 0.14f * ez.down);
+    if (ez.hot > 0.01f) {
+        const float hs = tile * 0.5f * scale;
+        dl->AddRectFilled(ImVec2(c.x - hs, c.y - hs), ImVec2(c.x + hs, c.y + hs), IM_COL32(255, 255, 255, (int)(38 * ez.hot)), tile * 0.24f * scale);
+    }
+}
 // The grid as places: order[i] is the app at place i, or -1 for a free place. Favorites: the bar, in order, no gaps.
 void normalizeLayout(int capacity) {
     bool seen[APP_COUNT] = {};
@@ -539,7 +555,7 @@ void home(ImDrawList* dl, const Fonts& f, float w, float h) {
         const bool over = drag < 0 && !g_editMode && m.x >= cx && m.x < cx + cellW && m.y >= cy && m.y < cy + cellH;
         const bool held = g_pressApp == app && io.MouseDown[0];
         const int v0 = dl->VtxBuffer.Size;
-        drawTile(dl, f, app, c, tile, true, held ? 0.94f : 1.0f, held ? 0.86f : over ? 1.12f : 1.0f);
+        hoverTile(dl, f, app, c, tile, over, held);
         if (g_editMode) turnSince(dl, v0, c, wiggle(app));
         g_iconC[app] = c; g_iconSize[app] = tile;
         hits.push_back({app, ImVec2(cx, cy), ImVec2(cx + cellW, cy + cellH)});
@@ -560,7 +576,7 @@ void home(ImDrawList* dl, const Fonts& f, float w, float h) {
         const bool over = drag < 0 && !g_editMode && m.x >= cx && m.x < cx + dockCell && m.y >= dockTop && m.y < dockTop + dockH;
         const bool held = g_pressApp == dock[k] && io.MouseDown[0];
         const int v0 = dl->VtxBuffer.Size;
-        drawTile(dl, f, dock[k], c, dockTile, true, held ? 0.94f : 1.0f, held ? 0.86f : over ? 1.12f : 1.0f);
+        hoverTile(dl, f, dock[k], c, dockTile, over, held);
         if (g_editMode) turnSince(dl, v0, c, wiggle(dock[k]));
         g_iconC[dock[k]] = c; g_iconSize[dock[k]] = dockTile;
         hits.push_back({dock[k], ImVec2(cx, dockTop), ImVec2(cx + dockCell, dockTop + dockH)});
@@ -705,7 +721,6 @@ void textRight(ImDrawList* dl, ImFont* font, float xRight, float y, ImU32 col, c
 }
 // A rounded button drawn by hand at a fixed place. on: shown lit. enabled: can be pressed.
 // How lit, hovered and pressed a control looks, eased over a few frames (by its id) so a change of state is a short fade
-struct Ease { float on, hot, down; };
 Ease eased(const char* id, bool on, bool hot, bool down) {
     static ImGuiStorage st;
     const ImGuiID k = ImGui::GetID(id);
