@@ -1723,6 +1723,35 @@ bool g_mapFollow = true;             // the map stays centred on the aircraft
 double g_mapGlideStart = -1;         // a glide to a new centre is under way since then (-1: none)
 MercPt g_mapGlideFrom{0.5, 0.5}, g_mapGlideTo{0.5, 0.5};
 bool g_mapGoto = false;              // centre on a place next time (Airports' Show on map)
+// ---- the breadcrumbs: where the aircraft has flown since the SimBrief plan was imported (kept until it is cleared or another
+// plan comes in). A jump of more than 8 nm between two samples (the aircraft moved in the sim) starts a new piece of trail.
+struct Crumb { double lat = 0, lon = 0; bool start = false; };
+std::vector<Crumb> g_crumbs;
+std::string g_crumbsFor;   // the plan they belong to
+double crumbNm(double la0, double lo0, double la1, double lo1) {
+    const double dLa = (la1 - la0) * 60.0, dLo = (lo1 - lo0) * 60.0 * std::cos(la0 * kPi / 180.0);
+    return std::sqrt(dLa * dLa + dLo * dLo);
+}
+void trackCrumbs(const SimState& s) {
+    const FlightPlan& p = s.plan;
+    if (!p.loaded) { g_crumbs.clear(); g_crumbsFor.clear(); return; }   // no plan, or cleared
+    const std::string key = !p.ofpId.empty() ? p.ofpId : p.origin + ">" + p.dest + "@" + p.importedAt;
+    if (key != g_crumbsFor) { g_crumbs.clear(); g_crumbsFor = key; }   // another plan
+    const MapState& m = s.map;
+    if (!m.havePos) return;
+    if (g_crumbs.empty()) { g_crumbs.push_back({m.lat, m.lon, true}); return; }
+    const Crumb& last = g_crumbs.back();
+    const double d = crumbNm(last.lat, last.lon, m.lat, m.lon);
+    if (d > 8.0) g_crumbs.push_back({m.lat, m.lon, true});          // moved in the sim: a new piece
+    else if (d >= 0.12) g_crumbs.push_back({m.lat, m.lon, false});  // every eighth of a mile or so
+    if (g_crumbs.size() > 60000) {   // a very long flight: every other point of the older half (pieces' starts kept)
+        std::vector<Crumb> t;
+        t.reserve(g_crumbs.size());
+        for (size_t i = 0; i < g_crumbs.size(); ++i) if (i >= g_crumbs.size() / 2 || i % 2 == 0 || g_crumbs[i].start) t.push_back(g_crumbs[i]);
+        g_crumbs.swap(t);
+    }
+}
+
 float g_mapLastW = 800, g_mapLastH = 350;   // the map as last drawn (for AviTab's commands and datarefs)
 double g_mapLastRot = 0, g_mapLastScale = 1, g_mapLastMPerMerc = 1;
 double g_mapGotoLat = 0, g_mapGotoLon = 0;
@@ -2101,6 +2130,9 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     ImGui::SetCursorScreenPos(r0);
     ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##map", ImVec2(r1.x - r0.x, r1.y - r0.y));
+    // the pointer is over the map itself, not one of its bubbles or buttons (drawn over it)
+    // (it allows overlap, so it is not hovered while one of the bubbles or buttons over it is)
+    const bool pointerOnMap = ImGui::IsItemHovered();
     const ImGuiIO& io = ImGui::GetIO();
     if (ImGui::IsItemActivated()) g_mapPressPos = io.MousePos;
     const bool mapClick = ImGui::IsItemDeactivated() && std::fabs(io.MousePos.x - g_mapPressPos.x) + std::fabs(io.MousePos.y - g_mapPressPos.y) < 6;
@@ -2178,7 +2210,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         }
     }
 
-    // ---- the time zones: dashed violet boundaries
+    // ---- the time zones: dashed boundaries in the theme's accent
     if (g_settings.mapTimeZones) {
         double la0, lo0, la1, lo1;
         latLonOf(MercPt{mx0, my1}, la0, lo0);
@@ -2196,8 +2228,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             // that goes there is drawn in its pieces either side)
             auto flush = [&] {
                 if (pts.size() >= 2) {
-                    if (g_mapZoom < 6) dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(182, 120, 255, 200), 0, 1.2f);   // far out: plain
-                    else dashed(dl, pts, IM_COL32(182, 120, 255, 230), 1.6f, 7.0f, 5.0f);
+                    if (g_mapZoom < 6) dl->AddPolyline(pts.data(), (int)pts.size(), accentCol(210), 0, 1.4f);   // far out: plain (the theme's accent)
+                    else dashed(dl, pts, accentCol(235), 1.7f, 7.0f, 5.0f);
                 }
                 pts.clear();
             };
@@ -2320,8 +2352,10 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     g_mapLastW = r1.x - r0.x; g_mapLastH = r1.y - r0.y; g_mapLastRot = rot; g_mapLastScale = scale; g_mapLastMPerMerc = mPerMerc;
 
     // ---- the radio navaids: VOR (a hexagon, with a ring when close), NDB (a dotted ring), DME (a square), localizers (feathers)
-    const ImU32 navInk = sat ? IM_COL32(150, 220, 255, 255) : IM_COL32(20, 90, 160, 255);
-    const ImU32 ndbInk = sat ? IM_COL32(230, 160, 255, 255) : IM_COL32(130, 40, 120, 255);
+    // the layers that are switched on and off (navaids, ILS, fixes, rings) are white on every map, with a thin dark edge
+    // under them so they read on the light street map as on the imagery; their names white on dark chips
+    const ImU32 navInk = IM_COL32(255, 255, 255, 255), ndbInk = IM_COL32(255, 255, 255, 255);
+    const ImU32 haloInk = IM_COL32(16, 20, 30, 150), chipBg = IM_COL32(10, 16, 28, 190);
     if ((g_settings.mapNavaids || g_settings.mapIls) && g_mapZoom >= 6.0) {
         const double nmPx = scale / (mPerMerc / 1852.0);   // layout units per nautical mile
         for (const MapState::Navaid& n : m.navaids) {
@@ -2333,43 +2367,50 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 const ImVec2 d((float)std::sin(a), (float)-std::cos(a)), nn(-d.y, d.x);
                 const ImVec2 tip(q.x + d.x * L, q.y + d.y * L);
                 const ImVec2 l(tip.x + nn.x * half, tip.y + nn.y * half), r(tip.x - nn.x * half, tip.y - nn.y * half);
-                dl->AddLine(q, l, IM_COL32(30, 160, 90, 200), 1.2f);
-                dl->AddLine(q, r, IM_COL32(30, 160, 90, 200), 1.2f);
-                dl->AddLine(q, tip, IM_COL32(30, 160, 90, 140), 1.0f);
-                if (g_mapZoom >= 11) g_labels.push_back({1, tip, 4, n.ident, "", sat ? kInk : IM_COL32(20, 100, 60, 255), 0, 0});
+                for (int pass = 0; pass < 2; ++pass) {   // the dark edge, then the white
+                    const ImU32 c = pass ? IM_COL32(255, 255, 255, 230) : haloInk;
+                    const float t = pass ? 0.0f : 2.0f;
+                    dl->AddLine(q, l, c, 1.2f + t);
+                    dl->AddLine(q, r, c, 1.2f + t);
+                    dl->AddLine(q, tip, pass ? IM_COL32(255, 255, 255, 170) : haloInk, 1.0f + t);
+                }
+                if (g_mapZoom >= 11) g_labels.push_back({1, tip, 4, n.ident, "", IM_COL32(255, 255, 255, 255), 0, chipBg});
                 continue;
             }
             if (!g_settings.mapNavaids) continue;   // (ILS only)
             if (q.x < r0.x - 40 || q.x > r1.x + 40 || q.y < r0.y - 40 || q.y > r1.y + 40) continue;
-            const ImU32 ink = n.type == 2 ? ndbInk : navInk;
+            for (int pass = 0; pass < 2; ++pass) {   // the dark edge (wider), then the white
+            const ImU32 ink = pass ? (n.type == 2 ? ndbInk : navInk) : haloInk;
+            const float tk = pass ? 0.0f : 2.0f;
             if (n.type == 3) {
                 ImVec2 hx[6];
                 for (int k = 0; k < 6; ++k) hx[k] = ImVec2(q.x + 7.0f * (float)std::cos(k * kPi / 3), q.y + 7.0f * (float)std::sin(k * kPi / 3));
-                dl->AddPolyline(hx, 6, ink, ImDrawFlags_Closed, 1.6f);
-                dl->AddCircleFilled(q, 1.8f, ink, 0);
+                dl->AddPolyline(hx, 6, ink, ImDrawFlags_Closed, 1.6f + tk);
+                dl->AddCircleFilled(q, 1.8f + tk * 0.5f, ink, 0);
                 if (g_mapZoom >= 9) {   // a compass rose, turned to magnetic north (the VOR's own variation)
-                    const ImU32 rc = IM_COL32((ink >> IM_COL32_R_SHIFT) & 0xFF, (ink >> IM_COL32_G_SHIFT) & 0xFF, (ink >> IM_COL32_B_SHIFT) & 0xFF, 120);
+                    const ImU32 rc = IM_COL32((ink >> IM_COL32_R_SHIFT) & 0xFF, (ink >> IM_COL32_G_SHIFT) & 0xFF, (ink >> IM_COL32_B_SHIFT) & 0xFF, pass ? 150 : 90);
                     const float R = 42.0f;
-                    dl->AddCircle(q, R, rc, 0, 1.0f);
+                    dl->AddCircle(q, R, rc, 0, 1.0f + tk * 0.6f);
                     for (int k = 0; k < 36; ++k) {
                         const double a = (k * 10.0 + n.bearing) * kPi / 180.0 - rot;
                         const float len = k % 9 == 0 ? 9.0f : k % 3 == 0 ? 6.0f : 3.5f;
                         const ImVec2 d((float)std::sin(a), (float)-std::cos(a));
-                        dl->AddLine(ImVec2(q.x + d.x * R, q.y + d.y * R), ImVec2(q.x + d.x * (R - len), q.y + d.y * (R - len)), rc, k == 0 ? 2.0f : 1.0f);
+                        dl->AddLine(ImVec2(q.x + d.x * R, q.y + d.y * R), ImVec2(q.x + d.x * (R - len), q.y + d.y * (R - len)), rc, (k == 0 ? 2.0f : 1.0f) + tk * 0.6f);
                     }
                 }
             } else if (n.type == 2) {
-                for (int k = 0; k < 12; ++k) dl->AddCircleFilled(ImVec2(q.x + 7.0f * (float)std::cos(k * kPi / 6), q.y + 7.0f * (float)std::sin(k * kPi / 6)), 1.1f, ink, 0);
-                dl->AddCircleFilled(q, 2.2f, ink, 0);
+                for (int k = 0; k < 12; ++k) dl->AddCircleFilled(ImVec2(q.x + 7.0f * (float)std::cos(k * kPi / 6), q.y + 7.0f * (float)std::sin(k * kPi / 6)), 1.1f + tk * 0.5f, ink, 0);
+                dl->AddCircleFilled(q, 2.2f + tk * 0.5f, ink, 0);
             } else {
-                dl->AddRect(ImVec2(q.x - 5, q.y - 5), ImVec2(q.x + 5, q.y + 5), ink, 0.0f, 0, 1.5f);
+                dl->AddRect(ImVec2(q.x - 5, q.y - 5), ImVec2(q.x + 5, q.y + 5), ink, 0.0f, 0, 1.5f + tk);
+            }
             }
             if (g_mapZoom >= 7.5) {
                 char b[48];
                 if (n.type == 2) std::snprintf(b, sizeof b, "%s %.0f", n.ident.c_str(), n.freq);
                 else if (n.type == 3) std::snprintf(b, sizeof b, "%s %.2f", n.ident.c_str(), n.freq);
                 else std::snprintf(b, sizeof b, "%s", n.ident.c_str());
-                g_labels.push_back({3, q, 10, b, "", ink, 0, sat ? IM_COL32(10, 16, 28, 170) : IM_COL32(255, 255, 255, 190)});
+                g_labels.push_back({3, q, 10, b, "", navInk, 0, chipBg});
             }
             symbolAt(q, n.type == 3 && g_mapZoom >= 9 ? 9.0f : 7.0f);
         }
@@ -2380,11 +2421,27 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             if (!fx.enroute && g_mapZoom < 11) continue;
             const ImVec2 q = toS(mercOf(fx.lat, fx.lon));
             if (q.x < r0.x - 30 || q.x > r1.x + 30 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
-            const ImU32 ink = sat ? IM_COL32(200, 230, 255, 230) : IM_COL32(40, 70, 120, 230);
+            const ImU32 ink = IM_COL32(255, 255, 255, 240);   // white, with a dark edge (as the navaids)
+            dl->AddTriangle(ImVec2(q.x, q.y - 4.5f), ImVec2(q.x + 4, q.y + 3), ImVec2(q.x - 4, q.y + 3), IM_COL32(16, 20, 30, 150), 3.0f);
             dl->AddTriangle(ImVec2(q.x, q.y - 4.5f), ImVec2(q.x + 4, q.y + 3), ImVec2(q.x - 4, q.y + 3), ink, 1.2f);
             symbolAt(q, 4.5f);
-            if (g_mapZoom >= 10.5) g_labels.push_back({0, q, 6, fx.ident, "", ink, 0, 0});
+            if (g_mapZoom >= 10.5) g_labels.push_back({0, q, 6, fx.ident, "", ink, 0, IM_COL32(10, 16, 28, 190)});
         }
+    }
+    // ---- the trail flown (with Route on): dashed, in a darker, quieter tone of the accent than the route, under it
+    if (g_settings.mapRoute && g_crumbs.size() >= 2) {
+        const ImU32 trail = mixCol(mixCol(accentCol(255), IM_COL32(120, 124, 134, 255), 0.5f), IM_COL32(0, 0, 0, 255), 0.25f);
+        std::vector<ImVec2> pts;
+        auto flushTrail = [&] {
+            if (pts.size() >= 2) { dashed(dl, pts, IM_COL32(255, 255, 255, 90), 4.2f, 6.0f, 4.0f); dashed(dl, pts, trail, 2.4f, 6.0f, 4.0f); }
+            pts.clear();
+        };
+        for (const Crumb& c : g_crumbs) {
+            if (c.start) flushTrail();
+            pts.push_back(toS(mercOf(c.lat, c.lon)));
+        }
+        if (m.havePos) pts.push_back(toS(ac));   // up to the aircraft
+        flushTrail();
     }
     // ---- the SimBrief flight plan: a line in the theme's accent through its fixes
     if (g_settings.mapRoute && m.route.size() >= 2) {
@@ -2456,15 +2513,17 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         const ImVec2 q = toS(ac);
         const double nice = kRangesNm[std::max(0, std::min(kRangeN - 1, g_mapRange))];
         const float nmPx = (float)(scale / (mPerMerc / 1852.0));
-        const ImU32 ring = sat ? IM_COL32(255, 255, 255, 110) : IM_COL32(40, 60, 100, 110);
-        const ImU32 lab = sat ? IM_COL32(220, 228, 242, 220) : IM_COL32(40, 56, 90, 230);
+        // white on every map, a faint dark edge under it; the figures white with a dark shadow
         for (float fr : {0.25f, 0.5f, 1.0f}) {
             const float rr = (float)(nice * fr) * nmPx;
             if (rr < 12) continue;
-            dl->AddCircle(q, rr, ring, 96, 1.2f);
+            dl->AddCircle(q, rr, IM_COL32(16, 20, 30, 90), 96, 3.0f);
+            dl->AddCircle(q, rr, IM_COL32(255, 255, 255, 200), 96, 1.2f);
             char b[24];
             std::snprintf(b, sizeof b, "%g", nice * fr);
-            dl->AddText(f.small, fontPx(f.small), ImVec2(q.x + rr * 0.707f + 3, q.y + rr * 0.707f - 2), lab, b);
+            const ImVec2 tp(q.x + rr * 0.707f + 3, q.y + rr * 0.707f - 2);
+            for (int dx = -1; dx <= 1; ++dx) for (int dy = -1; dy <= 1; ++dy) if (dx || dy) dl->AddText(f.small, fontPx(f.small), ImVec2(tp.x + dx, tp.y + dy), IM_COL32(16, 20, 30, 170), b);
+            dl->AddText(f.small, fontPx(f.small), tp, IM_COL32(255, 255, 255, 255), b);
         }
     }
     // ---- the aircraft: its own outline at its real size when that is bigger than the symbol, else the symbol
@@ -2524,7 +2583,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             // the place: under the pointer while it is over the map; else the aircraft (centred on it), else the + in the middle
             double tLat = movedOff ? cLat : m.lat, tLon = movedOff ? cLon : m.lon;
             const ImVec2 mp = ImGui::GetIO().MousePos;
-            if (mp.x > r0.x + 130 && mp.x < r1.x - 4 && mp.y > r0.y + 4 && mp.y < r1.y - 40) {   // (off the bubbles at the sides)
+            if (pointerOnMap) {   // (anywhere on the map, right up to its edges; not while it is over a bubble or button)
                 double la = 0, lo = 0;
                 latLonOf(fromS(mp), la, lo);
                 tLat = la; tLon = lo;
@@ -4071,8 +4130,10 @@ void postNote(const std::string& title, const std::string& body, int app) {
     if (!g_settings.notifyEnabled) return;
     Note n;
     n.id = ++g_noteId; n.title = title; n.body = body; n.app = app; n.t = ImGui::GetTime();
-    n.banner = g_power == POWER_ON;
-    for (Note& o : g_notes) o.banner = false;   // one banner at a time: the newest
+    // no pop-up while the page it leads to is already open (it is still in the list, in the pull-down)
+    const bool here = app >= 0 && app < APP_COUNT && app != APP_HOME && app == g_app;
+    n.banner = g_power == POWER_ON && !here;
+    if (n.banner) for (Note& o : g_notes) o.banner = false;   // one banner at a time: the newest
     g_notes.insert(g_notes.begin(), n);
     if (g_notes.size() > 40) g_notes.resize(40);
 }
@@ -4286,8 +4347,8 @@ void watchForNotes(const SimState& s) {
 }
 
 void openFromNote(const Note& n) {
-    g_ccTarget = 0;
-    if (n.app >= 0 && n.app < APP_COUNT) openApp(n.app);
+    g_ccTarget = 0;   // the pull-down closes
+    if (n.app >= 0 && n.app < APP_COUNT && n.app != g_app) openApp(n.app);   // (already on that page: nothing more)
 }
 
 // the banner (newest notification, for 3 s): where it is now; false if none
@@ -4833,6 +4894,7 @@ void applyStyle() {
 
 void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act, int app);
 void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    trackCrumbs(s);   // (on every page: the trail is kept whether or not the map is open)
     // big draw lists (the map's lines) go past 65536 vertices: the renderer follows each command's vertex offset
     ImGui::GetIO().BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
     ImGui::SetNextWindowPos(ImVec2(0, 0));
