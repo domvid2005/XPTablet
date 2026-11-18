@@ -56,3 +56,10 @@ A script is a list of steps: `tap 400 300` (tablet layout units, 800 x 480), `wa
 
 GLFW is downloaded during the build. On Linux you also need the X11 development packages (libx11-dev, libxrandr-dev,
 libxinerama-dev, libxcursor-dev, libxi-dev) and libgl-dev.
+
+## In a browser (no install)
+
+`emulator/web/` builds the tablet's real screens with Emscripten into one HTML page: `EMCC=/path/to/emcc emulator/web/build.sh out`.
+Open `out/index.html` in Chrome or Edge. It runs a simulated aircraft, traffic, time and weather, and the Ground page's doors and
+jetway. The page itself loads map tiles, your SimBrief plan, VATSIM details and METARs. Settings and notes stay in that browser.
+It has no X-Plane: web pages, X-Plane's airports and navaids, and documents need the desktop emulator or the sim.
