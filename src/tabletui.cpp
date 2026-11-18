@@ -2691,7 +2691,15 @@ std::vector<std::vector<Stroke>> g_docUndo;   // this document's drawing before 
 std::string g_docUndoFor;
 const ImU32 kDocPens[4] = {IM_COL32(230, 40, 40, 255), IM_COL32(30, 110, 235, 255), IM_COL32(20, 160, 80, 255), IM_COL32(255, 214, 0, 110)};   // red, blue, green, highlighter
 bool g_penMode = true, g_notesChanged = false;
-const ImU32 kPens[3] = {IM_COL32(240, 244, 250, 255), IM_COL32(255, 210, 70, 255), IM_COL32(110, 200, 255, 255)};
+const ImU32 kPens[4] = {IM_COL32(240, 244, 250, 255), IM_COL32(255, 210, 70, 255), IM_COL32(110, 200, 255, 255),
+                        IM_COL32(255, 214, 0, 150)};   // white, yellow, blue, and the highlighter (wide, see-through)
+// a pen's dot in a tool row (the highlighter's is a flat marker tip); its ring when chosen, a faint one on hover
+void penDot(ImDrawList* dl, ImVec2 c, ImU32 col, bool highlighter, bool sel, bool hot) {
+    if (highlighter) dl->AddRectFilled(ImVec2(c.x - 9, c.y - 6), ImVec2(c.x + 9, c.y + 6), (col & 0x00FFFFFF) | 0xFF000000, 3.0f);
+    else dl->AddCircleFilled(c, 10.0f, col, 0);
+    if (sel) dl->AddCircle(c, 13.0f, IM_COL32(110, 170, 255, 255), 0, 2.0f);
+    else if (hot) dl->AddCircle(c, 13.0f, IM_COL32(255, 255, 255, 90), 0, 1.5f);
+}
 
 void notesPage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
     const float top = kStatusH + kHeaderH + 8;
@@ -2756,18 +2764,15 @@ void notesPage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
     // the scratchpad: pen or keyboard
     if (pill(dl, f, "##npen", "Pen", ImVec2(12, y0), ImVec2(92, y0 + 28), g_penMode, true)) { g_penMode = true; g_kbd = false; g_typeInto = nullptr; }
     if (pill(dl, f, "##ntype", "Type", ImVec2(98, y0), ImVec2(178, y0 + 28), !g_penMode, true)) g_penMode = false;
-    for (int i = 0; i < 3; ++i) {   // the pen's colour
+    for (int i = 0; i < 4; ++i) {   // the pen's colour, and the highlighter
         const ImVec2 c(206 + i * 32.0f, y0 + 14);
         ImGui::SetCursorScreenPos(ImVec2(c.x - 13, c.y - 13));
         char id[16];
         std::snprintf(id, sizeof id, "##npc%d", i);
         if (ImGui::InvisibleButton(id, ImVec2(26, 26))) { g_penColor = i; g_penMode = true; g_eraser = false; }
-        const bool sel = g_penColor == i && !g_eraser;
-        if (ImGui::IsItemHovered() && !sel) dl->AddCircle(c, 13.0f, IM_COL32(255, 255, 255, 90), 0, 1.5f);
-        dl->AddCircleFilled(c, 10.0f, kPens[i], 0);
-        if (sel) dl->AddCircle(c, 13.0f, IM_COL32(110, 170, 255, 255), 0, 2.0f);
+        penDot(dl, c, kPens[i], i == 3, g_penColor == i && !g_eraser && g_penMode, ImGui::IsItemHovered());
     }
-    if (pill(dl, f, "##neraser", "Eraser", ImVec2(300, y0), ImVec2(386, y0 + 28), g_eraser && g_penMode, true)) { g_eraser = !(g_eraser && g_penMode); g_penMode = true; g_kbd = false; g_typeInto = nullptr; }
+    if (pill(dl, f, "##neraser", "Eraser", ImVec2(332, y0), ImVec2(418, y0 + 28), g_eraser && g_penMode, true)) { g_eraser = !(g_eraser && g_penMode); g_penMode = true; g_kbd = false; g_typeInto = nullptr; }
     const ImVec2 pa(12, y0 + 38), pb(w - 12, bottom - 10);
     dl->AddRectFilled(pa, pb, IM_COL32(14, 24, 40, 235), 10.0f);
     for (float ly = pa.y + 34; ly < pb.y - 4; ly += 34) dl->AddLine(ImVec2(pa.x + 10, ly), ImVec2(pb.x - 10, ly), IM_COL32(255, 255, 255, 16), 1.0f);
@@ -2797,8 +2802,9 @@ void notesPage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
     for (const Stroke& st : g_strokes) {
         pts.clear();
         for (const ImVec2& q : st.pts) pts.push_back(ImVec2(pa.x + q.x * pw, pa.y + q.y * ph));
-        if (pts.size() == 1) dl->AddCircleFilled(pts[0], 1.6f, kPens[st.color % 3], 0);
-        else dl->AddPolyline(pts.data(), (int)pts.size(), kPens[st.color % 3], 0, 2.2f);
+        const bool hl = st.color % 4 == 3;
+        if (pts.size() == 1) dl->AddCircleFilled(pts[0], hl ? 6.0f : 1.6f, kPens[st.color % 4], 0);
+        else dl->AddPolyline(pts.data(), (int)pts.size(), kPens[st.color % 4], 0, hl ? 12.0f : 2.2f);
     }
     dl->PopClipRect();
     pageKeyboard(dl, f, w, h, act);
@@ -3274,32 +3280,23 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     }
     if (g_docMarkup && g_docEraser && (ImGui::IsItemHovered() || ImGui::IsItemActive())) dl->AddCircle(mp, 12.0f, IM_COL32(40, 40, 40, 200), 0, 1.5f);
     dl->PopClipRect();
-    // the markup's tools along the top: Markup (on / off); with it on, the pens, the eraser, Undo and Clear
-    dl->AddRectFilled(ImVec2(vb.x - 110, va.y + 6), ImVec2(vb.x - 6, va.y + 44), IM_COL32(10, 18, 34, 215), 12.0f);   // dark under it: it shows on a white page
-    dl->AddRectFilled(ImVec2(vb.x - 160, vb.y - 46), ImVec2(vb.x - 6, vb.y - 8), IM_COL32(10, 18, 34, 215), 12.0f);   // (and under Fit, -, +)
-    if (pill(dl, f, "##docmark", "Markup", ImVec2(vb.x - 104, va.y + 10), ImVec2(vb.x - 12, va.y + 40), g_docMarkup, true)) { g_docMarkup = !g_docMarkup; g_docEraser = false; }
+    // the tools, as the notes' scratchpad has them, in one dark bar along the top: the pens and the highlighter, Eraser; Undo and Clear
+    // together at the right, then Markup (which turns drawing on and off: off, a drag moves the page)
+    dl->AddRectFilled(ImVec2(g_docMarkup ? va.x + 6 : vb.x - 96, va.y + 6), ImVec2(vb.x - 6, va.y + 44), IM_COL32(10, 18, 34, 225), 12.0f);
+    dl->AddRectFilled(ImVec2(vb.x - 160, vb.y - 46), ImVec2(vb.x - 6, vb.y - 8), IM_COL32(10, 18, 34, 215), 12.0f);   // (under Fit, -, +)
+    if (pill(dl, f, "##docmark", "Markup", ImVec2(vb.x - 90, va.y + 10), ImVec2(vb.x - 12, va.y + 40), g_docMarkup, true)) { g_docMarkup = !g_docMarkup; g_docEraser = false; }
     if (g_docMarkup) {
-        float x = va.x + 12;
-        dl->AddRectFilled(ImVec2(x - 6, va.y + 6), ImVec2(vb.x - 110, va.y + 44), IM_COL32(10, 18, 34, 215), 12.0f);
         for (int i = 0; i < 4; ++i) {
-            const ImVec2 pc(x + 13, va.y + 25);
+            const ImVec2 pc(va.x + 27 + i * 30.0f, va.y + 25);
             char id[16];
             std::snprintf(id, sizeof id, "##dpen%d", i);
             ImGui::SetCursorScreenPos(ImVec2(pc.x - 13, pc.y - 13));
             if (ImGui::InvisibleButton(id, ImVec2(26, 26))) { g_docPen = i; g_docEraser = false; }
-            const bool sel = g_docPen == i && !g_docEraser;
-            if (i == 3) dl->AddRectFilled(ImVec2(pc.x - 9, pc.y - 6), ImVec2(pc.x + 9, pc.y + 6), IM_COL32(255, 214, 0, 255), 3.0f);   // the highlighter
-            else dl->AddCircleFilled(pc, 10.0f, kDocPens[i], 0);
-            if (sel) dl->AddCircle(pc, 14.0f, IM_COL32(110, 170, 255, 255), 0, 2.0f);
-            else if (ImGui::IsItemHovered()) dl->AddCircle(pc, 14.0f, IM_COL32(255, 255, 255, 90), 0, 1.5f);
-            x += 32;
+            penDot(dl, pc, kDocPens[i], i == 3, g_docPen == i && !g_docEraser, ImGui::IsItemHovered());
         }
-        x += 6;
-        if (pill(dl, f, "##deraser", "Eraser", ImVec2(x, va.y + 10), ImVec2(x + 78, va.y + 40), g_docEraser, true)) g_docEraser = !g_docEraser;
-        x += 84;
-        if (pill(dl, f, "##dundo", "Undo", ImVec2(x, va.y + 10), ImVec2(x + 66, va.y + 40), false, !g_docUndo.empty())) { marks = g_docUndo.back(); g_docUndo.pop_back(); g_notesChanged = true; }
-        x += 72;
-        if (pill(dl, f, "##dclear", "Clear", ImVec2(x, va.y + 10), ImVec2(x + 66, va.y + 40), false, !marks.empty())) { saveUndo(); marks.clear(); g_notesChanged = true; }
+        if (pill(dl, f, "##deraser", "Eraser", ImVec2(va.x + 138, va.y + 10), ImVec2(va.x + 210, va.y + 40), g_docEraser, true)) g_docEraser = !g_docEraser;
+        if (pill(dl, f, "##dundo", "Undo", ImVec2(vb.x - 214, va.y + 10), ImVec2(vb.x - 158, va.y + 40), false, !g_docUndo.empty())) { marks = g_docUndo.back(); g_docUndo.pop_back(); g_notesChanged = true; }
+        if (pill(dl, f, "##dclear", "Clear", ImVec2(vb.x - 152, va.y + 10), ImVec2(vb.x - 96, va.y + 40), false, !marks.empty())) { saveUndo(); marks.clear(); g_notesChanged = true; }
     }
     if (pill(dl, f, "##docfit", "Fit", ImVec2(vb.x - 154, vb.y - 42), ImVec2(vb.x - 104, vb.y - 12), false, true)) { g_docZoom = 1.0f; g_docPan = ImVec2(0, 0); }
     if (pill(dl, f, "##docout", "-", ImVec2(vb.x - 98, vb.y - 42), ImVec2(vb.x - 58, vb.y - 12), false, true)) g_docZoom = std::max(0.5f, g_docZoom * 0.8f);
@@ -4280,7 +4277,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         }
         toggle("##autodim", lx + colW - autoW, y, autoW, "Auto dim", g_settings.autoDim, true);
         y += 34;
-        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, g_settings.autoDim ? "Dims with the daylight: full until sunset, down to 45% once the sun is 8\xC2\xB0 below the horizon." : "Multiplied with the aircraft's own tablet brightness knob.", nullptr, colW);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, g_settings.autoDim ? "Dims with the daylight: full until sunset, down to 45% once the sun is 8\xC2\xB0 below the horizon." : "Multiplied with the aircraft's own tablet brightness knob. Brighter uses the battery faster.", nullptr, colW);
         y += 40;
         textAt(dl, f.bold, lx, y, kInk, "Favorites bar");
         y += 22;
@@ -4417,7 +4414,10 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         const float dt = std::max(0.0f, std::min(1.0f, ImGui::GetIO().DeltaTime));
         const bool screenOn = g_power == POWER_ON || g_power == POWER_FADING || g_power == POWER_REVEAL || g_power == POWER_BOOT;
         if (g_charger) g_batt = std::min(100.0f, g_batt + dt * 100.0f / 1800.0f);
-        else if (screenOn) g_batt = std::max(0.0f, g_batt - dt * 100.0f / 7200.0f);
+        else if (screenOn) {   // the brighter the screen, the faster it goes: 2 hours at full, about 5 at the dimmest (as a screen's draw does)
+            const float bright = std::max(0.1f, std::min(1.0f, g_settings.autoDim ? s.autoDimLevel : g_settings.brightness));
+            g_batt = std::max(0.0f, g_batt - dt * 100.0f / 7200.0f * (0.35f + 0.65f * bright));
+        }
         const int p = (int)std::ceil(g_batt - 0.001f);
         if (p != g_battSaved) { g_battSaved = p; g_settingsChanged = true; }   // kept a percent at a time
         // low battery: an alert at 20 % and at 10 % on the way down (not while charging); charged above them, they can come again
