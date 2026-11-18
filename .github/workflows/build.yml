@@ -131,7 +131,8 @@ jobs:
       - name: Merge platforms
         run: |
           mkdir -p out/XPTablet
-          cp -r parts/*/* out/XPTablet/
+          # only the plugin's parts (the emulators and their pictures are artifacts of their own)
+          for os in Linux Windows macOS; do cp -r parts/XPTablet-$os/* out/XPTablet/; done
           find out -type f
       - uses: actions/upload-artifact@v4
         with: { name: XPTablet, path: out }
