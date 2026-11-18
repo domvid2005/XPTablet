@@ -29,6 +29,7 @@ XPTablet includes the following open-source software. Their licences require the
     (public domain), as prepared for WXPlane (tools/make_tzones.py, WXPlane's tools/make_basemap.py).
   * stb_image 2.30 by Sean Barrett (decoding the map tiles) - MIT licence or public domain (full text in third_party/stb).
 
+  * Online traffic details on the map's traffic cards: the VATSIM public data feed (https://data.vatsim.net/v3/vatsim-data.json), read live and not stored;
   * Airport facts (names, places, frequencies including CTAF): OurAirports (https://ourairports.com/data/), public domain;
     downloaded when the Airports page opens and kept a month in Output/XPTablet/ourairports.
 

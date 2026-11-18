@@ -34,6 +34,7 @@
 
 #include "aptdat.h"
 #include "navdata.h"
+#include "vatsim.h"
 #include "ourairports.h"
 #include "stb_image.h"
 #include "browser.h"
@@ -566,6 +567,7 @@ void mapStop() {
     g_mapStarted = false;
     xpt::ourairports::stop();
     g_ourAirportsStarted = false;
+    xpt::vatsim::stop();
     if (g_docThread.joinable()) g_docThread.join();
     g_sim.map.airports.clear();
     g_sim.map.airportPoints.clear();
@@ -614,74 +616,182 @@ void mapStep(const xpt::Actions& act) {
     }
 }
 
-// ---- the SimBrief flight plan on the map ---------------------------------------------------------------------------------------
-// The user's latest plan (SimBrief's public fetcher, by user name or pilot ID), on a thread; again when asked, when the name
-// changes, or every 10 minutes while the map is open.
+// ---- the SimBrief flight plan (the Flight Plan page, and the route on the map) ---------------------------------------------------
+// The user's latest plan, from SimBrief's public fetcher with the saved user name or pilot ID, on a thread, when Import is pressed.
 std::mutex g_sbMx;
 bool g_sbDone = false;
-std::vector<xpt::MapState::RoutePoint> g_sbRoute;
-std::string g_sbStatus, g_sbUserFetched = "\x01";
-std::chrono::steady_clock::time_point g_sbAt;
+xpt::FlightPlan g_sbPlan;
+
+std::string hmOf(double sec) {   // 4500 -> "1h 15m"
+    if (sec <= 0) return std::string();
+    const int m = (int)std::lround(sec / 60.0);
+    char b[24];
+    if (m >= 60) std::snprintf(b, sizeof b, "%dh %02dm", m / 60, m % 60); else std::snprintf(b, sizeof b, "%d min", m);
+    return b;
+}
+std::string clockOfSec(double sec) {   // 2520 -> "0:42"
+    const int m = (int)std::lround(sec / 60.0);
+    char b[16];
+    std::snprintf(b, sizeof b, "%d:%02d", m / 60, m % 60);
+    return b;
+}
 
 void simbriefFetch(const std::string& user) {
     if (g_sbThread.joinable()) g_sbThread.join();
-    g_sim.map.routeStatus = "Fetching the SimBrief plan...";
+    g_sim.plan.busy = true;
+    g_sim.plan.status = "Asking SimBrief...";
     g_sbThread = std::thread([user] {
         std::string q;
         for (unsigned char c : user) { if (std::isalnum(c) || c == '-' || c == '_' || c == '.') q += (char)c; else { char b[4]; std::snprintf(b, sizeof b, "%%%02X", c); q += b; } }
         const bool id = !user.empty() && std::all_of(user.begin(), user.end(), [](unsigned char c) { return std::isdigit(c) != 0; });
         const std::string url = std::string("https://www.simbrief.com/api/xml.fetcher.php?") + (id ? "userid=" : "username=") + q + "&json=1";
-        std::string body, err, status;
+        std::string body, err;
         long code = 0;
-        std::vector<xpt::MapState::RoutePoint> pts;
-        if (!wx::httpGet(url, body, code, err, 20, 16u << 20)) status = code == 400 ? "SimBrief: no plan for that name" : "SimBrief could not be reached";
-        else {
+        xpt::FlightPlan p;
+        if (!wx::httpGet(url, body, code, err, 25, 32u << 20)) {
+            p.status = code == 400 ? "SimBrief has no plan for that ID" : "SimBrief could not be reached";
+        } else {
             wx::Json j;
-            if (!wx::parseJson(body, j)) status = "SimBrief's answer could not be read";
+            if (!wx::parseJson(body, j)) p.status = "SimBrief's answer could not be read";
             else {
-                auto num = [](const wx::Json* o, const char* k) { const wx::Json* v = o ? o->get(k) : nullptr; return v ? v->asNum(0) : 0.0; };
                 auto str = [](const wx::Json* o, const char* k) { const wx::Json* v = o ? o->get(k) : nullptr; return v ? v->asString() : std::string(); };
+                auto num = [](const wx::Json* o, const char* k) { const wx::Json* v = o ? o->get(k) : nullptr; return v ? v->asNum(0) : 0.0; };
+                const wx::Json* gen = j.get("general");
                 const wx::Json* org = j.get("origin");
                 const wx::Json* dst = j.get("destination");
+                const wx::Json* alt = j.get("alternate");
+                if (alt && alt->type == wx::Json::Arr && !alt->arr.empty()) alt = &alt->arr[0];
+                const wx::Json* fuel = j.get("fuel");
+                const wx::Json* wts = j.get("weights");
+                const wx::Json* times = j.get("times");
+                const wx::Json* acf = j.get("aircraft");
+                const wx::Json* atc = j.get("atc");
+                const wx::Json* prm = j.get("params");
+                const wx::Json* files = j.get("files");
                 const wx::Json* nav = j.get("navlog");
                 const wx::Json* fix = nav ? nav->get("fix") : nullptr;
-                if (org) pts.push_back({num(org, "pos_lat"), num(org, "pos_long"), str(org, "icao_code")});
-                auto addFix = [&](const wx::Json& f) {
-                    const std::string ident = str(&f, "ident");
-                    if (ident == "TOC" || ident == "TOD") return;   // not places
-                    const double la = num(&f, "pos_lat"), lo = num(&f, "pos_long");
-                    if (la == 0 && lo == 0) return;
-                    if (!pts.empty() && std::fabs(pts.back().lat - la) < 1e-6 && std::fabs(pts.back().lon - lo) < 1e-6) return;
-                    pts.push_back({la, lo, ident});
+                p.origin = str(org, "icao_code"); p.originName = str(org, "name"); p.originRunway = str(org, "plan_rwy");
+                p.dest = str(dst, "icao_code"); p.destName = str(dst, "name"); p.destRunway = str(dst, "plan_rwy");
+                p.alternate = str(alt, "icao_code");
+                p.callsign = str(atc, "callsign");
+                if (p.callsign.empty()) p.callsign = str(gen, "icao_airline") + str(gen, "flight_number");
+                p.aircraft = str(acf, "icaocode"); if (p.aircraft.empty()) p.aircraft = str(acf, "icao_code");
+                p.registration = str(acf, "reg");
+                p.units = str(prm, "units");
+                p.route = str(gen, "route");
+                const double fl = num(gen, "initial_altitude");
+                if (fl > 0) { char b[16]; std::snprintf(b, sizeof b, fl >= 18000 ? "FL%03.0f" : "%.0f ft", fl >= 18000 ? fl / 100 : fl); p.cruise = b; }
+                p.distanceNm = str(gen, "route_distance");
+                p.ete = hmOf(num(times, "est_time_enroute"));
+                p.costIndex = str(gen, "costindex");
+                const double wind = num(gen, "avg_wind_comp");
+                if (wind != 0) { char b[24]; std::snprintf(b, sizeof b, "%s%.0f kt", wind > 0 ? "tail " : "head ", std::fabs(wind)); p.avgWind = b; }
+                p.blockFuel = str(fuel, "plan_ramp"); p.tripFuel = str(fuel, "enroute_burn"); p.reserveFuel = str(fuel, "reserve");
+                p.altnFuel = str(fuel, "alternate_burn"); p.taxiFuel = str(fuel, "taxi"); p.extraFuel = str(fuel, "extra");
+                p.zfw = str(wts, "est_zfw"); p.tow = str(wts, "est_tow"); p.ldw = str(wts, "est_ldw");
+                {   // the briefing: SimBrief's PDF of the OFP
+                    const wx::Json* pdf = files ? files->get("pdf") : nullptr;
+                    const std::string dir = str(files, "directory"), link = str(pdf, "link");
+                    if (!link.empty()) p.pdfUrl = link.compare(0, 4, "http") == 0 ? link : dir + link;
+                }
+                auto addLeg = [&](const wx::Json& f) {
+                    xpt::FlightPlan::Leg l;
+                    l.ident = str(&f, "ident"); l.airway = str(&f, "via_airway"); l.type = str(&f, "type");
+                    if (l.airway == "DCT") l.airway.clear();
+                    const double a = num(&f, "altitude_feet");
+                    if (a > 0) { char b[16]; std::snprintf(b, sizeof b, a >= 18000 ? "FL%03.0f" : "%.0f", a >= 18000 ? a / 100 : a); l.alt = b; }
+                    l.legNm = str(&f, "distance");
+                    l.totalTime = clockOfSec(num(&f, "time_total"));
+                    l.lat = num(&f, "pos_lat"); l.lon = num(&f, "pos_long");
+                    if (str(&f, "is_sid_star") == "1") { if (p.legs.empty() || p.sid.empty()) { if (p.star.empty() && p.legs.size() < 8) p.sid = l.airway; else p.star = l.airway; } }
+                    if (l.ident == "TOC" || l.ident == "TOD") return;
+                    p.legs.push_back(l);
                 };
-                if (fix && fix->type == wx::Json::Arr) for (const wx::Json& f : fix->arr) addFix(f);
-                else if (fix && fix->type == wx::Json::Obj) addFix(*fix);
-                if (dst && (pts.empty() || pts.back().ident != str(dst, "icao_code"))) pts.push_back({num(dst, "pos_lat"), num(dst, "pos_long"), str(dst, "icao_code")});
-                if (pts.size() < 2) { const wx::Json* fe = j.get("fetch"); status = "SimBrief: " + (fe ? str(fe, "status") : std::string("no plan")); pts.clear(); }
-                else status = str(org, "icao_code") + " to " + str(dst, "icao_code") + " (SimBrief)";
+                if (fix && fix->type == wx::Json::Arr) for (const wx::Json& f : fix->arr) addLeg(f);
+                else if (fix && fix->type == wx::Json::Obj) addLeg(*fix);
+                if (p.origin.empty() || p.dest.empty()) {
+                    const wx::Json* fe = j.get("fetch");
+                    p.status = "SimBrief: " + (fe ? str(fe, "status") : std::string("no plan"));
+                } else {
+                    p.loaded = true;
+                    const std::time_t now = std::time(nullptr);
+                    std::tm tm{};
+#if defined(_WIN32)
+                    gmtime_s(&tm, &now);
+#else
+                    gmtime_r(&now, &tm);
+#endif
+                    char b[16];
+                    std::snprintf(b, sizeof b, "%02d:%02dZ", tm.tm_hour, tm.tm_min);
+                    p.importedAt = b;
+                    p.status = "Imported " + p.origin + " to " + p.dest + " at " + b;
+                }
             }
         }
         std::lock_guard<std::mutex> lk(g_sbMx);
-        g_sbRoute.swap(pts); g_sbStatus = status; g_sbDone = true;
+        g_sbPlan = p; g_sbDone = true;
     });
 }
 
-void routeStep(const xpt::Actions& act) {
-    const std::string user = xpt::settings().simbriefUser;
-    const auto now = std::chrono::steady_clock::now();
-    if (act.mapShown && xpt::settings().mapRoute) {
-        if (user.empty()) { g_sim.map.route.clear(); g_sim.map.routeStatus = "Set your SimBrief name in Settings"; g_sbUserFetched = ""; }
-        else if (act.routeReload || user != g_sbUserFetched || now - g_sbAt > std::chrono::minutes(10)) {
-            if (!g_sbThread.joinable() || g_sbDone) { g_sbUserFetched = user; g_sbAt = now; g_sbDone = false; simbriefFetch(user); }
-        }
+// The plan's route for the map: the departure, its fixes, the destination
+void planToRoute() {
+    xpt::MapState& m = g_sim.map;
+    m.route.clear();
+    const xpt::FlightPlan& p = g_sim.plan;
+    if (!p.loaded) { m.routeStatus = "Import a plan on the Flight Plan page"; return; }
+    for (const auto& l : p.legs) if (l.lat != 0 || l.lon != 0) m.route.push_back({l.lat, l.lon, l.ident});
+    m.routeStatus = p.origin + " to " + p.dest + " (SimBrief)";
+}
+
+void planStep(const xpt::Actions& act) {
+    if (act.planImport && !xpt::settings().simbriefUser.empty() && !g_sim.plan.busy) simbriefFetch(xpt::settings().simbriefUser);
+    if (act.planClear) {
+        if (g_sbThread.joinable()) g_sbThread.join();
+        g_sim.plan = xpt::FlightPlan();
+        g_sim.plan.status = "Cleared";
+        planToRoute();
     }
     std::lock_guard<std::mutex> lk(g_sbMx);
-    if (g_sbDone && g_sbThread.joinable()) {
-        g_sbThread.join();
-        g_sim.map.route = g_sbRoute;
-        g_sim.map.routeStatus = g_sbStatus;
+    if (g_sbDone) {
+        g_sbDone = false;
+        if (g_sbThread.joinable()) g_sbThread.join();
+        if (g_sbPlan.loaded) g_sim.plan = g_sbPlan;
+        else { g_sim.plan.busy = false; g_sim.plan.status = g_sbPlan.status; }   // a failed import keeps the plan there was
+        g_sim.plan.busy = false;
+        planToRoute();
+        logMsg("SimBrief: %s", g_sim.plan.status.c_str());
     }
 }
+
+// Settings, Data: where the tablet's data comes from (a few times a second is plenty)
+void dataInfoStep() {
+    char sys[2048] = "";
+    XPLMGetSystemPath(sys);
+    const std::string root = sys;
+    auto& d = g_sim.dataInfo;
+    d.clear();
+    std::vector<std::shared_ptr<const xpt::AptGeo>> l; std::vector<xpt::AptPoint> pts; bool indexing = false; int n = 0;
+    if (g_mapStarted) xpt::aptdat::get(l, pts, indexing, n);
+    d.push_back({"Airports", !g_mapStarted ? "read when the Map or Airports page first opens" : indexing ? "reading X-Plane's scenery..." : std::to_string(n) + " in X-Plane's scenery (custom first)"});
+    std::FILE* cf = std::fopen((root + "Custom Data/earth_nav.dat").c_str(), "rb");
+    if (cf) std::fclose(cf);
+    d.push_back({"Navaids", cf ? "Custom Data (your AIRAC, e.g. Navigraph's)" : "X-Plane's own (Resources/default data)"});
+    const std::string oa = xpt::ourairports::status();
+    d.push_back({"Airport facts", xpt::ourairports::ready() ? "OurAirports, kept a month" : !g_ourAirportsStarted ? "OurAirports: when the Airports page opens" : oa});
+    d.push_back({"Map tiles", "OpenStreetMap / Esri, kept a month in Output/XPTablet/tiles"});
+    d.push_back({"Weather", "X-Plane's own; METARs from NOAA"});
+    d.push_back({"Documents", "Output/XPTablet/Documents, the aircraft's folder, AviTab's charts"});
+}
+
+void clearTileCache() {
+    char sys[2048] = "";
+    XPLMGetSystemPath(sys);
+    std::error_code ec;
+    const auto n = std::filesystem::remove_all(std::filesystem::u8path(std::string(sys) + "Output/XPTablet/tiles"), ec);
+    makeDirs(std::string(sys) + "Output/XPTablet/tiles/");
+    logMsg("map: %d cached tiles removed", (int)n);
+}
+
 
 // The aircraft and the time, for the map (a few times a second)
 void readMapState() {
@@ -812,7 +922,7 @@ void buildAirportInfo() {
 }
 
 void airportsStep(const xpt::Actions& act) {
-    if (!act.airportsShown) return;
+    if (!act.airportsShown && !(act.mapShown && !act.airportOpen.empty())) return;   // the Airports page, or an airport's card on the map
     if (!g_mapStarted) mapStart();   // the index lives with the map's
     if (!g_ourAirportsStarted) {
         g_ourAirportsStarted = true;
@@ -1040,7 +1150,16 @@ void ensureFrame() {
     if (act.ground != xpt::GA_NONE) g_pendingGround = act;   // carried out from the flight loop, not from inside drawing
     browserStep(act);
     mapStep(act);
-    if (g_mapStarted) routeStep(act);
+    planStep(act);
+    {   // the Map's traffic card: its aircraft on VATSIM
+        xpt::vatsim::want(act.mapShown && !act.trafficSelected.empty());
+        if (act.mapShown && !act.trafficSelected.empty()) {
+            xpt::vatsim::start();
+            g_sim.map.vatsim = xpt::vatsim::lookup(act.trafficSelected, g_sim.map.vatsimStatus);
+        }
+    }
+    if (act.clearTileCache) clearTileCache();
+    if ((XPLMGetCycleNumber() & 15) == 0) dataInfoStep();
     airportsStep(act);
     docsStep(act);
     g_webShown = act.webShown;
@@ -1122,7 +1241,18 @@ void fillRect(float l, float b, float r, float t, float red, float green, float 
     gl.Color4f(1, 1, 1, 1);
 }
 
-float userBrightness() { return std::max(0.1f, std::min(1.0f, xpt::settings().brightness)); }
+// The Settings brightness, or with auto dim WXPlane's curve: full with the sun up, down to 45% once it is 8 degrees below the horizon
+float autoDimLevel() {
+    static XPLMDataRef sun = XPLMFindDataRef("sim/graphics/scenery/sun_pitch_degrees");
+    if (!sun) return 1.0f;
+    const float t = std::max(0.0f, std::min(1.0f, -XPLMGetDataf(sun) / 8.0f));
+    return 1.0f - 0.55f * t;
+}
+float userBrightness() {
+    g_sim.autoDimLevel = autoDimLevel();
+    if (xpt::settings().autoDim) return g_sim.autoDimLevel;
+    return std::max(0.1f, std::min(1.0f, xpt::settings().brightness));
+}
 
 // ---- the cockpit tablet ---------------------------------------------------------------------------------------------------------------
 // Runs while X-Plane draws the 3-D cockpit's panel texture: the coordinates are that texture's pixels, origin bottom-left.
@@ -1411,11 +1541,11 @@ void registerCommands(const std::string& p) {
     regCmd(p + "/wheel_down", "Tablet: scroll down", CMD_WHEEL_DOWN);
     regCmd(p + "/app_charts", "Tablet: charts", CMD_APP0 + xpt::APP_CHARTS);
     regCmd(p + "/app_airports", "Tablet: airports", CMD_APP0 + xpt::APP_AIRPORTS);
-    regCmd(p + "/app_routes", "Tablet: SimBrief (routes)", CMD_APP0 + xpt::APP_SIMBRIEF);
+    regCmd(p + "/app_routes", "Tablet: Flight Plan (routes)", CMD_APP0 + xpt::APP_ROUTES);
     regCmd(p + "/app_maps", "Tablet: map", CMD_APP0 + xpt::APP_MAP);
     regCmd(p + "/app_plane_manual", "Tablet: aircraft documents", CMD_PLANE_DOCS);
     regCmd(p + "/app_notes", "Tablet: notes", CMD_APP0 + xpt::APP_NOTES);
-    regCmd(p + "/app_navigraph", "Tablet: charts", CMD_APP0 + xpt::APP_CHARTS);
+    regCmd(p + "/app_navigraph", "Tablet: Navigraph Charts", CMD_APP0 + xpt::APP_NAVIGRAPH);
     regCmd(p + "/app_about", "Tablet: settings", CMD_APP0 + xpt::APP_SETTINGS);
     // the map's own controls: accepted now so aircraft buttons bound to them do nothing rather than fail, wired up with the map
     {   // the Map page, as AviTab's map: zoom in, out, back on the aircraft, and moved a quarter of the way

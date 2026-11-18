@@ -154,3 +154,15 @@ of their own and come back to it as they were left. The planning icon switches b
 - Sharpness: every circle and arc is tessellated for the screen's pixel density (no fixed segment counts); concave shapes are
   filled whichever way their points run; map tiles, pictures and the logo are mipmapped; fonts sampled finer (3 x 2).
 - Fix: Airports' Show on map now opens the Map.
+
+## 0.9.0
+- Settings in pages: General (what is on the home screen: chart providers ForeFlight / ChartFox / Navigraph / SkyVector, live maps Volanta /
+  VATSIM, SimBrief; status; touch test), Display (brightness with Auto dim like WXPlane, favourites, clock, map), Data (SimBrief ID, import,
+  data sources, clear map cache), and Credits at the bottom of the sidebar.
+- Flight Plan page back: Import from SimBrief, Clear, Briefing PDF, Show on map; route, fuel and weights, navlog.
+- iPad-like: pages open from their icon and close back to it; hold an icon ~0.75 s to arrange, free places shown faintly, icons go anywhere;
+  labels under the dock icons; sliders ease; hover tints on everything tappable (no tooltips).
+- Map: WXPlane's ranges (0.25 nm to 2500 nm) with smooth zoom; own aircraft and traffic drawn as their types' outlines; tap traffic,
+  navaids (frequency, Morse), fixes, route points and airports (elevation, CTAF, frequencies, runways) for one card at a time; traffic
+  cards show the VATSIM data (pilot, server, squawk, flight plan, route, remarks) from the public feed, read every 30 s while a card is open.
+- AviTab commands: app_routes opens Flight Plan, app_navigraph opens Navigraph Charts.

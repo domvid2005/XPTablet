@@ -14,17 +14,19 @@ namespace xpt {
 constexpr float kLogicalH = 480.0f;   // the tablet is always laid out 480 units tall; its width follows the screen's shape
 
 // The tablet's apps. Charts, Live Map, SimBrief and ForeFlight are web apps: each opens its site as a page of its own.
+// Each web site is an app of its own (APP_CHARTS is ChartFox, APP_LIVEMAP Volanta, APP_FOREFLIGHT ForeFlight); new apps go at the end,
+// as the settings file keeps the home screen by these numbers.
 enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_ROUTES, APP_WEATHER, APP_GROUND, APP_CHECKLISTS,
-           APP_PERFORMANCE, APP_TRAFFIC, APP_NOTES, APP_SIMBRIEF, APP_LIVEMAP, APP_FOREFLIGHT, APP_BROWSER, APP_SETTINGS, APP_COUNT };
+           APP_PERFORMANCE, APP_TRAFFIC, APP_NOTES, APP_SIMBRIEF, APP_LIVEMAP, APP_FOREFLIGHT, APP_BROWSER, APP_SETTINGS,
+           APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_COUNT };
 
 constexpr int kMaxFavorites = 5;   // the favorites bar holds up to 5 icons; its size is chosen in Settings, 0 removes it
 
 // What the user chose. Kept between sessions by the host (settingsToText / settingsFromText).
 struct Settings {
-    int chartsProvider = 0;       // what the Charts icon is: 0 ChartFox, 1 Navigraph
-    int liveProvider = 0;         // what the Live Map icon is: 0 Volanta, 1 VATSIM Map
-    int planProvider = 0;         // what the flight planning icon is: 0 ForeFlight, 1 SkyVector
-    bool showCharts = true, showSimbrief = true, showLive = true, showForeflight = true;   // web app icons on the home screen
+    // the web apps on the home screen, each on or off: charts (ChartFox, Navigraph), live maps (Volanta, VATSIM), chart providers
+    // (ForeFlight, SkyVector), flight planning (SimBrief)
+    bool showCharts = true, showNavigraph = false, showLive = true, showVatsim = false, showForeflight = true, showSkyvector = false, showSimbrief = true;
     std::vector<int> order;       // the home screen's icons, in the order the user arranged them
     float brightness = 1.0f;      // the screen's brightness set in Settings, 0.1 to 1 (on top of what the aircraft sets)
     int favoriteSlots = 4;        // how many icons the favorites bar holds, 0 (no bar) to kMaxFavorites
@@ -41,7 +43,8 @@ struct Settings {
     bool mapNavaids = true;       // VORs, NDBs, DMEs and ILS localizers
     bool mapWaypoints = false;    // fixes
     bool mapRoute = true;         // the SimBrief flight plan
-    std::string simbriefUser;     // SimBrief user name or pilot ID (for the route on the map)
+    std::string simbriefUser;     // SimBrief user name or pilot ID (the Flight Plan page and the route on the map)
+    bool autoDim = false;         // the screen dims itself as the daylight goes (WXPlane's curve); the brightness slider rests
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
 };
 Settings& settings();
@@ -119,6 +122,14 @@ struct BrowserState {
     int activeTab = 0;            // the shown one's id
 };
 
+// A pilot on VATSIM (the Map's traffic card): who, where, and the filed flight plan.
+struct VatsimPilot {
+    bool found = false, hasPlan = false;
+    std::string callsign, name, cid, server, rating, squawk, logon;
+    int altitudeFt = 0, groundspeedKt = 0, heading = 0, qnhMb = 0;
+    std::string rules, aircraft, aircraftFull, departure, arrival, alternate, cruiseAlt, cruiseTas, depTime, enroute, fuel, route, remarks, assignedSquawk;
+};
+
 // The Map page: the aircraft, the time, and what the host has loaded for the view.
 struct MapState {
     bool havePos = false;
@@ -146,6 +157,23 @@ struct MapState {
     struct RoutePoint { double lat = 0, lon = 0; std::string ident; };
     std::vector<RoutePoint> route;
     std::string routeStatus;      // "KSBN to KORD, 12 fixes", or why there is none
+    // the traffic card's aircraft on VATSIM (for Actions::trafficSelected)
+    VatsimPilot vatsim;
+    std::string vatsimStatus;     // "" when the data is fresh; else what is happening
+};
+
+// The Flight Plan page: the latest SimBrief plan (the operational flight plan's summary and its navigation log).
+struct FlightPlan {
+    bool loaded = false, busy = false;
+    std::string status;           // what happened ("Imported 18:42Z", "No plan for that name"...)
+    std::string callsign, aircraft, registration, units;   // units: lbs or kgs
+    std::string origin, originName, originRunway, dest, destName, destRunway, alternate;
+    std::string route, cruise, distanceNm, ete, costIndex, avgWind, sid, star;
+    std::string blockFuel, tripFuel, reserveFuel, altnFuel, taxiFuel, extraFuel, zfw, tow, ldw;
+    std::string pdfUrl;           // the briefing (the OFP as SimBrief's PDF)
+    std::string importedAt;       // when (Zulu)
+    struct Leg { std::string ident, airway, alt, legNm, totalTime, type; double lat = 0, lon = 0; };
+    std::vector<Leg> legs;
 };
 
 // The Airports page: one airport, read from X-Plane's scenery (apt.dat) and OurAirports.
@@ -199,6 +227,9 @@ struct SimState {
     DocsState docs;
     std::string checklistText;    // the aircraft's own checklist file (see Checklists), "" for the built-in ones
     std::string checklistSource;  // where it came from
+    FlightPlan plan;
+    float autoDimLevel = 1.0f;    // what auto dim makes of the brightness now (from the sun)
+    std::vector<std::pair<std::string, std::string>> dataInfo;   // Settings, Data: where the tablet's data comes from, and how it is
 };
 
 // What the user asked for on the Ground page; the host carries it out.
@@ -228,7 +259,10 @@ struct Actions {
     std::string airportOpen;      // the airport to show
     // the Documents page: list the folders (again), show a picture
     bool docsList = false;
-    bool routeReload = false;     // fetch the SimBrief plan again
+    std::string trafficSelected;  // the Map's traffic card is open on this call sign (look it up on VATSIM)
+    bool planImport = false;      // fetch the SimBrief plan (with the saved name / ID)
+    bool planClear = false;       // forget it
+    bool clearTileCache = false;  // delete the map tiles kept on disk
     std::string docOpen;
     double mapLat = 0, mapLon = 0, mapLayoutNm = 0, mapPointNm = 0;
     double mapNavNm = 0, mapFixNm = 0;   // navaids and fixes to have ready around the centre (0: none)

@@ -184,7 +184,7 @@ int main(int argc, char** argv) {
             for (const Batch& b : batches) {
                 tris += b.v.size() / 3;
                 for (const ImDrawVert& v : b.v)
-                    if (v.pos.x < -0.01f || v.pos.y < -0.01f || v.pos.x > W + 0.01f || v.pos.y > H + 0.01f) { ++failures; break; }
+                    if (v.pos.x < -0.01f || v.pos.y < -0.01f || v.pos.x > W + 0.01f || v.pos.y > H + 0.01f) { std::printf("FAIL: drawn off the screen: %s at %gx%g (%.1f, %.1f)\n", appName(app), W, H, v.pos.x, v.pos.y); ++failures; break; }
             }
             if (tris == 0) { std::printf("FAIL: nothing drawn for %s at %gx%g\n", appName(app), W, H); ++failures; }
             if (app != APP_HOME && appVisible(app) && currentApp() == APP_HOME) { std::printf("FAIL: %s did not open\n", appName(app)); ++failures; }
@@ -207,21 +207,27 @@ int main(int argc, char** argv) {
     }
     // settings: the text form round-trips, the two switchable icons follow their settings, a switched-off web app leaves the home screen
     {
-        settings().chartsProvider = 1; settings().liveProvider = 1; settings().showForeflight = false;
-        settings().favorites = {APP_WEATHER, APP_MAP}; settings().order = {APP_SETTINGS, APP_NOTES};
+        settings().showNavigraph = true; settings().showCharts = false; settings().showVatsim = true; settings().showForeflight = false;
+        settings().favorites = {APP_WEATHER, APP_MAP}; settings().order = {APP_SETTINGS, -1, APP_NOTES};   // a free place between two icons
         const std::string txt = settingsToText();
         settings() = Settings();
         settingsFromText(txt);
         const Settings& st = settings();
-        if (st.chartsProvider != 1 || st.liveProvider != 1 || st.showForeflight || !st.showSimbrief) { std::printf("FAIL: settings round trip\n"); ++failures; }
-        if (st.favorites != std::vector<int>({APP_WEATHER, APP_MAP}) || st.order.size() != (size_t)APP_COUNT - 2 || st.order[0] != APP_SETTINGS || st.order[1] != APP_NOTES) { std::printf("FAIL: layout round trip\n"); ++failures; }
-        openApp(APP_CHARTS);
-        if (currentApp() != APP_BROWSER || browserChrome() || std::string(browserUrl()).find("navigraph") == std::string::npos) { std::printf("FAIL: charts provider\n"); ++failures; }
-        openApp(APP_LIVEMAP);
-        if (std::string(browserUrl()).find("vatsim") == std::string::npos || std::string(appName(APP_LIVEMAP)) != "VATSIM Map") { std::printf("FAIL: live map provider\n"); ++failures; }
+        if (!st.showNavigraph || st.showCharts || !st.showVatsim || !st.showLive || st.showForeflight || !st.showSimbrief) { std::printf("FAIL: settings round trip\n"); ++failures; }
+        int placed = 0;
+        for (int a : st.order) placed += a >= 0 ? 1 : 0;
+        if (st.favorites != std::vector<int>({APP_WEATHER, APP_MAP}) || st.order[0] != APP_SETTINGS || st.order[1] != -1 || st.order[2] != APP_NOTES || placed != APP_COUNT - 2) { std::printf("FAIL: layout round trip\n"); ++failures; }
+        openApp(APP_NAVIGRAPH);
+        if (currentApp() != APP_BROWSER || browserChrome() || std::string(browserUrl()).find("navigraph") == std::string::npos) { std::printf("FAIL: the Navigraph icon\n"); ++failures; }
+        openApp(APP_HOME); openApp(APP_VATSIM);
+        if (std::string(browserUrl()).find("vatsim") == std::string::npos || std::string(appName(APP_VATSIM)) != "VATSIM Map") { std::printf("FAIL: the VATSIM icon\n"); ++failures; }
+        openApp(APP_HOME);
         openApp(APP_BROWSER);
         if (!browserChrome()) { std::printf("FAIL: the Browser icon opens the full browser\n"); ++failures; }
         if (appVisible(APP_FOREFLIGHT) || !appVisible(APP_SIMBRIEF)) { std::printf("FAIL: web app switch\n"); ++failures; }
+        // an older settings file (one charts icon set to Navigraph) shows the Navigraph icon
+        settings() = Settings(); settingsFromText("charts_provider=1\nshow_charts=1\nlive_provider=0\n");
+        if (!settings().showNavigraph || settings().showCharts || !settings().showLive) { std::printf("FAIL: older settings\n"); ++failures; }
         settings() = Settings();
     }
     // Performance is gone (everywhere); Checklists are not offered in a ToLiss (it has its own)
@@ -235,7 +241,7 @@ int main(int argc, char** argv) {
         openApp(APP_PERFORMANCE);
         if (currentApp() != APP_HOME) { std::printf("FAIL: a hidden app must not open\n"); ++failures; }
         ImGui::NewFrame(); build(fonts, s, 800, kLogicalH, act); ImGui::Render();
-        if (appVisible(APP_PERFORMANCE) || appVisible(APP_ROUTES) || appVisible(APP_TRAFFIC)) { std::printf("FAIL: Performance, Routes and Traffic are gone for every aircraft\n"); ++failures; }
+        if (appVisible(APP_PERFORMANCE) || appVisible(APP_TRAFFIC) || !appVisible(APP_ROUTES)) { std::printf("FAIL: Performance and Traffic are gone, Flight Plan is there\n"); ++failures; }
         if (appVisible(APP_CHECKLISTS) == false) { std::printf("FAIL: Checklists show outside a ToLiss\n"); ++failures; }
     }
     // dragging: press the first grid icon, carry it into the favorites bar, let go: it must now be a favorite
@@ -255,7 +261,9 @@ int main(int argc, char** argv) {
         const float cols = std::floor((W - 24) / 104), gx = std::floor((W - cols * 104) * 0.5f) + 52;
         float gy = 0;   // find the first row: probe downwards until a press picks the icon up
         frame(gx, 60, false); frame(gx, 60, false);
-        for (gy = 40; gy < 300; gy += 10) { frame(gx, gy, false); frame(gx, gy, true); frame(gx + 40, gy + 40, true); frame(gx + 40, gy + 40, true);
+        // hold the icon (it wiggles after a moment), then carry it into the favorites bar
+        for (gy = 40; gy < 300; gy += 10) { frame(gx, gy, false); frame(gx, gy, true); for (int k = 0; k < 55; ++k) frame(gx, gy, true);
+            frame(gx + 40, gy + 40, true); frame(gx + 40, gy + 40, true);
             frame(W * 0.5f, H - 40, true); frame(W * 0.5f, H - 40, true);
             { Canvas cv((int)(W * scale), (int)(H * scale)); raster(cv, batches, tex, tw, th, scale); writePng(cv, out + "/tablet_drag.png"); }
             frame(W * 0.5f, H - 40, false); frame(W * 0.5f, H - 40, false);
@@ -268,6 +276,21 @@ int main(int argc, char** argv) {
         for (int a : settings().favorites) fav = fav || a == first;
         if (!fav || settings().favorites.size() != 3) { std::printf("FAIL: drag to favorites\n"); ++failures; }
         if (!takeSettingsChanged()) { std::printf("FAIL: a rearranged home screen must be saved\n"); ++failures; }
+        // an icon dropped on a free place stays there (the places between are left free)
+        {
+            const int last = (int)settings().order.size() - 1;
+            int app = -1, from = -1;
+            for (int i = 0; i < (int)settings().order.size(); ++i) if (settings().order[i] >= 0 && appVisible(settings().order[i])) { app = settings().order[i]; from = i; break; }
+            const float cx = std::floor((W - cols * 104) * 0.5f) + (last % (int)cols) * 104 + 52;
+            const float rowsN = std::floor(((H - 90 - 10 - 6) - 28 - 10) / 100);
+            const float gy0 = 28 + std::max(6.0f, std::floor(((H - 90 - 10 - 6) - 28 - rowsN * 100) * 0.5f));
+            const float cy = gy0 + (last / (int)cols) * 100 + 36;
+            const float fx = std::floor((W - cols * 104) * 0.5f) + (from % (int)cols) * 104 + 52, fy = gy0 + (from / (int)cols) * 100 + 36;
+            frame(fx, fy, false); frame(fx, fy, true); frame(fx + 20, fy + 10, true); frame(cx, cy, true); frame(cx, cy, true); frame(cx, cy, false); frame(cx, cy, false);
+            if (settings().order[last] != app || settings().order[from] != -1) { std::printf("FAIL: an icon put on a free place (%d at %d, %d at %d)\n", settings().order[last], last, settings().order[from], from); ++failures; }
+            { Canvas cv((int)(W * scale), (int)(H * scale)); batches.clear(); frame(-1000, -1000, false); raster(cv, batches, tex, tw, th, scale); writePng(cv, out + "/tablet_arrange.png"); }
+            frame(W - 56, H - 28, false); frame(W - 56, H - 28, true); frame(W - 56, H - 28, false); frame(-1000, -1000, false);   // Done
+        }
         settings() = Settings();
     }
     // the favorites bar's size: 4 by default; made smaller, the extra favorites go back to the grid and nothing is lost
@@ -278,13 +301,13 @@ int main(int argc, char** argv) {
         const std::string txt = settingsToText();
         settings() = Settings();
         settingsFromText(txt);
-        if (settings().favoriteSlots != 2 || settings().favorites.size() != 2 || settings().order.size() != (size_t)APP_COUNT - 2 || settings().order[0] != APP_WEATHER) { std::printf("FAIL: favorites bar size\n"); ++failures; }
+        if (settings().favoriteSlots != 2 || settings().favorites.size() != 2 || std::find(settings().order.begin(), settings().order.end(), (int)APP_WEATHER) == settings().order.end()) { std::printf("FAIL: favorites bar size\n"); ++failures; }
         settingsFromText("favorite_slots=9\n");
         if (settings().favoriteSlots != kMaxFavorites) { std::printf("FAIL: favorites bar size limit\n"); ++failures; }
         // 0 takes the bar away: every favorite returns to the grid, and the home screen still draws
         settings() = Settings(); settings().favoriteSlots = 0;
         settingsFromText(settingsToText());
-        if (!settings().favorites.empty() || settings().order.size() != (size_t)APP_COUNT) { std::printf("FAIL: favorites bar off\n"); ++failures; }
+        if (!settings().favorites.empty() || std::count_if(settings().order.begin(), settings().order.end(), [](int a) { return a >= 0; }) != APP_COUNT) { std::printf("FAIL: favorites bar off\n"); ++failures; }
         openApp(APP_HOME);
         std::vector<Batch> b;
         for (int i = 0; i < 2; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
@@ -330,17 +353,20 @@ int main(int argc, char** argv) {
             ImGui::NewFrame(); Actions act; build(fonts, s, W, H, act); ImGui::Render();
         };
         frame(-1000, -1000, false); frame(-1000, -1000, false);
-        // drag the brightness slider (the first control of the left column) from its right end to its left third
-        frame(355, 120, false); frame(355, 120, true); frame(150, 120, true); frame(150, 120, true); frame(150, 120, false); frame(150, 120, false);
+        // Display (the sidebar's second entry), then drag the brightness slider from its right end to its left
+        frame(80, 154, false); frame(80, 154, true); frame(80, 154, false); frame(80, 154, false);
+        frame(362, 125, false); frame(362, 125, true); frame(215, 125, true); frame(215, 125, true); frame(215, 125, false); frame(215, 125, false);
+        for (int k = 0; k < 30; ++k) frame(-1000, -1000, false);   // the knob glides to where it was let go
         if (settings().brightness > 0.6f || settings().brightness < 0.1f) { std::printf("FAIL: brightness slider (%.2f)\n", settings().brightness); ++failures; }
         const std::string txt = settingsToText();
         const float set = settings().brightness;
         settings() = Settings(); settingsFromText(txt);
         if (std::fabs(settings().brightness - set) > 0.011f) { std::printf("FAIL: brightness is not kept\n"); ++failures; }
-        // marks in the touch test, then Clear (bottom right of the area)
+        // back to General: marks in the touch test, then Clear (bottom right of the area)
+        frame(80, 112, false); frame(80, 112, true); frame(80, 112, false); frame(80, 112, false);
         frame(600, 330, false); frame(600, 330, true); frame(640, 360, true); frame(680, 380, true); frame(680, 380, false); frame(680, 380, false);
         if (touchTestCount() < 2) { std::printf("FAIL: touch test marks (%d)\n", touchTestCount()); ++failures; }
-        const float cx = W - 18 - 70 + 30, cy = H - 14 - 34 + 13;
+        const float cx = W - 18 - 42, cy = H - 14 - 22;
         frame(cx, cy, false); frame(cx, cy, false); frame(cx, cy, true); frame(cx, cy, true); frame(cx, cy, false); frame(cx, cy, false);
         if (touchTestCount() != 0) { std::printf("FAIL: the touch test's Clear button (%d marks left)\n", touchTestCount()); ++failures; }
         settings() = Settings();
@@ -351,8 +377,10 @@ int main(int argc, char** argv) {
         auto shot = [&](const SimState& t, int app, const char* name) {
             openApp(app);
             std::vector<Batch> b;
-            for (int i = 0; i < 2; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
-                ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); clipDrawData(ImGui::GetDrawData(), b); }
+            for (int i = 0; i < 6; ++i) {   // a few long frames: eased things (the map's zoom) settle
+                io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.25f; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
+                ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); b.clear(); clipDrawData(ImGui::GetDrawData(), b); }
+            io.DeltaTime = 1.0f / 60.0f;
             if (b.empty()) { std::printf("FAIL: %s not drawn\n", name); ++failures; }
             Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_" + name + ".png");
         };
@@ -426,6 +454,70 @@ int main(int argc, char** argv) {
             }
             shot(mp, APP_MAP, "map_traffic_outlines");
             settings().mapAirports = true; settings().mapOutlines = false;
+        }
+        {   // tapping on the map: a traffic card (with VATSIM), a navaid card (with Morse)
+            auto tap = [&](const SimState& st, float x, float y) {
+                const bool downs[4] = {false, true, false, false};
+                for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, d);
+                    ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); }
+            };
+            SimState mp = t;
+            mp.map.havePos = true; mp.map.lat = 41.70; mp.map.lon = -86.30; mp.map.hdgTrue = 90; mp.map.altFt = 3000; mp.map.utc = 1795312200;
+            mp.map.traffic = {{41.775, -86.30, 11000, 270, 280, -1200, false, "DAL1234", "A321"}};
+            mp.map.navaids = {{3, 41.70, -86.40, 111.70f, -3, "SBN", "SOUTH BEND"}};
+            VatsimPilot& v = mp.map.vatsim;
+            v.found = v.hasPlan = true; v.callsign = "DAL1234"; v.name = "Jane Pilot KSBN"; v.cid = "1234567"; v.server = "USA-EAST"; v.rating = "PPL"; v.squawk = "4521";
+            v.logon = "04:55Z"; v.qnhMb = 1013; v.rules = "IFR"; v.aircraft = "A321"; v.aircraftFull = "A321/L"; v.departure = "KORD"; v.arrival = "KDTW"; v.alternate = "KCLE";
+            v.cruiseAlt = "FL320"; v.cruiseTas = "450"; v.depTime = "0500"; v.enroute = "0105"; v.fuel = "0300"; v.route = "WYNDE2 ELX DORET KKISS"; v.remarks = "PBN/A1B1C1D1 /V/ SIMBRIEF";
+            settings().mapTraffic = true; settings().mapNavaids = true; settings().mapAirports = false; settings().mapWaypoints = false;
+            showOnMap(41.70, -86.30);
+            mapCommand(1); mapCommand(1);   // 5 nm
+            for (int k = 0; k < 20; ++k) tap(mp, -1000, -1000);   // the zoom settles
+            const float cy = (28 + 46 + kLogicalH) * 0.5f, unitsPerNm = (kLogicalH - 28 - 46) * 0.5f / 5.0f;
+            tap(mp, 400, cy - 4.5f * unitsPerNm);   // the traffic, 4.5 nm north
+            shot(mp, APP_MAP, "map_card_traffic");
+            tap(mp, 400 - 4.48f * unitsPerNm, cy);   // the VOR, 4.5 nm west
+            shot(mp, APP_MAP, "map_card_vor");
+            tap(mp, 700, 300);   // an empty place: the card closes
+            settings().mapAirports = true;
+        }
+        {   // the Flight Plan page with a plan
+            SimState fp = t;
+            FlightPlan& p = fp.plan;
+            p.loaded = true; p.callsign = "AAL1234"; p.aircraft = "A321"; p.registration = "N123AA"; p.units = "lbs"; p.importedAt = "05:12Z";
+            p.origin = "KSBN"; p.originName = "South Bend Intl"; p.originRunway = "27"; p.dest = "KORD"; p.destName = "Chicago O'Hare Intl"; p.destRunway = "28C"; p.alternate = "KMDW";
+            p.route = "GIJ DCT PMM DCT OBK"; p.sid = ""; p.star = "WATSN4"; p.cruise = "FL240"; p.distanceNm = "92"; p.ete = "38 min"; p.costIndex = "30"; p.avgWind = "head 22 kt";
+            p.blockFuel = "9800"; p.tripFuel = "4200"; p.reserveFuel = "2900"; p.altnFuel = "1600"; p.taxiFuel = "600"; p.extraFuel = "500"; p.zfw = "141200"; p.tow = "150400"; p.ldw = "146200";
+            p.pdfUrl = "https://www.simbrief.com/ofp/flightplans/KSBNKORD.pdf";
+            const char* ids[] = {"KSBN", "GIJ", "PMM", "OBK", "WATSN", "KORD"};
+            for (int i = 0; i < 6; ++i) { FlightPlan::Leg l; l.ident = ids[i]; l.airway = i == 4 ? "WATSN4" : ""; l.alt = i == 0 || i == 5 ? "" : "FL240"; l.legNm = std::to_string(10 + i * 7); l.totalTime = "0:" + std::to_string(10 + i * 5); fp.plan.legs.push_back(l); }
+            settings().simbriefUser = "alpineaviation";
+            shot(fp, APP_ROUTES, "flightplan");
+            SimState empty = t;
+            shot(empty, APP_ROUTES, "flightplan_empty");
+            settings().simbriefUser.clear();
+        }
+        {   // Settings: Display and Data
+            auto tap = [&](const SimState& st, float x, float y) {
+                const bool downs[4] = {false, true, false, false};
+                for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, d);
+                    ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); }
+            };
+            SimState st = t;
+            st.autoDimLevel = 0.62f;
+            st.dataInfo = {{"Airports", "38114 in X-Plane's scenery (custom first)"}, {"Navaids", "Custom Data (your AIRAC, e.g. Navigraph's)"}, {"Airport facts", "OurAirports, kept a month"},
+                           {"Map tiles", "OpenStreetMap / Esri, kept a month in Output/XPTablet/tiles"}};
+            openApp(APP_SETTINGS);
+            tap(st, 80, 154);   // Display
+            settings().autoDim = true;
+            shot(st, APP_SETTINGS, "settings_display");
+            settings().autoDim = false;
+            tap(st, 80, 196);   // Data
+            settings().simbriefUser = "alpineaviation";
+            st.plan.status = "Imported KSBN to KORD at 05:12Z"; st.plan.loaded = true;
+            shot(st, APP_SETTINGS, "settings_data");
+            settings().simbriefUser.clear();
+            tap(st, 80, 112);   // back to General
         }
         {   // the status bar's clock: a tap switches Zulu and local time where the aircraft is (EST here)
             SimState c = t;
@@ -518,12 +610,12 @@ int main(int argc, char** argv) {
         {   // Settings, then its Credits view (the pill at the right of the title bar)
             shot(s, APP_SETTINGS, "settings");
             const bool downs[4] = {false, true, false, false};
-            for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(800 - 14 - 46, 28 + 9 + 14); io.AddMouseButtonEvent(0, d);
+            for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(80, kLogicalH - 12 - 30); io.AddMouseButtonEvent(0, d);
                 ImGui::NewFrame(); Actions act; build(fonts, s, 800, kLogicalH, act); ImGui::Render(); }
             std::vector<Batch> b;
             for (int i = 0; i < 2; ++i) { io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, s, 800, kLogicalH, act); ImGui::Render(); clipDrawData(ImGui::GetDrawData(), b); }
             Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_credits.png");
-            for (bool d : downs) { io.AddMousePosEvent(800 - 14 - 92 - 6 - 46, 28 + 9 + 14); io.AddMouseButtonEvent(0, d);   // back to the settings
+            for (bool d : downs) { io.AddMousePosEvent(80, 112); io.AddMouseButtonEvent(0, d);   // back to the settings
                 ImGui::NewFrame(); Actions act; build(fonts, s, 800, kLogicalH, act); ImGui::Render(); }
         }
         // the METAR search: type KBOS on the page's keys, press Search, and show an answer
