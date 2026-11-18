@@ -5,6 +5,7 @@
 //   * in a floating window (also a VR window), for aircraft without a tablet.
 // If AviTab itself is installed and running, XPTablet leaves that interface to it and only offers the window.
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cstdarg>
 #include <chrono>
@@ -32,6 +33,7 @@
 #include "XPLMUtilities.h"
 
 #include "aptdat.h"
+#include "navdata.h"
 #include "ourairports.h"
 #include "stb_image.h"
 #include "browser.h"
@@ -169,6 +171,7 @@ float g_winOx = 0, g_winOy = 0;
 XPLMDataRef g_drClickX = nullptr, g_drClickY = nullptr, g_drZulu = nullptr, g_drIcao = nullptr, g_drVr = nullptr, g_drUiScale = nullptr, g_drBus = nullptr;
 float g_battery = 100.0f;            // the tablet's own battery, percent
 int g_wxLogoTex = 0;                 // the WXPlane icon's picture
+int g_logoTex = 0;                   // XPTablet's logo
 xpt::Actions g_pendingGround;        // a press on the Ground page, waiting for the flight loop
 
 // X-Plane's weather at the aircraft, the ground services and the ToLiss doors: looked up once, read in the flight loop
@@ -349,6 +352,30 @@ void buildFonts(float scale) {
         gl.TexParameteri(GL_TEXTURE_2D, 0x813D /* GL_TEXTURE_MAX_LEVEL */, last);
     }
     g_fonts.wxLogo = (ImTextureID)(intptr_t)g_wxLogoTex;
+    if (!g_logoTex) {   // XPTablet's logo, with its smaller copies (each made from the original at full quality)
+        int lw = 0, lh = 0, lv = 0;
+        const unsigned char* px = xpt::logoPixels(lw, lh, lv);
+        if (px && lw > 0 && lh > 0) {
+            XPLMGenerateTextureNumbers(&g_logoTex, 1);
+            XPLMBindTexture2d(g_logoTex, 0);
+            gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+            gl.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            size_t off = 0;
+            int w = lw, h = lh;
+            for (int level = 0; level < lv; ++level) {
+                gl.TexImage2D(GL_TEXTURE_2D, level, (GLint)GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px + off);
+                off += (size_t)w * h * 4;
+                w = std::max(1, w / 2); h = std::max(1, h / 2);
+            }
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, 0x2703 /* GL_LINEAR_MIPMAP_LINEAR */);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_CLAMP_TO_EDGE);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_CLAMP_TO_EDGE);
+            gl.TexParameteri(GL_TEXTURE_2D, 0x813D /* GL_TEXTURE_MAX_LEVEL */, lv - 1);
+            XPLMBindTexture2d(0, 0);
+        }
+    }
+    g_fonts.logo = (ImTextureID)(intptr_t)g_logoTex;
     g_fontScale = scale;
 }
 
@@ -508,6 +535,7 @@ std::vector<xpt::tiles::Key> g_tileWants;
 bool g_mapStarted = false;
 bool g_ourAirportsStarted = false;
 std::thread g_docThread;   // reads a picture for the Documents page
+std::thread g_sbThread;    // fetches the SimBrief plan
 
 ImTextureID tileTexture(int src, int z, int x, int y, bool request) {
     const xpt::tiles::Key k{src, z, x, y};
@@ -526,12 +554,15 @@ void mapStart() {
     makeDirs(root + "Output/XPTablet/tiles/");
     xpt::tiles::start(root + "Output/XPTablet/tiles");
     xpt::aptdat::start(root);
+    xpt::navdata::start(root);
     logMsg("map: tiles cached in Output/XPTablet/tiles; reading X-Plane's airports");
 }
 void mapStop() {
     if (!g_mapStarted) return;
     xpt::tiles::stop();
     xpt::aptdat::stop();
+    xpt::navdata::stop();
+    if (g_sbThread.joinable()) g_sbThread.join();
     g_mapStarted = false;
     xpt::ourairports::stop();
     g_ourAirportsStarted = false;
@@ -547,10 +578,12 @@ void mapStep(const xpt::Actions& act) {
     if (act.mapShown) {
         xpt::tiles::want(g_tileWants);
         xpt::aptdat::setView(act.mapLat, act.mapLon, act.mapLayoutNm, act.mapPointNm, act.mapLayouts);
+        xpt::navdata::setView(act.mapLat, act.mapLon, act.mapNavNm, act.mapFixNm);
         if ((XPLMGetCycleNumber() & 7) == 0) {
             int n = 0;
             xpt::aptdat::get(g_sim.map.airports, g_sim.map.airportPoints, g_sim.map.aptIndexing, n);
             g_sim.map.aptCount = n;
+            xpt::navdata::get(g_sim.map.navaids, g_sim.map.fixes);
         }
     }
     g_tileWants.clear();
@@ -567,7 +600,9 @@ void mapStep(const xpt::Actions& act) {
             g_tileTex.erase(old);
         }
         XPLMBindTexture2d(tex, 0);
-        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR);
+        // shown smaller than they are (a zoom between levels, a big picture fitted): mipmapped, made by the driver as they upload
+        gl.TexParameteri(GL_TEXTURE_2D, 0x8191 /* GL_GENERATE_MIPMAP */, 1);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, 0x2703 /* GL_LINEAR_MIPMAP_LINEAR */);
         gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
         gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_CLAMP_TO_EDGE);
         gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_CLAMP_TO_EDGE);
@@ -576,6 +611,75 @@ void mapStep(const xpt::Actions& act) {
         gl.TexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGBA, t.w, t.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, t.rgba.data());
         XPLMBindTexture2d(0, 0);
         g_tileTex[t.key] = {tex, XPLMGetCycleNumber()};
+    }
+}
+
+// ---- the SimBrief flight plan on the map ---------------------------------------------------------------------------------------
+// The user's latest plan (SimBrief's public fetcher, by user name or pilot ID), on a thread; again when asked, when the name
+// changes, or every 10 minutes while the map is open.
+std::mutex g_sbMx;
+bool g_sbDone = false;
+std::vector<xpt::MapState::RoutePoint> g_sbRoute;
+std::string g_sbStatus, g_sbUserFetched = "\x01";
+std::chrono::steady_clock::time_point g_sbAt;
+
+void simbriefFetch(const std::string& user) {
+    if (g_sbThread.joinable()) g_sbThread.join();
+    g_sim.map.routeStatus = "Fetching the SimBrief plan...";
+    g_sbThread = std::thread([user] {
+        std::string q;
+        for (unsigned char c : user) { if (std::isalnum(c) || c == '-' || c == '_' || c == '.') q += (char)c; else { char b[4]; std::snprintf(b, sizeof b, "%%%02X", c); q += b; } }
+        const bool id = !user.empty() && std::all_of(user.begin(), user.end(), [](unsigned char c) { return std::isdigit(c) != 0; });
+        const std::string url = std::string("https://www.simbrief.com/api/xml.fetcher.php?") + (id ? "userid=" : "username=") + q + "&json=1";
+        std::string body, err, status;
+        long code = 0;
+        std::vector<xpt::MapState::RoutePoint> pts;
+        if (!wx::httpGet(url, body, code, err, 20, 16u << 20)) status = code == 400 ? "SimBrief: no plan for that name" : "SimBrief could not be reached";
+        else {
+            wx::Json j;
+            if (!wx::parseJson(body, j)) status = "SimBrief's answer could not be read";
+            else {
+                auto num = [](const wx::Json* o, const char* k) { const wx::Json* v = o ? o->get(k) : nullptr; return v ? v->asNum(0) : 0.0; };
+                auto str = [](const wx::Json* o, const char* k) { const wx::Json* v = o ? o->get(k) : nullptr; return v ? v->asString() : std::string(); };
+                const wx::Json* org = j.get("origin");
+                const wx::Json* dst = j.get("destination");
+                const wx::Json* nav = j.get("navlog");
+                const wx::Json* fix = nav ? nav->get("fix") : nullptr;
+                if (org) pts.push_back({num(org, "pos_lat"), num(org, "pos_long"), str(org, "icao_code")});
+                auto addFix = [&](const wx::Json& f) {
+                    const std::string ident = str(&f, "ident");
+                    if (ident == "TOC" || ident == "TOD") return;   // not places
+                    const double la = num(&f, "pos_lat"), lo = num(&f, "pos_long");
+                    if (la == 0 && lo == 0) return;
+                    if (!pts.empty() && std::fabs(pts.back().lat - la) < 1e-6 && std::fabs(pts.back().lon - lo) < 1e-6) return;
+                    pts.push_back({la, lo, ident});
+                };
+                if (fix && fix->type == wx::Json::Arr) for (const wx::Json& f : fix->arr) addFix(f);
+                else if (fix && fix->type == wx::Json::Obj) addFix(*fix);
+                if (dst && (pts.empty() || pts.back().ident != str(dst, "icao_code"))) pts.push_back({num(dst, "pos_lat"), num(dst, "pos_long"), str(dst, "icao_code")});
+                if (pts.size() < 2) { const wx::Json* fe = j.get("fetch"); status = "SimBrief: " + (fe ? str(fe, "status") : std::string("no plan")); pts.clear(); }
+                else status = str(org, "icao_code") + " to " + str(dst, "icao_code") + " (SimBrief)";
+            }
+        }
+        std::lock_guard<std::mutex> lk(g_sbMx);
+        g_sbRoute.swap(pts); g_sbStatus = status; g_sbDone = true;
+    });
+}
+
+void routeStep(const xpt::Actions& act) {
+    const std::string user = xpt::settings().simbriefUser;
+    const auto now = std::chrono::steady_clock::now();
+    if (act.mapShown && xpt::settings().mapRoute) {
+        if (user.empty()) { g_sim.map.route.clear(); g_sim.map.routeStatus = "Set your SimBrief name in Settings"; g_sbUserFetched = ""; }
+        else if (act.routeReload || user != g_sbUserFetched || now - g_sbAt > std::chrono::minutes(10)) {
+            if (!g_sbThread.joinable() || g_sbDone) { g_sbUserFetched = user; g_sbAt = now; g_sbDone = false; simbriefFetch(user); }
+        }
+    }
+    std::lock_guard<std::mutex> lk(g_sbMx);
+    if (g_sbDone && g_sbThread.joinable()) {
+        g_sbThread.join();
+        g_sim.map.route = g_sbRoute;
+        g_sim.map.routeStatus = g_sbStatus;
     }
 }
 
@@ -839,7 +943,9 @@ void docsStep(const xpt::Actions& act) {
     if (!g_docError.empty() || g_docPixels.empty()) return;
     if (!g_docTex) XPLMGenerateTextureNumbers(&g_docTex, 1);
     XPLMBindTexture2d(g_docTex, 0);
-    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR);
+    // shown smaller than they are (a zoom between levels, a big picture fitted): mipmapped, made by the driver as they upload
+        gl.TexParameteri(GL_TEXTURE_2D, 0x8191 /* GL_GENERATE_MIPMAP */, 1);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, 0x2703 /* GL_LINEAR_MIPMAP_LINEAR */);
     gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
     gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_CLAMP_TO_EDGE);
     gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_CLAMP_TO_EDGE);
@@ -934,6 +1040,7 @@ void ensureFrame() {
     if (act.ground != xpt::GA_NONE) g_pendingGround = act;   // carried out from the flight loop, not from inside drawing
     browserStep(act);
     mapStep(act);
+    if (g_mapStarted) routeStep(act);
     airportsStep(act);
     docsStep(act);
     g_webShown = act.webShown;
@@ -1225,8 +1332,11 @@ float getFloat(void* r) { return *(float*)r; }
 void setBrightness(void*, float v) { g_brightness = std::max(0.0f, std::min(1.0f, v)); }
 int getOwnsAviTab(void*) { return g_ownsAviTab ? 1 : 0; }
 int getInMenu(void*) { return xpt::currentApp() == xpt::APP_HOME ? 1 : 0; }
-float getZero(void*) { return 0.0f; }
-int getZeroI(void*) { return 0; }
+// AviTab's map datarefs: where the Map page looks
+float getMapLat(void*) { double la, lo; int z; float r; xpt::mapView(la, lo, z, r); return (float)la; }
+float getMapLon(void*) { double la, lo; int z; float r; xpt::mapView(la, lo, z, r); return (float)lo; }
+int getMapZoom(void*) { double la, lo; int z; float r; xpt::mapView(la, lo, z, r); return z; }
+float getMapRange(void*) { double la, lo; int z; float r; xpt::mapView(la, lo, z, r); return r; }
 
 void regInt(const std::string& name, int* v, bool writable) {
     g_ownedRefs.push_back(XPLMRegisterDataAccessor(name.c_str(), xplmType_Int, writable ? 1 : 0, getInt, writable ? setInt : nullptr, nullptr, nullptr, nullptr, nullptr,
@@ -1255,13 +1365,13 @@ void registerDatarefs(const std::string& prefix) {
     // alone and shows on the Weather page, instead of drawing over the screen as it does on AviTab.
     if (prefix == "xptablet") regIntFn(prefix + "/owns_avitab", getOwnsAviTab);
     // the map app's position: filled in when the map exists
-    regFloat(prefix + "/map/latitude", getZero, nullptr, nullptr);
-    regFloat(prefix + "/map/longitude", getZero, nullptr, nullptr);
-    regIntFn(prefix + "/map/zoom", getZeroI);
-    regFloat(prefix + "/map/vertical_range", getZero, nullptr, nullptr);
+    regFloat(prefix + "/map/latitude", getMapLat, nullptr, nullptr);
+    regFloat(prefix + "/map/longitude", getMapLon, nullptr, nullptr);
+    regIntFn(prefix + "/map/zoom", getMapZoom);
+    regFloat(prefix + "/map/vertical_range", getMapRange, nullptr, nullptr);
 }
 
-enum { CMD_TOGGLE, CMD_HOME, CMD_CLICK, CMD_WHEEL_UP, CMD_WHEEL_DOWN, CMD_NOP, CMD_APP0 = 100 };
+enum { CMD_TOGGLE, CMD_HOME, CMD_CLICK, CMD_WHEEL_UP, CMD_WHEEL_DOWN, CMD_NOP, CMD_PLANE_DOCS, CMD_MAP0 = 50, CMD_APP0 = 100 };
 
 int onCommand(XPLMCommandRef, XPLMCommandPhase phase, void* ref) {
     const int id = (int)(intptr_t)ref;
@@ -1282,6 +1392,8 @@ int onCommand(XPLMCommandRef, XPLMCommandPhase phase, void* ref) {
             ImGui::GetIO().AddMouseWheelEvent(0, id == CMD_WHEEL_UP ? 1.0f : -1.0f);
         }
     } else if (id >= CMD_APP0) xpt::openApp(id - CMD_APP0);
+    else if (id >= CMD_MAP0) xpt::mapCommand(id - CMD_MAP0);
+    else if (id == CMD_PLANE_DOCS) { xpt::openDocuments("This aircraft"); g_sim.docs.listed = false; }
     return 1;
 }
 
@@ -1299,15 +1411,17 @@ void registerCommands(const std::string& p) {
     regCmd(p + "/wheel_down", "Tablet: scroll down", CMD_WHEEL_DOWN);
     regCmd(p + "/app_charts", "Tablet: charts", CMD_APP0 + xpt::APP_CHARTS);
     regCmd(p + "/app_airports", "Tablet: airports", CMD_APP0 + xpt::APP_AIRPORTS);
-    regCmd(p + "/app_routes", "Tablet: routes", CMD_APP0 + xpt::APP_ROUTES);
+    regCmd(p + "/app_routes", "Tablet: SimBrief (routes)", CMD_APP0 + xpt::APP_SIMBRIEF);
     regCmd(p + "/app_maps", "Tablet: map", CMD_APP0 + xpt::APP_MAP);
-    regCmd(p + "/app_plane_manual", "Tablet: aircraft documents", CMD_APP0 + xpt::APP_DOCUMENTS);
+    regCmd(p + "/app_plane_manual", "Tablet: aircraft documents", CMD_PLANE_DOCS);
     regCmd(p + "/app_notes", "Tablet: notes", CMD_APP0 + xpt::APP_NOTES);
     regCmd(p + "/app_navigraph", "Tablet: charts", CMD_APP0 + xpt::APP_CHARTS);
     regCmd(p + "/app_about", "Tablet: settings", CMD_APP0 + xpt::APP_SETTINGS);
     // the map's own controls: accepted now so aircraft buttons bound to them do nothing rather than fail, wired up with the map
-    for (const char* n : {"zoom_in", "zoom_out", "recentre", "pan_left", "pan_right", "pan_up", "pan_down"})
-        regCmd(p + "/" + n, "Tablet: map control", CMD_NOP);
+    {   // the Map page, as AviTab's map: zoom in, out, back on the aircraft, and moved a quarter of the way
+        const char* names[7] = {"zoom_in", "zoom_out", "recentre", "pan_left", "pan_right", "pan_up", "pan_down"};
+        for (int i = 0; i < 7; ++i) regCmd(p + "/" + names[i], "Tablet: map control", CMD_MAP0 + i);
+    }
 }
 
 void menuHandler(void*, void*) { toggleWindow(); }

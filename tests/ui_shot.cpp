@@ -66,6 +66,23 @@ void raster(Canvas& cv, const std::vector<Batch>& batches, const unsigned char* 
                         for (int k = 0; k < 3; ++k) tc[k] = q[k] / 255.0f;
                         a = col[3] * q[3] / 255.0f;
                     }
+                    if ((intptr_t)bt.tex == 3) {   // XPTablet's logo, its first level, bilinear
+                        int lw = 0, lh = 0, lv = 0;
+                        const unsigned char* px = logoPixels(lw, lh, lv);
+                        const float fx2 = u * lw - 0.5f, fy2 = w * lh - 0.5f;
+                        const int jx = (int)std::floor(fx2), jy = (int)std::floor(fy2);
+                        const float bx = fx2 - jx, by = fy2 - jy;
+                        float acc[4] = {0, 0, 0, 0};
+                        for (int dy = 0; dy < 2; ++dy) for (int dx = 0; dx < 2; ++dx) {
+                            const int sx = std::max(0, std::min(lw - 1, jx + dx)), sy = std::max(0, std::min(lh - 1, jy + dy));
+                            const float wgt = (dx ? bx : 1 - bx) * (dy ? by : 1 - by);
+                            const unsigned char* q = px + ((size_t)sy * lw + sx) * 4;
+                            for (int k = 0; k < 3; ++k) acc[k] += wgt * q[k] * q[3] / 255.0f;
+                            acc[3] += wgt * q[3];
+                        }
+                        for (int k = 0; k < 3; ++k) tc[k] = acc[3] > 0 ? acc[k] / acc[3] : 0;
+                        a = col[3] * acc[3] / 255.0f;
+                    }
                     float* o = &cv.rgb[((size_t)y * cv.w + x) * 3];
                     for (int k = 0; k < 3; ++k) o[k] = o[k] * (1 - a) + col[k] * tc[k] * a;
                 }
@@ -119,6 +136,7 @@ int main(int argc, char** argv) {
     applyStyle();
     Fonts fonts = loadFonts(scale);
     fonts.wxLogo = (ImTextureID)(intptr_t)2;
+    fonts.logo = (ImTextureID)(intptr_t)3;
     unsigned char* tex = nullptr;
     int tw = 0, th = 0;
     io.Fonts->GetTexDataAsAlpha8(&tex, &tw, &th);
@@ -408,6 +426,38 @@ int main(int argc, char** argv) {
             }
             shot(mp, APP_MAP, "map_traffic_outlines");
             settings().mapAirports = true; settings().mapOutlines = false;
+        }
+        {   // the status bar's clock: a tap switches Zulu and local time where the aircraft is (EST here)
+            SimState c = t;
+            c.zuluSec = 13 * 3600 + 10 * 60; c.map.havePos = true; c.map.lat = 41.70; c.map.lon = -86.30; c.map.utc = 1795308600 + 0; c.map.haveLocalOffset = true; c.map.localOffsetS = -5 * 3600;
+            settings().statusLocalTime = false;
+            openApp(APP_HOME);
+            const bool downs[4] = {false, true, false, false};
+            for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(30, 14); io.AddMouseButtonEvent(0, d);
+                ImGui::NewFrame(); Actions act; build(fonts, c, 800, kLogicalH, act); ImGui::Render(); }
+            if (!settings().statusLocalTime) { std::printf("FAIL: tapping the clock switches it to local time\n"); ++failures; }
+            shot(c, APP_HOME, "home_localtime");
+            settings().statusLocalTime = false;
+        }
+        {   // navaids, waypoints and the SimBrief route; AviTab's map commands move the map
+            SimState mp = t;
+            mp.map.havePos = true; mp.map.lat = 41.70; mp.map.lon = -86.30; mp.map.hdgTrue = 300; mp.map.utc = 1795312200;
+            mp.map.navaids = {{3, 41.705, -86.30, 111.70f, -3, "SBN", "SOUTH BEND"}, {2, 41.627, -86.312, 344, 0, "SB", "STAFFORD"},
+                              {4, 41.70, -86.29, 109.50f, 271.4f, "ISBN", "27"}, {13, 41.80, -86.05, 113.0f, 0, "GIJ", "NILES DME"}};
+            mp.map.fixes = {{41.80, -86.50, "NILES", true}, {41.62, -86.10, "HAGRT", true}, {41.71, -86.20, "RW27", false}};
+            mp.map.route = {{41.7087, -86.3173, "KSBN"}, {41.80, -86.50, "NILES"}, {41.90, -87.20, "OBK"}, {41.9786, -87.9048, "KORD"}};
+            mp.map.routeStatus = "KSBN to KORD (SimBrief)";
+            settings().mapNavaids = true; settings().mapWaypoints = true; settings().mapRoute = true; settings().mapAirports = false; settings().mapTraffic = false;
+            showOnMap(41.70, -86.30);
+            for (int k = 0; k < 4; ++k) mapCommand(1);   // zoomed out four steps
+            double la0, lo0, la1, lo1; int z0, z1; float rg0, rg1;
+            mapView(la0, lo0, z0, rg0);
+            mapCommand(4);   // pan right
+            mapView(la1, lo1, z1, rg1);
+            if (!(lo1 > lo0) || z1 != z0) { std::printf("FAIL: AviTab pan_right moves the map east (%.3f -> %.3f)\n", lo0, lo1); ++failures; }
+            mapCommand(3);
+            shot(mp, APP_MAP, "map_navaids_route");
+            settings().mapAirports = true; settings().mapTraffic = true; settings().mapWaypoints = false;
         }
         {   // Airports: the list, and an airport with its radio, CTAF, runways and parking
             const std::string rows =

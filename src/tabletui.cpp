@@ -25,6 +25,8 @@ extern const unsigned char xpt_asset_mono[];
 extern const unsigned int xpt_asset_mono_size;
 extern const unsigned char xpt_asset_wxlogo[];
 extern const unsigned int xpt_asset_wxlogo_size;
+extern const unsigned char xpt_asset_logo[];
+extern const unsigned int xpt_asset_logo_size;
 }
 
 namespace xpt {
@@ -67,6 +69,10 @@ bool g_ownPerformance = false;   // the aircraft brings its own performance calc
 bool g_chrome = true;                                             // with the browser's own controls
 
 void openWeb(const char* site, const char* url, bool chrome);
+double localOffsetAt(const MapState& m, double lat, double lon, bool& estimate);
+void fillConcave(ImDrawList* dl, std::vector<ImVec2> v, ImU32 col);
+std::string zoneOf(double lat, double lon, double offS, long long utc);
+ImTextureID g_logo = 0;   // XPTablet's logo texture (from the host)
 
 int chartsP() { return g_settings.chartsProvider == 1 ? 1 : 0; }
 int liveP() { return g_settings.liveProvider == 1 ? 1 : 0; }
@@ -144,8 +150,8 @@ void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
     auto P = [&](float x, float y) { return ImVec2(c.x + x * r, c.y + y * r); };
     switch (app) {
     case APP_MAP:   // a location pin
-        dl->AddCircle(P(0, -0.25f), r * 0.50f, col, 24, t);
-        dl->AddCircleFilled(P(0, -0.25f), r * 0.17f, col, 12);
+        dl->AddCircle(P(0, -0.25f), r * 0.50f, col, 0, t);
+        dl->AddCircleFilled(P(0, -0.25f), r * 0.17f, col, 0);
         { const ImVec2 pts[3] = {P(-0.42f, 0.05f), P(0, 0.85f), P(0.42f, 0.05f)}; dl->AddPolyline(pts, 3, col, 0, t); }
         break;
     case APP_AIRPORTS:   // a runway seen from above
@@ -164,18 +170,18 @@ void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
     case APP_ROUTES:   // waypoints joined by legs
         dl->AddLine(P(-0.66f, 0.56f), P(-0.10f, -0.20f), col, t);
         dl->AddLine(P(-0.10f, -0.20f), P(0.66f, -0.56f), col, t);
-        dl->AddCircleFilled(P(-0.66f, 0.56f), r * 0.18f, col, 12);
-        dl->AddCircleFilled(P(-0.10f, -0.20f), r * 0.18f, col, 12);
-        dl->AddCircleFilled(P(0.66f, -0.56f), r * 0.18f, col, 12);
+        dl->AddCircleFilled(P(-0.66f, 0.56f), r * 0.18f, col, 0);
+        dl->AddCircleFilled(P(-0.10f, -0.20f), r * 0.18f, col, 0);
+        dl->AddCircleFilled(P(0.66f, -0.56f), r * 0.18f, col, 0);
         break;
     case APP_WEATHER:   // a cloud
-        dl->AddCircleFilled(P(-0.40f, 0.14f), r * 0.34f, col, 20);
-        dl->AddCircleFilled(P(0.02f, -0.14f), r * 0.46f, col, 24);
-        dl->AddCircleFilled(P(0.46f, 0.14f), r * 0.32f, col, 20);
+        dl->AddCircleFilled(P(-0.40f, 0.14f), r * 0.34f, col, 0);
+        dl->AddCircleFilled(P(0.02f, -0.14f), r * 0.46f, col, 0);
+        dl->AddCircleFilled(P(0.46f, 0.14f), r * 0.32f, col, 0);
         dl->AddRectFilled(P(-0.40f, 0.10f), P(0.46f, 0.47f), col);
         break;
     case APP_BROWSER:   // a globe
-        dl->AddCircle(c, r * 0.80f, col, 28, t);
+        dl->AddCircle(c, r * 0.80f, col, 0, t);
         dl->AddEllipse(c, ImVec2(r * 0.36f, r * 0.80f), col, 0, 24, t);
         dl->AddLine(P(-0.80f, 0), P(0.80f, 0), col, t);
         break;
@@ -189,24 +195,24 @@ void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
         { const ImVec2 pts[3] = {P(-0.66f, 0.04f), P(-0.20f, 0.52f), P(0.70f, -0.52f)}; dl->AddPolyline(pts, 3, col, 0, t * 1.5f); }
         break;
     case APP_PERFORMANCE:   // a gauge
-        dl->PathArcTo(P(0, 0.30f), r * 0.80f, kPi, 2 * kPi, 24);
+        dl->PathArcTo(P(0, 0.30f), r * 0.80f, kPi, 2 * kPi, 0);
         dl->PathStroke(col, 0, t);
         dl->AddLine(P(0, 0.30f), P(0.42f, -0.26f), col, t * 1.3f);
-        dl->AddCircleFilled(P(0, 0.30f), r * 0.13f, col, 12);
+        dl->AddCircleFilled(P(0, 0.30f), r * 0.13f, col, 0);
         break;
     case APP_TRAFFIC:   // a radar scope
-        dl->AddCircle(c, r * 0.82f, col, 28, t);
-        dl->AddCircle(c, r * 0.42f, col, 20, t);
+        dl->AddCircle(c, r * 0.82f, col, 0, t);
+        dl->AddCircle(c, r * 0.42f, col, 0, t);
         dl->AddLine(c, P(0.58f, -0.58f), col, t);
-        dl->AddCircleFilled(P(-0.34f, -0.48f), r * 0.11f, col, 10);
-        dl->AddCircleFilled(P(0.30f, 0.52f), r * 0.11f, col, 10);
+        dl->AddCircleFilled(P(-0.34f, -0.48f), r * 0.11f, col, 0);
+        dl->AddCircleFilled(P(0.30f, 0.52f), r * 0.11f, col, 0);
         break;
     case APP_NOTES:   // a page with lines
         dl->AddRect(P(-0.62f, -0.80f), P(0.62f, 0.80f), col, r * 0.10f, 0, t);
         for (int i = 0; i < 3; ++i) dl->AddLine(P(-0.36f, -0.40f + i * 0.40f), P(0.36f, -0.40f + i * 0.40f), col, t);
         break;
     case APP_SETTINGS:   // a cog
-        dl->AddCircle(c, r * 0.44f, col, 24, t * 1.3f);
+        dl->AddCircle(c, r * 0.44f, col, 0, t * 1.3f);
         for (int i = 0; i < 8; ++i) {
             const float a = i * kPi / 4;
             dl->AddLine(ImVec2(c.x + std::cos(a) * r * 0.54f, c.y + std::sin(a) * r * 0.54f), ImVec2(c.x + std::cos(a) * r * 0.86f, c.y + std::sin(a) * r * 0.86f), col, t * 1.5f);
@@ -221,12 +227,12 @@ void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
         dl->PathLineTo(P(-0.74f, 0.52f));
         dl->PathBezierQuadraticCurveTo(P(0.0f, -1.06f), P(0.74f, 0.52f), 24);
         dl->PathStroke(col, 0, t * 0.8f);
-        dl->AddCircleFilled(P(-0.74f, 0.52f), r * 0.15f, col, 12);
-        dl->AddCircle(P(0.74f, 0.52f), r * 0.15f, col, 12, t * 0.8f);
+        dl->AddCircleFilled(P(-0.74f, 0.52f), r * 0.15f, col, 0);
+        dl->AddCircle(P(0.74f, 0.52f), r * 0.15f, col, 0, t * 0.8f);
         {   // the aircraft, at the top of the arc, heading right: a swept dart, cut out of the arc
             const ImVec2 a = P(0.02f, -0.27f);
             const float k = r * 0.40f;
-            dl->AddCircleFilled(a, k * 0.78f, IM_COL32(112, 72, 255, 255), 16);   // the tile's own colour behind it
+            dl->AddCircleFilled(a, k * 0.78f, IM_COL32(112, 72, 255, 255), 0);   // the tile's own colour behind it
             dl->AddTriangleFilled(ImVec2(a.x + k, a.y), ImVec2(a.x - k * 0.75f, a.y - k * 0.70f), ImVec2(a.x - k * 0.30f, a.y), col);
             dl->AddTriangleFilled(ImVec2(a.x + k, a.y), ImVec2(a.x - k * 0.30f, a.y), ImVec2(a.x - k * 0.75f, a.y + k * 0.70f), col);
         }
@@ -239,19 +245,19 @@ void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
         dl->AddLine(P(0.28f, -0.56f), P(0.28f, 0.80f), col, t * 0.6f);
         dl->AddLine(P(-0.56f, 0.40f), P(0.0f, -0.10f), col, t);
         dl->AddLine(P(0.0f, -0.10f), P(0.54f, -0.30f), col, t);
-        dl->AddCircleFilled(P(-0.56f, 0.40f), r * 0.11f, col, 10);
-        dl->AddCircleFilled(P(0.0f, -0.10f), r * 0.11f, col, 10);
-        dl->AddCircleFilled(P(0.54f, -0.30f), r * 0.11f, col, 10);
+        dl->AddCircleFilled(P(-0.56f, 0.40f), r * 0.11f, col, 0);
+        dl->AddCircleFilled(P(0.0f, -0.10f), r * 0.11f, col, 0);
+        dl->AddCircleFilled(P(0.54f, -0.30f), r * 0.11f, col, 0);
         break;
     case ICON_VATSIM:   // a station and its radio waves
-        dl->AddCircleFilled(P(0, 0.34f), r * 0.20f, col, 12);
+        dl->AddCircleFilled(P(0, 0.34f), r * 0.20f, col, 0);
         for (int i = 1; i <= 2; ++i) {
-            dl->PathArcTo(P(0, 0.34f), r * (0.20f + 0.34f * i), kPi * 1.20f, kPi * 1.80f, 16);
+            dl->PathArcTo(P(0, 0.34f), r * (0.20f + 0.34f * i), kPi * 1.20f, kPi * 1.80f, 0);
             dl->PathStroke(col, 0, t);
         }
         break;
     case APP_FOREFLIGHT:   // a compass
-        dl->AddCircle(c, r * 0.84f, col, 28, t);
+        dl->AddCircle(c, r * 0.84f, col, 0, t);
         dl->AddTriangleFilled(P(0.44f, -0.44f), P(-0.16f, -0.16f), P(0.16f, 0.16f), col);
         dl->AddTriangle(P(-0.44f, 0.44f), P(-0.16f, -0.16f), P(0.16f, 0.16f), col, t * 0.7f);
         break;
@@ -280,10 +286,35 @@ void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
     dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, kStatusH), IM_COL32(0, 0, 0, 90));
     const float y = std::floor((kStatusH - fontPx(f.small)) * 0.5f);
     const ImU32 col = IM_COL32(232, 238, 248, 255);
-    dl->AddText(f.small, fontPx(f.small), ImVec2(12, y), col, "XPTablet");
-    char buf[32] = "--:--Z";
-    if (s.zuluSec >= 0) std::snprintf(buf, sizeof buf, "%02d:%02dZ", (s.zuluSec / 3600) % 24, (s.zuluSec / 60) % 60);
-    textCentered(dl, f.small, w * 0.5f, y, col, buf);
+    // left: the clock, Zulu or (tapped) local time where the aircraft is, with its zone
+    char buf[48] = "--:--Z";
+    {
+        const MapState& m = s.map;
+        if (g_settings.statusLocalTime && s.zuluSec >= 0 && m.havePos) {
+            bool est = false;
+            const long long utc = m.utc ? m.utc : s.zuluSec;
+            const double off = localOffsetAt(m, m.lat, m.lon, est);
+            const long long t = ((((long long)s.zuluSec + (long long)off) % 86400) + 86400) % 86400;
+            std::snprintf(buf, sizeof buf, "%02d:%02d %s%s", (int)(t / 3600), (int)(t / 60 % 60), est ? "~" : "", zoneOf(m.lat, m.lon, off, utc).c_str());
+        } else if (s.zuluSec >= 0) {
+            std::snprintf(buf, sizeof buf, "%02d:%02dZ", (s.zuluSec / 3600) % 24, (s.zuluSec / 60) % 60);
+        }
+        const float tw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, buf).x;
+        ImGui::SetCursorScreenPos(ImVec2(0, 0));
+        if (ImGui::InvisibleButton("##clock", ImVec2(tw + 24, kStatusH))) { g_settings.statusLocalTime = !g_settings.statusLocalTime; g_settingsChanged = true; }
+        if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(6, 3), ImVec2(tw + 18, kStatusH - 3), IM_COL32(255, 255, 255, 26), 6.0f);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(12, y), g_settings.statusLocalTime ? IM_COL32(150, 196, 255, 255) : col, buf);
+    }
+    // middle: the logo
+    if (g_logo) {
+        int lw = 0, lh = 0, lv = 0;
+        logoPixels(lw, lh, lv);
+        const float hh = 15.0f, ww = hh * (float)lw / (float)std::max(1, lh);
+        const ImVec2 a(std::floor(w * 0.5f - ww * 0.5f), std::floor((kStatusH - hh) * 0.5f));
+        dl->AddImage(g_logo, a, ImVec2(a.x + ww, a.y + hh));
+    } else {
+        textCentered(dl, f.bold, w * 0.5f, y, col, "XPTablet");
+    }
     // right: aircraft type, charge, battery
     float x = w - 12 - 25;
     battery(dl, ImVec2(x, std::floor((kStatusH - 11) * 0.5f)), s.batteryPct, s.charging);
@@ -513,7 +544,7 @@ void arrow(ImDrawList* dl, ImVec2 c, bool left, ImU32 col) {
     dl->AddPolyline(p, 3, col, 0, 2.0f);
 }
 void reloadIcon(ImDrawList* dl, ImVec2 c, ImU32 col) {
-    dl->PathArcTo(c, 7.5f, kPi * 0.25f, kPi * 1.85f, 20);
+    dl->PathArcTo(c, 7.5f, kPi * 0.25f, kPi * 1.85f, 0);
     dl->PathStroke(col, 0, 2.0f);
     dl->AddTriangleFilled(ImVec2(c.x + 9.5f, c.y - 7.5f), ImVec2(c.x + 9.5f, c.y - 0.5f), ImVec2(c.x + 2.5f, c.y - 4.0f), col);
 }
@@ -528,7 +559,7 @@ void star(ImDrawList* dl, ImVec2 c, bool filled, ImU32 col) {
         const float ang = -kPi * 0.5f + i * kPi / 5, rad = (i & 1) ? 4.2f : 9.5f;
         pts[i] = ImVec2(c.x + std::cos(ang) * rad, c.y + std::sin(ang) * rad);
     }
-    if (filled) dl->AddConcavePolyFilled(pts, 10, col); else dl->AddPolyline(pts, 10, col, ImDrawFlags_Closed, 1.6f);
+    if (filled) fillConcave(dl, std::vector<ImVec2>(pts, pts + 10), col); else dl->AddPolyline(pts, 10, col, ImDrawFlags_Closed, 1.6f);
 }
 
 // A text field on a page (a note, a search) taking the keyboard: target 2
@@ -718,7 +749,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
                 dl->PushClipRect(a, ImVec2(e.x - 22, e.y), true);
                 textAt(dl, f.small, a.x + 10, std::floor(a.y + (e.y - a.y - fontPx(f.small)) * 0.5f), on ? kInk : kMuted, title.c_str());
                 dl->PopClipRect();
-                if (t.loading) dl->AddCircleFilled(ImVec2(a.x + 4, a.y + (e.y - a.y) * 0.5f), 2.0f, IM_COL32(90, 160, 255, 255), 8);
+                if (t.loading) dl->AddCircleFilled(ImVec2(a.x + 4, a.y + (e.y - a.y) * 0.5f), 2.0f, IM_COL32(90, 160, 255, 255), 0);
                 // close
                 const ImVec2 cc(e.x - 12, a.y + (e.y - a.y) * 0.5f);
                 std::snprintf(id, sizeof id, "##tabx%d", idx);
@@ -930,7 +961,7 @@ void simWeatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         card(dl, a, e, f, "AT THE AIRCRAFT");
         const ImVec2 c(a.x + cw * 0.5f, a.y + 100);
         const float r = 52;
-        dl->AddCircle(c, r, IM_COL32(255, 255, 255, 60), 48, 2.0f);
+        dl->AddCircle(c, r, IM_COL32(255, 255, 255, 60), 0, 2.0f);
         for (int i = 0; i < 4; ++i) {
             const float an = i * kPi * 0.5f - kPi * 0.5f;
             textCentered(dl, f.small, c.x + std::cos(an) * (r + 11), c.y + std::sin(an) * (r + 11) - fontPx(f.small) * 0.5f, kMuted, i == 0 ? "N" : i == 1 ? "E" : i == 2 ? "S" : "W");
@@ -1153,6 +1184,8 @@ void drawShape(ImDrawList* dl, const Shape& sh, ImVec2 nose, float pxX, float px
 double g_mapZoom = 14.0;             // Web Mercator zoom: the world is 256 * 2^zoom layout units across
 bool g_mapFollow = true;             // the map stays centred on the aircraft
 bool g_mapGoto = false;              // centre on a place next time (Airports' Show on map)
+float g_mapLastW = 800, g_mapLastH = 350;   // the map as last drawn (for AviTab's commands and datarefs)
+double g_mapLastRot = 0, g_mapLastScale = 1, g_mapLastMPerMerc = 1;
 double g_mapGotoLat = 0, g_mapGotoLon = 0;
 MercPt g_mapCenter{0.5, 0.5};
 bool g_mapSeen = false;              // the map has had the aircraft's position once
@@ -1212,6 +1245,15 @@ bool mapBubble(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, const c
 float bubbleW(const Fonts& f, const char* label, const char* text) {
     const float lw = label ? f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, label).x + 7 : 0;
     return lw + f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, text).x + 20;
+}
+
+// A concave polygon filled whatever way its points go round (ImGui's filler wants them clockwise on the screen, y down)
+void fillConcave(ImDrawList* dl, std::vector<ImVec2> v, ImU32 col) {
+    if (v.size() < 3) return;
+    double a = 0;
+    for (size_t i = 0, j = v.size() - 1; i < v.size(); j = i++) a += (double)v[j].x * v[i].y - (double)v[i].x * v[j].y;
+    if (a < 0) std::reverse(v.begin(), v.end());
+    dl->AddConcavePolyFilled(v.data(), (int)v.size(), col);
 }
 
 // A dashed polyline (screen points)
@@ -1436,8 +1478,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     for (const AptGeo::Stand& st : g.stands) {
                         const ImVec2 q = toS(st.p);
                         if (q.x < r0.x - 40 || q.x > r1.x + 40 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
-                        dl->AddCircleFilled(q, 3.0f, IM_COL32(255, 255, 255, 235), 10);
-                        dl->AddCircle(q, 3.0f, IM_COL32(20, 24, 32, 200), 10, 1.0f);
+                        dl->AddCircleFilled(q, 3.0f, IM_COL32(255, 255, 255, 235), 0);
+                        dl->AddCircle(q, 3.0f, IM_COL32(20, 24, 32, 200), 0, 1.0f);
                         if (g_mapZoom >= 16.5 && !st.name.empty()) textAt(dl, f.small, q.x + 5, q.y - fontPx(f.small) * 0.5f, sat ? kInk : IM_COL32(30, 36, 48, 255), st.name.c_str());
                     }
                 if (g_mapZoom >= 14.5)
@@ -1457,8 +1499,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 const ImVec2 q = toS(mercOf(p.lat, p.lon));
                 if (q.x < r0.x - 20 || q.x > r1.x + 20 || q.y < r0.y - 10 || q.y > r1.y + 10) continue;
                 const ImU32 dot = p.kind == 17 ? IM_COL32(180, 90, 220, 255) : p.kind == 16 ? IM_COL32(40, 140, 220, 255) : IM_COL32(32, 92, 200, 255);
-                dl->AddCircleFilled(q, 4.0f, IM_COL32(255, 255, 255, 230), 12);
-                dl->AddCircleFilled(q, 2.8f, dot, 12);
+                dl->AddCircleFilled(q, 4.0f, IM_COL32(255, 255, 255, 230), 0);
+                dl->AddCircleFilled(q, 2.8f, dot, 0);
                 if (g_mapZoom >= 8.5) {
                     const ImU32 tc = sat ? kInk : IM_COL32(24, 40, 80, 255);
                     textAt(dl, f.small, q.x + 6, q.y - fontPx(f.small) * 0.5f, tc, p.icao.c_str());
@@ -1471,6 +1513,96 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     }
     act.mapShown = true;
     act.mapLat = cLat; act.mapLon = cLon;
+    act.mapNavNm = (g_settings.mapNavaids && g_mapZoom >= 6.0) ? std::min(300.0, halfDiagNm * 1.3) : 0.0;
+    act.mapFixNm = (g_settings.mapWaypoints && g_mapZoom >= 9.0) ? std::min(60.0, halfDiagNm * 1.3) : 0.0;
+    // what AviTab's map datarefs and commands use
+    g_mapLastW = r1.x - r0.x; g_mapLastH = r1.y - r0.y; g_mapLastRot = rot; g_mapLastScale = scale; g_mapLastMPerMerc = mPerMerc;
+
+    // ---- the radio navaids: VOR (a hexagon, with a ring when close), NDB (a dotted ring), DME (a square), localizers (feathers)
+    const ImU32 navInk = sat ? IM_COL32(150, 220, 255, 255) : IM_COL32(20, 90, 160, 255);
+    const ImU32 ndbInk = sat ? IM_COL32(230, 160, 255, 255) : IM_COL32(130, 40, 120, 255);
+    if (g_settings.mapNavaids && g_mapZoom >= 6.0) {
+        const double nmPx = scale / (mPerMerc / 1852.0);   // layout units per nautical mile
+        for (const MapState::Navaid& n : m.navaids) {
+            const ImVec2 q = toS(mercOf(n.lat, n.lon));
+            if (n.type == 4 || n.type == 5) {   // the localizer's course, 10 nm out from the antenna past the runway
+                if (g_mapZoom < 9.5) continue;
+                const double a = (n.bearing + 180.0) * kPi / 180.0 - rot;
+                const float L = (float)(10.0 * nmPx), half = (float)(std::tan(2.5 * kPi / 180.0) * 10.0 * nmPx);
+                const ImVec2 d((float)std::sin(a), (float)-std::cos(a)), nn(-d.y, d.x);
+                const ImVec2 tip(q.x + d.x * L, q.y + d.y * L);
+                const ImVec2 l(tip.x + nn.x * half, tip.y + nn.y * half), r(tip.x - nn.x * half, tip.y - nn.y * half);
+                dl->AddLine(q, l, IM_COL32(30, 160, 90, 200), 1.2f);
+                dl->AddLine(q, r, IM_COL32(30, 160, 90, 200), 1.2f);
+                dl->AddLine(q, tip, IM_COL32(30, 160, 90, 140), 1.0f);
+                if (g_mapZoom >= 11) textAt(dl, f.small, tip.x + 4, tip.y - fontPx(f.small) * 0.5f, sat ? kInk : IM_COL32(20, 100, 60, 255), n.ident.c_str());
+                continue;
+            }
+            if (q.x < r0.x - 40 || q.x > r1.x + 40 || q.y < r0.y - 40 || q.y > r1.y + 40) continue;
+            const ImU32 ink = n.type == 2 ? ndbInk : navInk;
+            if (n.type == 3) {
+                ImVec2 hx[6];
+                for (int k = 0; k < 6; ++k) hx[k] = ImVec2(q.x + 7.0f * (float)std::cos(k * kPi / 3), q.y + 7.0f * (float)std::sin(k * kPi / 3));
+                dl->AddPolyline(hx, 6, ink, ImDrawFlags_Closed, 1.6f);
+                dl->AddCircleFilled(q, 1.8f, ink, 0);
+                if (g_mapZoom >= 9) {   // a compass rose, turned to magnetic north (the VOR's own variation)
+                    const ImU32 rc = IM_COL32((ink >> IM_COL32_R_SHIFT) & 0xFF, (ink >> IM_COL32_G_SHIFT) & 0xFF, (ink >> IM_COL32_B_SHIFT) & 0xFF, 120);
+                    const float R = 42.0f;
+                    dl->AddCircle(q, R, rc, 0, 1.0f);
+                    for (int k = 0; k < 36; ++k) {
+                        const double a = (k * 10.0 + n.bearing) * kPi / 180.0 - rot;
+                        const float len = k % 9 == 0 ? 9.0f : k % 3 == 0 ? 6.0f : 3.5f;
+                        const ImVec2 d((float)std::sin(a), (float)-std::cos(a));
+                        dl->AddLine(ImVec2(q.x + d.x * R, q.y + d.y * R), ImVec2(q.x + d.x * (R - len), q.y + d.y * (R - len)), rc, k == 0 ? 2.0f : 1.0f);
+                    }
+                }
+            } else if (n.type == 2) {
+                for (int k = 0; k < 12; ++k) dl->AddCircleFilled(ImVec2(q.x + 7.0f * (float)std::cos(k * kPi / 6), q.y + 7.0f * (float)std::sin(k * kPi / 6)), 1.1f, ink, 0);
+                dl->AddCircleFilled(q, 2.2f, ink, 0);
+            } else {
+                dl->AddRect(ImVec2(q.x - 5, q.y - 5), ImVec2(q.x + 5, q.y + 5), ink, 0.0f, 0, 1.5f);
+            }
+            if (g_mapZoom >= 7.5) {
+                char b[48];
+                if (n.type == 2) std::snprintf(b, sizeof b, "%s %.0f", n.ident.c_str(), n.freq);
+                else if (n.type == 3) std::snprintf(b, sizeof b, "%s %.2f", n.ident.c_str(), n.freq);
+                else std::snprintf(b, sizeof b, "%s", n.ident.c_str());
+                const ImVec2 ts = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, b);
+                dl->AddRectFilled(ImVec2(q.x + 9, q.y - ts.y * 0.5f - 1), ImVec2(q.x + 13 + ts.x, q.y + ts.y * 0.5f + 1), sat ? IM_COL32(10, 16, 28, 170) : IM_COL32(255, 255, 255, 190), 3.0f);
+                textAt(dl, f.small, q.x + 11, q.y - ts.y * 0.5f, ink, b);
+            }
+        }
+    }
+    // ---- fixes: small triangles (terminal ones only close in)
+    if (g_settings.mapWaypoints && g_mapZoom >= 9.0) {
+        for (const MapState::Fix& fx : m.fixes) {
+            if (!fx.enroute && g_mapZoom < 11) continue;
+            const ImVec2 q = toS(mercOf(fx.lat, fx.lon));
+            if (q.x < r0.x - 30 || q.x > r1.x + 30 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
+            const ImU32 ink = sat ? IM_COL32(200, 230, 255, 230) : IM_COL32(40, 70, 120, 230);
+            dl->AddTriangle(ImVec2(q.x, q.y - 4.5f), ImVec2(q.x + 4, q.y + 3), ImVec2(q.x - 4, q.y + 3), ink, 1.2f);
+            if (g_mapZoom >= 10.5) textAt(dl, f.small, q.x + 6, q.y - fontPx(f.small) * 0.5f, ink, fx.ident.c_str());
+        }
+    }
+    // ---- the SimBrief flight plan: a magenta line through its fixes
+    if (g_settings.mapRoute && m.route.size() >= 2) {
+        std::vector<ImVec2> pts;
+        for (const MapState::RoutePoint& rp : m.route) pts.push_back(toS(mercOf(rp.lat, rp.lon)));
+        dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(20, 10, 30, 120), 0, 5.0f);
+        dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(236, 60, 220, 255), 0, 2.6f);
+        for (size_t i = 0; i < pts.size(); ++i) {
+            const ImVec2 q = pts[i];
+            if (q.x < r0.x - 20 || q.x > r1.x + 20 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
+            dl->AddCircleFilled(q, 3.2f, IM_COL32(255, 255, 255, 255), 0);
+            dl->AddCircle(q, 3.2f, IM_COL32(236, 60, 220, 255), 0, 1.5f);
+            if (g_mapZoom >= 6.5 && (g_mapZoom >= 8.5 || i == 0 || i + 1 == pts.size())) {
+                const char* id = m.route[i].ident.c_str();
+                const ImVec2 ts = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, id);
+                dl->AddRectFilled(ImVec2(q.x + 6, q.y - ts.y - 6), ImVec2(q.x + 10 + ts.x, q.y - 4), IM_COL32(236, 60, 220, 230), 3.0f);
+                textAt(dl, f.small, q.x + 8, q.y - ts.y - 5, IM_COL32(255, 255, 255, 255), id);
+            }
+        }
+    }
 
     // ---- other aircraft: a chevron along its heading, its call sign and its height against ours (hundreds of feet, TCAS style)
     if (g_settings.mapTraffic) {
@@ -1481,15 +1613,10 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             const float sa = (float)std::sin(a), ca = (float)std::cos(a);
             auto P = [&](float x, float y) { return ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca); };
             const int rel = (int)std::lround((t.altFt - m.altFt) / 100.0f);
-            const ImU32 col = t.onGround ? IM_COL32(200, 206, 216, 255) : std::abs(rel) <= 10 ? IM_COL32(255, 196, 60, 255) : IM_COL32(60, 220, 255, 255);
-            const ImVec2 tri[4] = {P(0, -9), P(6, 7), P(0, 3), P(-6, 7)};
-            dl->AddConcavePolyFilled(tri, 4, IM_COL32(10, 16, 28, 200));   // a dark edge under it
-            const ImVec2 inner[4] = {P(0, -7.5f), P(4.6f, 5.4f), P(0, 2.2f), P(-4.6f, 5.4f)};
-            std::vector<ImVec2> v(inner, inner + 4);
-            float ar = 0;
-            for (size_t i = 0, j = 3; i < 4; j = i++) ar += (v[j].x - v[i].x) * (v[j].y + v[i].y);
-            if (ar > 0) std::reverse(v.begin(), v.end());
-            dl->AddConcavePolyFilled(v.data(), 4, col);
+            // above: cyan, within 1000 ft: amber, below: green; on the ground: grey
+            const ImU32 col = t.onGround ? IM_COL32(200, 206, 216, 255) : std::abs(rel) <= 10 ? IM_COL32(255, 196, 60, 255) : rel > 0 ? IM_COL32(60, 220, 255, 255) : IM_COL32(110, 230, 140, 255);
+            fillConcave(dl, {P(0, -9), P(6, 7), P(0, 3), P(-6, 7)}, IM_COL32(10, 16, 28, 200));   // a dark edge under it
+            fillConcave(dl, {P(0, -7.5f), P(4.6f, 5.4f), P(0, 2.2f), P(-4.6f, 5.4f)}, col);
             if (g_mapZoom >= 8) {
                 char b[48];
                 if (t.onGround) std::snprintf(b, sizeof b, "%s", t.callsign.c_str());
@@ -1520,20 +1647,14 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     pts[i] = ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca);
                 }
             };
-            for (const auto& p : sh->fills) { place(p); if (pts.size() >= 3) dl->AddConcavePolyFilled(pts.data(), (int)pts.size(), IM_COL32(255, 255, 255, 245)); }
+            for (const auto& p : sh->fills) { place(p); fillConcave(dl, pts, IM_COL32(255, 255, 255, 245)); }
             for (const auto& p : sh->lines) { place(p); if (pts.size() >= 2) dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(40, 70, 130, 255), 0, 1.0f); }
         } else {
             auto P = [&](float x, float y) { return ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca); };   // y: forward is -y
             const ImVec2 body[] = {P(0, -13), P(2.2f, -9), P(2.2f, -3), P(12, 3), P(12, 5.5f), P(2.2f, 2.5f), P(1.8f, 9), P(5, 11.5f), P(5, 13),
                                    P(0, 11.5f), P(-5, 13), P(-5, 11.5f), P(-1.8f, 9), P(-2.2f, 2.5f), P(-12, 5.5f), P(-12, 3), P(-2.2f, -3), P(-2.2f, -9)};
-            std::vector<ImVec2> v(body, body + 18);
-            if (ImGui::GetIO().DisplaySize.x > 0) {
-                // clockwise on screen for the concave fill
-                float area = 0;
-                for (size_t i = 0, j = v.size() - 1; i < v.size(); j = i++) area += (v[j].x - v[i].x) * (v[j].y + v[i].y);
-                if (area > 0) std::reverse(v.begin(), v.end());
-            }
-            dl->AddConcavePolyFilled(v.data(), (int)v.size(), IM_COL32(255, 214, 60, 255));
+            const std::vector<ImVec2> v(body, body + 18);
+            fillConcave(dl, v, IM_COL32(255, 214, 60, 255));
             dl->AddPolyline(v.data(), (int)v.size(), IM_COL32(20, 24, 32, 255), ImDrawFlags_Closed, 1.3f);
         }
     }
@@ -1590,18 +1711,30 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         if (mapBubble(dl, f, "##msat", ImVec2(x, y), nullptr, "Satellite", sat)) { g_settings.mapSource = 1; g_settingsChanged = true; }
         // the layers, down the left under the time
         struct Layer { const char* id; const char* name; bool* v; };
-        const Layer layers[4] = {{"##mapt", "Airports", &g_settings.mapAirports}, {"##mtraf", "Traffic", &g_settings.mapTraffic},
-                                 {"##mout", "Outlines", &g_settings.mapOutlines}, {"##mtz", "Time Zones", &g_settings.mapTimeZones}};
+        const Layer layers[7] = {{"##mapt", "Airports", &g_settings.mapAirports}, {"##mnav", "Navaids", &g_settings.mapNavaids},
+                                 {"##mfix", "Waypoints", &g_settings.mapWaypoints}, {"##mrte", "Route", &g_settings.mapRoute},
+                                 {"##mtraf", "Traffic", &g_settings.mapTraffic}, {"##mout", "Outlines", &g_settings.mapOutlines},
+                                 {"##mtz", "Time Zones", &g_settings.mapTimeZones}};
         float lwMax = 0;
         for (const Layer& L : layers) lwMax = std::max(lwMax, bubbleW(f, nullptr, L.name));
-        for (int i = 0; i < 4; ++i)
-            if (mapBubble(dl, f, layers[i].id, ImVec2(r0.x + 10, r0.y + 50 + i * 36), nullptr, layers[i].name, *layers[i].v, lwMax)) { *layers[i].v = !*layers[i].v; g_settingsChanged = true; }
+        const float step = std::min(36.0f, std::floor((y - 8 - (r0.y + 46)) / 7.0f));
+        for (int i = 0; i < 7; ++i)
+            if (mapBubble(dl, f, layers[i].id, ImVec2(r0.x + 10, r0.y + 46 + i * step), nullptr, layers[i].name, *layers[i].v, lwMax)) {
+                *layers[i].v = !*layers[i].v; g_settingsChanged = true;
+                if (layers[i].v == &g_settings.mapRoute && *layers[i].v) act.routeReload = true;
+            }
+        if (g_settings.mapRoute && !m.routeStatus.empty() && (m.route.empty() || g_mapZoom < 30)) {
+            const ImVec2 ts = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, m.routeStatus.c_str());
+            const float rx = r0.x + 18 + lwMax, ry = r0.y + 46 + 3 * step + 7;
+            dl->AddRectFilled(ImVec2(rx - 4, ry - 2), ImVec2(rx + ts.x + 4, ry + ts.y + 2), IM_COL32(12, 22, 40, 200), 4.0f);
+            textAt(dl, f.small, rx, ry, kInk, m.routeStatus.c_str());
+        }
         // where the map comes from, and whether the airports are still being found
         const char* attr = sat ? "Imagery: Esri, Maxar, Earthstar Geographics" : "\xC2\xA9 OpenStreetMap contributors";
         const ImVec2 as = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, attr);
         dl->AddRectFilled(ImVec2(r1.x - as.x - 12, r1.y - as.y - 6), r1, IM_COL32(255, 255, 255, 190), 4.0f, ImDrawFlags_RoundCornersTopLeft);
         dl->AddText(f.small, fontPx(f.small), ImVec2(r1.x - as.x - 6, r1.y - as.y - 3), IM_COL32(30, 36, 48, 255), attr);
-        if (g_settings.mapAirports && m.aptIndexing) textAt(dl, f.small, r0.x + 12, r0.y + 50 + 4 * 36 + 4, sat ? kInk : IM_COL32(30, 36, 48, 255), "Finding X-Plane's airports...");
+        if (g_settings.mapAirports && m.aptIndexing) textAt(dl, f.small, r0.x + 12, y - 22, sat ? kInk : IM_COL32(30, 36, 48, 255), "Finding X-Plane's airports...");
         (void)missing;
     }
     dl->PopClipRect();
@@ -1693,7 +1826,7 @@ void notesPage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
             const float y = r.y - shift;
             if (g_notesTab == 0 && i < 5) {   // the CRAFT letter
                 const char L[2] = {"CRAFT"[i], 0};
-                dl->AddCircleFilled(ImVec2(32, y + 30), 15.0f, IM_COL32(70, 140, 255, 200), 24);
+                dl->AddCircleFilled(ImVec2(32, y + 30), 15.0f, IM_COL32(70, 140, 255, 200), 0);
                 textCentered(dl, f.bold, 32, y + 30 - fontPx(f.bold) * 0.5f, kInk, L);
             }
             textAt(dl, f.small, r.x0 + 2, y, kMuted, labels[i]);
@@ -1715,8 +1848,8 @@ void notesPage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
         char id[16];
         std::snprintf(id, sizeof id, "##npc%d", i);
         if (ImGui::InvisibleButton(id, ImVec2(26, 26))) { g_penColor = i; g_penMode = true; }
-        dl->AddCircleFilled(c, 10.0f, kPens[i], 20);
-        if (g_penColor == i) dl->AddCircle(c, 13.0f, IM_COL32(110, 170, 255, 255), 24, 2.0f);
+        dl->AddCircleFilled(c, 10.0f, kPens[i], 0);
+        if (g_penColor == i) dl->AddCircle(c, 13.0f, IM_COL32(110, 170, 255, 255), 0, 2.0f);
     }
     if (pill(dl, f, "##nundo", "Undo", ImVec2(306, y0), ImVec2(386, y0 + 28), false, !g_strokes.empty())) { g_strokes.pop_back(); g_notesChanged = true; }
     const ImVec2 pa(12, y0 + 38), pb(w - 12, bottom - 10);
@@ -1742,7 +1875,7 @@ void notesPage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
     for (const Stroke& st : g_strokes) {
         pts.clear();
         for (const ImVec2& q : st.pts) pts.push_back(ImVec2(pa.x + q.x * pw, pa.y + q.y * ph));
-        if (pts.size() == 1) dl->AddCircleFilled(pts[0], 1.6f, kPens[st.color % 3], 8);
+        if (pts.size() == 1) dl->AddCircleFilled(pts[0], 1.6f, kPens[st.color % 3], 0);
         else dl->AddPolyline(pts.data(), (int)pts.size(), kPens[st.color % 3], 0, 2.2f);
     }
     dl->PopClipRect();
@@ -1879,15 +2012,15 @@ void checklistsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         if (ImGui::InvisibleButton(id, ImVec2(rw - 20, ih - 2))) done[i] = !done[i];
         const bool on = done[i];
         const ImVec2 c(rx + 28, y + (ih - 2) * 0.5f);
-        dl->AddCircle(c, 9.0f, on ? kGood : IM_COL32(255, 255, 255, 90), 20, 1.6f);
-        if (on) { dl->AddCircleFilled(c, 9.0f, kGood, 20); dl->AddLine(ImVec2(c.x - 4, c.y), ImVec2(c.x - 1, c.y + 3.5f), IM_COL32(10, 30, 20, 255), 2.0f); dl->AddLine(ImVec2(c.x - 1, c.y + 3.5f), ImVec2(c.x + 5, c.y - 4), IM_COL32(10, 30, 20, 255), 2.0f); }
+        dl->AddCircle(c, 9.0f, on ? kGood : IM_COL32(255, 255, 255, 90), 0, 1.6f);
+        if (on) { dl->AddCircleFilled(c, 9.0f, kGood, 0); dl->AddLine(ImVec2(c.x - 4, c.y), ImVec2(c.x - 1, c.y + 3.5f), IM_COL32(10, 30, 20, 255), 2.0f); dl->AddLine(ImVec2(c.x - 1, c.y + 3.5f), ImVec2(c.x + 5, c.y - 4), IM_COL32(10, 30, 20, 255), 2.0f); }
         const float ty = std::floor(y + (ih - 2 - fontPx(f.body)) * 0.5f);
         const ImU32 col = on ? kMuted : kInk;
         textAt(dl, f.body, rx + 48, ty, col, sec.items[i].first.c_str());
         if (!sec.items[i].second.empty()) {
             const float tw = f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, sec.items[i].first.c_str()).x;
             const float vw = f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, sec.items[i].second.c_str()).x;
-            for (float dx = rx + 56 + tw; dx < rx + rw - 22 - vw; dx += 6) dl->AddCircleFilled(ImVec2(dx, ty + fontPx(f.body) * 0.75f), 0.9f, IM_COL32(255, 255, 255, 60), 4);
+            for (float dx = rx + 56 + tw; dx < rx + rw - 22 - vw; dx += 6) dl->AddCircleFilled(ImVec2(dx, ty + fontPx(f.body) * 0.75f), 0.9f, IM_COL32(255, 255, 255, 60), 0);
             textRight(dl, f.bold, rx + rw - 16, ty, on ? kMuted : IM_COL32(255, 214, 120, 255), sec.items[i].second.c_str());
         }
     }
@@ -1982,7 +2115,9 @@ void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     {
         ImGui::SetCursorScreenPos(ImVec2(x1 - 120, y));
         if (pill(dl, f, "##aptmap", "Show on map", ImVec2(x1 - 120, y), ImVec2(x1, y + 28), false, true)) {
-            g_mapGoto = true; g_mapGotoLat = g.lat; g_mapGotoLon = g.lon;
+            showOnMap(g.lat, g.lon);
+            dl->PopClipRect();
+            return;
         }
     }
     y += 32;
@@ -2103,15 +2238,27 @@ std::string sizeText(long long b) {
     return t;
 }
 float g_docListScroll = 0;
+std::string g_docFilter;   // one folder ("This aircraft"...), or "" for all
 
 void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const DocsState& d = s.docs;
     if (!d.listed) act.docsList = true;
     const float top = kStatusH + kHeaderH + 8, lw = 290;
-    if (pill(dl, f, "##docref", "Refresh", ImVec2(12, top), ImVec2(112, top + 30), false, true)) act.docsList = true;
-    char cnt[32];
-    std::snprintf(cnt, sizeof cnt, "%d files", (int)d.files.size());
-    textRight(dl, f.small, 12 + lw, top + 8, kMuted, cnt);
+    if (pill(dl, f, "##docref", "Refresh", ImVec2(12, top), ImVec2(92, top + 30), false, true)) act.docsList = true;
+    {   // the folders, to see one at a time
+        std::vector<std::string> labels = {""};
+        for (const DocEntry& e : d.files) if (std::find(labels.begin(), labels.end(), e.folder) == labels.end()) labels.push_back(e.folder);
+        if (std::find(labels.begin(), labels.end(), g_docFilter) == labels.end() && !g_docFilter.empty() && d.listed) labels.push_back(g_docFilter);
+        float x = 98;
+        for (size_t i = 0; i < labels.size() && x < 12 + lw; ++i) {
+            const char* nm = labels[i].empty() ? "All" : labels[i] == "This aircraft" ? "Aircraft" : labels[i] == "XPTablet's Documents" ? "Mine" : labels[i] == "AviTab charts" ? "AviTab" : labels[i].c_str();
+            const float bw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, nm).x + 22;
+            char id[32];
+            std::snprintf(id, sizeof id, "##docf%zu", i);
+            if (pill(dl, f, id, nm, ImVec2(x, top), ImVec2(x + bw, top + 30), g_docFilter == labels[i], true)) { g_docFilter = labels[i]; g_docListScroll = 0; }
+            x += bw + 4;
+        }
+    }
     const ImVec2 la(12, top + 40), lb(12 + lw, h - 12);
     card(dl, la, lb, f, nullptr);
     if (d.files.empty()) {
@@ -2131,6 +2278,7 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     std::string folder;
     for (size_t i = 0; i < d.files.size(); ++i) {
         const DocEntry& e = d.files[i];
+        if (!g_docFilter.empty() && e.folder != g_docFilter) continue;
         if (e.folder != folder) { folder = e.folder; textAt(dl, f.small, la.x + 12, y + 4, kMuted, folder.c_str()); y += 24; }
         char id[32];
         std::snprintf(id, sizeof id, "##doc%zu", i);
@@ -2289,8 +2437,8 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
                 const float x = tx0 + (tx1 - tx0) * i / 10.0f;
                 dl->AddLine(ImVec2(x, ty + 7), ImVec2(x, ty + (i % 5 == 0 ? 13 : 10)), IM_COL32(255, 255, 255, 90), 1.0f);
             }
-            dl->AddCircleFilled(ImVec2(hx, ty), 10.0f, IM_COL32(245, 248, 255, 255), 24);
-            dl->AddCircle(ImVec2(hx, ty), 10.0f, IM_COL32(255, 214, 120, 255), 24, 2.0f);
+            dl->AddCircleFilled(ImVec2(hx, ty), 10.0f, IM_COL32(245, 248, 255, 255), 0);
+            dl->AddCircle(ImVec2(hx, ty), 10.0f, IM_COL32(255, 214, 120, 255), 0, 2.0f);
             y += 40;
             const float bw = (cx1 - cx0 - 10) * 0.5f;
             if (pill(dl, f, "##clon", "On", ImVec2(cx0, y), ImVec2(cx0 + bw, y + 30), pct >= 100, true)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = 100; }
@@ -2327,7 +2475,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         } else {
             for (const std::string& t : why) {
                 if (y > bot - 22) break;
-                dl->AddCircleFilled(ImVec2(cx0 + 4, y + fontPx(f.body) * 0.5f + 1), 3.5f, kWarn, 10);
+                dl->AddCircleFilled(ImVec2(cx0 + 4, y + fontPx(f.body) * 0.5f + 1), 3.5f, kWarn, 0);
                 textAt(dl, f.body, cx0 + 16, y, kInk, t.c_str());
                 y += 22;
             }
@@ -2385,6 +2533,8 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         {"Time zones", "Natural Earth (via WXPlane)", "Public domain"},
         {"Map pictures", "stb_image by Sean Barrett", "MIT / public domain"},
         {"Airport facts and CTAF", "OurAirports (ourairports.com) and its contributors", "Public domain"},
+        {"Navaids and waypoints on the map", "X-Plane's navigation data (or the AIRAC in Custom Data, e.g. Navigraph's)", ""},
+        {"Route on the map", "Your flight plan from SimBrief (simbrief.com)", ""},
         {"METAR reports", "NOAA / National Weather Service, Aviation Weather Center (aviationweather.gov)", "Public domain"},
         {"Weather page with WXPlane installed", "WXPlane by Alpine Aviation", ""},
     };
@@ -2401,13 +2551,21 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float w, float h) {
 }
 
 void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
-    (void)act;
     {   // two views, switched at the right end of the title bar
         const float y0 = kStatusH + 9, bw = 92;
         if (pill(dl, f, "##setmain", "Settings", ImVec2(w - 14 - 2 * bw - 6, y0), ImVec2(w - 14 - bw - 6, y0 + 28), g_settingsTab == 0, true)) g_settingsTab = 0;
         if (pill(dl, f, "##setcred", "Credits", ImVec2(w - 14 - bw, y0), ImVec2(w - 14, y0 + 28), g_settingsTab == 1, true)) g_settingsTab = 1;
     }
     if (g_settingsTab == 1) { creditsPage(dl, f, w, h); return; }
+    if (g_kbd && g_kbdTarget == 2 && g_typeInto == &g_settings.simbriefUser) {   // typing the SimBrief name: the field and the keyboard only
+        const float top = kStatusH + kHeaderH + 20;
+        textAt(dl, f.bold, 24, top, kInk, "SimBrief user name or pilot ID");
+        dl->AddText(f.small, fontPx(f.small), ImVec2(24, top + 24), kMuted, "Your latest SimBrief flight plan is drawn on the Map (Route).", nullptr, w - 48);
+        textField(dl, f, "##sbuser", g_settings.simbriefUser, ImVec2(24, top + 50), ImVec2(w - 24, top + 88), "", false);
+        if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; act.routeReload = true; }
+        pageKeyboard(dl, f, w, h, act);
+        return;
+    }
     const float top = kStatusH + kHeaderH;
     const float colW = std::floor(w * 0.5f) - 24;
     ImGui::SetCursorScreenPos(ImVec2(18, top + 12));
@@ -2442,6 +2600,12 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     choice("Charts icon", kChartNames, g_settings.chartsProvider, g_settings.showCharts);
     choice("Live map icon", kLiveNames, g_settings.liveProvider, g_settings.showLive);
     choice("Flight planning icon", kPlanNames, g_settings.planProvider, g_settings.showForeflight);
+    sectionTitle(f, "SimBrief (the route on the Map)");
+    {
+        const std::string label = g_settings.simbriefUser.empty() ? std::string("Set your SimBrief name") : "SimBrief: " + g_settings.simbriefUser;
+        if (ImGui::Button(label.c_str(), ImVec2(-1, 32))) { g_kbd = true; g_kbdTarget = 2; g_typeInto = &g_settings.simbriefUser; g_typeMultiline = false; }
+    }
+    ImGui::Dummy(ImVec2(0, 4));
     sectionTitle(f, "Show on the home screen");
     struct Tog { const char* name; bool* v; };
     const Tog togs[] = {{"Charts", &g_settings.showCharts}, {"Live map", &g_settings.showLive}, {"SimBrief", &g_settings.showSimbrief}, {"Planning", &g_settings.showForeflight}};
@@ -2487,7 +2651,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         if (g_touches.size() > 400) g_touches.erase(g_touches.begin());
     }
     dl->PushClipRect(a, b, true);
-    for (const ImVec2& p : g_touches) dl->AddCircleFilled(p, 4.0f, IM_COL32(255, 184, 64, 220), 10);
+    for (const ImVec2& p : g_touches) dl->AddCircleFilled(p, 4.0f, IM_COL32(255, 184, 64, 220), 0);
     if (ImGui::IsItemHovered()) {
         const ImVec2 m = ImGui::GetIO().MousePos;
         dl->AddLine(ImVec2(m.x - 12, m.y), ImVec2(m.x + 12, m.y), IM_COL32(255, 255, 255, 200));
@@ -2513,7 +2677,7 @@ Fonts loadFonts(float pixelScale) {
     io.Fonts->Clear();
     ImFontConfig cfg;
     cfg.FontDataOwnedByAtlas = false;   // the data is static
-    cfg.OversampleH = 2; cfg.OversampleV = 1;
+    cfg.OversampleH = 3; cfg.OversampleV = 2;   // finer glyph placement, so text stays crisp at any position
     static const ImWchar ranges[] = {0x0020, 0x00FF, 0x2010, 0x2027, 0x2190, 0x2193, 0x2212, 0x2212, 0};
     const float s = std::max(1.0f, pixelScale);
     Fonts f;
@@ -2561,6 +2725,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     g_embed = EmbedArea();
     g_wx = s.wxPlane;
     g_wxLogo = f.wxLogo;
+    g_logo = f.logo;
     ImGuiStyle& st = ImGui::GetStyle();
     st.CircleTessellationMaxError = 0.30f / g_px;   // curves are as smooth on a dense screen as on a plain one
     st.CurveTessellationTol = 1.25f / g_px;
@@ -2653,6 +2818,13 @@ int loadShapes(const std::string& text) {
 
 bool hasShape(const std::string& icao) { float l, sp; return findShape(icao, l, sp) != nullptr; }
 const unsigned char* wxLogoPixels(unsigned int& bytes) { bytes = xpt_asset_wxlogo_size; return xpt_asset_wxlogo; }
+const unsigned char* logoPixels(int& w, int& h, int& levels) {   // "XPTL", width, height, levels (u32), then the pixels
+    const unsigned char* b = xpt_asset_logo;
+    auto u32 = [&](int at) { return (int)((unsigned)b[at] | ((unsigned)b[at + 1] << 8) | ((unsigned)b[at + 2] << 16) | ((unsigned)b[at + 3] << 24)); };
+    if (xpt_asset_logo_size < 16 || std::memcmp(b, "XPTL", 4) != 0) { w = h = levels = 0; return nullptr; }
+    w = u32(4); h = u32(8); levels = u32(12);
+    return b + 16;
+}
 int touchTestCount() { return (int)g_touches.size(); }
 const EmbedArea& embedArea() { return g_embed; }
 const char* browserUrl() { return g_url.c_str(); }
@@ -2732,7 +2904,34 @@ void notesFromText(const std::string& text) {
     }
 }
 bool takeNotesChanged() { const bool c = g_notesChanged; g_notesChanged = false; return c; }
-void showOnMap(double lat, double lon) { g_mapGoto = true; g_mapGotoLat = lat; g_mapGotoLon = lon; openApp(APP_MAP); }
+void mapCommand(int what) {
+    if (what == 0) g_mapZoom = std::min(kMapMaxZoom, std::floor(g_mapZoom + 1.0));
+    else if (what == 1) g_mapZoom = std::max(kMapMinZoom, std::floor(g_mapZoom - 0.5));
+    else if (what == 2) g_mapFollow = true;
+    else if (what >= 3 && what <= 6) {   // a quarter of the map's width or height, in the direction on screen
+        const double x = what == 3 ? -g_mapLastW * 0.25 : what == 4 ? g_mapLastW * 0.25 : 0.0;
+        const double y = what == 5 ? -g_mapLastH * 0.25 : what == 6 ? g_mapLastH * 0.25 : 0.0;
+        const double cr = std::cos(g_mapLastRot), sr = std::sin(g_mapLastRot), sc = 256.0 * std::pow(2.0, g_mapZoom);
+        g_mapCenter.x += (x * cr - y * sr) / sc;
+        g_mapCenter.y += (x * sr + y * cr) / sc;
+        g_mapCenter.x -= std::floor(g_mapCenter.x);
+        g_mapCenter.y = std::max(0.0, std::min(1.0, g_mapCenter.y));
+        g_mapFollow = false;
+    }
+}
+void mapView(double& lat, double& lon, int& zoom, float& verticalRangeNm) {
+    latLonOf(g_mapCenter, lat, lon);
+    zoom = (int)std::lround(g_mapZoom);
+    verticalRangeNm = (float)(g_mapLastH / std::max(1e-9, g_mapLastScale) * g_mapLastMPerMerc / 1852.0);
+}
+void openDocuments(const std::string& folder) { g_docFilter = folder; g_docListScroll = 0; openApp(APP_DOCUMENTS); }
+
+void showOnMap(double lat, double lon) {
+    g_mapGoto = false; g_mapFollow = false; g_mapSeen = true;
+    g_mapCenter = mercOf(lat, lon);
+    g_mapZoom = 14.0;
+    openApp(APP_MAP);
+}
 
 Settings& settings() { return g_settings; }
 bool takeSettingsChanged() { const bool c = g_settingsChanged; g_settingsChanged = false; return c; }
@@ -2743,6 +2942,14 @@ std::string settingsToText() {
     std::snprintf(buf, sizeof buf, "charts_provider=%d\nlive_provider=%d\nfavorite_slots=%d\nbrightness=%.2f\nshow_charts=%d\nshow_simbrief=%d\nshow_live=%d\nshow_foreflight=%d\n", chartsP(), liveP(), favSlots(), (double)std::max(0.1f, std::min(1.0f, g_settings.brightness)), g_settings.showCharts ? 1 : 0,
                   g_settings.showSimbrief ? 1 : 0, g_settings.showLive ? 1 : 0, g_settings.showForeflight ? 1 : 0);
     std::string out = buf;
+    std::snprintf(buf, sizeof buf, "map_navaids=%d\nmap_waypoints=%d\nmap_route=%d\nstatus_local_time=%d\n", g_settings.mapNavaids ? 1 : 0, g_settings.mapWaypoints ? 1 : 0,
+                  g_settings.mapRoute ? 1 : 0, g_settings.statusLocalTime ? 1 : 0);
+    out += buf;
+    {   // the SimBrief name, without line breaks
+        std::string u = g_settings.simbriefUser;
+        for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
+        out += "simbrief_user=" + u + "\n";
+    }
     std::snprintf(buf, sizeof buf, "plan_provider=%d\nmap_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\n", planP(),
                   g_settings.mapSource == 1 ? 1 : 0, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
                   g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0);
@@ -2795,6 +3002,11 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_local_time") g_settings.mapLocalTime = v != 0;
         else if (key == "map_traffic") g_settings.mapTraffic = v != 0;
         else if (key == "map_outlines") g_settings.mapOutlines = v != 0;
+        else if (key == "map_navaids") g_settings.mapNavaids = v != 0;
+        else if (key == "map_waypoints") g_settings.mapWaypoints = v != 0;
+        else if (key == "map_route") g_settings.mapRoute = v != 0;
+        else if (key == "simbrief_user") g_settings.simbriefUser = val;
+        else if (key == "status_local_time") g_settings.statusLocalTime = v != 0;
         else if (key == "favorite_slots") g_settings.favoriteSlots = std::max(0, std::min(kMaxFavorites, v));
         else if (key == "brightness") g_settings.brightness = std::max(0.1f, std::min(1.0f, (float)std::atof(val.c_str())));
         else if (key == "show_charts") g_settings.showCharts = v != 0;

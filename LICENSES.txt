@@ -32,6 +32,9 @@ XPTablet includes the following open-source software. Their licences require the
   * Airport facts (names, places, frequencies including CTAF): OurAirports (https://ourairports.com/data/), public domain;
     downloaded when the Airports page opens and kept a month in Output/XPTablet/ourairports.
 
+  * Navaids and fixes on the map: read from X-Plane's own earth_nav.dat / earth_fix.dat (or the user's AIRAC in Custom Data).
+  * The route on the map: the user's own latest flight plan, fetched from SimBrief's public plan fetcher with their user name.
+
 Data used by XPTablet (downloaded when asked for): NOAA / National Weather Service Aviation Weather Center, METAR reports. Public domain.
 
 ================================================================================

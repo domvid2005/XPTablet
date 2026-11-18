@@ -38,6 +38,11 @@ struct Settings {
     bool mapLocalTime = false;    // the time bubble shows local time (else Zulu)
     bool mapTraffic = true;       // AI and multiplayer aircraft
     bool mapOutlines = false;     // coastlines, borders, states and provinces
+    bool mapNavaids = true;       // VORs, NDBs, DMEs and ILS localizers
+    bool mapWaypoints = false;    // fixes
+    bool mapRoute = true;         // the SimBrief flight plan
+    std::string simbriefUser;     // SimBrief user name or pilot ID (for the route on the map)
+    bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
 };
 Settings& settings();
 std::string settingsToText();
@@ -51,7 +56,11 @@ struct Fonts {
     ImFont* title = nullptr;
     ImFont* mono = nullptr;
     ImTextureID wxLogo = 0;       // the WXPlane icon's picture (wxLogoPixels), uploaded by the host; 0: the icon is drawn without it
+    ImTextureID logo = 0;         // XPTablet's logo (logoPixels), uploaded by the host; 0: the name is written instead
 };
+
+// XPTablet's logo (XP in white, TABLET in the gradient): w x h RGBA, followed by its halved copies down to 1 pixel high.
+const unsigned char* logoPixels(int& w, int& h, int& levels);
 
 // The WXPlane icon's picture: 256 x 256 RGBA (WXPlane's logo, WX above PLANE), followed by its mip levels down to 1 x 1.
 const unsigned char* wxLogoPixels(unsigned int& bytes);
@@ -128,6 +137,15 @@ struct MapState {
     // other aircraft (X-Plane's AI and multiplayer, as TCAS sees them)
     struct Traffic { double lat = 0, lon = 0; float altFt = 0, hdg = 0, gsKt = 0, vsFpm = 0; bool onGround = false; std::string callsign, type; };
     std::vector<Traffic> traffic;
+    // radio navaids and fixes around the view (X-Plane's nav data: Custom Data first, else its own)
+    struct Navaid { int type = 3; double lat = 0, lon = 0; float freq = 0, bearing = 0; std::string ident, name; };   // type: 2 NDB, 3 VOR, 4/5 localizer, 12/13 DME
+    std::vector<Navaid> navaids;
+    struct Fix { double lat = 0, lon = 0; std::string ident; bool enroute = true; };
+    std::vector<Fix> fixes;
+    // the SimBrief flight plan
+    struct RoutePoint { double lat = 0, lon = 0; std::string ident; };
+    std::vector<RoutePoint> route;
+    std::string routeStatus;      // "KSBN to KORD, 12 fixes", or why there is none
 };
 
 // The Airports page: one airport, read from X-Plane's scenery (apt.dat) and OurAirports.
@@ -210,8 +228,10 @@ struct Actions {
     std::string airportOpen;      // the airport to show
     // the Documents page: list the folders (again), show a picture
     bool docsList = false;
+    bool routeReload = false;     // fetch the SimBrief plan again
     std::string docOpen;
     double mapLat = 0, mapLon = 0, mapLayoutNm = 0, mapPointNm = 0;
+    double mapNavNm = 0, mapFixNm = 0;   // navaids and fixes to have ready around the centre (0: none)
 };
 
 Fonts loadFonts(float pixelScale);   // (re)builds the font atlas for this many pixels per layout unit
@@ -245,6 +265,11 @@ void notesFromText(const std::string& text);
 bool takeNotesChanged();
 // Open the Map page centred on a place (the Airports page's "Show on map")
 void showOnMap(double lat, double lon);
+// AviTab's map commands and datarefs: 0 zoom in, 1 zoom out, 2 recentre, 3 pan left, 4 right, 5 up, 6 down
+void mapCommand(int what);
+void mapView(double& lat, double& lon, int& zoom, float& verticalRangeNm);
+// The Documents page, showing one folder ("This aircraft" for AviTab/app_plane_manual), or all ("")
+void openDocuments(const std::string& folder);
 void webAddressKey(int code, bool isChar);   // code: a character, or 8 (back) / 13 (enter)
 void openApp(int app);   // APP_HOME: the home screen
 const char* appName(int app);                // the icon's label (Charts and Live Map carry their provider's name)

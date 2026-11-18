@@ -141,3 +141,16 @@ of their own and come back to it as they were left. The planning icon switches b
 - Map: Outlines layer (WXPlane's Natural Earth coastlines, borders, states and provinces).
 
 - Performance removed for every aircraft (accurate figures need the manufacturer's certified data; ToLiss has its own).
+
+## 0.8.0
+
+- Status bar: the clock on the left (tap: Zulu or local time where the aircraft is, with its zone); the XPTablet logo in the
+  middle (made at every size from the original, tools/make_logo_rgba.py).
+- Map: Navaids (VOR with a compass rose to magnetic north, NDB, DME, ILS localizer feathers), Waypoints (fixes; terminal ones
+  close in), Route (the user's latest SimBrief plan, by user name or pilot ID in Settings). Traffic coloured above / level /
+  below. X-Plane's nav data: Custom Data first, as X-Plane does.
+- AviTab compatibility: AviTab/zoom_in, zoom_out, recentre, pan_* drive the Map; avitab/map/latitude, longitude, zoom and
+  vertical_range report it; AviTab/app_routes opens SimBrief; AviTab/app_plane_manual opens Documents on the aircraft's folder.
+- Sharpness: every circle and arc is tessellated for the screen's pixel density (no fixed segment counts); concave shapes are
+  filled whichever way their points run; map tiles, pictures and the logo are mipmapped; fonts sampled finer (3 x 2).
+- Fix: Airports' Show on map now opens the Map.
