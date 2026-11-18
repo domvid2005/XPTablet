@@ -42,6 +42,7 @@ struct Settings {
     bool mapTraffic = true;       // AI and multiplayer aircraft
     bool mapOutlines = false;     // coastlines, borders, states and provinces
     bool mapNavaids = true;       // VORs, NDBs and DMEs
+    bool mapRings = true;         // range rings round the aircraft (a quarter, half and all of the range), as on WXPlane's map
     bool mapIls = true;           // ILS and localizer courses (a layer of their own)
     bool mapWaypoints = false;    // fixes
     bool mapRoute = true;         // the SimBrief flight plan

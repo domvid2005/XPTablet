@@ -1922,6 +1922,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     const double mPerMercC = kEarthM * std::max(0.01, std::cos(cLat * kPi / 180.0));
     double scale = (r1.y - r0.y) * 0.5 / (g_mapShownNm * 1852.0 / mPerMercC);
     g_mapZoom = std::log2(scale / 256.0);
+    // the symbols' size follows the zoom (as a chart's would): large close in, small far out, and the real size once that is bigger
+    const float symLen = std::max(16.0f, std::min(46.0f, 46.0f - 6.0f * (float)std::log2(std::max(0.25, g_mapShownNm) / 0.25)));
     // the world to the screen and back (heading up: the world turned by minus the heading about the middle)
     auto toS = [&](const MercPt& p) {
         double dx = (p.x - g_mapCenter.x), dy = (p.y - g_mapCenter.y);
@@ -2253,7 +2255,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             float tl = 0, ts = 0;
             const Shape* tsh = t.type.empty() ? nullptr : findShape(t.type, tl, ts);
             if (tsh) {   // its type's outline, 24 units long (or its real size, close in)
-                const float pm = std::max((float)(scale / mPerMerc), 24.0f / std::max(1.0f, tl));
+                const float pm = std::max((float)(scale / mPerMerc), std::max(12.0f, symLen * 0.66f) / std::max(1.0f, tl));   // with the zoom too
                 const float kx = ts / tsh->span * pm, ky = tl / tsh->len * pm;
                 std::vector<ImVec2> pts;
                 auto place = [&](const std::vector<ImVec2>& pp) {
@@ -2278,6 +2280,22 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         }
     }
 
+    // ---- range rings round the aircraft, as on WXPlane's map: a quarter, half and all of the range, labelled at the lower right
+    if (m.havePos && g_settings.mapRings) {
+        const ImVec2 q = toS(ac);
+        const double nice = kRangesNm[std::max(0, std::min(kRangeN - 1, g_mapRange))];
+        const float nmPx = (float)(scale / (mPerMerc / 1852.0));
+        const ImU32 ring = sat ? IM_COL32(255, 255, 255, 110) : IM_COL32(40, 60, 100, 110);
+        const ImU32 lab = sat ? IM_COL32(220, 228, 242, 220) : IM_COL32(40, 56, 90, 230);
+        for (float fr : {0.25f, 0.5f, 1.0f}) {
+            const float rr = (float)(nice * fr) * nmPx;
+            if (rr < 12) continue;
+            dl->AddCircle(q, rr, ring, 96, 1.2f);
+            char b[24];
+            std::snprintf(b, sizeof b, "%g", nice * fr);
+            dl->AddText(f.small, fontPx(f.small), ImVec2(q.x + rr * 0.707f + 3, q.y + rr * 0.707f - 2), lab, b);
+        }
+    }
     // ---- the aircraft: its own outline at its real size when that is bigger than the symbol, else the symbol
     if (m.havePos) {
         const ImVec2 q = toS(ac);
@@ -2289,7 +2307,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         if (sh) {
             // its own type's outline: at its real size when that is bigger than a symbol, else 36 units long (nose at y = 0, tail +y),
             // turned along the heading about its middle
-            const float pm = std::max(pxPerM, 36.0f / std::max(1.0f, sl));
+            const float pm = std::max(pxPerM, symLen / std::max(1.0f, sl));
             const float kx = ss / sh->span * pm, ky = sl / sh->len * pm;
             std::vector<ImVec2> pts;
             auto place = [&](const std::vector<ImVec2>& p) {
@@ -2303,7 +2321,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             for (const auto& p : sh->fills) { place(p); fillConcave(dl, pts, IM_COL32(255, 214, 60, 255)); }
             for (const auto& p : sh->lines) { place(p); if (pts.size() >= 2) dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(120, 80, 10, 255), 0, 1.0f); }
         } else {
-            auto P = [&](float x, float y) { return ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca); };   // y: forward is -y
+            const float k = symLen / 26.0f;   // the stand-in is 26 units long
+            auto P = [&](float x, float y) { x *= k; y *= k; return ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca); };   // y: forward is -y
             const ImVec2 body[] = {P(0, -13), P(2.2f, -9), P(2.2f, -3), P(12, 3), P(12, 5.5f), P(2.2f, 2.5f), P(1.8f, 9), P(5, 11.5f), P(5, 13),
                                    P(0, 11.5f), P(-5, 13), P(-5, 11.5f), P(-1.8f, 9), P(-2.2f, 2.5f), P(-12, 5.5f), P(-12, 3), P(-2.2f, -3), P(-2.2f, -9)};
             const std::vector<ImVec2> v(body, body + 18);
@@ -2364,14 +2383,14 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         if (mapBubble(dl, f, "##msat", ImVec2(x, y), nullptr, "Satellite", satImg)) { g_settings.mapSource = 1; g_settingsChanged = true; }
         // the layers, down the left under the time
         struct Layer { const char* id; const char* name; bool* v; };
-        const Layer layers[8] = {{"##mapt", "Airports", &g_settings.mapAirports}, {"##mnav", "Navaids", &g_settings.mapNavaids},
+        const Layer layers[9] = {{"##mapt", "Airports", &g_settings.mapAirports}, {"##mnav", "Navaids", &g_settings.mapNavaids},
                                  {"##mils", "ILS", &g_settings.mapIls}, {"##mfix", "Waypoints", &g_settings.mapWaypoints}, {"##mrte", "Route", &g_settings.mapRoute},
                                  {"##mtraf", "Traffic", &g_settings.mapTraffic}, {"##mout", "Outlines", &g_settings.mapOutlines},
-                                 {"##mtz", "Time Zones", &g_settings.mapTimeZones}};
+                                 {"##mtz", "Time Zones", &g_settings.mapTimeZones}, {"##mring", "Rings", &g_settings.mapRings}};
         float lwMax = 0;
         for (const Layer& L : layers) lwMax = std::max(lwMax, bubbleW(f, nullptr, L.name));
-        const float step = std::min(36.0f, std::floor((y - 8 - (r0.y + 46)) / 8.0f));
-        for (int i = 0; i < 8; ++i)
+        const float step = std::min(36.0f, std::floor((y - 8 - (r0.y + 46)) / 9.0f));
+        for (int i = 0; i < 9; ++i)
             if (mapBubble(dl, f, layers[i].id, ImVec2(r0.x + 10, r0.y + 46 + i * step), nullptr, layers[i].name, *layers[i].v, lwMax,
                           layers[i].v != &g_settings.mapRoute || !m.route.empty())) {   // Route: greyed until a SimBrief plan is in
                 *layers[i].v = !*layers[i].v; g_settingsChanged = true;
@@ -4582,9 +4601,9 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
-    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\n",
+    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\nmap_rings=%d\n",
                   g_settings.mapSource == 1 ? 1 : 0, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
-                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0);
+                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0);
     out += buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
         out += key; out += "=";
@@ -4644,6 +4663,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_outlines") g_settings.mapOutlines = v != 0;
         else if (key == "map_navaids") g_settings.mapNavaids = v != 0;
         else if (key == "map_ils") g_settings.mapIls = v != 0;
+        else if (key == "map_rings") g_settings.mapRings = v != 0;
         else if (key == "media_enabled") g_settings.mediaEnabled = v != 0;
         else if (key == "media_duck") g_settings.mediaDuck = std::max(0, std::min(2, v));
         else if (key == "notify_enabled") g_settings.notifyEnabled = v != 0;
