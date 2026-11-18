@@ -637,6 +637,23 @@ EMSCRIPTEN_KEEPALIVE void emu_intruder() {
 }
 EMSCRIPTEN_KEEPALIVE void emu_new_traffic() { resetTraffic(); }
 EMSCRIPTEN_KEEPALIVE void emu_battery(float pct) { setBattery(pct); }
+// a sample SimBrief plan, as the 2-minute check would find it (each press a newer one): the notification, then the import window
+EMSCRIPTEN_KEEPALIVE void emu_sample_plan() {
+    static int n = 0;
+    ++n;
+    FlightPlan p;
+    p.loaded = true; p.callsign = "AAL" + std::to_string(1233 + n); p.aircraft = g_ac.icao; p.registration = "N123AA"; p.units = "lbs";
+    p.importedAt = "now"; p.ofpId = "sample/" + std::to_string(n);
+    p.origin = "KSBN"; p.originName = "South Bend Intl"; p.originRunway = "27"; p.dest = "KORD"; p.destName = "Chicago O'Hare Intl"; p.destRunway = "28C";
+    p.alternate = "KMDW"; p.alternateName = "Chicago Midway Intl";
+    p.route = "GIJ DCT PMM DCT OBK"; p.sid = "SBN2"; p.star = "WATSN4"; p.cruise = "FL240"; p.distanceNm = "92"; p.ete = "38 min"; p.costIndex = "30"; p.avgWind = "head 22 kt";
+    p.blockFuel = "9800"; p.tripFuel = "4200"; p.reserveFuel = "2900"; p.altnFuel = "1600"; p.taxiFuel = "600"; p.extraFuel = "500"; p.zfw = "141200"; p.tow = "150400"; p.ldw = "146200";
+    struct Fx { const char* id; double lat, lon; const char* alt; };
+    const Fx fx[] = {{"KSBN", 41.7087, -86.3173, ""}, {"GIJ", 41.7685, -86.3186, "FL240"}, {"PMM", 42.4644, -86.1059, "FL240"},
+                     {"OBK", 42.2206, -87.9520, "FL240"}, {"WATSN", 42.0500, -87.7000, "FL110"}, {"KORD", 41.9786, -87.9048, ""}};
+    for (const Fx& f : fx) { FlightPlan::Leg l; l.ident = f.id; l.lat = f.lat; l.lon = f.lon; l.alt = f.alt; l.legNm = "18"; l.totalTime = "0:08"; p.legs.push_back(l); }
+    planFetched(g_s, p, true);
+}
 EMSCRIPTEN_KEEPALIVE void emu_reset_settings() { settingsFromText(""); settings() = Settings(); js_store("xptablet.settings", ""); openApp(APP_HOME); }
 EMSCRIPTEN_KEEPALIVE float emu_alt() { return g_alt; }
 EMSCRIPTEN_KEEPALIVE float emu_gs() { return g_gs; }

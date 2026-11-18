@@ -80,6 +80,7 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-tr
     <label>Aircraft <input id="tfc" type="range" min="0" max="40" step="1" value="6"><span class="v" id="tfcv">6</span></label>
     <div class="row"><button id="newtfc">New traffic</button><button id="ra">TCAS RA intruder</button></div>
     <div class="row"><button id="lowbat" title="The tablet's battery to 1 %: tap the battery icon to plug the charger in or out">Battery to 1%</button><button id="fullbat">Battery to 100%</button></div>
+    <div class="row"><button id="sbplan" title="A sample KSBN to KORD plan, as the 2-minute check finds a new one: the notification, then Flight Plan's import window">Sample SimBrief plan</button></div>
     <h2>Time</h2>
     <label>Zulu <input id="zulu" type="range" min="-1" max="23.75" step="0.25" value="-1"><span class="v" id="zuluv">now</span></label>
     <details><summary>Weather at the aircraft</summary>
@@ -180,7 +181,7 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-tr
     $('newtfc').onclick = () => M._emu_new_traffic();
     $('ra').onclick = () => M._emu_intruder();
     const chk = (id, what) => { $(id).onchange = () => M._emu_set(what, $(id).checked ? 1 : 0); };
-    chk('wxp', 9); chk('sam', 10); chk('bcn', 12); chk('pbk', 13); chk('eng', 14); chk('radio', 15); $('lowbat').onclick = () => M._emu_battery(1); $('fullbat').onclick = () => M._emu_battery(100); chk('ptt', 16);
+    chk('wxp', 9); chk('sam', 10); chk('bcn', 12); chk('pbk', 13); chk('eng', 14); chk('radio', 15); $('lowbat').onclick = () => M._emu_battery(1); $('fullbat').onclick = () => M._emu_battery(100); $('sbplan').onclick = () => M._emu_sample_plan(); chk('ptt', 16);
     $('shape').onchange = () => { const a = +$('shape').value; M._emu_shape(a); logW = M._emu_width(); sizeCanvas(); };
     let armed = 0;
     $('reset').onclick = () => {   // a second click within 4 s resets (no dialog: pages in an app may not show one)
