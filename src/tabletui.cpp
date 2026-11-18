@@ -53,7 +53,7 @@ const AppDef kApps[APP_COUNT] = {
     {"routes", "Flight Plan", IM_COL32(150, 96, 250, 255), nullptr},            {"weather", "Weather", IM_COL32(40, 180, 214, 255), nullptr},
     {"ground", "Cabin", IM_COL32(246, 190, 48, 255), nullptr},            {"checklists", "Checklists", IM_COL32(60, 190, 130, 255), nullptr},
     {"performance", "Performance", IM_COL32(236, 92, 104, 255), nullptr},  {"traffic", "Traffic", IM_COL32(40, 190, 170, 255), nullptr},
-    {"notes", "Notes", IM_COL32(244, 206, 80, 255), nullptr},
+    {"notes", "Notes", IM_COL32(255, 138, 40, 255), nullptr},   // orange (Cabin keeps the yellow)
     {"simbrief", "SimBrief", IM_COL32(196, 58, 66, 255), "https://dispatch.simbrief.com"},
     {"livemap", "Volanta", IM_COL32(112, 72, 255, 255), "https://fly.volanta.app"},   // Volanta's violet (approximated)
     {"foreflight", "ForeFlight", IM_COL32(30, 140, 222, 255), "https://plan.foreflight.com"},
@@ -993,7 +993,6 @@ float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
     float x = x00;
     const float w15 = kw * 1.5f + gap * 0.5f;
     if (key("##klayer", g_kbdSymbols ? "ABC" : "?123", x, yy, w15, false)) { g_kbdSymbols = !g_kbdSymbols; g_kbdShift = false; }
-    if (g_settings.physicalKeys && key("##khide", "Hide", w - x00 - kw * 1.2f, y - kh - 4, kw * 1.2f, false)) g_kbdKeysShown = false;   // back to the bar
     x += w15 + gap;
     if (key("##kat", "@", x, yy, kw, false)) typeKey(act, '@', true);
     x += kw + gap;
@@ -1015,7 +1014,6 @@ float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y) {
     dl->AddLine(ImVec2(0, yb), ImVec2(w, yb), IM_COL32(255, 255, 255, 40));
     keyboardIcon(dl, ImVec2(26, yb + kKbdBarH * 0.5f), IM_COL32(150, 196, 255, 255));
     textAt(dl, f.small, 48, std::floor(yb + (kKbdBarH - fontPx(f.small)) * 0.5f), kInk, "Typing with your keyboard  \xC2\xB7  Enter to finish");
-    if (pill(dl, f, "##kshowkeys", "Keys", ImVec2(w - 90, yb + 6), ImVec2(w - 12, yb + kKbdBarH - 6), false, true)) g_kbdKeysShown = true;
     return kKbdBarH;
 }
 // how tall the keyboard is now (the full keys, or the physical keyboard's bar)
@@ -2669,10 +2667,10 @@ bool g_eraser = false;                       // the scratchpad's eraser (else th
 std::vector<std::vector<Stroke>> g_strokeUndo;   // the drawing before each stroke or rub, for Undo
 void strokesSaved() { g_strokeUndo.push_back(g_strokes); if (g_strokeUndo.size() > 40) g_strokeUndo.erase(g_strokeUndo.begin()); }
 // rubs out the parts of the lines within r (pad fractions scaled by pw, ph) of q; a line cut in two becomes two
-bool eraseAt(ImVec2 q, float r, float pw, float ph) {
+bool eraseIn(std::vector<Stroke>& strokes, ImVec2 q, float r, float pw, float ph) {
     bool changed = false;
     std::vector<Stroke> out;
-    for (const Stroke& st : g_strokes) {
+    for (const Stroke& st : strokes) {
         Stroke cur{st.color, {}};
         for (const ImVec2& p : st.pts) {
             const float dx = (p.x - q.x) * pw, dy = (p.y - q.y) * ph;
@@ -2681,9 +2679,17 @@ bool eraseAt(ImVec2 q, float r, float pw, float ph) {
         }
         if (!cur.pts.empty()) out.push_back(cur);
     }
-    if (changed) g_strokes.swap(out);
+    if (changed) strokes.swap(out);
     return changed;
 }
+bool eraseAt(ImVec2 q, float r, float pw, float ph) { return eraseIn(g_strokes, q, r, pw, ph); }
+// markup on a document: its own lines (kept as fractions of the picture, so they stay put when it is zoomed or moved), per file
+std::map<std::string, std::vector<Stroke>> g_docMarks;
+bool g_docMarkup = false, g_docEraser = false;
+int g_docPen = 0;
+std::vector<std::vector<Stroke>> g_docUndo;   // this document's drawing before each line or rub
+std::string g_docUndoFor;
+const ImU32 kDocPens[4] = {IM_COL32(230, 40, 40, 255), IM_COL32(30, 110, 235, 255), IM_COL32(20, 160, 80, 255), IM_COL32(255, 214, 0, 110)};   // red, blue, green, highlighter
 bool g_penMode = true, g_notesChanged = false;
 const ImU32 kPens[3] = {IM_COL32(240, 244, 250, 255), IM_COL32(255, 210, 70, 255), IM_COL32(110, 200, 255, 255)};
 
@@ -3232,12 +3238,69 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     ImGui::InvisibleButton("##docview", ImVec2(vb.x - va.x, vb.y - va.y));
     const ImGuiIO& io = ImGui::GetIO();
     if (ImGui::IsItemHovered() && io.MouseWheel != 0) g_docZoom = std::max(0.5f, std::min(8.0f, g_docZoom * (io.MouseWheel > 0 ? 1.25f : 0.8f)));
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 2.0f)) { g_docPan.x += io.MouseDelta.x; g_docPan.y += io.MouseDelta.y; }
     const float fit = std::min((vb.x - va.x - 16) / d.texW, (vb.y - va.y - 16) / d.texH) * g_docZoom;
     const ImVec2 c((va.x + vb.x) * 0.5f + g_docPan.x, (va.y + vb.y) * 0.5f + g_docPan.y);
+    const ImVec2 i0(c.x - d.texW * fit * 0.5f, c.y - d.texH * fit * 0.5f), isz(d.texW * fit, d.texH * fit);   // the picture on screen
+    std::vector<Stroke>& marks = g_docMarks[d.shownPath];
+    if (g_docUndoFor != d.shownPath) { g_docUndoFor = d.shownPath; g_docUndo.clear(); }
+    auto saveUndo = [&] { g_docUndo.push_back(marks); if (g_docUndo.size() > 40) g_docUndo.erase(g_docUndo.begin()); };
+    const ImVec2 mp = io.MousePos;
+    const ImVec2 q((mp.x - i0.x) / std::max(1.0f, isz.x), (mp.y - i0.y) / std::max(1.0f, isz.y));
+    if (!g_docMarkup) {   // a drag moves the picture
+        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 2.0f)) { g_docPan.x += io.MouseDelta.x; g_docPan.y += io.MouseDelta.y; }
+    } else if (g_docEraser) {   // rub out what the finger passes over
+        static bool rubbed = false;
+        if (ImGui::IsItemActivated()) { saveUndo(); rubbed = false; }
+        if (ImGui::IsItemActive() && eraseIn(marks, q, 12.0f, isz.x, isz.y)) { rubbed = true; g_notesChanged = true; }
+        if (ImGui::IsItemDeactivated() && !rubbed && !g_docUndo.empty()) g_docUndo.pop_back();
+    } else if (ImGui::IsItemActivated()) { saveUndo(); marks.push_back(Stroke{g_docPen, {q}}); g_notesChanged = true; }
+    else if (ImGui::IsItemActive() && !marks.empty()) {   // the line follows the finger
+        const ImVec2 last = marks.back().pts.back();
+        if (std::fabs(last.x - q.x) * isz.x + std::fabs(last.y - q.y) * isz.y > 1.5f) marks.back().pts.push_back(q);
+    }
     dl->PushClipRect(va, vb, true);
-    dl->AddImage(d.tex, ImVec2(c.x - d.texW * fit * 0.5f, c.y - d.texH * fit * 0.5f), ImVec2(c.x + d.texW * fit * 0.5f, c.y + d.texH * fit * 0.5f));
+    dl->AddImage(d.tex, i0, ImVec2(i0.x + isz.x, i0.y + isz.y));
+    {   // the markup, over the picture (its lines grow with the zoom, as ink on paper would)
+        std::vector<ImVec2> pts;
+        const float z = isz.x / std::max(1.0f, vb.x - va.x - 16);
+        for (const Stroke& st : marks) {
+            pts.clear();
+            for (const ImVec2& p : st.pts) pts.push_back(ImVec2(i0.x + p.x * isz.x, i0.y + p.y * isz.y));
+            const ImU32 col = kDocPens[st.color % 4];
+            const float th = (st.color % 4 == 3 ? 12.0f : 2.6f) * std::max(0.5f, z);
+            if (pts.size() == 1) dl->AddCircleFilled(pts[0], th * 0.6f, col, 0);
+            else dl->AddPolyline(pts.data(), (int)pts.size(), col, 0, th);
+        }
+    }
+    if (g_docMarkup && g_docEraser && (ImGui::IsItemHovered() || ImGui::IsItemActive())) dl->AddCircle(mp, 12.0f, IM_COL32(40, 40, 40, 200), 0, 1.5f);
     dl->PopClipRect();
+    // the markup's tools along the top: Markup (on / off); with it on, the pens, the eraser, Undo and Clear
+    dl->AddRectFilled(ImVec2(vb.x - 110, va.y + 6), ImVec2(vb.x - 6, va.y + 44), IM_COL32(10, 18, 34, 215), 12.0f);   // dark under it: it shows on a white page
+    dl->AddRectFilled(ImVec2(vb.x - 160, vb.y - 46), ImVec2(vb.x - 6, vb.y - 8), IM_COL32(10, 18, 34, 215), 12.0f);   // (and under Fit, -, +)
+    if (pill(dl, f, "##docmark", "Markup", ImVec2(vb.x - 104, va.y + 10), ImVec2(vb.x - 12, va.y + 40), g_docMarkup, true)) { g_docMarkup = !g_docMarkup; g_docEraser = false; }
+    if (g_docMarkup) {
+        float x = va.x + 12;
+        dl->AddRectFilled(ImVec2(x - 6, va.y + 6), ImVec2(vb.x - 110, va.y + 44), IM_COL32(10, 18, 34, 215), 12.0f);
+        for (int i = 0; i < 4; ++i) {
+            const ImVec2 pc(x + 13, va.y + 25);
+            char id[16];
+            std::snprintf(id, sizeof id, "##dpen%d", i);
+            ImGui::SetCursorScreenPos(ImVec2(pc.x - 13, pc.y - 13));
+            if (ImGui::InvisibleButton(id, ImVec2(26, 26))) { g_docPen = i; g_docEraser = false; }
+            const bool sel = g_docPen == i && !g_docEraser;
+            if (i == 3) dl->AddRectFilled(ImVec2(pc.x - 9, pc.y - 6), ImVec2(pc.x + 9, pc.y + 6), IM_COL32(255, 214, 0, 255), 3.0f);   // the highlighter
+            else dl->AddCircleFilled(pc, 10.0f, kDocPens[i], 0);
+            if (sel) dl->AddCircle(pc, 14.0f, IM_COL32(110, 170, 255, 255), 0, 2.0f);
+            else if (ImGui::IsItemHovered()) dl->AddCircle(pc, 14.0f, IM_COL32(255, 255, 255, 90), 0, 1.5f);
+            x += 32;
+        }
+        x += 6;
+        if (pill(dl, f, "##deraser", "Eraser", ImVec2(x, va.y + 10), ImVec2(x + 78, va.y + 40), g_docEraser, true)) g_docEraser = !g_docEraser;
+        x += 84;
+        if (pill(dl, f, "##dundo", "Undo", ImVec2(x, va.y + 10), ImVec2(x + 66, va.y + 40), false, !g_docUndo.empty())) { marks = g_docUndo.back(); g_docUndo.pop_back(); g_notesChanged = true; }
+        x += 72;
+        if (pill(dl, f, "##dclear", "Clear", ImVec2(x, va.y + 10), ImVec2(x + 66, va.y + 40), false, !marks.empty())) { saveUndo(); marks.clear(); g_notesChanged = true; }
+    }
     if (pill(dl, f, "##docfit", "Fit", ImVec2(vb.x - 154, vb.y - 42), ImVec2(vb.x - 104, vb.y - 12), false, true)) { g_docZoom = 1.0f; g_docPan = ImVec2(0, 0); }
     if (pill(dl, f, "##docout", "-", ImVec2(vb.x - 98, vb.y - 42), ImVec2(vb.x - 58, vb.y - 12), false, true)) g_docZoom = std::max(0.5f, g_docZoom * 0.8f);
     if (pill(dl, f, "##docin", "+", ImVec2(vb.x - 52, vb.y - 42), ImVec2(vb.x - 12, vb.y - 12), false, true)) g_docZoom = std::min(8.0f, g_docZoom * 1.25f);
@@ -4712,11 +4775,18 @@ std::string notesToText() {
         for (const ImVec2& q : st.pts) out += " " + std::to_string((int)std::lround(q.x * 1000)) + "," + std::to_string((int)std::lround(q.y * 1000));
         out += "\n";
     }
+    for (const auto& dm : g_docMarks)   // a document's markup: its file, a tab, then each line as the scratchpad's (ten-thousandths)
+        for (const Stroke& st : dm.second) {
+            out += "docmark=" + escapeLine(dm.first) + "\t" + std::to_string(st.color);
+            for (const ImVec2& q : st.pts) out += " " + std::to_string((int)std::lround(q.x * 10000)) + "," + std::to_string((int)std::lround(q.y * 10000));
+            out += "\n";
+        }
     return out;
 }
 void notesFromText(const std::string& text) {
     size_t p = 0;
     g_strokes.clear();
+    g_docMarks.clear();
     while (p < text.size()) {
         size_t e = text.find('\n', p);
         if (e == std::string::npos) e = text.size();
@@ -4738,6 +4808,19 @@ void notesFromText(const std::string& text) {
                 q = v.find(' ', q + 1);
             }
             if (!st.pts.empty()) g_strokes.push_back(st);
+        } else if (k == "docmark") {
+            const size_t tab = v.find('\t');
+            if (tab == std::string::npos) continue;
+            Stroke st;
+            const std::string rest = v.substr(tab + 1);
+            st.color = std::atoi(rest.c_str());
+            size_t q = rest.find(' ');
+            while (q != std::string::npos && q < rest.size()) {
+                int x = 0, y = 0;
+                if (std::sscanf(rest.c_str() + q + 1, "%d,%d", &x, &y) == 2) st.pts.push_back(ImVec2(x / 10000.0f, y / 10000.0f));
+                q = rest.find(' ', q + 1);
+            }
+            if (!st.pts.empty()) g_docMarks[unescapeLine(v.substr(0, tab))].push_back(st);
         }
     }
 }

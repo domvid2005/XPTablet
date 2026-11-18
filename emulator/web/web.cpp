@@ -469,9 +469,38 @@ void handle(const Actions& a, double now) {
         if (it != g_pilots.end()) { g_s.map.vatsim = it->second; g_s.map.vatsimStatus.clear(); }
         else { g_s.map.vatsim = VatsimPilot(); g_s.map.vatsimStatus = g_pilots.empty() ? g_vatsimStatus : "Not on VATSIM (simulated traffic)"; }
     }
-    // documents: none in the browser
+    // documents: the browser has no files, so one sample chart (drawn here) to open and mark up
     g_s.docs.listed = true;
     if (g_s.docs.folders.empty()) g_s.docs.folders = {"(the browser emulator has no files: the sim lists Output/XPTablet/Documents and the aircraft's folder)"};
+    if (g_s.docs.files.empty()) g_s.docs.files = {{"Sample chart.png", "emulator:sample-chart", "XPTablet's Documents", false, 412000}};
+    if (!a.docOpen.empty()) {
+        static GLuint chart = 0;
+        const int W = 800, H = 1040;
+        if (!chart) {   // an airport diagram, roughly: a white page, a title band, two runways, taxiways, an apron
+            std::vector<unsigned char> px((size_t)W * H * 4, 255);
+            auto rect = [&](int x0, int y0, int x1, int y1, int r, int g, int b) {
+                for (int y = std::max(0, y0); y < std::min(H, y1); ++y) for (int x = std::max(0, x0); x < std::min(W, x1); ++x) {
+                    unsigned char* q = &px[((size_t)y * W + x) * 4]; q[0] = (unsigned char)r; q[1] = (unsigned char)g; q[2] = (unsigned char)b; q[3] = 255; }
+            };
+            auto line = [&](float x0, float y0, float x1, float y1, float th, int r, int g, int b) {
+                const int n = (int)std::hypot(x1 - x0, y1 - y0);
+                for (int i = 0; i <= n; ++i) { const float t = n ? (float)i / n : 0; const float x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+                    rect((int)(x - th), (int)(y - th), (int)(x + th), (int)(y + th), r, g, b); }
+            };
+            rect(0, 0, W, 6, 40, 40, 40); rect(0, H - 6, W, H, 40, 40, 40); rect(0, 0, 6, H, 40, 40, 40); rect(W - 6, 0, W, H, 40, 40, 40);
+            rect(6, 6, W - 6, 110, 230, 234, 240); rect(6, 108, W - 6, 112, 40, 40, 40);
+            for (int x = 40; x < W - 40; x += 40) rect(x, 150, x + 1, H - 40, 228, 232, 238);   // a faint grid
+            for (int y = 150; y < H - 40; y += 40) rect(40, y, W - 40, y + 1, 228, 232, 238);
+            line(140, 820, 660, 300, 16, 70, 74, 82);   // runway 9-27, slanted
+            line(400, 190, 400, 930, 14, 70, 74, 82);   // runway 18-36
+            for (float t = 0.05f; t < 0.95f; t += 0.06f) line(140 + 520 * t, 820 - 520 * t, 140 + 520 * (t + 0.025f), 820 - 520 * (t + 0.025f), 1.5f, 255, 255, 255);   // centre lines
+            for (int y = 210; y < 910; y += 36) rect(399, y, 401, y + 18, 255, 255, 255);
+            line(470, 190, 470, 930, 4, 214, 180, 40); line(330, 560, 700, 560, 4, 214, 180, 40); line(560, 420, 700, 420, 4, 214, 180, 40);   // taxiways
+            rect(560, 600, 740, 780, 200, 204, 212); rect(600, 640, 720, 740, 150, 156, 168);   // the apron and the terminal
+            chart = uploadLevels(px.data(), W, H, 1);
+        }
+        g_s.docs.shownPath = a.docOpen; g_s.docs.tex = (ImTextureID)(intptr_t)chart; g_s.docs.texW = W; g_s.docs.texH = H;
+    }
     // the Airports page: X-Plane's airports are not here
     if (a.airportsShown) g_s.airportStatus = "Airports come from X-Plane's scenery: try them in the desktop emulator with your X-Plane folder.";
     if (takeSettingsChanged()) js_store("xptablet.settings", settingsToText().c_str());
