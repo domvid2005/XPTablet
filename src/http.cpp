@@ -2,6 +2,8 @@
 
 #include <curl/curl.h>
 
+#include "version.h"
+
 #if defined(__linux__)
 #include <sys/stat.h>
 #endif
@@ -80,7 +82,7 @@ static bool get(const std::string& url, const char* range, std::string& body, lo
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, sink);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &k);
     curl_easy_setopt(c, CURLOPT_ERRORBUFFER, errbuf);
-    curl_easy_setopt(c, CURLOPT_USERAGENT, "XPlane12-WXPlane/1.0 (+x-plane plugin)");
+    curl_easy_setopt(c, CURLOPT_USERAGENT, "XPTablet/" XPT_VERSION " (X-Plane 12 plugin by Alpine Aviation; +https://github.com/domvid2005/XPTablet)");
     curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(c, CURLOPT_MAXREDIRS, 3L);
     curl_easy_setopt(c, CURLOPT_TIMEOUT, timeoutSec);

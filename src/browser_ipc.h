@@ -10,10 +10,11 @@
 namespace xptb {
 
 constexpr uint32_t kMagic = 0x58505442;   // "XPTB"
-constexpr uint32_t kVersion = 1;
+constexpr uint32_t kVersion = 2;         // 2: tabs
 constexpr int kMaxW = 2048, kMaxH = 1536;  // the largest page picture, pixels
 constexpr int kCmds = 64;                  // commands the ring holds
 constexpr int kTextLen = 2048;             // a URL, or a few typed characters
+constexpr int kMaxTabs = 8;                // pages open at once
 
 enum CmdType : int32_t {
     CMD_NONE, CMD_NAVIGATE, CMD_BACK, CMD_FORWARD, CMD_RELOAD, CMD_STOP,
@@ -24,8 +25,12 @@ enum CmdType : int32_t {
     CMD_CHAR,         // c: the character (UTF-16)
     CMD_KEY,          // c: Windows key code (VK_BACK 8, VK_RETURN 13, VK_TAB 9, arrows 37-40, VK_DELETE 46); d: 1 down, 0 up
     CMD_FOCUS,        // a: 1 the page has the keyboard, 0 not
-    CMD_QUIT
+    CMD_QUIT,
+    CMD_TAB_NEW,      // text: the address (empty: a blank page); the new tab is shown
+    CMD_TAB_CLOSE,    // a: the tab's id
+    CMD_TAB_SELECT    // a: the tab's id
 };
+// Navigation, pointer and keys always go to the tab shown.
 
 struct Cmd {
     int32_t type, a, b, c, d;
@@ -51,6 +56,9 @@ struct Shared {
     char title[256];
     int32_t loading, canBack, canForward;
     int32_t wantsKeyboard;             // a text field on the page has the focus
+    // the tabs, in order (with infoSeq): url, title and the rest above are the shown tab's
+    int32_t tabCount, activeTab;       // activeTab: the shown tab's id
+    struct Tab { int32_t id, loading; char title[96]; char url[256]; } tabs[kMaxTabs];
     uint8_t pixels[2][kMaxW * kMaxH * 4];   // BGRA, rows top to bottom
 };
 

@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -25,7 +27,9 @@
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
 
+#include "aptdat.h"
 #include "browser.h"
+#include "tiles.h"
 
 #include "imgui.h"
 #include "json_mini.h"
@@ -451,8 +455,18 @@ void browserStep(const xpt::Actions& act) {
     case 4: br::push(xptb::CMD_STOP); break;
     default: break;
     }
+    if (act.webTabNew) br::push(xptb::CMD_TAB_NEW, 0, 0, 0, 0, 0, act.webTabUrl);
+    if (act.webTabSelect) br::push(xptb::CMD_TAB_SELECT, act.webTabSelect);
+    if (act.webTabClose) br::push(xptb::CMD_TAB_CLOSE, act.webTabClose);
     bool loading = false, back = false, fwd = false, kbd = false;
-    if (br::info(b.url, b.title, loading, back, fwd, kbd)) { b.loading = loading; b.canBack = back; b.canForward = fwd; b.wantsKeyboard = kbd; }
+    std::vector<br::TabInfo> tabs;
+    int active = 0;
+    if (br::info(b.url, b.title, loading, back, fwd, kbd, tabs, active)) {
+        b.loading = loading; b.canBack = back; b.canForward = fwd; b.wantsKeyboard = kbd;
+        b.tabs.clear();
+        for (const br::TabInfo& t : tabs) b.tabs.push_back({t.id, t.title, t.url, t.loading});
+        b.activeTab = active;
+    }
     const uint8_t* px = nullptr;
     int w = 0, h = 0;
     if (br::frame(px, w, h)) {
@@ -474,6 +488,120 @@ void browserStep(const xpt::Actions& act) {
         br::done();
         b.tex = (ImTextureID)(intptr_t)g_webTex;
         b.texW = w; b.texH = h;
+    }
+}
+
+// ---- the map: tiles as textures, and X-Plane's airports ---------------------------------------------------------------------
+// Tiles are fetched and decoded on threads of their own (src/tiles.cpp); here they become textures, at most kMaxTileTex of them,
+// the least recently drawn given to new tiles. The airport index is built the first time the Map page is shown.
+constexpr size_t kMaxTileTex = 320;
+struct TileTex { int tex = 0; int used = 0; };
+std::map<xpt::tiles::Key, TileTex> g_tileTex;
+std::vector<xpt::tiles::Key> g_tileWants;
+bool g_mapStarted = false;
+
+ImTextureID tileTexture(int src, int z, int x, int y, bool request) {
+    const xpt::tiles::Key k{src, z, x, y};
+    auto it = g_tileTex.find(k);
+    if (it != g_tileTex.end()) { it->second.used = XPLMGetCycleNumber(); return (ImTextureID)(intptr_t)it->second.tex; }
+    if (request && g_tileWants.size() < 64) g_tileWants.push_back(k);
+    return 0;
+}
+
+void mapStart() {
+    if (g_mapStarted) return;
+    g_mapStarted = true;
+    char sys[2048] = "";
+    XPLMGetSystemPath(sys);
+    const std::string root = sys;
+    makeDirs(root + "Output/XPTablet/tiles/");
+    xpt::tiles::start(root + "Output/XPTablet/tiles");
+    xpt::aptdat::start(root);
+    logMsg("map: tiles cached in Output/XPTablet/tiles; reading X-Plane's airports");
+}
+void mapStop() {
+    if (!g_mapStarted) return;
+    xpt::tiles::stop();
+    xpt::aptdat::stop();
+    g_mapStarted = false;
+    g_sim.map.airports.clear();
+    g_sim.map.airportPoints.clear();
+}
+
+// After each UI build: what the map asked for, and the tiles that arrived (a few per frame, so no frame takes long)
+void mapStep(const xpt::Actions& act) {
+    if (act.mapShown) mapStart();
+    if (!g_mapStarted) return;
+    if (act.mapShown) {
+        xpt::tiles::want(g_tileWants);
+        xpt::aptdat::setView(act.mapLat, act.mapLon, act.mapLayoutNm, act.mapPointNm, act.mapLayouts);
+        if ((XPLMGetCycleNumber() & 7) == 0) {
+            int n = 0;
+            xpt::aptdat::get(g_sim.map.airports, g_sim.map.airportPoints, g_sim.map.aptIndexing, n);
+            g_sim.map.aptCount = n;
+        }
+    }
+    g_tileWants.clear();
+    xpt::tiles::Tile t;
+    for (int k = 0; k < 6 && xpt::tiles::take(t); ++k) {
+        if (t.failed || t.w <= 0 || t.h <= 0 || g_tileTex.count(t.key)) continue;
+        int tex = 0;
+        if (g_tileTex.size() < kMaxTileTex) {
+            XPLMGenerateTextureNumbers(&tex, 1);
+        } else {   // the texture of the tile drawn longest ago
+            auto old = g_tileTex.begin();
+            for (auto it = g_tileTex.begin(); it != g_tileTex.end(); ++it) if (it->second.used < old->second.used) old = it;
+            tex = old->second.tex;
+            g_tileTex.erase(old);
+        }
+        XPLMBindTexture2d(tex, 0);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_CLAMP_TO_EDGE);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_CLAMP_TO_EDGE);
+        gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        gl.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        gl.TexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGBA, t.w, t.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, t.rgba.data());
+        XPLMBindTexture2d(0, 0);
+        g_tileTex[t.key] = {tex, XPLMGetCycleNumber()};
+    }
+}
+
+// The aircraft and the time, for the map (a few times a second)
+void readMapState() {
+    static XPLMDataRef lat = XPLMFindDataRef("sim/flightmodel/position/latitude"), lon = XPLMFindDataRef("sim/flightmodel/position/longitude");
+    static XPLMDataRef psi = XPLMFindDataRef("sim/flightmodel/position/true_psi"), gs = XPLMFindDataRef("sim/flightmodel/position/groundspeed");
+    static XPLMDataRef loc = XPLMFindDataRef("sim/time/local_time_sec"), zulu = XPLMFindDataRef("sim/time/zulu_time_sec");
+    static XPLMDataRef days = XPLMFindDataRef("sim/time/local_date_days");
+    xpt::MapState& m = g_sim.map;
+    m.havePos = lat && lon;
+    if (m.havePos) { m.lat = XPLMGetDatad(lat); m.lon = XPLMGetDatad(lon); }
+    m.hdgTrue = psi ? XPLMGetDataf(psi) : 0.0f;
+    m.gsKt = gs ? XPLMGetDataf(gs) * 1.943844f : 0.0f;
+    m.tile = tileTexture;
+    // the sim's moment: this year (X-Plane keeps no year), its day of the year and its UTC time of day
+    if (zulu) {
+        const std::time_t now = std::time(nullptr);
+        std::tm tm{};
+#if defined(_WIN32)
+        gmtime_s(&tm, &now);
+#else
+        gmtime_r(&now, &tm);
+#endif
+        const int year = tm.tm_year + 1900;
+        long long jan1 = 0;   // days from 1970 to 1 January of the year
+        for (int yy = 1970; yy < year; ++yy) jan1 += (yy % 4 == 0 && (yy % 100 != 0 || yy % 400 == 0)) ? 366 : 365;
+        const double z = XPLMGetDataf(zulu);
+        int d = days ? XPLMGetDatai(days) : tm.tm_yday;
+        double off = loc ? (double)XPLMGetDataf(loc) - z : 0.0;
+        while (off > 14 * 3600.0) off -= 86400.0;
+        while (off <= -12 * 3600.0) off += 86400.0;
+        // the day is the local one: UTC is a day on where local time is behind and has gone past midnight (or the other way)
+        const double localTod = z + off;
+        if (localTod < 0) d += 1; else if (localTod >= 86400) d -= 1;
+        m.utc = (jan1 + d) * 86400LL + (long long)z;
+        m.haveLocalOffset = loc != nullptr;
+        m.localOffsetS = std::round(off / 900.0) * 900.0;
     }
 }
 
@@ -532,6 +660,7 @@ void ensureFrame() {
     if (!act.metarSearch.empty()) { xpt::metarRequest(act.metarSearch); g_sim.metar = xpt::MetarLookup(); g_sim.metar.icao = act.metarSearch; g_sim.metar.busy = true; }
     if (act.ground != xpt::GA_NONE) g_pendingGround = act;   // carried out from the flight loop, not from inside drawing
     browserStep(act);
+    mapStep(act);
     g_webShown = act.webShown;
     // the floating window keeps the keyboard only while a web page is on it
     if (!g_webShown && g_win && XPLMHasKeyboardFocus(g_win)) XPLMTakeKeyboardFocus(nullptr);
@@ -1174,7 +1303,7 @@ void doGround(const xpt::Actions& act) {
 
 float flightLoop(float dt, float, int, void*) {
     findSimRefs();
-    if ((XPLMGetCycleNumber() & 7) == 0) { readSimState(); followJetways(); }
+    if ((XPLMGetCycleNumber() & 7) == 0) { readSimState(); followJetways(); readMapState(); }
     {   // the METAR search's answer
         xpt::MetarAnswer a;
         if (xpt::metarPoll(a)) { g_sim.metar.busy = false; g_sim.metar.icao = a.icao; g_sim.metar.raw = a.raw; g_sim.metar.error = a.error; }
@@ -1273,6 +1402,7 @@ PLUGIN_API void XPluginDisable(void) {
     g_captureDown = false;
     xpt::metarStop();
     browserStop();
+    mapStop();
     wx::httpGlobalCleanup();
 }
 

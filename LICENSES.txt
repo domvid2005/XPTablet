@@ -20,6 +20,14 @@ XPTablet includes the following open-source software. Their licences require the
     contributors - BSD 3-clause licence (full text below). At run time it uses the CEF and Chromium that X-Plane itself installs
     (Resources/dlls/64/cef); XPTablet ships no part of Chromium.
 
+  * Map tiles: OpenStreetMap (c) OpenStreetMap contributors, Open Database License (https://www.openstreetmap.org/copyright);
+    satellite imagery: Esri World Imagery (Esri, Maxar, Earthstar Geographics). Downloaded while the Map page is open and kept
+    in Output/XPTablet/tiles for a month; the attribution is shown on the map.
+  * Airport layouts on the map: read from X-Plane's own apt.dat files (X-Plane's airport data, GNU GPL; the X-Plane Scenery
+    Gateway's contributors) and the user's installed scenery. Nothing of it ships with XPTablet.
+  * Time zones: Natural Earth 1:10m time zones (public domain), as prepared for WXPlane (tools/make_tzones.py).
+  * stb_image 2.30 by Sean Barrett (decoding the map tiles) - MIT licence or public domain (full text in third_party/stb).
+
 Data used by XPTablet (downloaded when asked for): NOAA / National Weather Service Aviation Weather Center, METAR reports. Public domain.
 
 ================================================================================

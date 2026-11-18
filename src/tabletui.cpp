@@ -10,6 +10,8 @@
 #include <vector>
 
 #include "metar.h"
+#include "suntime.h"
+#include "tz.h"
 #include "version.h"
 
 extern "C" {
@@ -48,8 +50,12 @@ const char* const kChartNames[2] = {"ChartFox", "Navigraph"};
 const char* const kChartUrls[2] = {"https://chartfox.org", "https://charts.navigraph.com"};
 const char* const kLiveNames[2] = {"Volanta", "VATSIM Map"};
 const char* const kLiveUrls[2] = {"https://fly.volanta.app", "https://map.vatsim.net"};
-const ImU32 kLiveColors[2] = {IM_COL32(198, 92, 204, 255), IM_COL32(44, 150, 96, 255)};
-enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM };   // the Live Map icon's two pictures
+// Volanta's violet (approximated: the brand's exact value can be dropped in here) and VATSIM's green
+const ImU32 kLiveColors[2] = {IM_COL32(112, 72, 255, 255), IM_COL32(44, 150, 96, 255)};
+const char* const kPlanNames[2] = {"ForeFlight", "SkyVector"};
+const char* const kPlanUrls[2] = {"https://plan.foreflight.com", "https://skyvector.com"};
+const ImU32 kPlanColors[2] = {IM_COL32(30, 140, 222, 255), IM_COL32(32, 132, 108, 255)};
+enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM, ICON_SKYVECTOR };   // the Live Map icon's two pictures; the planning icon's second
 
 bool g_wx = false;             // WXPlane is installed (told by the host each frame): the Weather icon and page are WXPlane's
 ImTextureID g_wxLogo = 0;
@@ -64,8 +70,17 @@ void openWeb(const char* site, const char* url, bool chrome);
 
 int chartsP() { return g_settings.chartsProvider == 1 ? 1 : 0; }
 int liveP() { return g_settings.liveProvider == 1 ? 1 : 0; }
-ImU32 appColor(int app) { return app == APP_LIVEMAP ? kLiveColors[liveP()] : (app == APP_WEATHER && g_wx) ? IM_COL32(22, 24, 29, 255) : kApps[app].color; }
-int appIcon(int app) { return app == APP_LIVEMAP ? (liveP() ? (int)ICON_VATSIM : (int)ICON_VOLANTA) : app; }
+int planP() { return g_settings.planProvider == 1 ? 1 : 0; }
+ImU32 appColor(int app) {
+    if (app == APP_LIVEMAP) return kLiveColors[liveP()];
+    if (app == APP_FOREFLIGHT) return kPlanColors[planP()];
+    return (app == APP_WEATHER && g_wx) ? IM_COL32(22, 24, 29, 255) : kApps[app].color;
+}
+int appIcon(int app) {
+    if (app == APP_LIVEMAP) return liveP() ? (int)ICON_VATSIM : (int)ICON_VOLANTA;
+    if (app == APP_FOREFLIGHT && planP()) return (int)ICON_SKYVECTOR;
+    return app;
+}
 
 // Every app is in exactly one of the two lists (grid order, favorites bar); whatever a settings file left out goes to the grid's end.
 void normalizeLayout() {
@@ -202,12 +217,31 @@ void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
         dl->AddRectFilled(P(-0.28f, -0.86f), P(0.28f, -0.52f), col, r * 0.08f);
         for (int i = 0; i < 3; ++i) dl->AddLine(P(-0.34f, -0.18f + i * 0.34f), P(0.34f, -0.18f + i * 0.34f), col, t);
         break;
-    case ICON_VOLANTA:   // a flight's track from one place to another
-        dl->PathLineTo(P(-0.72f, 0.48f));
-        dl->PathBezierQuadraticCurveTo(P(0.0f, -1.10f), P(0.72f, 0.48f), 24);
-        dl->PathStroke(col, 0, t);
-        dl->AddCircleFilled(P(-0.72f, 0.48f), r * 0.19f, col, 12);
-        dl->AddCircleFilled(P(0.72f, 0.48f), r * 0.19f, col, 12);
+    case ICON_VOLANTA:   // a flight's great-circle track from one place to another, an aircraft on its way
+        dl->PathLineTo(P(-0.74f, 0.52f));
+        dl->PathBezierQuadraticCurveTo(P(0.0f, -1.06f), P(0.74f, 0.52f), 24);
+        dl->PathStroke(col, 0, t * 0.8f);
+        dl->AddCircleFilled(P(-0.74f, 0.52f), r * 0.15f, col, 12);
+        dl->AddCircle(P(0.74f, 0.52f), r * 0.15f, col, 12, t * 0.8f);
+        {   // the aircraft, at the top of the arc, heading right: a swept dart, cut out of the arc
+            const ImVec2 a = P(0.02f, -0.27f);
+            const float k = r * 0.40f;
+            dl->AddCircleFilled(a, k * 0.78f, IM_COL32(112, 72, 255, 255), 16);   // the tile's own colour behind it
+            dl->AddTriangleFilled(ImVec2(a.x + k, a.y), ImVec2(a.x - k * 0.75f, a.y - k * 0.70f), ImVec2(a.x - k * 0.30f, a.y), col);
+            dl->AddTriangleFilled(ImVec2(a.x + k, a.y), ImVec2(a.x - k * 0.30f, a.y), ImVec2(a.x - k * 0.75f, a.y + k * 0.70f), col);
+        }
+        break;
+    case ICON_SKYVECTOR:   // a folded aeronautical chart with a route drawn on it
+        dl->PathLineTo(P(-0.80f, -0.56f)); dl->PathLineTo(P(-0.28f, -0.74f)); dl->PathLineTo(P(0.28f, -0.56f)); dl->PathLineTo(P(0.80f, -0.74f));
+        dl->PathLineTo(P(0.80f, 0.62f)); dl->PathLineTo(P(0.28f, 0.80f)); dl->PathLineTo(P(-0.28f, 0.62f)); dl->PathLineTo(P(-0.80f, 0.80f));
+        dl->PathStroke(col, ImDrawFlags_Closed, t * 0.85f);
+        dl->AddLine(P(-0.28f, -0.74f), P(-0.28f, 0.62f), col, t * 0.6f);
+        dl->AddLine(P(0.28f, -0.56f), P(0.28f, 0.80f), col, t * 0.6f);
+        dl->AddLine(P(-0.56f, 0.40f), P(0.0f, -0.10f), col, t);
+        dl->AddLine(P(0.0f, -0.10f), P(0.54f, -0.30f), col, t);
+        dl->AddCircleFilled(P(-0.56f, 0.40f), r * 0.11f, col, 10);
+        dl->AddCircleFilled(P(0.0f, -0.10f), r * 0.11f, col, 10);
+        dl->AddCircleFilled(P(0.54f, -0.30f), r * 0.11f, col, 10);
         break;
     case ICON_VATSIM:   // a station and its radio waves
         dl->AddCircleFilled(P(0, 0.34f), r * 0.20f, col, 12);
@@ -607,12 +641,25 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
     const BrowserState& b = s.browser;
     // the page's own wish for a keyboard: up when a text field takes the focus, down when it lets go
     if (b.wantsKeyboard != g_wantedKbd) { g_wantedKbd = b.wantsKeyboard; if (b.wantsKeyboard) { g_kbd = true; g_kbdTarget = 0; } else if (g_kbdTarget == 0) g_kbd = false; }
-    // an address waiting: sent unless the page is already on that site (a web app opened again stays where it was)
+    // an address waiting. Typed or a bookmark: into the shown tab. A web app (Charts, Live Map...): its own tab, shown again as
+    // it was left if it is open; else a blank tab takes it, else a new tab.
     if (!g_navPending.empty() && b.status == 1) {
-        if (g_navForce || b.url.empty() || hostOf(b.url) != hostOf(g_navPending)) act.webNavigate = g_navPending;
+        if (g_navForce || b.tabs.empty()) {
+            act.webNavigate = g_navPending;
+        } else {
+            const std::string want = hostOf(g_navPending);
+            int found = 0;
+            for (const BrowserState::Tab& t : b.tabs) if (!t.url.empty() && hostOf(t.url) == want) { found = t.id; break; }
+            const bool blank = b.url.empty() || b.url == "about:blank";
+            if (found && found != b.activeTab) act.webTabSelect = found;
+            else if (found) { /* already shown */ }
+            else if (blank) act.webNavigate = g_navPending;
+            else if ((int)b.tabs.size() < 8) { act.webTabNew = true; act.webTabUrl = g_navPending; }
+            else act.webNavigate = g_navPending;
+        }
         g_navPending.clear(); g_navForce = false;
     }
-    const float top = kStatusH + kHeaderH;
+    float top = kStatusH + kHeaderH;
     const ImU32 ink = IM_COL32(210, 222, 242, 255), dim = IM_COL32(100, 118, 148, 255);
     float pageTop = top;
     if (!g_chrome) {
@@ -625,6 +672,50 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         if (iconButton("##wkbd", ImVec2(w - 52, kStatusH + 6), ImVec2(w - 12, kStatusH + kHeaderH - 6), true)) { g_kbd = !g_kbd; g_kbdTarget = 0; }
         keyboardIcon(dl, ImVec2(w - 32, my), g_kbd ? IM_COL32(110, 170, 255, 255) : ink);
     } else {
+        // the tabs: each with its page's title and a close button; + opens a blank one (and the address bar, to type where)
+        const float tabsH = 32;
+        dl->AddRectFilled(ImVec2(0, top), ImVec2(w, top + tabsH), IM_COL32(6, 16, 34, 245));
+        {
+            const int n = std::max(1, (int)b.tabs.size());
+            const float plusW = 34, tw = std::min(190.0f, std::floor((w - 16 - plusW - 6) / n));
+            float x = 8;
+            int idx = 0;
+            for (const BrowserState::Tab& t : b.tabs) {
+                const bool on = t.id == b.activeTab;
+                const ImVec2 a(x, top + 4), e(x + tw - 4, top + tabsH);
+                char id[24];
+                std::snprintf(id, sizeof id, "##tab%d", idx);
+                ImGui::SetCursorScreenPos(a);
+                ImGui::SetNextItemAllowOverlap();
+                if (ImGui::InvisibleButton(id, ImVec2(e.x - a.x - 22, e.y - a.y)) && !on) act.webTabSelect = t.id;
+                const bool hot = ImGui::IsItemHovered();
+                dl->AddRectFilled(a, e, on ? IM_COL32(10, 24, 48, 255) : hot ? IM_COL32(255, 255, 255, 22) : IM_COL32(255, 255, 255, 10), 8.0f, ImDrawFlags_RoundCornersTop);
+                std::string title = !t.title.empty() ? t.title : (!t.url.empty() && t.url != "about:blank" ? hostOf(t.url) : std::string("New tab"));
+                const float room = e.x - a.x - 34;
+                while (title.size() > 3 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, title.c_str()).x > room) { title.resize(title.size() - 3); title += ".."; }
+                dl->PushClipRect(a, ImVec2(e.x - 22, e.y), true);
+                textAt(dl, f.small, a.x + 10, std::floor(a.y + (e.y - a.y - fontPx(f.small)) * 0.5f), on ? kInk : kMuted, title.c_str());
+                dl->PopClipRect();
+                if (t.loading) dl->AddCircleFilled(ImVec2(a.x + 4, a.y + (e.y - a.y) * 0.5f), 2.0f, IM_COL32(90, 160, 255, 255), 8);
+                // close
+                const ImVec2 cc(e.x - 12, a.y + (e.y - a.y) * 0.5f);
+                std::snprintf(id, sizeof id, "##tabx%d", idx);
+                ImGui::SetCursorScreenPos(ImVec2(e.x - 22, a.y));
+                if (ImGui::InvisibleButton(id, ImVec2(22, e.y - a.y))) act.webTabClose = t.id;
+                const ImU32 xc = ImGui::IsItemHovered() ? kInk : kMuted;
+                dl->AddLine(ImVec2(cc.x - 4, cc.y - 4), ImVec2(cc.x + 4, cc.y + 4), xc, 1.5f);
+                dl->AddLine(ImVec2(cc.x - 4, cc.y + 4), ImVec2(cc.x + 4, cc.y - 4), xc, 1.5f);
+                x += tw;
+                ++idx;
+            }
+            const ImVec2 pa(x + 2, top + 5), pe(x + 2 + plusW - 4, top + tabsH - 3);
+            if (iconButton("##tabnew", pa, pe, (int)b.tabs.size() < 8 && b.status == 1)) { act.webTabNew = true; act.webTabUrl.clear(); g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear(); }
+            const ImVec2 pc((pa.x + pe.x) * 0.5f, (pa.y + pe.y) * 0.5f);
+            const ImU32 pcol = (int)b.tabs.size() < 8 ? kInk : kMuted;
+            dl->AddLine(ImVec2(pc.x - 6, pc.y), ImVec2(pc.x + 6, pc.y), pcol, 1.8f);
+            dl->AddLine(ImVec2(pc.x, pc.y - 6), ImVec2(pc.x, pc.y + 6), pcol, 1.8f);
+        }
+        top += tabsH;
         const float barH = 40, bmH = 34;
         dl->AddRectFilled(ImVec2(0, top), ImVec2(w, top + barH + bmH), IM_COL32(10, 24, 48, 235));
         const float my = top + barH * 0.5f;
@@ -666,7 +757,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         const float by = top + barH + 3;
         struct Bm { std::string name, url; };
         std::vector<Bm> bms = {{"ChartFox", kChartUrls[0]}, {"Navigraph", kChartUrls[1]}, {"SimBrief", kApps[APP_SIMBRIEF].url}, {"Volanta", kLiveUrls[0]},
-                               {"VATSIM Map", kLiveUrls[1]}, {"ForeFlight", kApps[APP_FOREFLIGHT].url}};
+                               {"VATSIM Map", kLiveUrls[1]}, {"ForeFlight", kPlanUrls[0]}, {"SkyVector", kPlanUrls[1]}};
         for (const auto& u : g_settings.bookmarks) bms.push_back({u.first.size() > 24 ? u.first.substr(0, 22) + ".." : u.first, u.second});
         int idx = 0;
         for (const Bm& bm : bms) {
@@ -1034,6 +1125,412 @@ void drawShape(ImDrawList* dl, const Shape& sh, ImVec2 nose, float pxX, float px
     for (const std::vector<ImVec2>& p : sh.lines) { map(p); if (pts.size() >= 2) dl->AddPolyline(pts.data(), (int)pts.size(), line, 0, 1.0f); }
 }
 
+// ---- the map ---------------------------------------------------------------------------------------------------------------------
+// OpenStreetMap or satellite tiles (the host fetches them), X-Plane's airport layouts over them, the aircraft, and WXPlane's map
+// bubbles: the time (Zulu or local, with the zone) at the top left; Center On Aircraft and North / Heading Lock at the top right.
+double g_mapZoom = 14.0;             // Web Mercator zoom: the world is 256 * 2^zoom layout units across
+bool g_mapFollow = true;             // the map stays centred on the aircraft
+MercPt g_mapCenter{0.5, 0.5};
+bool g_mapSeen = false;              // the map has had the aircraft's position once
+constexpr double kMapMinZoom = 2.0, kMapMaxZoom = 19.5;
+constexpr double kEarthM = 40075016.686;   // the equator's length
+
+// Local time at a point (WXPlane's rule): X-Plane's own time where the point shares the aircraft's clock (within 250 nm), else the
+// time zone map's standard offset plus daylight time where it is kept; else, off the map, an estimate from the longitude (~).
+double localOffsetAt(const MapState& m, double lat, double lon, bool& estimate) {
+    estimate = false;
+    int q = 0;
+    const bool onMap = tzStdQuarterHours(lat, lon, q);
+    const std::time_t now = (std::time_t)m.utc;
+    if (m.haveLocalOffset && m.havePos) {
+        const double dLat = (lat - m.lat) * 60.0, dLon = (lon - m.lon) * 60.0 * std::cos(m.lat * kPi / 180.0);
+        if (std::sqrt(dLat * dLat + dLon * dLon) < 250.0) {
+            int qa = 0;
+            const bool acOnMap = tzStdQuarterHours(m.lat, m.lon, qa);
+            if (!onMap || !acOnMap || q * 900.0 + wx::dstShiftS(lat, lon, q, now) == qa * 900.0 + wx::dstShiftS(m.lat, m.lon, qa, now)) return m.localOffsetS;
+        }
+    }
+    if (onMap) return q * 900.0 + wx::dstShiftS(lat, lon, q, now);
+    estimate = true;
+    return std::round(lon / 15.0) * 3600.0;
+}
+std::string clockOf(long long t) {
+    t = ((t % 86400) + 86400) % 86400;
+    char b[16];
+    std::snprintf(b, sizeof b, "%02d:%02d", (int)(t / 3600), (int)(t / 60 % 60));
+    return b;
+}
+std::string zoneOf(double lat, double lon, double offS, long long utc) {
+    const std::string n = wx::zoneName(lat, lon, offS, (std::time_t)utc);
+    if (!n.empty()) return n;
+    const int mins = (int)std::lround(std::fabs(offS) / 60.0);
+    char b[24];
+    if (mins % 60) std::snprintf(b, sizeof b, "UTC%s%d:%02d", offS < 0 ? "-" : "+", mins / 60, mins % 60);
+    else std::snprintf(b, sizeof b, "UTC%s%d", offS < 0 ? "-" : "+", mins / 60);
+    return b;
+}
+
+// A bubble on the map: a dark rounded box with a small label and a value; lit (blue) when on. Returns true when pressed.
+bool mapBubble(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, const char* label, const char* text, bool lit, float minW = 0) {
+    const float lw = label ? f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, label).x + 7 : 0;
+    const float tw = f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, text).x;
+    const ImVec2 b(a.x + std::max(minW, lw + tw + 20), a.y + 30);
+    ImGui::SetCursorScreenPos(a);
+    const bool hit = ImGui::InvisibleButton(id, ImVec2(b.x - a.x, b.y - a.y));
+    const bool hov = ImGui::IsItemHovered();
+    dl->AddRectFilled(a, b, hov ? IM_COL32(26, 40, 64, 238) : IM_COL32(12, 22, 40, 225), 9.0f);
+    dl->AddRect(a, b, lit ? IM_COL32(110, 170, 255, 255) : IM_COL32(255, 255, 255, 46), 9.0f, 0, lit ? 1.6f : 1.0f);
+    const float tx = a.x + (b.x - a.x - lw - tw) * 0.5f;
+    if (label) textAt(dl, f.small, tx, std::floor(a.y + (30 - fontPx(f.small)) * 0.5f + 1), kMuted, label);
+    textAt(dl, f.body, tx + lw, std::floor(a.y + (30 - fontPx(f.body)) * 0.5f), lit ? IM_COL32(150, 196, 255, 255) : kInk, text);
+    return hit;
+}
+float bubbleW(const Fonts& f, const char* label, const char* text) {
+    const float lw = label ? f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, label).x + 7 : 0;
+    return lw + f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, text).x + 20;
+}
+
+// A dashed polyline (screen points)
+void dashed(ImDrawList* dl, const std::vector<ImVec2>& p, ImU32 col, float thick, float on, float off) {
+    float phase = 0;
+    for (size_t i = 1; i < p.size(); ++i) {
+        const ImVec2 a = p[i - 1], b = p[i];
+        const float len = std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
+        if (len < 1e-3f) continue;
+        float t = 0;
+        while (t < len) {
+            const float period = on + off, inP = std::fmod(phase + t, period);
+            if (inP < on) {
+                const float t1 = std::min(len, t + (on - inP));
+                dl->AddLine(ImVec2(a.x + (b.x - a.x) * t / len, a.y + (b.y - a.y) * t / len), ImVec2(a.x + (b.x - a.x) * t1 / len, a.y + (b.y - a.y) * t1 / len), col, thick);
+                t = t1;
+            } else {
+                t += period - inP;
+            }
+        }
+        phase = std::fmod(phase + len, on + off);
+    }
+}
+
+void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const MapState& m = s.map;
+    const float top = kStatusH + kHeaderH;
+    const ImVec2 r0(0, top), r1(w, h);
+    const ImVec2 sc((r0.x + r1.x) * 0.5f, (r0.y + r1.y) * 0.5f);
+    const MercPt ac = m.havePos ? mercOf(m.lat, m.lon) : MercPt{0.5, 0.5};
+    // without a position the map starts on the whole world; the first position brings it in to the aircraft
+    if (m.havePos && !g_mapSeen) { g_mapSeen = true; g_mapCenter = ac; g_mapFollow = true; if (g_mapZoom < 8) g_mapZoom = 14.0; }
+    if (!m.havePos && !g_mapSeen) g_mapZoom = std::min(g_mapZoom, 3.0);
+    if (g_mapFollow && m.havePos) g_mapCenter = ac;
+    const bool headingUp = g_settings.mapHeadingUp && m.havePos;
+    const double rot = headingUp ? m.hdgTrue * kPi / 180.0 : 0.0;
+    const double cr = std::cos(rot), sr = std::sin(rot);
+    double scale = 256.0 * std::pow(2.0, g_mapZoom);          // layout units per Mercator unit
+    double cLat = 0, cLon = 0;
+    latLonOf(g_mapCenter, cLat, cLon);
+    // the world to the screen and back (heading up: the world turned by minus the heading about the middle)
+    auto toS = [&](const MercPt& p) {
+        double dx = (p.x - g_mapCenter.x), dy = (p.y - g_mapCenter.y);
+        if (dx > 0.5) dx -= 1; else if (dx < -0.5) dx += 1;   // across the date line
+        dx *= scale; dy *= scale;
+        return ImVec2((float)(sc.x + dx * cr + dy * sr), (float)(sc.y - dx * sr + dy * cr));
+    };
+    auto fromS = [&](ImVec2 q) {
+        const double x = q.x - sc.x, y = q.y - sc.y;
+        MercPt p;
+        p.x = g_mapCenter.x + (x * cr - y * sr) / scale;
+        p.y = g_mapCenter.y + (x * sr + y * cr) / scale;
+        return p;
+    };
+    const bool sat = g_settings.mapSource == 1;
+    dl->PushClipRect(r0, r1, true);
+    dl->AddRectFilled(r0, r1, sat ? IM_COL32(18, 24, 30, 255) : IM_COL32(232, 228, 220, 255));
+
+    // ---- input: drag to move, the wheel to zoom (about the pointer); bubbles drawn later sit on top of it
+    ImGui::SetCursorScreenPos(r0);
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("##map", ImVec2(r1.x - r0.x, r1.y - r0.y));
+    const ImGuiIO& io = ImGui::GetIO();
+    if (ImGui::IsItemActive() && (io.MouseDelta.x != 0 || io.MouseDelta.y != 0) && ImGui::IsMouseDragging(0, 2.0f)) {
+        const double x = -io.MouseDelta.x, y = -io.MouseDelta.y;
+        g_mapCenter.x += (x * cr - y * sr) / scale;
+        g_mapCenter.y += (x * sr + y * cr) / scale;
+        g_mapCenter.x -= std::floor(g_mapCenter.x);
+        g_mapCenter.y = std::max(0.0, std::min(1.0, g_mapCenter.y));
+        g_mapFollow = false;
+    }
+    if (ImGui::IsItemHovered() && io.MouseWheel != 0) {
+        const double z0 = g_mapZoom;
+        g_mapZoom = std::max(kMapMinZoom, std::min(kMapMaxZoom, g_mapZoom + io.MouseWheel * 0.5));
+        if (!g_mapFollow) {   // the place under the pointer stays under it
+            const MercPt under = fromS(io.MousePos);
+            const double k = std::pow(2.0, z0 - g_mapZoom);
+            g_mapCenter.x = under.x + (g_mapCenter.x - under.x) * k;
+            g_mapCenter.y = under.y + (g_mapCenter.y - under.y) * k;
+        }
+        scale = 256.0 * std::pow(2.0, g_mapZoom);
+    }
+    latLonOf(g_mapCenter, cLat, cLon);
+
+    // ---- the tiles: the zoom level that gives about one tile pixel per screen pixel, nearest the middle first
+    const int src = sat ? 1 : 0;
+    const double pxPer = std::max(1.0f, s.pixelScale);
+    const int tz = std::max(1, std::min(19, (int)std::floor(g_mapZoom + std::log2(pxPer) + 0.3)));
+    const int nT = 1 << tz;
+    const ImVec2 corners[4] = {r0, ImVec2(r1.x, r0.y), r1, ImVec2(r0.x, r1.y)};
+    double mx0 = 1e9, my0 = 1e9, mx1 = -1e9, my1 = -1e9;
+    for (const ImVec2& c : corners) { const MercPt p = fromS(c); mx0 = std::min(mx0, p.x); mx1 = std::max(mx1, p.x); my0 = std::min(my0, p.y); my1 = std::max(my1, p.y); }
+    const int tx0 = (int)std::floor(mx0 * nT), tx1 = (int)std::floor(mx1 * nT), ty0 = std::max(0, (int)std::floor(my0 * nT)), ty1 = std::min(nT - 1, (int)std::floor(my1 * nT));
+    struct TileAt { int x, y; double d; };
+    std::vector<TileAt> want;
+    if (tx1 - tx0 < 40 && ty1 - ty0 < 40)
+        for (int ty = ty0; ty <= ty1; ++ty)
+            for (int tx = tx0; tx <= tx1; ++tx) {
+                const double cx = (tx + 0.5) / nT - g_mapCenter.x, cy = (ty + 0.5) / nT - g_mapCenter.y;
+                want.push_back({tx, ty, cx * cx + cy * cy});
+            }
+    std::sort(want.begin(), want.end(), [](const TileAt& a, const TileAt& b) { return a.d < b.d; });
+    int missing = 0;
+    for (const TileAt& t : want) {
+        const int wx = ((t.x % nT) + nT) % nT;
+        const MercPt q0{(double)t.x / nT, (double)t.y / nT}, q1{(double)(t.x + 1) / nT, (double)(t.y + 1) / nT};
+        const ImVec2 p00 = toS(q0), p10 = toS(MercPt{q1.x, q0.y}), p11 = toS(q1), p01 = toS(MercPt{q0.x, q1.y});
+        ImTextureID tex = m.tile ? m.tile(src, tz, wx, t.y, true) : 0;
+        ImVec2 u0(0, 0), u1(1, 1);
+        for (int dz = 1; !tex && m.tile && dz <= 6 && tz - dz >= 0; ++dz) {   // a coarser tile, stretched, until this one comes
+            const int px = wx >> dz, py = t.y >> dz;
+            tex = m.tile(src, tz - dz, px, py, false);
+            if (tex) {
+                const float k = 1.0f / (float)(1 << dz);
+                u0 = ImVec2((wx - (px << dz)) * k, (t.y - (py << dz)) * k);
+                u1 = ImVec2(u0.x + k, u0.y + k);
+            }
+        }
+        if (tex) dl->AddImageQuad(tex, p00, p10, p11, p01, u0, ImVec2(u1.x, u0.y), u1, ImVec2(u0.x, u1.y));
+        else {
+            ++missing;
+            if (!m.tile) {   // the off-line test: a quiet checkerboard where the tiles would be
+                const ImU32 c = ((t.x + t.y) & 1) ? (sat ? IM_COL32(40, 52, 44, 255) : IM_COL32(222, 218, 208, 255)) : (sat ? IM_COL32(34, 46, 38, 255) : IM_COL32(236, 232, 224, 255));
+                dl->AddQuadFilled(p00, p10, p11, p01, c);
+            }
+        }
+    }
+
+    // ---- the time zones: dashed violet boundaries
+    if (g_settings.mapTimeZones) {
+        double la0, lo0, la1, lo1;
+        latLonOf(MercPt{mx0, my1}, la0, lo0);
+        latLonOf(MercPt{mx1, my0}, la1, lo1);
+        std::vector<ImVec2> pts;
+        for (const TzLine& L : tzLines()) {
+            if (L.lo1 < lo0 || L.lo0 > lo1 || L.la1 < la0 || L.la0 > la1) continue;
+            pts.clear();
+            for (const ImVec2& q : L.pts) pts.push_back(toS(mercOf(q.y, q.x)));
+            if (g_mapZoom < 6) dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(182, 120, 255, 200), 0, 1.2f);   // far out: plain (fewer vertices)
+            else dashed(dl, pts, IM_COL32(182, 120, 255, 230), 1.6f, 7.0f, 5.0f);
+        }
+    }
+
+    // ---- X-Plane's airports
+    const double mPerMerc = kEarthM * std::cos(cLat * kPi / 180.0);
+    const double halfDiagNm = std::sqrt((double)(w * w + (h - top) * (h - top))) * 0.5 / scale * mPerMerc / 1852.0;
+    if (g_settings.mapAirports) {
+        const ImVec2 uv = ImGui::GetFontTexUvWhitePixel();
+        const bool layouts = g_mapZoom >= 11.5;
+        std::vector<std::string> drawn;
+        if (layouts) {
+            for (const auto& ap : m.airports) {
+                const AptGeo& g = *ap;
+                // off screen: skipped
+                const ImVec2 b0 = toS(g.lo), b1 = toS(g.hi), b2 = toS(MercPt{g.lo.x, g.hi.y}), b3 = toS(MercPt{g.hi.x, g.lo.y});
+                const float bx0 = std::min(std::min(b0.x, b1.x), std::min(b2.x, b3.x)), bx1 = std::max(std::max(b0.x, b1.x), std::max(b2.x, b3.x));
+                const float by0 = std::min(std::min(b0.y, b1.y), std::min(b2.y, b3.y)), by1 = std::max(std::max(b0.y, b1.y), std::max(b2.y, b3.y));
+                if (bx1 < r0.x || bx0 > r1.x || by1 < r0.y || by0 > r1.y) continue;
+                drawn.push_back(g.icao);
+                const double mpm = kEarthM * std::cos(g.lat * kPi / 180.0);   // metres per Mercator unit here
+                const float pxPerM = (float)(scale / mpm);
+                // the pavement
+                const ImU32 pave = sat ? IM_COL32(70, 76, 88, 130) : IM_COL32(146, 150, 160, 255);
+                const int nv = (int)g.pavement.size() / 3 * 3;
+                for (int i = 0; i < nv; i += 3 * 2000) {   // in batches (16-bit indices)
+                    const int cnt = std::min(nv - i, 3 * 2000);
+                    dl->PrimReserve(cnt, cnt);
+                    for (int k = 0; k < cnt; ++k) {
+                        const ImVec2 q = toS(g.pavement[i + k]);
+                        dl->PrimWriteVtx(q, uv, pave);
+                        dl->PrimWriteIdx((ImDrawIdx)(dl->_VtxCurrentIdx - 1));
+                    }
+                }
+                // the runways: dark, with a dashed white centreline and the numbers at each end
+                for (const AptGeo::Runway& rw : g.runways) {
+                    const ImVec2 a = toS(rw.a), b = toS(rw.b);
+                    const float len = std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
+                    if (len < 1) continue;
+                    const ImVec2 d((b.x - a.x) / len, (b.y - a.y) / len), nrm(-d.y, d.x);
+                    const float hw = std::max(1.5f, rw.widthM * 0.5f * pxPerM);
+                    const ImU32 rc = rw.water ? IM_COL32(60, 120, 200, 160) : IM_COL32(44, 48, 56, 255);
+                    dl->AddQuadFilled(ImVec2(a.x + nrm.x * hw, a.y + nrm.y * hw), ImVec2(b.x + nrm.x * hw, b.y + nrm.y * hw),
+                                      ImVec2(b.x - nrm.x * hw, b.y - nrm.y * hw), ImVec2(a.x - nrm.x * hw, a.y - nrm.y * hw), rc);
+                    if (hw > 4 && !rw.water) dashed(dl, {a, b}, IM_COL32(255, 255, 255, 220), std::max(1.0f, hw * 0.08f), 30.0f * pxPerM, 20.0f * pxPerM);
+                    if (g_mapZoom >= 13) {
+                        textCentered(dl, f.bold, a.x - d.x * 14, a.y - d.y * 14 - fontPx(f.bold) * 0.5f, sat ? kInk : IM_COL32(20, 24, 32, 255), rw.idA.c_str());
+                        textCentered(dl, f.bold, b.x + d.x * 14, b.y + d.y * 14 - fontPx(f.bold) * 0.5f, sat ? kInk : IM_COL32(20, 24, 32, 255), rw.idB.c_str());
+                    }
+                }
+                // the painted lines
+                std::vector<ImVec2> pts;
+                for (const AptGeo::Line& L : g.lines) {
+                    if (L.kind == 3 && g_mapZoom < 15) continue;
+                    pts.clear();
+                    for (const MercPt& p : L.pts) pts.push_back(toS(p));
+                    const ImU32 col = L.kind == 1 ? IM_COL32(236, 64, 72, 255) : L.kind == 2 ? IM_COL32(255, 168, 60, 255)
+                                    : L.kind == 3 ? IM_COL32(250, 214, 60, 150) : IM_COL32(250, 210, 40, 235);
+                    const float th = L.kind == 1 ? 2.4f : L.kind == 2 ? 1.8f : L.kind == 3 ? 0.8f : (g_mapZoom >= 15 ? 1.4f : 1.0f);
+                    dl->AddPolyline(pts.data(), (int)pts.size(), col, 0, th);
+                }
+                // the stands and the taxiway names, close in
+                if (g_mapZoom >= 15.5)
+                    for (const AptGeo::Stand& st : g.stands) {
+                        const ImVec2 q = toS(st.p);
+                        if (q.x < r0.x - 40 || q.x > r1.x + 40 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
+                        dl->AddCircleFilled(q, 3.0f, IM_COL32(255, 255, 255, 235), 10);
+                        dl->AddCircle(q, 3.0f, IM_COL32(20, 24, 32, 200), 10, 1.0f);
+                        if (g_mapZoom >= 16.5 && !st.name.empty()) textAt(dl, f.small, q.x + 5, q.y - fontPx(f.small) * 0.5f, sat ? kInk : IM_COL32(30, 36, 48, 255), st.name.c_str());
+                    }
+                if (g_mapZoom >= 14.5)
+                    for (const AptGeo::Label& lb : g.taxiways) {
+                        const ImVec2 q = toS(lb.p);
+                        if (q.x < r0.x || q.x > r1.x || q.y < r0.y || q.y > r1.y) continue;
+                        const ImVec2 ts = f.bold->CalcTextSizeA(fontPx(f.small), 1e9f, 0, lb.text.c_str());
+                        dl->AddRectFilled(ImVec2(q.x - ts.x * 0.5f - 4, q.y - ts.y * 0.5f - 1), ImVec2(q.x + ts.x * 0.5f + 4, q.y + ts.y * 0.5f + 1), IM_COL32(250, 210, 40, 255), 3.0f);
+                        dl->AddText(f.bold, fontPx(f.small), ImVec2(q.x - ts.x * 0.5f, q.y - ts.y * 0.5f), IM_COL32(16, 16, 16, 255), lb.text.c_str());
+                    }
+            }
+        }
+        // further out: each airport as a dot with its code
+        if (g_mapZoom >= 7.0) {
+            for (const AptPoint& p : m.airportPoints) {
+                if (layouts && std::find(drawn.begin(), drawn.end(), p.icao) != drawn.end()) continue;
+                const ImVec2 q = toS(mercOf(p.lat, p.lon));
+                if (q.x < r0.x - 20 || q.x > r1.x + 20 || q.y < r0.y - 10 || q.y > r1.y + 10) continue;
+                const ImU32 dot = p.kind == 17 ? IM_COL32(180, 90, 220, 255) : p.kind == 16 ? IM_COL32(40, 140, 220, 255) : IM_COL32(32, 92, 200, 255);
+                dl->AddCircleFilled(q, 4.0f, IM_COL32(255, 255, 255, 230), 12);
+                dl->AddCircleFilled(q, 2.8f, dot, 12);
+                if (g_mapZoom >= 8.5) {
+                    const ImU32 tc = sat ? kInk : IM_COL32(24, 40, 80, 255);
+                    textAt(dl, f.small, q.x + 6, q.y - fontPx(f.small) * 0.5f, tc, p.icao.c_str());
+                }
+            }
+        }
+        act.mapLayouts = layouts;
+        act.mapLayoutNm = std::min(25.0, std::max(3.0, halfDiagNm * 1.4));
+        act.mapPointNm = g_mapZoom >= 7.0 ? std::min(400.0, halfDiagNm * 1.2) : 0.0;
+    }
+    act.mapShown = true;
+    act.mapLat = cLat; act.mapLon = cLon;
+
+    // ---- the aircraft: its own outline at its real size when that is bigger than the symbol, else the symbol
+    if (m.havePos) {
+        const ImVec2 q = toS(ac);
+        const double a = (m.hdgTrue * kPi / 180.0) - rot;   // on screen, clockwise from up
+        const float sa = (float)std::sin(a), ca = (float)std::cos(a);
+        float sl = 0, ss = 0;
+        const Shape* sh = findShape(s.acfIcao, sl, ss);
+        const float pxPerM = (float)(scale / mPerMerc);
+        if (sh && sl * pxPerM > 34) {
+            // the drawing: nose at y = 0, going back with +y; turned so the nose points along the heading, centred on its middle
+            const float kx = ss / sh->span * pxPerM, ky = sl / sh->len * pxPerM;
+            std::vector<ImVec2> pts;
+            auto place = [&](const std::vector<ImVec2>& p) {
+                pts.resize(p.size());
+                for (size_t i = 0; i < p.size(); ++i) {
+                    const float x = p[i].x * kx, y = (p[i].y - sh->len * 0.5f) * ky;   // about the middle, +y towards the tail
+                    pts[i] = ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca);
+                }
+            };
+            for (const auto& p : sh->fills) { place(p); if (pts.size() >= 3) dl->AddConcavePolyFilled(pts.data(), (int)pts.size(), IM_COL32(255, 255, 255, 245)); }
+            for (const auto& p : sh->lines) { place(p); if (pts.size() >= 2) dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(40, 70, 130, 255), 0, 1.0f); }
+        } else {
+            auto P = [&](float x, float y) { return ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca); };   // y: forward is -y
+            const ImVec2 body[] = {P(0, -13), P(2.2f, -9), P(2.2f, -3), P(12, 3), P(12, 5.5f), P(2.2f, 2.5f), P(1.8f, 9), P(5, 11.5f), P(5, 13),
+                                   P(0, 11.5f), P(-5, 13), P(-5, 11.5f), P(-1.8f, 9), P(-2.2f, 2.5f), P(-12, 5.5f), P(-12, 3), P(-2.2f, -3), P(-2.2f, -9)};
+            std::vector<ImVec2> v(body, body + 18);
+            if (ImGui::GetIO().DisplaySize.x > 0) {
+                // clockwise on screen for the concave fill
+                float area = 0;
+                for (size_t i = 0, j = v.size() - 1; i < v.size(); j = i++) area += (v[j].x - v[i].x) * (v[j].y + v[i].y);
+                if (area > 0) std::reverse(v.begin(), v.end());
+            }
+            dl->AddConcavePolyFilled(v.data(), (int)v.size(), IM_COL32(255, 214, 60, 255));
+            dl->AddPolyline(v.data(), (int)v.size(), IM_COL32(20, 24, 32, 255), ImDrawFlags_Closed, 1.3f);
+        }
+    }
+
+    // ---- the bubbles
+    {   // the time: Zulu, or local (with its zone) at the aircraft, or at the + in the middle while the map is moved off it
+        const bool movedOff = !g_mapFollow || !m.havePos;
+        if (movedOff) {
+            const float a = 6.0f, t = 1.5f;
+            dl->AddLine(ImVec2(sc.x - a, sc.y), ImVec2(sc.x + a, sc.y), IM_COL32(0, 0, 0, 120), t + 1.5f);
+            dl->AddLine(ImVec2(sc.x, sc.y - a), ImVec2(sc.x, sc.y + a), IM_COL32(0, 0, 0, 120), t + 1.5f);
+            dl->AddLine(ImVec2(sc.x - a, sc.y), ImVec2(sc.x + a, sc.y), IM_COL32(255, 255, 255, 230), t);
+            dl->AddLine(ImVec2(sc.x, sc.y - a), ImVec2(sc.x, sc.y + a), IM_COL32(255, 255, 255, 230), t);
+        }
+        const long long utc = m.utc ? m.utc : (s.zuluSec >= 0 ? s.zuluSec : 0);
+        std::string t;
+        if (g_settings.mapLocalTime) {
+            bool est = false;
+            const double tLat = movedOff ? cLat : m.lat, tLon = movedOff ? cLon : m.lon;
+            const double off = localOffsetAt(m, tLat, tLon, est);
+            t = clockOf(utc + (long long)off) + " " + (est ? "~" : "") + zoneOf(tLat, tLon, off, utc);
+        } else {
+            t = clockOf(utc) + "Z";
+        }
+        if (mapBubble(dl, f, "##mtime", ImVec2(r0.x + 10, r0.y + 10), g_settings.mapLocalTime ? "LOCAL" : "TIME", t.c_str(), g_settings.mapLocalTime)) {
+            g_settings.mapLocalTime = !g_settings.mapLocalTime; g_settingsChanged = true;
+        }
+    }
+    {   // North / Heading Lock, and Center On Aircraft
+        char lk[40];
+        if (headingUp) { const int hd = ((int)std::lround(m.hdgTrue) % 360 + 360) % 360; std::snprintf(lk, sizeof lk, "Heading Lock %03d\xC2\xB0T", hd == 0 ? 360 : hd); }
+        else std::snprintf(lk, sizeof lk, "%s", g_settings.mapHeadingUp ? "Heading Lock" : "North Lock");
+        const float wl = bubbleW(f, nullptr, lk), wc = bubbleW(f, nullptr, "Center On Aircraft");
+        if (mapBubble(dl, f, "##mlock", ImVec2(r1.x - 10 - wl, r0.y + 10), nullptr, lk, g_settings.mapHeadingUp)) { g_settings.mapHeadingUp = !g_settings.mapHeadingUp; g_settingsChanged = true; }
+        if (mapBubble(dl, f, "##mcenter", ImVec2(r1.x - 10 - wl - 6 - wc, r0.y + 10), nullptr, "Center On Aircraft", g_mapFollow && m.havePos) && m.havePos) g_mapFollow = true;
+    }
+    {   // along the bottom: the zoom, then the map's kind and its layers
+        const float y = r1.y - 40;
+        char rng[24];
+        const double widthNm = (r1.x - r0.x) / scale * mPerMerc / 1852.0;
+        if (widthNm >= 100) std::snprintf(rng, sizeof rng, "%.0f nm", widthNm);
+        else if (widthNm >= 10) std::snprintf(rng, sizeof rng, "%.0f nm", widthNm);
+        else std::snprintf(rng, sizeof rng, "%.1f nm", widthNm);
+        float x = r0.x + 10;
+        if (mapBubble(dl, f, "##mzout", ImVec2(x, y), nullptr, "-", false, 34)) g_mapZoom = std::max(kMapMinZoom, std::floor(g_mapZoom - 0.5));
+        x += 34 + 4;
+        const float rw = bubbleW(f, nullptr, "2500 nm");
+        mapBubble(dl, f, "##mrange", ImVec2(x, y), nullptr, rng, false, rw);
+        x += rw + 4;
+        if (mapBubble(dl, f, "##mzin", ImVec2(x, y), nullptr, "+", false, 34)) g_mapZoom = std::min(kMapMaxZoom, std::floor(g_mapZoom + 1.0));
+        x += 34 + 12;
+        if (mapBubble(dl, f, "##mosm", ImVec2(x, y), nullptr, "Map", !sat)) { g_settings.mapSource = 0; g_settingsChanged = true; }
+        x += bubbleW(f, nullptr, "Map") + 4;
+        if (mapBubble(dl, f, "##msat", ImVec2(x, y), nullptr, "Satellite", sat)) { g_settings.mapSource = 1; g_settingsChanged = true; }
+        x += bubbleW(f, nullptr, "Satellite") + 12;
+        if (mapBubble(dl, f, "##mapt", ImVec2(x, y), nullptr, "Airports", g_settings.mapAirports)) { g_settings.mapAirports = !g_settings.mapAirports; g_settingsChanged = true; }
+        x += bubbleW(f, nullptr, "Airports") + 4;
+        if (mapBubble(dl, f, "##mtz", ImVec2(x, y), nullptr, "Time Zones", g_settings.mapTimeZones)) { g_settings.mapTimeZones = !g_settings.mapTimeZones; g_settingsChanged = true; }
+        // where the map comes from, and whether the airports are still being found
+        const char* attr = sat ? "Imagery: Esri, Maxar, Earthstar Geographics" : "\xC2\xA9 OpenStreetMap contributors";
+        const ImVec2 as = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, attr);
+        dl->AddRectFilled(ImVec2(r1.x - as.x - 12, r1.y - as.y - 6), r1, IM_COL32(255, 255, 255, 190), 4.0f, ImDrawFlags_RoundCornersTopLeft);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(r1.x - as.x - 6, r1.y - as.y - 3), IM_COL32(30, 36, 48, 255), attr);
+        if (g_settings.mapAirports && m.aptIndexing) textAt(dl, f.small, r0.x + 12, y - 22, sat ? kInk : IM_COL32(30, 36, 48, 255), "Finding X-Plane's airports...");
+        (void)missing;
+    }
+    dl->PopClipRect();
+}
+
 // Where a ToLiss's doors are along the fuselage, as fractions of its length from the nose (cabin doors front to back, then the
 // cargo doors: forward, aft, bulk; all cargo doors are on the right).
 float paxDoorAt(int pair, int pairs) {
@@ -1239,6 +1736,10 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         {"Text", "IBM Plex Sans (IBM Corp.), JetBrains Mono (The JetBrains Mono Project Authors)", "SIL Open Font License 1.1"},
         {"Downloads", "libcurl (Daniel Stenberg and contributors), zlib (Jean-loup Gailly, Mark Adler), OpenSSL on Linux", "curl, zlib, Apache 2.0"},
         {"Web pages", "Chromium Embedded Framework (Marshall A. Greenblatt and contributors), X-Plane's own copy of Chromium", "BSD 3-clause"},
+        {"Map", "\xC2\xA9 OpenStreetMap contributors (openstreetmap.org/copyright); satellite imagery: Esri, Maxar, Earthstar Geographics", "ODbL; Esri terms"},
+        {"Airport layouts on the map", "X-Plane's airport data (the Scenery Gateway and its contributors) and your installed scenery", "GNU GPL"},
+        {"Time zones", "Natural Earth (via WXPlane)", "Public domain"},
+        {"Map pictures", "stb_image by Sean Barrett", "MIT / public domain"},
         {"METAR reports", "NOAA / National Weather Service, Aviation Weather Center (aviationweather.gov)", "Public domain"},
         {"Weather page with WXPlane installed", "WXPlane by Alpine Aviation", ""},
     };
@@ -1295,9 +1796,10 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     };
     choice("Charts icon", kChartNames, g_settings.chartsProvider, g_settings.showCharts);
     choice("Live map icon", kLiveNames, g_settings.liveProvider, g_settings.showLive);
+    choice("Flight planning icon", kPlanNames, g_settings.planProvider, g_settings.showForeflight);
     sectionTitle(f, "Show on the home screen");
     struct Tog { const char* name; bool* v; };
-    const Tog togs[] = {{"Charts", &g_settings.showCharts}, {"Live map", &g_settings.showLive}, {"SimBrief", &g_settings.showSimbrief}, {"ForeFlight", &g_settings.showForeflight}};
+    const Tog togs[] = {{"Charts", &g_settings.showCharts}, {"Live map", &g_settings.showLive}, {"SimBrief", &g_settings.showSimbrief}, {"Planning", &g_settings.showForeflight}};
     for (int i = 0; i < 4; ++i) {
         if (ImGui::Checkbox(togs[i].name, togs[i].v)) g_settingsChanged = true;
         if (i % 2 == 0) ImGui::SameLine(half + ImGui::GetStyle().ItemSpacing.x);
@@ -1401,6 +1903,8 @@ void applyStyle() {
 }
 
 void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    // big draw lists (the map's lines) go past 65536 vertices: the renderer follows each command's vertex offset
+    ImGui::GetIO().BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2(w, h));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -1427,6 +1931,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         if (pageHeader(dl, f, w, app == APP_BROWSER ? g_site.c_str() : appName(app))) g_app = APP_HOME;
         if (app == APP_SETTINGS) settingsPage(dl, f, s, w, h, act);
         else if (app == APP_BROWSER) browserPage(dl, f, s, w, h, act);
+        else if (app == APP_MAP) mapPage(dl, f, s, w, h, act);
         else if (app == APP_WEATHER) weatherPage(dl, f, s, w, h, act);
         else if (app == APP_GROUND) groundPage(dl, f, s, w, h, act);
         else placeholderPage(dl, f, app, w, h);
@@ -1507,6 +2012,7 @@ bool browserChrome() { return g_chrome; }
 const char* appName(int app) {
     if (app == APP_CHARTS) return kChartNames[chartsP()];
     if (app == APP_LIVEMAP) return kLiveNames[liveP()];
+    if (app == APP_FOREFLIGHT) return kPlanNames[planP()];
     if (app == APP_WEATHER && g_wx) return "WXPlane";
     return (app >= 0 && app < APP_COUNT) ? kApps[app].name : "Home";
 }
@@ -1527,6 +2033,7 @@ void openApp(int app) {
     if (app < 0 || app >= APP_COUNT || !appVisible(app)) { g_app = APP_HOME; return; }
     if (app == APP_CHARTS) { openWeb(kChartNames[chartsP()], kChartUrls[chartsP()], false); return; }
     if (app == APP_LIVEMAP) { openWeb(kLiveNames[liveP()], kLiveUrls[liveP()], false); return; }
+    if (app == APP_FOREFLIGHT) { openWeb(kPlanNames[planP()], kPlanUrls[planP()], false); return; }
     if (kApps[app].url) { openWeb(kApps[app].name, kApps[app].url, false); return; }
     if (app == APP_BROWSER) { g_site = "Browser"; g_chrome = true; }
     g_app = app;
@@ -1541,6 +2048,9 @@ std::string settingsToText() {
     std::snprintf(buf, sizeof buf, "charts_provider=%d\nlive_provider=%d\nfavorite_slots=%d\nbrightness=%.2f\nshow_charts=%d\nshow_simbrief=%d\nshow_live=%d\nshow_foreflight=%d\n", chartsP(), liveP(), favSlots(), (double)std::max(0.1f, std::min(1.0f, g_settings.brightness)), g_settings.showCharts ? 1 : 0,
                   g_settings.showSimbrief ? 1 : 0, g_settings.showLive ? 1 : 0, g_settings.showForeflight ? 1 : 0);
     std::string out = buf;
+    std::snprintf(buf, sizeof buf, "plan_provider=%d\nmap_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\n", planP(),
+                  g_settings.mapSource == 1 ? 1 : 0, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0);
+    out += buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
         out += key; out += "=";
         for (size_t i = 0; i < v.size(); ++i) { if (i) out += ","; out += kApps[v[i]].id; }
@@ -1581,6 +2091,12 @@ void settingsFromText(const std::string& text) {
         const int v = std::atoi(val.c_str());
         if (key == "charts_provider") g_settings.chartsProvider = v == 1 ? 1 : 0;
         else if (key == "live_provider") g_settings.liveProvider = v == 1 ? 1 : 0;
+        else if (key == "plan_provider") g_settings.planProvider = v == 1 ? 1 : 0;
+        else if (key == "map_source") g_settings.mapSource = v == 1 ? 1 : 0;
+        else if (key == "map_airports") g_settings.mapAirports = v != 0;
+        else if (key == "map_timezones") g_settings.mapTimeZones = v != 0;
+        else if (key == "map_heading_up") g_settings.mapHeadingUp = v != 0;
+        else if (key == "map_local_time") g_settings.mapLocalTime = v != 0;
         else if (key == "favorite_slots") g_settings.favoriteSlots = std::max(0, std::min(kMaxFavorites, v));
         else if (key == "brightness") g_settings.brightness = std::max(0.1f, std::min(1.0f, (float)std::atof(val.c_str())));
         else if (key == "show_charts") g_settings.showCharts = v != 0;

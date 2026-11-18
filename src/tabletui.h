@@ -2,9 +2,11 @@
 // plugin and in the off-line picture test. The host (src/plugin.cpp) gives it the sim's state and gets the user's requests back.
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "aptgeo.h"
 #include "imgui.h"
 
 namespace xpt {
@@ -21,12 +23,19 @@ constexpr int kMaxFavorites = 5;   // the favorites bar holds up to 5 icons; its
 struct Settings {
     int chartsProvider = 0;       // what the Charts icon is: 0 ChartFox, 1 Navigraph
     int liveProvider = 0;         // what the Live Map icon is: 0 Volanta, 1 VATSIM Map
+    int planProvider = 0;         // what the flight planning icon is: 0 ForeFlight, 1 SkyVector
     bool showCharts = true, showSimbrief = true, showLive = true, showForeflight = true;   // web app icons on the home screen
     std::vector<int> order;       // the home screen's icons, in the order the user arranged them
     float brightness = 1.0f;      // the screen's brightness set in Settings, 0.1 to 1 (on top of what the aircraft sets)
     int favoriteSlots = 4;        // how many icons the favorites bar holds, 0 (no bar) to kMaxFavorites
     std::vector<int> favorites = {APP_MAP, APP_CHARTS, APP_WEATHER, APP_SIMBRIEF};   // the icons in the bar along the bottom (they leave the grid)
     std::vector<std::pair<std::string, std::string>> bookmarks;   // the browser's own bookmarks: title, address
+    // the Map page
+    int mapSource = 0;            // 0 OpenStreetMap, 1 satellite imagery
+    bool mapAirports = true;      // X-Plane's airport layouts (apt.dat) over the map
+    bool mapTimeZones = false;    // the time zone boundaries
+    bool mapHeadingUp = false;    // Heading Lock (else North Lock)
+    bool mapLocalTime = false;    // the time bubble shows local time (else Zulu)
 };
 Settings& settings();
 std::string settingsToText();
@@ -94,6 +103,25 @@ struct BrowserState {
     std::string url, title;
     bool loading = false, canBack = false, canForward = false;
     bool wantsKeyboard = false;   // a text field on the page has the focus
+    struct Tab { int id = 0; std::string title, url; bool loading = false; };
+    std::vector<Tab> tabs;        // the open pages, in order
+    int activeTab = 0;            // the shown one's id
+};
+
+// The Map page: the aircraft, the time, and what the host has loaded for the view.
+struct MapState {
+    bool havePos = false;
+    double lat = 0, lon = 0;
+    float hdgTrue = 0, gsKt = 0;
+    long long utc = 0;            // the sim's date and time, seconds since 1970 UTC; 0 unknown
+    bool haveLocalOffset = false; // X-Plane's local time at the aircraft minus UTC
+    double localOffsetS = 0;
+    // a tile's texture, or 0 while it is not loaded (with request, the host fetches it); null in the off-line test
+    ImTextureID (*tile)(int source, int z, int x, int y, bool request) = nullptr;
+    std::vector<std::shared_ptr<const AptGeo>> airports;   // layouts around the view
+    std::vector<AptPoint> airportPoints;                    // positions around the view
+    bool aptIndexing = false;     // the airport index is still being built
+    int aptCount = 0;
 };
 
 struct SimState {
@@ -114,6 +142,7 @@ struct SimState {
     BrowserState browser;
     MetarLookup metar;
     GroundState ground;
+    MapState map;
 };
 
 // What the user asked for on the Ground page; the host carries it out.
@@ -132,6 +161,12 @@ struct Actions {
     std::vector<WebEvent> web;
     std::string webNavigate;
     int webNav = 0;               // 1 back, 2 forward, 3 reload, 4 stop
+    bool webTabNew = false;       // open a tab (at webTabUrl, or blank) and show it
+    std::string webTabUrl;
+    int webTabSelect = 0, webTabClose = 0;   // a tab's id: show it, close it (0: none)
+    // the Map page: shown this frame, its centre, and the airports to have ready around it
+    bool mapShown = false, mapLayouts = false;
+    double mapLat = 0, mapLon = 0, mapLayoutNm = 0, mapPointNm = 0;
 };
 
 Fonts loadFonts(float pixelScale);   // (re)builds the font atlas for this many pixels per layout unit

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "browser.h"
 
 #include <chrono>
@@ -198,7 +199,7 @@ bool frame(const uint8_t*& px, int& w, int& h) {
 
 void done() { if (g_shm) g_shm->ackSeq.store(g_frameTaken, std::memory_order_release); }
 
-bool info(std::string& url, std::string& title, bool& loading, bool& canBack, bool& canForward, bool& wantsKeyboard) {
+bool info(std::string& url, std::string& title, bool& loading, bool& canBack, bool& canForward, bool& wantsKeyboard, std::vector<TabInfo>& tabsOut, int& activeTab) {
     if (!g_shm) return false;
     const uint32_t s = g_shm->infoSeq.load(std::memory_order_acquire);
     if (s == g_infoSeen) return false;
@@ -207,6 +208,18 @@ bool info(std::string& url, std::string& title, bool& loading, bool& canBack, bo
     title.assign(g_shm->title, strnlen(g_shm->title, sizeof g_shm->title));
     loading = g_shm->loading != 0; canBack = g_shm->canBack != 0; canForward = g_shm->canForward != 0;
     wantsKeyboard = g_shm->wantsKeyboard != 0;
+    tabsOut.clear();
+    const int n = std::max(0, std::min((int)g_shm->tabCount, xptb::kMaxTabs));
+    for (int i = 0; i < n; ++i) {
+        const auto& t = g_shm->tabs[i];
+        TabInfo ti;
+        ti.id = t.id;
+        ti.loading = t.loading != 0;
+        ti.title.assign(t.title, strnlen(t.title, sizeof t.title));
+        ti.url.assign(t.url, strnlen(t.url, sizeof t.url));
+        tabsOut.push_back(ti);
+    }
+    activeTab = g_shm->activeTab;
     return true;
 }
 

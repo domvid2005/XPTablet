@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -311,7 +312,7 @@ int main(int argc, char** argv) {
         };
         frame(-1000, -1000, false); frame(-1000, -1000, false);
         // drag the brightness slider (the first control of the left column) from its right end to its left third
-        frame(380, 120, false); frame(380, 120, true); frame(150, 120, true); frame(150, 120, true); frame(150, 120, false); frame(150, 120, false);
+        frame(355, 120, false); frame(355, 120, true); frame(150, 120, true); frame(150, 120, true); frame(150, 120, false); frame(150, 120, false);
         if (settings().brightness > 0.6f || settings().brightness < 0.1f) { std::printf("FAIL: brightness slider (%.2f)\n", settings().brightness); ++failures; }
         const std::string txt = settingsToText();
         const float set = settings().brightness;
@@ -348,6 +349,50 @@ int main(int argc, char** argv) {
         shot(s, APP_HOME, "home_wxplane");
         if (std::string(appName(APP_WEATHER)) != "WXPlane") { std::printf("FAIL: with WXPlane the icon is WXPlane\n"); ++failures; }
         shot(t, APP_GROUND, "ground_generic");
+        {   // the Map page: a made-up airport (runway, apron with a hole and a curved edge, lines, stands, taxi routes)
+            // the triangulator: a square with a square hole is 8 triangles
+            const std::vector<std::vector<std::pair<double, double>>> sq = {{{0, 0}, {10, 0}, {10, 10}, {0, 10}}, {{3, 3}, {3, 7}, {7, 7}, {7, 3}}};
+            const size_t ntri = triangulate(sq).size() / 3;
+            if (ntri != 8) { std::printf("FAIL: square with a hole: %zu triangles\n", ntri); ++failures; }
+            const std::string rows =
+                "1 774 0 0 KXPT XPTablet Test Field\n"
+                "1302 datum_lat 41.70000000\n1302 datum_lon -86.32000000\n"
+                "100 45.72 1 0 0.25 1 2 1 09 41.70000000 -86.33500000 0 0 3 0 0 0 27 41.70000000 -86.30500000 0 0 3 0 0 0\n"
+                "110 1 0.25 0.00 Apron\n"
+                "111 41.70120000 -86.32600000\n112 41.70120000 -86.31600000 41.70160000 -86.31500000\n111 41.70300000 -86.31400000\n"
+                "111 41.70300000 -86.32600000\n113 41.70200000 -86.32600000\n"
+                "111 41.70220000 -86.32200000\n111 41.70260000 -86.32200000\n111 41.70260000 -86.32000000\n113 41.70220000 -86.32000000\n"
+                "110 1 0.25 0.00 Taxiway A\n"
+                "111 41.70030000 -86.32500000\n111 41.70030000 -86.31700000\n111 41.70120000 -86.31700000\n113 41.70120000 -86.32500000\n"
+                "120 Centreline\n111 41.70075000 -86.32480000 1\n111 41.70075000 -86.31750000 1\n115 41.70150000 -86.31750000\n"
+                "120 Hold\n111 41.70040000 -86.32100000 4\n115 41.70040000 -86.31900000\n"
+                "1201 41.70075000 -86.32480000 both 0 n0\n1201 41.70075000 -86.31750000 both 1 n1\n1202 0 1 twoway taxiway_D A\n"
+                "1300 41.70280000 -86.32400000 180 gate jets A1\n1300 41.70280000 -86.32300000 180 gate jets A2\n1300 41.70280000 -86.31800000 180 gate jets A3\n";
+            AptGeo geo;
+            if (!parseAirport(rows, geo) || geo.icao != "KXPT" || geo.runways.size() != 1 || geo.pavement.empty() || geo.stands.size() != 3 || geo.taxiways.size() != 1) {
+                std::printf("FAIL: the test airport (%s, %zu runways, %zu pavement points, %zu stands)\n", geo.icao.c_str(), geo.runways.size(), geo.pavement.size(), geo.stands.size());
+                ++failures;
+            }
+            SimState mp = t;
+            mp.map.havePos = true; mp.map.lat = 41.7008; mp.map.lon = -86.3222; mp.map.hdgTrue = 92; mp.map.utc = 1795312200;   // 2026-11-23 13:10Z
+            mp.map.haveLocalOffset = true; mp.map.localOffsetS = -5 * 3600;
+            mp.map.airports.push_back(std::make_shared<AptGeo>(geo));
+            mp.map.airportPoints = {{"KXPT", 41.70, -86.32, 1}, {"KSBN", 41.7087, -86.3173, 1}, {"KGSH", 41.5264, -85.7922, 1}, {"KEKM", 41.7194, -86.0003, 1}};
+            settings().mapAirports = true; settings().mapSource = 0; settings().mapLocalTime = true;
+            shot(mp, APP_MAP, "map_airport");
+            settings().mapSource = 1; settings().mapHeadingUp = true; settings().mapLocalTime = false;
+            shot(mp, APP_MAP, "map_satellite_heading");
+            settings().mapSource = 0; settings().mapHeadingUp = false; settings().mapTimeZones = true; settings().mapLocalTime = true;
+            // zoomed out with the time zones: press - a few times
+            openApp(APP_MAP);
+            for (int k = 0; k < 7; ++k) {   // press - (its bubble at the bottom left)
+                const bool downs[4] = {false, true, false, false};
+                for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(26, kLogicalH - 25); io.AddMouseButtonEvent(0, d);
+                    ImGui::NewFrame(); Actions act; build(fonts, mp, 800, kLogicalH, act); ImGui::Render(); }
+            }
+            shot(mp, APP_MAP, "map_timezones");
+            settings().mapTimeZones = false; settings().mapLocalTime = false;
+        }
         SimState g = s; g.toliss = true; g.acfIcao = "A20N";
         g.ground.toliss = true; g.ground.openSam = true; g.ground.jetway = 1; g.ground.paxDoors = 4; g.ground.cargoDoors = 2; g.ground.cargoDoors = 3; g.ground.deice = true; g.ground.jwDoors = 1; g.ground.slides = 1; g.ground.cabinLight = 0.4f; g.ground.paxDoor[0] = 2; g.ground.paxDoor[1] = 1; g.ground.cargoDoor[0] = 2; g.ground.chocks = true; g.ground.extPower = true;
         shot(g, APP_GROUND, "ground_toliss");
@@ -424,7 +469,21 @@ int main(int argc, char** argv) {
           shot(t2, APP_GROUND, "ground_b738_limits"); openApp(APP_GROUND); }
         // the browser before its program is up, and with the on-screen keyboard (pressed from the address bar)
         { SimState wb = s; wb.browser.status = 0; shot(wb, APP_BROWSER, "browser_starting");
-          wb.browser.status = 1; wb.browser.url = "https://chartfox.org/"; press(wb, 300, 28 + 46 + 20); shot(wb, APP_BROWSER, "browser_keyboard");
+          wb.browser.status = 1; wb.browser.url = "https://chartfox.org/";
+          wb.browser.tabs = {{1, "ChartFox - Free Flight Simulation Charts", "https://chartfox.org/", false}, {2, "SimBrief Dispatch", "https://dispatch.simbrief.com/", true}, {3, "", "https://fly.volanta.app/", false}};
+          wb.browser.activeTab = 1;
+          press(wb, 300, 28 + 46 + 32 + 20); shot(wb, APP_BROWSER, "browser_keyboard");
+          // a web app already open in a tab is shown again (its tab selected), not loaded over the shown page
+          { openApp(APP_LIVEMAP);
+            Actions got;
+            for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, wb, 800, kLogicalH, act); ImGui::Render(); if (act.webTabSelect || act.webTabNew || !act.webNavigate.empty()) got = act; }
+            if (got.webTabSelect != 3) { std::printf("FAIL: Volanta's tab is shown again (%d, new %d, nav %s)\n", got.webTabSelect, got.webTabNew ? 1 : 0, got.webNavigate.c_str()); ++failures; } }
+          // a web app not open gets a tab of its own
+          { openApp(APP_SIMBRIEF); SimState w2 = wb; w2.browser.tabs.erase(w2.browser.tabs.begin() + 1);
+            Actions got;
+            for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, w2, 800, kLogicalH, act); ImGui::Render(); if (act.webTabSelect || act.webTabNew || !act.webNavigate.empty()) got = act; }
+            if (!got.webTabNew || got.webTabUrl.find("simbrief") == std::string::npos) { std::printf("FAIL: SimBrief opens in a new tab\n"); ++failures; } }
+          openApp(APP_BROWSER); shot(wb, APP_BROWSER, "browser_tabs");
           SimState wa = s; wa.browser.status = -3; wa.browser.message = "On macOS the web pages are not available yet."; shot(wa, APP_CHARTS, "browser_unavailable"); openApp(APP_GROUND); }
         // the cabin lights: the slider sets the level in steps of 10 %, On sets it full
         { bool slid = false, on = false, arm = false;

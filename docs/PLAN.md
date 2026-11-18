@@ -110,3 +110,18 @@ and GPU-free rendering speed on big pages.
 - Touch on the cockpit tablet in VR (controller trigger) is not handled yet; the VR window works.
 - No keyboard input yet.
 - Aircraft that look for AviTab's plugin signature rather than its datarefs may not show the tablet; to be found by testing.
+
+## Map (0.6.0)
+
+OpenStreetMap or Esri satellite tiles (src/tiles.cpp: two download threads, kept a month in Output/XPTablet/tiles, decoded with
+stb_image; the plugin keeps up to 320 as textures). WXPlane's bubbles: TIME / LOCAL with the zone name (X-Plane's own clock near
+the aircraft, else Natural Earth's zones plus daylight time; at the + when the map is moved), Center On Aircraft, North / Heading
+Lock; zoom - / range / +, Map / Satellite, Airports, Time Zones. No true / magnetic switch.
+
+Airports: src/aptdat.cpp indexes every apt.dat (custom scenery in scenery_packs.ini order, then Global Airports; the first copy of
+an airport wins, as in X-Plane) on a thread the first time the map opens; layouts of the airports around the view are read on
+demand (src/aptgeo.cpp: pavement with curves and holes, triangulated; runways with numbers; centrelines, hold lines, edges;
+stands; taxiway names from the taxi routes). Dots with codes further out.
+
+Browser tabs (0.6.0): up to 8; a page's new windows open as tabs; web apps (Charts, Live Map, SimBrief, planning) each keep a tab
+of their own and come back to it as they were left. The planning icon switches between ForeFlight and SkyVector.

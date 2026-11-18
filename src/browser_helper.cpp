@@ -151,32 +151,75 @@ bool parentAlive(long pid) {
 #endif
 }
 
-// ---- the page's picture ------------------------------------------------------------------------------------------------------------
-int g_viewW = 800, g_viewH = 400;    // device-independent pixels
+// ---- the tabs and the shown tab's picture ---------------------------------------------------------------------------------------
+int g_viewW = 800, g_viewH = 400;    // device-independent pixels (every tab is this size)
 float g_scale = 1.0f;                // screen pixels per one of them
-std::vector<uint8_t> g_view;         // the newest picture of the page
-int g_vw = 0, g_vh = 0;
-std::vector<uint8_t> g_popup;        // a drop-down list open on the page, drawn over it
-int g_pw = 0, g_ph = 0;
-cef_rect_t g_popupRect = {0, 0, 0, 0};
-bool g_popupShown = false, g_dirty = false;
 
-// Hands the newest picture to the plugin, into the buffer it is not reading, once it has taken the previous one.
+struct Tab {
+    int id = 0;                      // ours, given to the plugin
+    cef_browser_t* br = nullptr;
+    std::string url, title;
+    bool loading = false, back = false, fwd = false;
+    std::vector<uint8_t> view;       // the newest picture of the page
+    int vw = 0, vh = 0;
+    std::vector<uint8_t> popup;      // a drop-down list open on the page, drawn over it
+    int pw = 0, ph = 0;
+    cef_rect_t popupRect = {0, 0, 0, 0};
+    bool popupShown = false;
+};
+std::vector<Tab> g_tabs;
+int g_active = -1;                   // index into g_tabs
+int g_nextId = 1;
+bool g_dirty = false;                // the shown tab has a picture the plugin has not had
+std::vector<std::string> g_openQueue;   // pages asked for in a new window: opened as tabs by the loop
+
+Tab* tabOf(cef_browser_t* b) {
+    if (!b) return nullptr;
+    const int bid = b->get_identifier(b);
+    for (Tab& t : g_tabs) if (t.br && t.br->get_identifier(t.br) == bid) return &t;
+    return nullptr;
+}
+bool shown(const Tab* t) { return t && g_active >= 0 && g_active < (int)g_tabs.size() && &g_tabs[g_active] == t; }
+
+// The tab list and the shown tab's address, title and state, for the plugin
+void publishInfo() {
+    if (!g_shm) return;
+    g_shm->tabCount = (int32_t)std::min<size_t>(g_tabs.size(), xptb::kMaxTabs);
+    for (int i = 0; i < g_shm->tabCount; ++i) {
+        const Tab& t = g_tabs[i];
+        g_shm->tabs[i].id = t.id;
+        g_shm->tabs[i].loading = t.loading;
+        copyTo(g_shm->tabs[i].title, sizeof g_shm->tabs[i].title, t.title);
+        copyTo(g_shm->tabs[i].url, sizeof g_shm->tabs[i].url, t.url);
+    }
+    if (g_active >= 0 && g_active < (int)g_tabs.size()) {
+        const Tab& t = g_tabs[g_active];
+        g_shm->activeTab = t.id;
+        copyTo(g_shm->url, sizeof g_shm->url, t.url);
+        copyTo(g_shm->title, sizeof g_shm->title, t.title);
+        g_shm->loading = t.loading; g_shm->canBack = t.back; g_shm->canForward = t.fwd;
+    }
+    g_shm->infoSeq.fetch_add(1);
+}
+
+// Hands the shown tab's newest picture to the plugin, into the buffer it is not reading, once it has taken the previous one.
 void publish() {
-    if (!g_dirty || !g_shm || g_vw <= 0 || g_vh <= 0) return;
+    if (!g_dirty || !g_shm || g_active < 0 || g_active >= (int)g_tabs.size()) return;
+    const Tab& t = g_tabs[g_active];
+    if (t.vw <= 0 || t.vh <= 0) return;
     const uint32_t seq = g_shm->frameSeq.load(std::memory_order_acquire);
     if (g_shm->ackSeq.load(std::memory_order_acquire) != seq) return;   // still reading the last one
     const int idx = (int)((seq + 1) & 1u);
-    const int w = std::min(g_vw, xptb::kMaxW), h = std::min(g_vh, xptb::kMaxH);
+    const int w = std::min(t.vw, xptb::kMaxW), h = std::min(t.vh, xptb::kMaxH);
     uint8_t* dst = g_shm->pixels[idx];
-    for (int y = 0; y < h; ++y) std::memcpy(dst + (size_t)y * w * 4, g_view.data() + (size_t)y * g_vw * 4, (size_t)w * 4);
-    if (g_popupShown && g_pw > 0 && g_ph > 0) {   // the drop-down, where the page put it (its rectangle is in view coordinates)
-        const int ox = (int)std::lround(g_popupRect.x * g_scale), oy = (int)std::lround(g_popupRect.y * g_scale);
-        for (int y = 0; y < g_ph; ++y) {
+    for (int y = 0; y < h; ++y) std::memcpy(dst + (size_t)y * w * 4, t.view.data() + (size_t)y * t.vw * 4, (size_t)w * 4);
+    if (t.popupShown && t.pw > 0 && t.ph > 0) {   // the drop-down, where the page put it (its rectangle is in view coordinates)
+        const int ox = (int)std::lround(t.popupRect.x * g_scale), oy = (int)std::lround(t.popupRect.y * g_scale);
+        for (int y = 0; y < t.ph; ++y) {
             const int ty = oy + y;
             if (ty < 0 || ty >= h) continue;
-            const int x0 = std::max(0, -ox), x1 = std::min(g_pw, w - ox);
-            if (x1 > x0) std::memcpy(dst + ((size_t)ty * w + ox + x0) * 4, g_popup.data() + ((size_t)y * g_pw + x0) * 4, (size_t)(x1 - x0) * 4);
+            const int x0 = std::max(0, -ox), x1 = std::min(t.pw, w - ox);
+            if (x1 > x0) std::memcpy(dst + ((size_t)ty * w + ox + x0) * 4, t.popup.data() + ((size_t)y * t.pw + x0) * 4, (size_t)(x1 - x0) * 4);
         }
     }
     g_shm->frameW[idx] = w;
@@ -200,7 +243,6 @@ template <class T> void initBase(T& t) {
 }
 template <class T> void unref(T* p) { if (p) p->base.release(&p->base); }
 
-cef_browser_t* g_browser = nullptr;
 cef_render_handler_t g_render;
 cef_life_span_handler_t g_life;
 cef_display_handler_t g_display;
@@ -216,45 +258,58 @@ int CEF_CALLBACK getScreenInfo(cef_render_handler_t*, cef_browser_t*, cef_screen
     si->available_rect = si->rect;
     return 1;
 }
-void CEF_CALLBACK onPopupShow(cef_render_handler_t*, cef_browser_t*, int show) { g_popupShown = show != 0; if (!show) { g_pw = g_ph = 0; } g_dirty = true; }
-void CEF_CALLBACK onPopupSize(cef_render_handler_t*, cef_browser_t*, const cef_rect_t* r) { g_popupRect = *r; }
-void CEF_CALLBACK onPaint(cef_render_handler_t*, cef_browser_t*, cef_paint_element_type_t type, size_t, cef_rect_t const*, const void* buffer, int w, int h) {
-    if (w <= 0 || h <= 0) return;
-    const size_t n = (size_t)w * h * 4;
-    if (type == PET_POPUP) { g_popup.assign((const uint8_t*)buffer, (const uint8_t*)buffer + n); g_pw = w; g_ph = h; }
-    else { g_view.assign((const uint8_t*)buffer, (const uint8_t*)buffer + n); g_vw = w; g_vh = h; }
-    g_dirty = true;
+void CEF_CALLBACK onPopupShow(cef_render_handler_t*, cef_browser_t* b, int show) {
+    Tab* t = tabOf(b);
+    if (!t) return;
+    t->popupShown = show != 0;
+    if (!show) t->pw = t->ph = 0;
+    if (shown(t)) g_dirty = true;
 }
-void CEF_CALLBACK onVirtualKeyboard(cef_render_handler_t*, cef_browser_t*, cef_text_input_mode_t mode) {
-    if (!g_shm) return;
+void CEF_CALLBACK onPopupSize(cef_render_handler_t*, cef_browser_t* b, const cef_rect_t* r) { if (Tab* t = tabOf(b)) t->popupRect = *r; }
+void CEF_CALLBACK onPaint(cef_render_handler_t*, cef_browser_t* b, cef_paint_element_type_t type, size_t, cef_rect_t const*, const void* buffer, int w, int h) {
+    Tab* t = tabOf(b);
+    if (!t || w <= 0 || h <= 0) return;
+    const size_t n = (size_t)w * h * 4;
+    if (type == PET_POPUP) { t->popup.assign((const uint8_t*)buffer, (const uint8_t*)buffer + n); t->pw = w; t->ph = h; }
+    else { t->view.assign((const uint8_t*)buffer, (const uint8_t*)buffer + n); t->vw = w; t->vh = h; }
+    if (shown(t)) g_dirty = true;
+}
+void CEF_CALLBACK onVirtualKeyboard(cef_render_handler_t*, cef_browser_t* b, cef_text_input_mode_t mode) {
+    if (!g_shm || !shown(tabOf(b))) return;
     g_shm->wantsKeyboard = mode != CEF_TEXT_INPUT_MODE_NONE;
     g_shm->infoSeq.fetch_add(1);
 }
 
-// A page that opens a window (a sign-in, a link with target=_blank): shown in the same view instead.
+// A page that opens a window (a link with target=_blank, a sign-in): opened as a tab of its own, shown.
 int CEF_CALLBACK onBeforePopup(cef_life_span_handler_t*, cef_browser_t* browser, cef_frame_t*, const cef_string_t* url, const cef_string_t*,
                                 cef_window_open_disposition_t, int, const cef_popup_features_t*, cef_window_info_t*, cef_client_t**,
                                 cef_browser_settings_t*, cef_dictionary_value_t**, int*) {
     if (url && url->length) {
-        cef_frame_t* f = browser->get_main_frame(browser);
-        if (f) { f->load_url(f, url); unref(f); }
+        if (g_tabs.size() < (size_t)xptb::kMaxTabs) g_openQueue.push_back(toUtf8(url));
+        else {   // no room for another tab: the page itself goes there
+            cef_frame_t* f = browser->get_main_frame(browser);
+            if (f) { f->load_url(f, url); unref(f); }
+        }
     }
-    return 1;   // no new window
+    return 1;   // no window of its own
 }
-void CEF_CALLBACK onAddressChange(cef_display_handler_t*, cef_browser_t*, cef_frame_t* frame, const cef_string_t* url) {
-    if (!g_shm || !frame || !frame->is_main(frame)) return;
-    copyTo(g_shm->url, sizeof g_shm->url, toUtf8(url));
-    g_shm->infoSeq.fetch_add(1);
+void CEF_CALLBACK onAddressChange(cef_display_handler_t*, cef_browser_t* b, cef_frame_t* frame, const cef_string_t* url) {
+    Tab* t = tabOf(b);
+    if (!t || !frame || !frame->is_main(frame)) return;
+    t->url = toUtf8(url);
+    publishInfo();
 }
-void CEF_CALLBACK onTitleChange(cef_display_handler_t*, cef_browser_t*, const cef_string_t* title) {
-    if (!g_shm) return;
-    copyTo(g_shm->title, sizeof g_shm->title, toUtf8(title));
-    g_shm->infoSeq.fetch_add(1);
+void CEF_CALLBACK onTitleChange(cef_display_handler_t*, cef_browser_t* b, const cef_string_t* title) {
+    Tab* t = tabOf(b);
+    if (!t) return;
+    t->title = toUtf8(title);
+    publishInfo();
 }
-void CEF_CALLBACK onLoadingState(cef_load_handler_t*, cef_browser_t*, int loading, int back, int fwd) {
-    if (!g_shm) return;
-    g_shm->loading = loading; g_shm->canBack = back; g_shm->canForward = fwd;
-    g_shm->infoSeq.fetch_add(1);
+void CEF_CALLBACK onLoadingState(cef_load_handler_t*, cef_browser_t* b, int loading, int back, int fwd) {
+    Tab* t = tabOf(b);
+    if (!t) return;
+    t->loading = loading != 0; t->back = back != 0; t->fwd = fwd != 0;
+    publishInfo();
 }
 cef_render_handler_t* CEF_CALLBACK getRender(cef_client_t*) { return &g_render; }
 cef_life_span_handler_t* CEF_CALLBACK getLife(cef_client_t*) { return &g_life; }
@@ -297,27 +352,90 @@ void initHandlers() {
     g_app.on_before_command_line_processing = onBeforeCommandLine;
 }
 
+// ---- opening, showing and closing tabs ---------------------------------------------------------------------------------------------
+void hostDo(cef_browser_t* b, void (*fn)(cef_browser_host_t*)) {
+    if (!b) return;
+    cef_browser_host_t* h = b->get_host(b);
+    if (h) { fn(h); unref(h); }
+}
+void showTab(int index) {
+    if (index < 0 || index >= (int)g_tabs.size()) return;
+    if (g_active >= 0 && g_active < (int)g_tabs.size() && g_active != index) hostDo(g_tabs[g_active].br, [](cef_browser_host_t* h) { h->was_hidden(h, 1); });
+    g_active = index;
+    hostDo(g_tabs[index].br, [](cef_browser_host_t* h) { h->was_hidden(h, 0); h->was_resized(h); h->invalidate(h, PET_VIEW); h->set_focus(h, 1); });
+    g_dirty = true;
+    if (g_shm) g_shm->wantsKeyboard = 0;
+    publishInfo();
+}
+bool openTab(const std::string& url) {
+    if (g_tabs.size() >= (size_t)xptb::kMaxTabs) return false;
+    cef_window_info_t wi;
+    std::memset(&wi, 0, sizeof wi);
+    wi.windowless_rendering_enabled = 1;
+    cef_browser_settings_t bs;
+    std::memset(&bs, 0, sizeof bs);
+    bs.size = sizeof bs;
+    bs.windowless_frame_rate = 30;
+    bs.background_color = 0xFFFFFFFF;
+    cef_string_t u = {};
+    setStr(&u, url.empty() ? std::string("about:blank") : url);
+    cef_browser_t* b = cef.create_browser_sync(&wi, &g_client, &u, &bs, nullptr, nullptr);
+    cef.utf16_clear(&u);
+    if (!b) return false;
+    Tab t;
+    t.id = g_nextId++;
+    t.br = b;
+    t.url = url;
+    g_tabs.push_back(std::move(t));
+    showTab((int)g_tabs.size() - 1);
+    return true;
+}
+void closeTab(int id) {
+    for (size_t i = 0; i < g_tabs.size(); ++i) {
+        if (g_tabs[i].id != id) continue;
+        cef_browser_t* b = g_tabs[i].br;
+        hostDo(b, [](cef_browser_host_t* h) { h->close_browser(h, 1); });
+        unref(b);
+        g_tabs.erase(g_tabs.begin() + (long)i);
+        if (g_tabs.empty()) { g_active = -1; openTab(""); return; }   // always one page
+        int next = g_active;
+        if ((int)i < g_active) --next;
+        else if ((int)i == g_active) next = std::min((int)i, (int)g_tabs.size() - 1);
+        g_active = -1;
+        showTab(next);
+        return;
+    }
+}
+
 // ---- the plugin's commands ---------------------------------------------------------------------------------------------------------
+cef_browser_t* activeBrowser() { return g_active >= 0 && g_active < (int)g_tabs.size() ? g_tabs[g_active].br : nullptr; }
 void withHost(void (*fn)(cef_browser_host_t*, const xptb::Cmd&), const xptb::Cmd& c) {
-    if (!g_browser) return;
-    cef_browser_host_t* h = g_browser->get_host(g_browser);
+    cef_browser_t* b = activeBrowser();
+    if (!b) return;
+    cef_browser_host_t* h = b->get_host(b);
     if (h) { fn(h, c); unref(h); }
 }
 cef_mouse_event_t mouseAt(const xptb::Cmd& c) { cef_mouse_event_t m; m.x = c.a; m.y = c.b; m.modifiers = 0; return m; }
 bool g_buttonDown = false;
 
 void runCommand(const xptb::Cmd& c) {
+    cef_browser_t* br = activeBrowser();
     switch (c.type) {
     case xptb::CMD_NAVIGATE:
-        if (g_browser) {
-            cef_frame_t* f = g_browser->get_main_frame(g_browser);
+        if (br) {
+            cef_frame_t* f = br->get_main_frame(br);
             if (f) { cef_string_t u = {}; setStr(&u, c.text); f->load_url(f, &u); cef.utf16_clear(&u); unref(f); }
         }
         break;
-    case xptb::CMD_BACK: if (g_browser) g_browser->go_back(g_browser); break;
-    case xptb::CMD_FORWARD: if (g_browser) g_browser->go_forward(g_browser); break;
-    case xptb::CMD_RELOAD: if (g_browser) g_browser->reload(g_browser); break;
-    case xptb::CMD_STOP: if (g_browser) g_browser->stop_load(g_browser); break;
+    case xptb::CMD_BACK: if (br) br->go_back(br); break;
+    case xptb::CMD_FORWARD: if (br) br->go_forward(br); break;
+    case xptb::CMD_RELOAD: if (br) br->reload(br); break;
+    case xptb::CMD_STOP: if (br) br->stop_load(br); break;
+    case xptb::CMD_TAB_NEW: openTab(c.text); break;
+    case xptb::CMD_TAB_CLOSE: closeTab(c.a); break;
+    case xptb::CMD_TAB_SELECT:
+        for (size_t i = 0; i < g_tabs.size(); ++i) if (g_tabs[i].id == c.a) showTab((int)i);
+        break;
     case xptb::CMD_RESIZE: {
         const int w = std::max(50, std::min(c.a, xptb::kMaxW)), h = std::max(50, std::min(c.b, xptb::kMaxH));
         const float s = std::max(0.5f, std::min(c.f, 4.0f));
@@ -326,8 +444,7 @@ void runCommand(const xptb::Cmd& c) {
         g_viewW = w; g_viewH = h; g_scale = s;
         // the picture must fit the shared buffer: a smaller density rather than a cut-off page
         while (g_viewW * g_scale > xptb::kMaxW || g_viewH * g_scale > xptb::kMaxH) g_scale *= 0.9f;
-        withHost([](cef_browser_host_t* h, const xptb::Cmd&) { h->notify_screen_info_changed(h); h->was_resized(h); }, c);
-        if (scaleChanged) withHost([](cef_browser_host_t* h, const xptb::Cmd&) { h->notify_screen_info_changed(h); }, c);
+        for (Tab& t : g_tabs) hostDo(t.br, [](cef_browser_host_t* hh) { hh->notify_screen_info_changed(hh); hh->was_resized(hh); });
         break;
     }
     case xptb::CMD_MOUSE_MOVE: withHost([](cef_browser_host_t* h, const xptb::Cmd& c) { cef_mouse_event_t m = mouseAt(c); if (g_buttonDown) m.modifiers = EVENTFLAG_LEFT_MOUSE_BUTTON; h->send_mouse_move_event(h, &m, 0); }, c); break;
@@ -448,19 +565,7 @@ int main(int argc, char** argv) {
     setStr(&st.locale, "en-US");
     if (!cef.initialize(&args, &st, &g_app, nullptr)) { fail("Chromium did not start (see xptbrowser.log in the browser profile)"); return 6; }
 
-    cef_window_info_t wi;
-    std::memset(&wi, 0, sizeof wi);
-    wi.windowless_rendering_enabled = 1;
-    cef_browser_settings_t bs;
-    std::memset(&bs, 0, sizeof bs);
-    bs.size = sizeof bs;
-    bs.windowless_frame_rate = 30;
-    bs.background_color = 0xFFFFFFFF;
-    cef_string_t blank = {};
-    setStr(&blank, "about:blank");
-    g_browser = cef.create_browser_sync(&wi, &g_client, &blank, &bs, nullptr, nullptr);
-    cef.utf16_clear(&blank);
-    if (!g_browser) { fail("Chromium could not open a page"); cef.shutdown(); return 7; }
+    if (!openTab("")) { fail("Chromium could not open a page"); cef.shutdown(); return 7; }
     g_shm->state.store(1);
 
     // the loop: the plugin's commands, Chromium's work, the newest picture; until told to stop or the plugin is gone
@@ -474,6 +579,11 @@ int main(int argc, char** argv) {
             g_shm->cmdRead.store(r + 1, std::memory_order_release);
         }
         cef.do_message_loop_work();
+        if (!g_openQueue.empty()) {   // pages a page asked to open in a new window
+            const std::vector<std::string> q = std::move(g_openQueue);
+            g_openQueue.clear();
+            for (const std::string& u : q) openTab(u);
+        }
         publish();
         const uint32_t beat = g_shm->heartbeat.load();
         const auto now = std::chrono::steady_clock::now();
@@ -483,13 +593,10 @@ int main(int argc, char** argv) {
         if (std::chrono::duration<double>(now - lastBeatAt).count() > 600.0) quit = true;
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    if (g_browser) {
-        cef_browser_host_t* h = g_browser->get_host(g_browser);
-        if (h) { h->close_browser(h, 1); unref(h); }
-        for (int i = 0; i < 50; ++i) { cef.do_message_loop_work(); std::this_thread::sleep_for(std::chrono::milliseconds(10)); }
-        unref(g_browser);
-        g_browser = nullptr;
-    }
+    for (Tab& t : g_tabs) { hostDo(t.br, [](cef_browser_host_t* h) { h->close_browser(h, 1); }); }
+    for (int i = 0; i < 50; ++i) { cef.do_message_loop_work(); std::this_thread::sleep_for(std::chrono::milliseconds(10)); }
+    for (Tab& t : g_tabs) unref(t.br);
+    g_tabs.clear();
     cef.shutdown();
     return 0;
 }
