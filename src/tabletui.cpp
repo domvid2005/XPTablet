@@ -167,6 +167,15 @@ const Backdrop kBackdrops[5] = {
 struct Accent { const char* name; int r, g, b; };
 // each background has its accent: Navy the blue XPTablet always had, the others the logo colour their sky is made of
 const Accent kAccents[5] = {{"Blue", 70, 140, 255}, {"Violet", 150, 100, 235}, {"Magenta", 205, 80, 170}, {"Coral", 240, 96, 96}, {"Gold", 236, 176, 56}};
+// the text colours follow the theme: moved by a share of how far the theme's accent is from Navy's blue (Navy: exactly as before)
+ImU32 themeText(int r, int g, int b, float share) {
+    const Accent& c = kAccents[std::max(0, std::min(4, g_settings.wallpaper))];
+    const Accent& n = kAccents[0];
+    auto ch = [&](int base, int t, int nv) { return std::max(0, std::min(255, base + (int)std::lround((t - nv) * share))); };
+    return IM_COL32(ch(r, c.r, n.r), ch(g, c.g, n.g), ch(b, c.b, n.b), 255);
+}
+#define kInk themeText(236, 241, 250, 0.05f)     // the main text: white with the faintest tint
+#define kMuted themeText(150, 168, 198, 0.32f)   // the quieter text: labels, hints, card titles
 ImU32 accentCol(int a) { const Accent& c = kAccents[std::max(0, std::min(4, g_settings.wallpaper))]; return IM_COL32(c.r, c.g, c.b, std::max(0, std::min(255, a))); }
 ImU32 accentLite(int a) {   // the lighter one: rings, lines, focus
     const Accent& c = kAccents[std::max(0, std::min(4, g_settings.wallpaper))];
@@ -415,6 +424,11 @@ void statusLogoRect(float w, ImVec2& a, ImVec2& size) {
 
 void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
     dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, kStatusH), IM_COL32(0, 0, 0, 90));
+    {   // a touch of the theme: its sky's darkest tone and a faint glow of its accent (the logo and layout are unchanged)
+        const Backdrop& bd = kBackdrops[std::max(0, std::min(4, g_settings.wallpaper))];
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, kStatusH), (bd.top & 0x00FFFFFF) | (70u << 24));
+        dl->AddRectFilledMultiColor(ImVec2(0, kStatusH - 6), ImVec2(w, kStatusH), accentCol(0), accentCol(0), accentCol(22), accentCol(22));
+    }
     const float y = std::floor((kStatusH - fontPx(f.small)) * 0.5f);
     const ImU32 col = IM_COL32(232, 238, 248, 255);
     // left: the clock, Zulu or (tapped) local time where the aircraft is, with its zone
@@ -432,14 +446,15 @@ void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
         }
         // the power button, in the corner
         ImGui::SetCursorScreenPos(ImVec2(0, 0));
-        if (ImGui::InvisibleButton("##power", ImVec2(30, kStatusH)) && g_power == POWER_ON) powerOff();
-        const ImVec2 pc(16, kStatusH * 0.5f);
-        if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(3, 3), ImVec2(29, kStatusH - 3), IM_COL32(255, 255, 255, 26), 6.0f);   // as the clock's
+        // (the power button and the clock each have their own place: their taps and highlights never overlap)
+        if (ImGui::InvisibleButton("##power", ImVec2(29, kStatusH)) && g_power == POWER_ON) powerOff();
+        const ImVec2 pc(15, kStatusH * 0.5f);
+        if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(3, 3), ImVec2(27, kStatusH - 3), IM_COL32(255, 255, 255, 26), 6.0f);   // as the clock's
         icon(dl, APP_COUNT + 100, pc, 7.6f, ImGui::IsItemHovered() ? IM_COL32(255, 255, 255, 255) : col);   // (no ring around it)   // (the power pictogram)
-        const float cx = 32, tw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, buf).x;
-        ImGui::SetCursorScreenPos(ImVec2(cx - 6, 0));
-        if (ImGui::InvisibleButton("##clock", ImVec2(tw + 12, kStatusH))) { g_settings.statusLocalTime = !g_settings.statusLocalTime; g_settingsChanged = true; }
-        if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(cx - 6, 3), ImVec2(cx + tw + 6, kStatusH - 3), IM_COL32(255, 255, 255, 26), 6.0f);
+        const float cx = 37, tw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, buf).x;
+        ImGui::SetCursorScreenPos(ImVec2(30, 0));
+        if (ImGui::InvisibleButton("##clock", ImVec2(cx - 30 + tw + 6, kStatusH))) { g_settings.statusLocalTime = !g_settings.statusLocalTime; g_settingsChanged = true; }
+        if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(31, 3), ImVec2(cx + tw + 6, kStatusH - 3), IM_COL32(255, 255, 255, 26), 6.0f);
         dl->AddText(f.small, fontPx(f.small), ImVec2(cx, y), g_settings.statusLocalTime ? accentLite(255) : col, buf);   // local time: the theme's colour
     }
     // middle: the logo
@@ -458,7 +473,10 @@ void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
             if (tapped) g_ccTarget = g_ccTarget > 0.5f ? 0.0f : 1.0f;
             else g_ccTarget = g_ccT > (g_ccDragT0 > 0.5f ? 0.75f : 0.25f) ? 1.0f : 0.0f;
         }
-        if (ImGui::IsItemHovered() && g_ccT < 0.01f) dl->AddRectFilled(ImVec2(w * 0.5f - 70, 3), ImVec2(w * 0.5f + 70, kStatusH - 3), IM_COL32(255, 255, 255, 18), 8.0f);
+        // hovered: a soft highlight, whether it will open the pull-down or close it (brighter while it is open)
+        static float lh = 0;   // (the hover fades in and out)
+        lh += ((ImGui::IsItemHovered() && !g_ccDrag ? 1.0f : 0.0f) - lh) * (1.0f - std::exp(-io.DeltaTime * 14.0f));
+        if (lh > 0.01f) dl->AddRectFilled(ImVec2(w * 0.5f - 70, 3), ImVec2(w * 0.5f + 70, kStatusH - 3), IM_COL32(255, 255, 255, (int)(lh * (g_ccT > 0.5f ? 30 : 18))), 8.0f);
     }
     if (g_logo) {
         ImVec2 a, sz;
@@ -771,13 +789,12 @@ bool pageHeader(ImDrawList* dl, const Fonts& f, float w, const char* title) {
 void placeholderPage(ImDrawList* dl, const Fonts& f, int app, float w, float h) {
     const ImVec2 c(w * 0.5f, kStatusH + kHeaderH + (h - kStatusH - kHeaderH) * 0.42f);
     drawTile(dl, f, app, c, 96, false, 1.0f, 1.0f);
-    textCentered(dl, f.body, c.x, c.y + 64, IM_COL32(210, 220, 236, 255), "This app arrives in a later test build.");
+    textCentered(dl, f.body, c.x, c.y + 64, themeText(210, 220, 236, 0.15f), "This app arrives in a later test build.");
 }
 
 // The browser: a toolbar (back, forward, reload, the address, bookmark), the bookmarks, then the page itself.
 // ---- small pieces the pages share ---------------------------------------------------------------------------------------------------
-const ImU32 kCard = IM_COL32(10, 22, 44, 210), kCardLine = IM_COL32(255, 255, 255, 30), kInk = IM_COL32(236, 241, 250, 255),
-            kMuted = IM_COL32(150, 168, 198, 255), kGood = IM_COL32(80, 214, 124, 255), kWarn = IM_COL32(255, 190, 90, 255);
+const ImU32 kCard = IM_COL32(10, 22, 44, 210), kCardLine = IM_COL32(255, 255, 255, 30), kGood = IM_COL32(80, 214, 124, 255), kWarn = IM_COL32(255, 190, 90, 255);
 
 void card(ImDrawList* dl, ImVec2 a, ImVec2 b, const Fonts& f, const char* title) {
     dl->AddRectFilled(a, b, themeTone(10, 22, 44, 210), 12.0f);   // kCard, in the theme's tone
@@ -1002,7 +1019,7 @@ float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y);
 float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
     if (g_settings.physicalKeys && !g_kbdKeysShown) return keyboardBar(dl, f, w, y);
     const float pad = 8, gap = 5, kh = 34, H = 5 * kh + 4 * gap + 2 * pad;
-    dl->AddRectFilled(ImVec2(0, y), ImVec2(w, y + H), IM_COL32(20, 26, 38, 250));
+    dl->AddRectFilled(ImVec2(0, y), ImVec2(w, y + H), themeTone(20, 26, 38, 250));
     dl->AddLine(ImVec2(0, y), ImVec2(w, y), IM_COL32(255, 255, 255, 40));
     const char* letters[4] = {"1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"};
     const char* symbols[4] = {"1234567890", "!@#$%^&*()", "-_=+:;'\"?", "~`|\\<>,"};
@@ -1050,13 +1067,20 @@ float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
     x += w15 + gap;
     if (key("##kat", "@", x, yy, kw, false)) typeKey(act, '@', true);
     x += kw + gap;
-    const float spaceW = 10 * kw + 9 * gap - (w15 + gap) * 2 - (kw + gap) * 3;
+    // Done closes the keys on every keyboard (notes, where Enter makes a new line; a web page, where Enter goes to the page; the
+    // address bar), except where Enter itself is Done (a one-line field)
+    const bool doneKey = !(g_kbdTarget == 2 && !g_typeMultiline);
+    const float spaceW = 10 * kw + 9 * gap - (w15 + gap) * 2 - (kw + gap) * 3 - (doneKey ? w15 + gap : 0);
     if (key("##kspace", "space", x, yy, spaceW, false)) typeKey(act, ' ', true);
     x += spaceW + gap;
     if (key("##kdot", ".", x, yy, kw, false)) typeKey(act, '.', true);
     x += kw + gap;
     if (key("##kslash", "/", x, yy, kw, false)) typeKey(act, '/', true);
     x += kw + gap;
+    if (doneKey) {
+        if (key("##kdone", "Done", x, yy, w15, false)) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; g_kbdShift = false; }
+        x += w15 + gap;
+    }
     if (key("##kenter", g_kbdTarget == 1 ? "Go" : (g_kbdTarget == 2 && !g_typeMultiline) ? "Done" : "Enter", x, yy, w15, true)) typeKey(act, 13, false);
     return H;
 }
@@ -1064,10 +1088,15 @@ float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
 constexpr float kKbdBarH = 40;
 float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y) {
     const float yb = y + (5 * 34 + 4 * 5 + 16) - kKbdBarH;   // at the bottom, where the keyboard would end
-    dl->AddRectFilled(ImVec2(0, yb), ImVec2(w, yb + kKbdBarH), IM_COL32(20, 26, 38, 250));
+    dl->AddRectFilled(ImVec2(0, yb), ImVec2(w, yb + kKbdBarH), themeTone(20, 26, 38, 250));
     dl->AddLine(ImVec2(0, yb), ImVec2(w, yb), IM_COL32(255, 255, 255, 40));
     keyboardIcon(dl, ImVec2(26, yb + kKbdBarH * 0.5f), accentLite(255));
-    textAt(dl, f.small, 48, std::floor(yb + (kKbdBarH - fontPx(f.small)) * 0.5f), kInk, "Typing with your keyboard  \xC2\xB7  Enter to finish");
+    const bool notes = g_kbdTarget == 2 && g_typeMultiline;   // notes: Enter makes a new line, so Done closes it
+    textAt(dl, f.small, 48, std::floor(yb + (kKbdBarH - fontPx(f.small)) * 0.5f), kInk,
+           notes ? "Typing with your keyboard  \xC2\xB7  Enter for a new line" : "Typing with your keyboard  \xC2\xB7  Enter to finish");
+    if (pill(dl, f, "##kbardone", "Done", ImVec2(w - 92, yb + 7), ImVec2(w - 12, yb + kKbdBarH - 7), true, true)) {   // (always: a way to close it)
+        g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr;
+    }
     return kKbdBarH;
 }
 // how tall the keyboard is now (the full keys, or the physical keyboard's bar)
@@ -2714,38 +2743,43 @@ bool textField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, I
     const float ty = multiline ? a.y + 8 : std::floor(a.y + (b.y - a.y - px) * 0.5f);
     if (v.empty() && !focus) textAt(dl, f.body, a.x + 10, ty, kMuted, hint);
     else {
-        std::string shown = v;
-        if (focus && std::fmod(ImGui::GetTime(), 1.0) < 0.6) shown += "|";
-        if (multiline && ruled > 0) {   // line by line, each on a rule (wrapped at the box's width)
-            const float wrapW = b.x - a.x - 20;
-            // how many lines: past the box, it moves up a whole line at a time (the text stays on the rules) so the last shows
-            int lines = 0;
-            for (int pass = 0; pass < 2; ++pass) {
-            const int fits = std::max(1, (int)std::floor((b.y - a.y) / ruled));
-            float y = a.y + ruled - px - 6 - (pass == 1 ? std::max(0, lines - fits) * ruled : 0.0f);
-            int count = 0;
-            size_t p0 = 0;
-            while (p0 <= shown.size()) {
-                size_t nl = shown.find('\n', p0);
-                if (nl == std::string::npos) nl = shown.size();
-                const char* s0 = shown.c_str() + p0, *e0 = shown.c_str() + nl;
+        // the caret is drawn on its own, at the text's end: added to the text, it moved a long line and rewrapped the last word
+        // each time it blinked
+        const bool caretOn = focus && std::fmod(ImGui::GetTime(), 1.0) < 0.6;
+        auto caret = [&](float x, float y) { if (caretOn) dl->AddLine(ImVec2(x + 1, y), ImVec2(x + 1, y + px), kInk, 1.5f); };
+        if (multiline) {   // line by line (each on a rule when ruled), wrapped at the box's width
+            const float wrapW = b.x - a.x - 24, step = ruled > 0 ? ruled : px + 5;
+            struct Ln { const char* s; const char* e; };
+            std::vector<Ln> ls;
+            const char* base = v.c_str(), *end = base + v.size();
+            const char* p0 = base;
+            while (true) {
+                const char* nl = std::find(p0, end, '\n');
+                const char* s0 = p0;
                 do {
-                    const char* cut = e0 == s0 ? e0 : f.body->CalcWordWrapPositionA(px / f.body->FontSize, s0, e0, wrapW);
-                    if (cut == s0 && s0 < e0) ++cut;
-                    if (pass == 1) dl->AddText(f.body, px, ImVec2(a.x + 10, y), kInk, s0, cut);
-                    y += ruled; ++count;
+                    const char* cut = nl == s0 ? nl : f.body->CalcWordWrapPositionA(px / f.body->FontSize, s0, nl, wrapW);
+                    if (cut == s0 && s0 < nl) ++cut;
+                    ls.push_back({s0, cut});
                     s0 = cut;
-                    while (s0 < e0 && *s0 == ' ') ++s0;
-                } while (s0 < e0);
+                    while (s0 < nl && *s0 == ' ') ++s0;
+                } while (s0 < nl);
+                if (nl == end) break;
                 p0 = nl + 1;
             }
-            lines = count;
-            }
-        } else if (multiline) dl->AddText(f.body, px, ImVec2(a.x + 10, ty), kInk, shown.c_str(), nullptr, b.x - a.x - 20);
-        else {   // a long line shows its end
-            const float tw = f.body->CalcTextSizeA(px, 1e9f, 0, shown.c_str()).x;
-            const float room = b.x - a.x - 20;
-            textAt(dl, f.body, a.x + 10 - std::max(0.0f, tw - room), ty, kInk, shown.c_str());
+            // past the box, it moves up a whole line at a time (on the rules) so the last line shows
+            const float y0 = ruled > 0 ? a.y + ruled - px - 6 : a.y + 8;
+            const int fits = std::max(1, (int)std::floor((b.y - y0 - 4) / step) + (ruled > 0 ? 1 : 0));
+            const int first = std::max(0, (int)ls.size() - fits);
+            float y = y0;
+            for (int k = first; k < (int)ls.size(); ++k, y += step) dl->AddText(f.body, px, ImVec2(a.x + 10, y), kInk, ls[k].s, ls[k].e);
+            const Ln& last = ls.back();
+            caret(a.x + 10 + f.body->CalcTextSizeA(px, 1e9f, 0, last.s, last.e).x, y0 + (int)(ls.size() - 1 - first) * step);
+        } else {   // a long line shows its end (with room kept for the caret, so it does not move as it blinks)
+            const float tw = f.body->CalcTextSizeA(px, 1e9f, 0, v.c_str()).x;
+            const float room = b.x - a.x - 24;
+            const float x = a.x + 10 - std::max(0.0f, tw - room);
+            textAt(dl, f.body, x, ty, kInk, v.c_str());
+            caret(x + tw, ty);
         }
     }
     dl->PopClipRect();
@@ -2844,8 +2878,13 @@ void notesPage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
             rows.push_back({12, w - 12, y0 + 4 * rowH});
         }
         // keep the field being typed in above the keyboard
-        float shift = 0;
-        for (int i = 0; i < n; ++i) if (kb && g_typeInto == &vals[i]) shift = std::max(0.0f, rows[i].y + rowH - bottom + 6);
+        // (it glides there, rather than jumping each time another field is tapped or the keyboard comes and goes)
+        float want = 0;
+        for (int i = 0; i < n; ++i) if (kb && g_typeInto == &vals[i]) want = std::max(0.0f, rows[i].y + rowH - bottom + 6);
+        static float glide = 0;
+        glide += (want - glide) * (1.0f - std::exp(-ImGui::GetIO().DeltaTime * 14.0f));
+        if (std::fabs(want - glide) < 0.4f) glide = want;
+        const float shift = std::floor(glide + 0.5f);   // (drawn on whole pixels, so the text stays crisp while it moves)
         dl->PushClipRect(ImVec2(0, top + 36), ImVec2(w, bottom), true);
         for (int i = 0; i < n; ++i) {
             const Row& r = rows[i];
@@ -3940,7 +3979,7 @@ void weatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         return;
     }
     dl->AddRectFilled(ImVec2(0, top), ImVec2(w, h), IM_COL32(18, 20, 26, 255));
-    if (s.wxEmbed != 1) textCentered(dl, f.body, c.x, c.y, IM_COL32(190, 200, 220, 255), "Opening WXPlane...");
+    if (s.wxEmbed != 1) textCentered(dl, f.body, c.x, c.y, themeText(190, 200, 220, 0.2f), "Opening WXPlane...");
     ImGui::SetCursorScreenPos(ImVec2(0, top));
     ImGui::InvisibleButton("##wxplane", ImVec2(w, h - top));   // the pointer here belongs to WXPlane
     const ImGuiIO& io = ImGui::GetIO();
@@ -4048,8 +4087,17 @@ void glass(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha) {
     const int A = (int)(255 * alpha);
     dl->AddRectFilled(a, b, themeDark(215 * A / 255), r);   // a dark frosted base (theme's tone): what is behind barely shows
     dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, 24 * A / 255), r);
-    dl->AddRectFilledMultiColor(ImVec2(a.x + r * 0.3f, a.y + 1), ImVec2(b.x - r * 0.3f, a.y + std::min(24.0f, (b.y - a.y) * 0.4f)),
-                                IM_COL32(255, 255, 255, 16 * A / 255), IM_COL32(255, 255, 255, 16 * A / 255), IM_COL32(255, 255, 255, 0), IM_COL32(255, 255, 255, 0));
+    {   // the sheen at the top: a rounded band following the corners (a square one stuck out past them), fading downwards
+        const float sh = std::min(std::max(r, 24.0f), (b.y - a.y) * 0.45f);
+        const int v0 = dl->VtxBuffer.Size;
+        dl->AddRectFilled(ImVec2(a.x + 1, a.y + 1), ImVec2(b.x - 1, a.y + sh), IM_COL32(255, 255, 255, 255), std::max(0.0f, r - 1), ImDrawFlags_RoundCornersTop);
+        for (int i = v0; i < dl->VtxBuffer.Size; ++i) {
+            ImDrawVert& v = dl->VtxBuffer[i];
+            const float t = std::max(0.0f, std::min(1.0f, (v.pos.y - a.y) / sh));
+            const float edge = ((v.col >> IM_COL32_A_SHIFT) & 255) / 255.0f;   // (the anti-aliased rim keeps its fade)
+            v.col = IM_COL32(255, 255, 255, (int)(16 * A / 255 * (1 - t) * edge));
+        }
+    }
     dl->AddRect(a, b, IM_COL32(255, 255, 255, 46 * A / 255), r, 0, 1.0f);
 }
 // the cover (or a stand-in), rounded
@@ -4417,6 +4465,13 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
                 std::snprintf(id, sizeof id, "##note%d", n.id);
                 ImGui::SetCursorScreenPos(ImVec2(nx0, std::max(y, listTop)));
                 ImGui::InvisibleButton(id, ImVec2(nx1 - nx0, std::max(1.0f, std::min(y + cardH, listBot) - std::max(y, listTop))));
+                {   // hovered: the card brightens and takes the accent's edge (pressed, a little more)
+                    const Ease ne = eased(id, false, ImGui::IsItemHovered(), ImGui::IsItemActive());
+                    if (ne.hot + ne.down > 0.01f) {
+                        dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, (int)((22 * ne.hot + 14 * ne.down) * al)), 16.0f);
+                        dl->AddRect(a, b, accentLite((int)(120 * ne.hot * al)), 16.0f, 0, 1.2f);
+                    }
+                }
                 static float pressX = 0;
                 if (ImGui::IsItemActivated()) pressX = io.MousePos.x;
                 if (ImGui::IsItemActive()) n.dx = io.MousePos.x - pressX;   // swiped sideways
@@ -4434,9 +4489,13 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     dl->PopClipRect();
     // the bar to push it back up
     const float by = h + oy - 16;
-    dl->AddRectFilled(ImVec2(w * 0.5f - 60, by - 3), ImVec2(w * 0.5f + 60, by + 2), IM_COL32(255, 255, 255, 150), 3.0f);
     ImGui::SetCursorScreenPos(ImVec2(w * 0.5f - 110, by - 18));
     ImGui::InvisibleButton("##ccbar", ImVec2(220, 34));
+    {   // hovered or held: it grows a little and brightens (in the accent's light tone), so it reads as something to drag
+        const Ease be = eased("##ccbar", false, ImGui::IsItemHovered(), ImGui::IsItemActive());
+        const float k = std::max(be.hot, be.down), hw = 60 + 12 * k, hh = 2.5f + 1.0f * k;
+        dl->AddRectFilled(ImVec2(w * 0.5f - hw, by - hh - 0.5f), ImVec2(w * 0.5f + hw, by + hh - 0.5f), mixCol(IM_COL32(255, 255, 255, 150), accentLite(255), k * 0.7f), hh + 0.5f);
+    }
     if (ImGui::IsItemActivated()) { g_ccDrag = true; g_ccDragY0 = io.MousePos.y; g_ccDragT0 = g_ccT; }
     if (ImGui::IsItemActive()) g_ccT = std::max(0.0f, std::min(1.0f, g_ccDragT0 + (io.MousePos.y - g_ccDragY0) / (H * 0.8f)));
     if (ImGui::IsItemDeactivated()) {
@@ -4564,7 +4623,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             dl->AddLine(ImVec2(m.x, m.y - 12), ImVec2(m.x, m.y + 12), IM_COL32(255, 255, 255, 200));
         }
         dl->PopClipRect();
-        textCentered(dl, f.small, (a.x + e.x) * 0.5f, a.y + 8, IM_COL32(200, 212, 232, 255), g_touches.empty() ? "Touch test: press and drag here" : "Touch test");
+        textCentered(dl, f.small, (a.x + e.x) * 0.5f, a.y + 8, themeText(200, 212, 232, 0.15f), g_touches.empty() ? "Touch test: press and drag here" : "Touch test");
         if (!g_touches.empty() && pill(dl, f, "##touchclr", "Clear", ImVec2(e.x - 74, e.y - 36), ImVec2(e.x - 10, e.y - 8), false, true)) g_touches.clear();
         return;
     }
