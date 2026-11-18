@@ -848,10 +848,12 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     textAt(dl, f.small, a.x + 14, a.y + 10, kMuted, b);
     std::snprintf(b, sizeof b, "%.1f m long  \xC2\xB7  %.1f m span", acLen, acSpan);
     textRight(dl, f.small, e.x - 14, a.y + 10, kMuted, b);
-    const bool doors = g.toliss && g.paxDoors > 0;
-    const float boxTop = a.y + 34, boxBot = e.y - (doors ? 46 : 14);
-    const float px = std::min((boxBot - boxTop) / acLen, (leftW - (doors ? 70 : 40)) / acSpan);   // the door buttons sit at the card's edges, clear of the wings
-    const ImVec2 nose((a.x + e.x) * 0.5f, std::floor((boxTop + boxBot - acLen * px) * 0.5f));
+    // ToLiss: the doors a jetway can reach, each with its block on the fuselage and a Connect / Disconnect bubble beside it.
+    // When the jetway is docked, the door opens; when it leaves, the door closes (the plugin does that, see doGround).
+    const bool doors = g.toliss && g.jwDoors > 0;
+    const float boxTop = a.y + 34, boxBot = e.y - (doors && g.jwDoors > 1 && g.openSam ? 30 : 14);
+    const float px = std::min((boxBot - boxTop) / acLen, (leftW - (doors ? 150 : 40)) / acSpan);   // room at the left for the bubbles
+    const ImVec2 nose((a.x + e.x) * 0.5f + (doors ? 30.0f : 0.0f), std::floor((boxTop + boxBot - acLen * px) * 0.5f));
     // the drawing, resized to the type's length and span (kx, ky: from the drawing's metres to the type's)
     const float kx = shape ? acSpan / shape->span : 1.0f, ky = shape ? acLen / shape->len : 1.0f;
     if (shape) drawShape(dl, *shape, nose, px * kx, px * ky, IM_COL32(200, 211, 230, 255), IM_COL32(104, 120, 150, 255));
@@ -859,46 +861,42 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     const float hw0 = shape ? fuselageHalf(*shape, 0.25f, 0) : -1;   // the fuselage's half-width forward of the wing, drawing metres
     const float hwPx = (shape && hw0 > 0 ? hw0 * kx : spec.fus * 0.5f) * px;
     if (doors) {
-        auto doorCol = [](int mode) { return mode == 2 ? kGood : mode == 1 ? IM_COL32(110, 170, 255, 255) : IM_COL32(120, 136, 164, 255); };
-        auto doorButton = [&](const char* id, const char* lbl, bool left, float frac, float bw, int mode, int action, int index) {
+        const int pairs = (g.paxDoors + 1) / 2;
+        for (int k = 0; k < g.jwDoors && k < 3; ++k) {
+            const int pax = g.jwDoorPax[k];
+            const float frac = paxDoorAt(pax / 2, std::max(1, pairs));
             const float y = nose.y + frac * acLen * px;
             float hw = hwPx;   // the fuselage's edge at this door (it narrows towards the tail)
-            if (shape && hw0 > 0) { const float h = fuselageHalf(*shape, frac, hw0); if (h > 0) hw = h * kx * px; }
-            const float side = left ? nose.x - hw : nose.x + hw;
-            const float x = left ? a.x + 12 : e.x - 12 - bw;
-            // the door on the fuselage, a leader to its button, and the button: lit when the door is open
-            dl->AddRectFilled(ImVec2(side - (left ? 0 : 3), y - 4), ImVec2(side + (left ? 3 : 0), y + 4), doorCol(mode));
-            dl->AddLine(ImVec2(left ? x + bw : x, y), ImVec2(side, y), IM_COL32(255, 255, 255, 46), 1.0f);
-            dl->AddRectFilled(ImVec2(x, y - 12), ImVec2(x + bw, y + 12), IM_COL32(16, 30, 56, 255), 12.0f);
-            if (pill(dl, f, id, lbl, ImVec2(x, y - 12), ImVec2(x + bw, y + 12), mode == 2, gnd)) { act.ground = action; act.groundIndex = index; }
-            if (mode == 1) dl->AddCircleFilled(ImVec2(left ? x + bw - 8 : x + 8, y), 2.5f, doorCol(1), 8);   // armed for automatic opening
-        };
-        const int pairs = (g.paxDoors + 1) / 2;
-        for (int i = 0; i < g.paxDoors && i < 8; ++i) {
-            char id[16], lbl[8];
-            std::snprintf(id, sizeof id, "##pd%d", i);
-            std::snprintf(lbl, sizeof lbl, "%d%c", i / 2 + 1, (i % 2) == 0 ? 'L' : 'R');
-            doorButton(id, lbl, (i % 2) == 0, paxDoorAt(i / 2, pairs), 44, g.paxDoor[i], GA_PAX_DOOR, i);
+            if (shape && hw0 > 0) { const float hh = fuselageHalf(*shape, frac, hw0); if (hh > 0) hw = hh * kx * px; }
+            const float side = nose.x - hw;
+            const bool docked = g.openSam ? g.jwDocked[k] : g.jetway == 2;
+            const bool open = pax >= 0 && pax < 8 && g.paxDoor[pax] == 2;
+            // the block: the door, green while a jetway is on it, blue while the door is open without one
+            const ImU32 blockCol = docked ? kGood : open ? IM_COL32(110, 170, 255, 255) : IM_COL32(140, 156, 184, 255);
+            dl->AddRectFilled(ImVec2(side - 9, y - 7), ImVec2(side + 1, y + 7), blockCol, 2.0f);
+            // the bubble, at the card's left edge, with a leader to the block
+            const float bw = 108, bx = a.x + 12;
+            dl->AddLine(ImVec2(bx + bw, y), ImVec2(side - 9, y), IM_COL32(255, 255, 255, 46), 1.0f);
+            char id[16], lbl[16];
+            std::snprintf(id, sizeof id, "##jw%d", k);
+            std::snprintf(lbl, sizeof lbl, "%s", docked ? "Disconnect" : "Connect");
+            const bool canPress = gnd && (!g.openSam || g.jetway == 1 || g.jetway == 2);
+            dl->AddRectFilled(ImVec2(bx, y - 14), ImVec2(bx + bw, y + 14), IM_COL32(16, 30, 56, 255), 14.0f);
+            if (pill(dl, f, id, lbl, ImVec2(bx, y - 14), ImVec2(bx + bw, y + 14), docked, canPress)) { act.ground = GA_JETWAY_DOOR; act.groundIndex = k; }
+            // under the bubble: the door's name and what the jetway is doing
+            const char* st = !g.openSam ? (docked ? "jetway on" : "X-Plane jetway")
+                           : docked ? "docked, door open" : g.jetway == 1 ? "jetway ready" : g.jetway == 0 ? "no jetway here" : g.jetway == 2 ? "jetway at the other door" : "jetway moving";
+            std::snprintf(b, sizeof b, "%d%c  \xC2\xB7  %s", pax / 2 + 1, 'L', st);
+            textAt(dl, f.small, bx + 4, y + 17, docked ? kGood : kMuted, b);
         }
-        // the cargo doors share the right side with the cabin doors: their buttons sit a little off the door's own height
-        // where a cabin door's button is in the way
-        const char* cargoName[3] = {"FWD cargo", "AFT cargo", "Bulk"};
-        const float nudge[3] = {0.0f, 0.0f, 0.012f};
-        for (int i = 0; i < g.cargoDoors && i < 3; ++i) {
-            char id[16];
-            std::snprintf(id, sizeof id, "##cd%d", i);
-            doorButton(id, cargoName[i], false, kCargoAt[i] + nudge[i], i == 2 ? 50.0f : 80.0f, g.cargoDoor[i], GA_CARGO_DOOR, i);
-        }
-        const float by = e.y - 38, bw = (leftW - 28 - 8) * 0.5f;
-        if (pill(dl, f, "##dclose", "Close all doors", ImVec2(a.x + 14, by), ImVec2(a.x + 14 + bw, by + 26), false, gnd)) act.ground = GA_DOORS_CLOSE;
-        if (pill(dl, f, "##dauto", "All doors automatic", ImVec2(a.x + 22 + bw, by), ImVec2(a.x + 22 + 2 * bw, by + 26), false, gnd)) act.ground = GA_DOORS_AUTO;
+        if (g.jwDoors > 1 && g.openSam) textCentered(dl, f.small, (a.x + e.x) * 0.5f, e.y - 24, kMuted, "openSAM moves every jetway at the stand together.");
     }
 
     // ---- the services
     const float rx = e.x + 10, rw = w - 12 - rx;
     card(dl, ImVec2(rx, top), ImVec2(rx + rw, bot), f, "SERVICES");
     float y = top + 32;
-    const int rows = g.toliss ? (g.deice ? 7 : 6) : 4;
+    const int rows = (doors ? 0 : 1) + 1 + (g.toliss ? 2 + (g.deice ? 1 : 0) + (g.slides >= 0 ? 1 : 0) + (g.cabinLight >= 0 ? 1 : 0) : 0) + 2;
     const float rowH = std::min(50.0f, std::floor((bot - 12 - y) / rows)), bx1 = rx + rw - 14, bh = std::min(28.0f, rowH - 14);
     auto rowLabel = [&](const char* name, const char* state, ImU32 stateCol, bool lit) {
         dl->AddCircleFilled(ImVec2(rx + 20, y + rowH * 0.5f - 2), 4.0f, lit ? kGood : IM_COL32(255, 255, 255, 40), 12);   // a lamp: lit when connected
@@ -910,7 +908,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         return pill(dl, f, id, label, ImVec2(right - width, by), ImVec2(right, by + bh), on, enabled);
     };
     auto rowEnd = [&]() { y += rowH; dl->AddLine(ImVec2(rx + 14, y - 3), ImVec2(rx + rw - 14, y - 3), IM_COL32(255, 255, 255, 18)); };
-    {   // jetway
+    if (!doors) {   // jetway (on a ToLiss it is at the doors, on the left)
         const bool docked = g.openSam && g.jetway == 2;
         const char* st = !g.openSam ? "X-Plane's own jetways" : docked ? "Connected" : g.jetway == 1 ? "Ready to connect" : g.jetway == 0 ? "No jetway at this stand" : "Moving";
         rowLabel("Jetway", st, docked ? kGood : kMuted, docked);
@@ -936,6 +934,26 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             if (btn("##diq", "Instant", bx1, 78, false, gnd)) act.ground = GA_DEICE_QUICK;
             rowEnd();
         }
+    }
+    if (g.toliss && g.slides >= 0) {   // the cabin doors' slides
+        rowLabel("Cabin doors", g.slides == 1 ? "Slides armed" : "Slides disarmed", g.slides == 1 ? kWarn : kMuted, g.slides == 1);
+        if (btn("##arm", "Arm", bx1 - 84, 78, g.slides == 1, true)) act.ground = GA_SLIDES_ARM;
+        if (btn("##disarm", "Disarm", bx1, 78, g.slides == 0, true)) act.ground = GA_SLIDES_DISARM;
+        rowEnd();
+    }
+    if (g.toliss && g.cabinLight >= 0) {   // the cabin lights
+        char lv[32];
+        std::snprintf(lv, sizeof lv, g.cabinLight < 0.02f ? "Off" : "%d %%", (int)std::lround(g.cabinLight * 100));
+        rowLabel("Cabin lights", lv, kMuted, g.cabinLight >= 0.02f);
+        const float bw = 64;
+        const char* names[3] = {"Off", "Dim", "Bright"};
+        const int lvl = g.cabinLight < 0.02f ? 0 : g.cabinLight < 0.75f ? 1 : 2;
+        for (int i = 0; i < 3; ++i) {
+            char id[8];
+            std::snprintf(id, sizeof id, "##cl%d", i);
+            if (btn(id, names[i], bx1 - (2 - i) * (bw + 5), bw, lvl == i, true)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = i; }
+        }
+        rowEnd();
     }
     {   // service vehicles
         rowLabel("Service vehicles", g.toliss ? "Stairs, catering and loaders come with the doors" : "Fuel, catering, baggage (X-Plane's trucks)", kMuted, false);

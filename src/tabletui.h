@@ -72,6 +72,13 @@ struct GroundState {
     int paxDoor[8] = {}, cargoDoor[4] = {};  // 0 closed, 1 automatic, 2 open (ToLiss's door modes); cargo: forward, aft, bulk
     bool deice = false;           // the aircraft offers de-icing
     bool chocks = false, extPower = false, hpAir = false, lpAir = false;
+    // ToLiss: the doors a jetway can reach (1L; 2L too on an A321 with the classic door layout), each with the cabin door it is
+    // (an index into paxDoor) and whether a jetway is docked there (openSAM, by door)
+    int jwDoors = 0;
+    int jwDoorPax[3] = {0, 2, 4};
+    bool jwDocked[3] = {false, false, false};
+    int slides = -1;              // ToLiss: the cabin doors' slides, 1 armed, 0 disarmed, -1 unknown
+    float cabinLight = -1;        // ToLiss: the cabin lights, 0..1, -1 unknown
 };
 
 struct SimState {
@@ -95,11 +102,12 @@ struct SimState {
 
 // What the user asked for on the Ground page; the host carries it out.
 enum GroundAction { GA_NONE, GA_JETWAY, GA_GPU, GA_CHOCKS, GA_HP_AIR, GA_LP_AIR, GA_TRUCKS, GA_PUSH_LEFT, GA_PUSH_STRAIGHT, GA_PUSH_RIGHT, GA_PUSH_STOP,
-                    GA_PAX_DOOR, GA_CARGO_DOOR, GA_DOORS_CLOSE, GA_DOORS_AUTO, GA_DEICE, GA_DEICE_QUICK };
+                    GA_PAX_DOOR, GA_CARGO_DOOR, GA_DOORS_CLOSE, GA_DOORS_AUTO, GA_DEICE, GA_DEICE_QUICK,
+                    GA_JETWAY_DOOR, GA_SLIDES_ARM, GA_SLIDES_DISARM, GA_CABIN_LIGHT };
 
 struct Actions {
     int ground = GA_NONE;
-    int groundIndex = 0;          // which door, for GA_PAX_DOOR / GA_CARGO_DOOR
+    int groundIndex = 0;          // which door (GA_PAX_DOOR, GA_CARGO_DOOR, GA_JETWAY_DOOR); GA_CABIN_LIGHT: 0 off, 1 dim, 2 bright
     std::string metarSearch;      // look this airport's METAR up (the Weather page's search)
 };
 

@@ -349,7 +349,7 @@ int main(int argc, char** argv) {
         if (std::string(appName(APP_WEATHER)) != "WXPlane") { std::printf("FAIL: with WXPlane the icon is WXPlane\n"); ++failures; }
         shot(t, APP_GROUND, "ground_generic");
         SimState g = s; g.toliss = true; g.acfIcao = "A20N";
-        g.ground.toliss = true; g.ground.openSam = true; g.ground.jetway = 1; g.ground.paxDoors = 4; g.ground.cargoDoors = 2; g.ground.cargoDoors = 3; g.ground.deice = true; g.ground.paxDoor[0] = 2; g.ground.paxDoor[1] = 1; g.ground.cargoDoor[0] = 2; g.ground.chocks = true; g.ground.extPower = true;
+        g.ground.toliss = true; g.ground.openSam = true; g.ground.jetway = 1; g.ground.paxDoors = 4; g.ground.cargoDoors = 2; g.ground.cargoDoors = 3; g.ground.deice = true; g.ground.jwDoors = 1; g.ground.slides = 1; g.ground.cabinLight = 0.4f; g.ground.paxDoor[0] = 2; g.ground.paxDoor[1] = 1; g.ground.cargoDoor[0] = 2; g.ground.chocks = true; g.ground.extPower = true;
         shot(g, APP_GROUND, "ground_toliss");
         { SimState g2 = g; g2.acfIcao = "A21N"; g2.ground.paxDoors = 8; shot(g2, APP_GROUND, "ground_a321"); }
         { SimState g3 = t;
@@ -404,11 +404,23 @@ int main(int argc, char** argv) {
             return got;
         };
         openApp(APP_GROUND);
-        Actions r = press(g, 722, 139);
-        if (r.ground != GA_JETWAY) { std::printf("FAIL: the jetway button (%d)\n", r.ground); ++failures; }
+        // a ToLiss: the jetway is a bubble beside door 1L, at the card's left edge
+        float jy = -1;
+        for (float yy = 90; yy < 460 && jy < 0; yy += 4) { const Actions q = press(g, 78, yy); if (q.ground == GA_JETWAY_DOOR && q.groundIndex == 0) jy = yy; }
+        if (jy < 0) { std::printf("FAIL: no Connect bubble at door 1L\n"); ++failures; }
+        // an A321 with the classic doors: a second bubble, at 2L
+        { SimState g2 = g; g2.acfIcao = "A321"; g2.ground.paxDoors = 8; g2.ground.jwDoors = 2; g2.ground.jwDocked[1] = true; g2.ground.paxDoor[2] = 2;
+          bool second = false;
+          for (float yy = 90; yy < 460 && !second; yy += 4) { const Actions q = press(g2, 78, yy); second = q.ground == GA_JETWAY_DOOR && q.groundIndex == 1; }
+          if (!second) { std::printf("FAIL: no bubble at door 2L of an A321\n"); ++failures; }
+          shot(g2, APP_GROUND, "ground_a321_jetways"); openApp(APP_GROUND); }
+        // not a ToLiss: the jetway is the first row of the services
+        { SimState t2 = t; t2.ground.openSam = true; t2.ground.jetway = 1;
+          const Actions q = press(t2, 722, 139);
+          if (q.ground != GA_JETWAY) { std::printf("FAIL: the jetway row (%d)\n", q.ground); ++failures; } }
         g.ground.onGround = false;
-        r = press(g, 722, 139);
-        if (r.ground != GA_NONE) { std::printf("FAIL: no ground services in the air\n"); ++failures; }
+        const Actions r = press(g, 78, jy);
+        if (r.ground != GA_NONE) { std::printf("FAIL: no jetway in the air\n"); ++failures; }
         openApp(APP_HOME);
     }
     ImGui::DestroyContext();

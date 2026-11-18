@@ -160,7 +160,9 @@ xpt::Actions g_pendingGround;        // a press on the Ground page, waiting for 
 struct SimRefs {
     XPLMDataRef windDir = nullptr, windMs = nullptr, vis = nullptr, temp = nullptr, dew = nullptr, qnh = nullptr, rain = nullptr, alt = nullptr;
     XPLMDataRef cBase = nullptr, cTop = nullptr, cCover = nullptr, aAlt = nullptr, aDir = nullptr, aKt = nullptr, onGround = nullptr;
-    XPLMDataRef jwStatus = nullptr;                                    // openSAM
+    XPLMDataRef jwStatus = nullptr, jwDoorStatus = nullptr;            // openSAM: the stand's jetway, and docked by door
+    XPLMDataRef slides = nullptr, cabinPerc = nullptr, cabinLevel = nullptr, exitConfig = nullptr;   // ToLiss
+    bool wasDocked[3] = {false, false, false};                         // for opening and closing the doors with the jetways
     XPLMDataRef paxDoor = nullptr, cargoDoor = nullptr, chocks = nullptr, extPower = nullptr, hpAir = nullptr, lpAir = nullptr;   // ToLiss
     bool probed = false;                                               // what the ToLiss offers has been written to Log.txt
     bool found = false;
@@ -762,12 +764,36 @@ void findSimRefs() {
     }
     // other plugins' datarefs appear when they load (an aircraft's own plugin after the aircraft): looked for until found
     if (!r.jwStatus) r.jwStatus = XPLMFindDataRef("opensam/jetway/status");
+    if (!r.jwDoorStatus) r.jwDoorStatus = XPLMFindDataRef("opensam/jetway/door/status");
+    if (!r.slides) r.slides = XPLMFindDataRef("AirbusFBW/SlideArmedArray");
+    if (!r.cabinPerc) r.cabinPerc = XPLMFindDataRef("AirbusFBW/cabinLightLevel_perc");
+    if (!r.cabinLevel) r.cabinLevel = XPLMFindDataRef("AirbusFBW/CabinLightLevel");
+    if (!r.exitConfig) r.exitConfig = XPLMFindDataRef("AirbusFBW/A321ExitConfig");
     if (!r.paxDoor) r.paxDoor = XPLMFindDataRef("AirbusFBW/PaxDoorModeArray");
     if (!r.cargoDoor) r.cargoDoor = XPLMFindDataRef("AirbusFBW/CargoDoorModeArray");
     if (!r.chocks) r.chocks = XPLMFindDataRef("AirbusFBW/Chocks");
     if (!r.extPower) r.extPower = XPLMFindDataRef("AirbusFBW/EnableExternalPower");
     if (!r.hpAir) r.hpAir = XPLMFindDataRef("AirbusFBW/GroundHPAir");
     if (!r.lpAir) r.lpAir = XPLMFindDataRef("AirbusFBW/GroundLPAir");
+}
+
+// A number from a dataref of whichever kind it is (int, float or double; the first value of an array).
+float readNum(XPLMDataRef d) {
+    const int t = XPLMGetDataRefTypes(d);
+    if (t & xplmType_Int) return (float)XPLMGetDatai(d);
+    if (t & xplmType_Float) return XPLMGetDataf(d);
+    if (t & xplmType_Double) return (float)XPLMGetDatad(d);
+    if (t & xplmType_IntArray) { int v = 0; XPLMGetDatavi(d, &v, 0, 1); return (float)v; }
+    if (t & xplmType_FloatArray) { float v = 0; XPLMGetDatavf(d, &v, 0, 1); return v; }
+    return 0.0f;
+}
+void writeNum(XPLMDataRef d, float v) {
+    const int t = XPLMGetDataRefTypes(d);
+    if (t & xplmType_Int) XPLMSetDatai(d, (int)std::lround(v));
+    else if (t & xplmType_Float) XPLMSetDataf(d, v);
+    else if (t & xplmType_Double) XPLMSetDatad(d, v);
+    else if (t & xplmType_IntArray) { int i = (int)std::lround(v); XPLMSetDatavi(d, &i, 0, 1); }
+    else if (t & xplmType_FloatArray) XPLMSetDatavf(d, &v, 0, 1);
 }
 
 // Something another plugin offers under this name: a command, or a dataref to set to 1. True when it was there.
@@ -796,7 +822,9 @@ void probeToLiss() {
     };
     for (const char* n : {"AirbusFBW/PaxDoorModeArray", "AirbusFBW/CargoDoorModeArray", "AirbusFBW/BulkDoor", "AirbusFBW/Chocks", "AirbusFBW/EnableExternalPower",
                           "toliss_airbus/iscsinterface/animatedDeice", "toliss_airbus/iscsinterface/quickDeice", "toliss_airbus/door_commands/all_to_mode_close",
-                          "toliss_airbus/door_commands/all_to_mode_auto"})
+                          "toliss_airbus/door_commands/all_to_mode_auto", "toliss_airbus/door_commands/arm_slides", "toliss_airbus/door_commands/disarm_slides",
+                          "AirbusFBW/SlideArmedArray", "AirbusFBW/cabinLightLevel_perc", "AirbusFBW/CabinLightLevel", "AirbusFBW/A321ExitConfig",
+                          "opensam/jetway/status", "opensam/jetway/door/status"})
         describe(n);
 }
 
@@ -852,6 +880,45 @@ void readSimState() {
         g.extPower = r.extPower && XPLMGetDatai(r.extPower) != 0;
         g.hpAir = r.hpAir && XPLMGetDatai(r.hpAir) != 0;
         g.lpAir = r.lpAir && XPLMGetDatai(r.lpAir) != 0;
+        // the doors a jetway can reach: 1L, and 2L on an A321 with the classic door layout (A321ExitConfig 0), as openSAM docks them
+        g.jwDoors = 1;
+        g.jwDoorPax[0] = 0;
+        if (g_sim.acfIcao == "A321" && r.exitConfig && readNum(r.exitConfig) == 0 && g.paxDoors > 2) { g.jwDoors = 2; g.jwDoorPax[1] = 2; }
+        int docked[3] = {0, 0, 0};
+        if (r.jwDoorStatus) XPLMGetDatavi(r.jwDoorStatus, docked, 0, 3);
+        for (int k = 0; k < 3; ++k) g.jwDocked[k] = k < g.jwDoors && docked[k] != 0;
+        // slides: armed if any door's is
+        g.slides = -1;
+        if (r.slides) {
+            int sl[8] = {};
+            const int n = std::min(8, XPLMGetDatavi(r.slides, nullptr, 0, 0));
+            float slf[8] = {};
+            if (XPLMGetDataRefTypes(r.slides) & xplmType_IntArray) XPLMGetDatavi(r.slides, sl, 0, n); else { XPLMGetDatavf(r.slides, slf, 0, n); for (int i = 0; i < n; ++i) sl[i] = slf[i] > 0.5f; }
+            g.slides = 0;
+            for (int i = 0; i < n; ++i) if (sl[i]) g.slides = 1;
+        }
+        // cabin lights: the level in percent, else ToLiss's 0 / 1 / 2 (off, dim, bright)
+        g.cabinLight = r.cabinPerc ? readNum(r.cabinPerc) / 100.0f : r.cabinLevel ? readNum(r.cabinLevel) / 2.0f : -1.0f;
+        if (g.cabinLight >= 0) g.cabinLight = std::max(0.0f, std::min(1.0f, g.cabinLight));
+    } else {
+        g.jwDoors = 0; g.slides = -1; g.cabinLight = -1;
+    }
+}
+
+// The cabin door a jetway is on opens once the jetway has docked, and closes when the jetway leaves. Docked by door comes from
+// openSAM; without openSAM, X-Plane's own jetway (door 1) follows the Connect / Disconnect presses.
+void followJetways() {
+    SimRefs& r = g_refs;
+    const xpt::GroundState& g = g_sim.ground;
+    if (!g.toliss || !r.paxDoor || !g.openSam) return;
+    for (int k = 0; k < g.jwDoors && k < 3; ++k) {
+        if (g.jwDocked[k] == r.wasDocked[k]) continue;
+        r.wasDocked[k] = g.jwDocked[k];
+        const int pax = g.jwDoorPax[k];
+        if (pax < 0 || pax >= g.paxDoors) continue;
+        int mode = g.jwDocked[k] ? 2 : 0;
+        XPLMSetDatavi(r.paxDoor, &mode, pax, 1);
+        logMsg("jetway %s door %dL: door %s", g.jwDocked[k] ? "docked at" : "left", pax / 2 + 1, g.jwDocked[k] ? "opened" : "closed");
     }
 }
 
@@ -867,6 +934,29 @@ void doGround(const xpt::Actions& act) {
     const xpt::GroundState& g = g_sim.ground;
     switch (act.ground) {
     case xpt::GA_JETWAY: once(g.openSam ? "openSAM/toggle_jwy" : "sim/ground_ops/jetway"); break;
+    case xpt::GA_JETWAY_DOOR: {   // a door's Connect / Disconnect: openSAM docks (or undocks) every jetway at the stand
+        const int k = std::max(0, std::min(2, act.groundIndex));
+        if (g.openSam) {
+            once(g.jwDocked[k] ? "openSAM/undock_jwy" : "openSAM/dock_jwy");
+        } else {   // X-Plane's own jetway: no state to read, so the door follows the press
+            once("sim/ground_ops/jetway");
+            if (g.toliss && r.paxDoor && k < g.jwDoors) {
+                const int pax = g.jwDoorPax[k];
+                int mode = g.paxDoor[pax] == 2 ? 0 : 2;
+                XPLMSetDatavi(r.paxDoor, &mode, pax, 1);
+            }
+        }
+        break;
+    }
+    case xpt::GA_SLIDES_ARM: if (g.toliss) trigger("toliss_airbus/door_commands/arm_slides"); break;
+    case xpt::GA_SLIDES_DISARM: if (g.toliss) trigger("toliss_airbus/door_commands/disarm_slides"); break;
+    case xpt::GA_CABIN_LIGHT: {   // off, dim, bright
+        const int lvl = std::max(0, std::min(2, act.groundIndex));
+        if (r.cabinPerc && XPLMCanWriteDataRef(r.cabinPerc)) writeNum(r.cabinPerc, lvl == 0 ? 0.0f : lvl == 1 ? 40.0f : 100.0f);
+        else if (r.cabinLevel && XPLMCanWriteDataRef(r.cabinLevel)) writeNum(r.cabinLevel, (float)lvl);
+        else logMsg("cabin lights: no writable ToLiss dataref");
+        break;
+    }
     case xpt::GA_GPU: if (g.toliss && r.extPower) toggleInt(r.extPower); else once("sim/ground_ops/toggle_gpu_request"); break;
     case xpt::GA_CHOCKS: if (g.toliss) toggleInt(r.chocks); break;
     case xpt::GA_HP_AIR: if (g.toliss) toggleInt(r.hpAir); break;
@@ -897,7 +987,7 @@ void doGround(const xpt::Actions& act) {
 
 float flightLoop(float dt, float, int, void*) {
     findSimRefs();
-    if ((XPLMGetCycleNumber() & 7) == 0) readSimState();
+    if ((XPLMGetCycleNumber() & 7) == 0) { readSimState(); followJetways(); }
     {   // the METAR search's answer
         xpt::MetarAnswer a;
         if (xpt::metarPoll(a)) { g_sim.metar.busy = false; g_sim.metar.icao = a.icao; g_sim.metar.raw = a.raw; g_sim.metar.error = a.error; }
@@ -1013,6 +1103,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int msg, void* param) {
     if (msg == XPLM_MSG_PLANE_LOADED && (intptr_t)param == 0) {   // the user's aircraft
         loadAircraftConfig();
         g_refs.probed = false;
+        for (bool& d : g_refs.wasDocked) d = false;
         g_sim.toliss = false;   // looked for again once the new aircraft's plugins are in
         xpt::openApp(xpt::APP_HOME);
     } else if (msg == XPLM_MSG_ENTERED_VR) {
