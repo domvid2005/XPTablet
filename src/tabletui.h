@@ -41,7 +41,8 @@ struct Settings {
     bool mapLocalTime = false;    // the time bubble shows local time (else Zulu)
     bool mapTraffic = true;       // AI and multiplayer aircraft
     bool mapOutlines = false;     // coastlines, borders, states and provinces
-    bool mapNavaids = true;       // VORs, NDBs, DMEs and ILS localizers
+    bool mapNavaids = true;       // VORs, NDBs and DMEs
+    bool mapIls = true;           // ILS and localizer courses (a layer of their own)
     bool mapWaypoints = false;    // fixes
     bool mapRoute = true;         // the SimBrief flight plan
     std::string simbriefUser;     // SimBrief user name or pilot ID (the Flight Plan page and the route on the map)

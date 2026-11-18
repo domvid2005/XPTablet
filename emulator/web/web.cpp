@@ -78,7 +78,9 @@ MapState::Traffic makeTraffic(bool ground) {
 int g_jetway = 1;          // openSAM: 1 ready, 2 docked, -1 moving
 double g_jetwayUntil = 0;
 int g_jetwayTo = 1;
-bool g_wantDoor[2] = {false, false};   // the doors asked for: each connects on its own, the jetways leave with the last one
+bool g_wantDoor[2] = {false, false};
+bool g_xpJetway = false;               // without openSAM: X-Plane's own jetways, as last pressed (sim/ground_ops/jetway)
+bool g_wasDocked[2] = {false, false};  // ToLiss: the door under a jetway opens when it docks   // the doors asked for: each connects on its own, the jetways leave with the last one
 bool g_slidesAuto = false;             // ToLiss's own rule: armed with the beacon on and the doors shut, disarmed parked
 // a pretend music player (the sim reads Windows' or Linux's own); the radio switch on the page stands for xPilot receiving
 struct Song { const char* title; const char* artist; const char* album; unsigned char c0[3], c1[3]; };
@@ -346,8 +348,15 @@ void step(double dt, double now) {
         if (gr.slides < 0) gr.slides = 0;
         if (gr.cabinLight < 0) gr.cabinLight = 0.7f;
     } else { gr.paxDoors = gr.cargoDoors = 0; gr.deice = false; gr.slides = -1; gr.cabinLight = -1; }
-    gr.jwDoors = g_openSam ? 2 : 0;
-    for (int k = 0; k < 2; ++k) gr.jwDocked[k] = g_openSam && g_jetway == 2 && g_wantDoor[k];
+    // jetways: openSAM's (they move, by door), else X-Plane's own (one command brings or sends them all), as the plugin reads them
+    if (!g_onGround || g_gs > 3) { g_xpJetway = false; g_wantDoor[0] = g_wantDoor[1] = false; }
+    if (!g_openSam) gr.jetway = g_xpJetway ? 2 : 1;
+    gr.jwDoors = g_openSam ? 2 : (g_ac.toliss && g_ac.icao == "A321") ? 2 : 1;
+    for (int k = 0; k < 2; ++k) { gr.jwDoorPax[k] = 2 * k; gr.jwDocked[k] = k < gr.jwDoors && g_wantDoor[k] && (g_openSam ? g_jetway == 2 : g_xpJetway); }
+    if (g_ac.toliss) for (int k = 0; k < gr.jwDoors; ++k) if (gr.jwDocked[k] != g_wasDocked[k]) {
+        g_wasDocked[k] = gr.jwDocked[k];
+        if (2 * k < gr.paxDoors) gr.paxDoor[2 * k] = gr.jwDocked[k] ? 2 : 0;   // the door under it opens, and closes when it leaves
+    }
     // the slides, by themselves
     gr.slidesAuto = g_slidesAuto;
     if (g_ac.toliss && g_slidesAuto) {
@@ -411,12 +420,15 @@ void groundAction(const Actions& a, double now) {
     case GA_SLIDES_AUTO: g_slidesAuto = true; break;
     case GA_CABIN_LIGHT: gr.cabinLight = std::max(0, std::min(100, a.groundIndex)) / 100.0f; break;
     case GA_JETWAY: case GA_JETWAY_DOOR: {
-        if (!g_openSam || g_jetway == -1) break;
+        if (g_openSam && g_jetway == -1) break;
         const bool any0 = g_wantDoor[0] || g_wantDoor[1];
         if (a.ground == GA_JETWAY_DOOR && a.groundIndex >= 0 && a.groundIndex < 2) g_wantDoor[a.groundIndex] = !g_wantDoor[a.groundIndex];
-        else { const bool on = !(g_jetway == 2); g_wantDoor[0] = g_wantDoor[1] = on; }
+        else { const bool on = !(g_openSam ? g_jetway == 2 : g_xpJetway); g_wantDoor[0] = g_wantDoor[1] = on; }
         const bool any1 = g_wantDoor[0] || g_wantDoor[1];
-        if (!any0 && any1 && g_jetway != 2) { g_jetwayTo = 2; g_jetway = -1; g_jetwayUntil = now + 6; }   // the first door: the jetways come
+        if (!g_openSam) {   // X-Plane's own: sim/ground_ops/jetway with the first door, again with the last
+            if (!any0 && any1) g_xpJetway = true;
+            else if (any0 && !any1) g_xpJetway = false;
+        } else if (!any0 && any1 && g_jetway != 2) { g_jetwayTo = 2; g_jetway = -1; g_jetwayUntil = now + 6; }   // the first door: the jetways come
         else if (any0 && !any1 && g_jetway == 2) { g_jetwayTo = 1; g_jetway = -1; g_jetwayUntil = now + 6; }   // the last door: they go
         break;
     }

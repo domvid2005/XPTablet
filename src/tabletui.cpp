@@ -174,7 +174,11 @@ void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
     if (g_icons && cellNo >= 0) {   // its pictogram (24 design units, ~20 of them drawn)
         ImVec2 uv0, uv1;
         cellUv(cellNo, uv0, uv1);
-        const float hs = r * 1.14f;
+        // a little inside the cell: sampled right at its border, a small drawing blends in the cell beside it (the brand tiles
+        // are solid squares, so a faint square showed round the power icon); the pictograms keep a wide margin, nothing is cut
+        const float ix = (uv1.x - uv0.x) / 24.0f, iy = (uv1.y - uv0.y) / 24.0f;
+        uv0.x += ix; uv0.y += iy; uv1.x -= ix; uv1.y -= iy;
+        const float hs = r * 1.14f * 22.0f / 24.0f;
         dl->AddImage(g_icons, ImVec2(c.x - hs, c.y - hs), ImVec2(c.x + hs, c.y + hs), uv0, uv1, col);
         return;
     }
@@ -632,7 +636,7 @@ bool g_animOpening = true;
 int g_animPage = -1;          // the page closing
 ImVec2 g_animIcon(0, 0);      // the icon it grows from and shrinks into
 float g_animIconSize = 0;
-constexpr double kOpenS = 0.34, kCloseS = 0.30;
+constexpr double kOpenS = 0.34, kCloseS = 0.40;
 void startPageAnim(bool opening, int iconApp) {
     g_animT0 = ImGui::GetTime();
     g_animOpening = opening;
@@ -1368,7 +1372,35 @@ const PlaneSpec kPlanes[] = {
     {"P28A", 7.16f, 9.14f, 1.07f, 1, 0}, {"PC12", 14.40f, 16.28f, 1.53f, 1, 0}, {"TBM9", 10.74f, 12.83f, 1.30f, 1, 0},
     {"C208", 11.46f, 15.87f, 1.62f, 1, 0}, {"BE58", 9.09f, 11.53f, 1.07f, 12, 0}, {"BE9L", 10.82f, 15.32f, 1.45f, 12, 0},
     {"B350", 14.22f, 17.65f, 1.45f, 12, 0}, {"DA42", 8.56f, 13.42f, 1.20f, 12, 0},
+    // more of what flies about (sizes only matter for picking and sizing a close drawing)
+    {"B733", 33.40f, 28.88f, 3.76f, 2, 25}, {"B734", 36.40f, 28.88f, 3.76f, 2, 25}, {"B735", 31.00f, 28.88f, 3.76f, 2, 25},
+    {"B736", 31.24f, 35.80f, 3.76f, 2, 25}, {"B37M", 35.56f, 35.92f, 3.76f, 2, 25}, {"B3XM", 43.80f, 35.92f, 3.76f, 2, 25},
+    {"B742", 70.66f, 59.64f, 6.50f, 4, 37}, {"B764", 61.37f, 51.92f, 5.03f, 2, 31}, {"B77F", 63.73f, 64.80f, 6.20f, 2, 31},
+    {"B778", 70.87f, 71.75f, 6.20f, 2, 31}, {"B779", 76.72f, 71.75f, 6.20f, 2, 31}, {"A306", 54.08f, 44.84f, 5.64f, 2, 28},
+    {"A310", 46.66f, 43.89f, 5.64f, 2, 28}, {"A3ST", 56.15f, 44.84f, 7.10f, 2, 28}, {"MD11", 61.62f, 51.97f, 6.02f, 3, 35},
+    {"DC10", 55.50f, 50.40f, 6.02f, 3, 35}, {"MD90", 46.50f, 32.87f, 3.34f, -2, 24}, {"E145", 29.87f, 20.04f, 2.28f, -2, 23},
+    {"E135", 26.33f, 20.04f, 2.28f, -2, 23}, {"E290", 36.20f, 33.72f, 3.01f, 2, 23}, {"E295", 41.50f, 35.12f, 3.01f, 2, 23},
+    {"CRJ1", 26.77f, 21.21f, 2.69f, -2, 24}, {"CRJX", 39.10f, 26.18f, 2.69f, -2, 25}, {"AT72", 27.17f, 27.05f, 2.77f, 12, 0},
+    {"AT75", 27.17f, 27.05f, 2.77f, 12, 0}, {"AT76", 27.17f, 27.05f, 2.77f, 12, 0}, {"AT43", 22.67f, 24.57f, 2.77f, 12, 0},
+    {"AT45", 22.67f, 24.57f, 2.77f, 12, 0}, {"DH8A", 22.25f, 25.91f, 2.69f, 12, 0}, {"DH8C", 25.68f, 27.43f, 2.69f, 12, 0},
+    {"DH8D", 32.83f, 28.42f, 2.69f, 12, 0}, {"SF34", 19.73f, 21.44f, 2.31f, 12, 0}, {"B190", 17.63f, 17.67f, 1.98f, 12, 0},
+    {"JS41", 19.25f, 18.29f, 2.11f, 12, 0}, {"C130", 29.79f, 40.41f, 4.34f, 12, 0}, {"C17", 53.04f, 51.75f, 6.86f, 4, 25},
+    {"C56X", 16.00f, 17.17f, 1.70f, -2, 0}, {"C68A", 19.37f, 22.04f, 1.95f, -2, 15}, {"C700", 22.30f, 22.04f, 2.20f, -2, 20},
+    {"CL35", 20.92f, 21.00f, 2.20f, -2, 25}, {"GLEX", 30.30f, 28.65f, 2.69f, -2, 35}, {"GL7T", 33.80f, 31.70f, 2.69f, -2, 35},
+    {"GLF4", 26.92f, 23.72f, 2.40f, -2, 27}, {"GLF6", 30.41f, 30.36f, 2.60f, -2, 33}, {"FA7X", 23.38f, 26.21f, 2.40f, -3, 30},
+    {"LJ45", 17.68f, 14.58f, 1.80f, -2, 13}, {"PC24", 16.85f, 17.00f, 1.80f, -2, 10}, {"E50P", 12.82f, 12.25f, 1.60f, -2, 0},
+    {"E75L", 31.68f, 26.00f, 3.01f, 2, 23}, {"E75S", 31.68f, 26.00f, 3.01f, 2, 23},
+    {"C182", 8.84f, 11.00f, 1.07f, 1, 0}, {"C206", 8.61f, 10.92f, 1.10f, 1, 0}, {"C310", 9.74f, 11.25f, 1.20f, 12, 0},
+    {"PA34", 8.72f, 11.85f, 1.10f, 12, 0}, {"P28B", 7.32f, 10.67f, 1.07f, 1, 0}, {"PA46", 8.81f, 13.11f, 1.27f, 1, 0},
+    {"BE36", 8.38f, 10.21f, 1.10f, 1, 0}, {"BE20", 13.34f, 16.61f, 1.45f, 12, 0}, {"DHC6", 15.77f, 19.81f, 1.60f, 12, 0},
+    {"DA40", 8.06f, 11.94f, 1.10f, 1, 0}, {"DA62", 9.19f, 14.55f, 1.20f, 12, 0}, {"C25B", 15.98f, 15.49f, 1.60f, -2, 0},
 };
+// a type's sizes when they are known (its own, else its family's by the first three letters); nullptr when not
+const PlaneSpec* planeSpecKnown(const std::string& icao) {
+    for (const PlaneSpec& p : kPlanes) if (icao == p.icao) return &p;
+    for (const PlaneSpec& p : kPlanes) if (icao.size() >= 3 && icao.compare(0, 3, p.icao, 3) == 0) return &p;
+    return nullptr;
+}
 const PlaneSpec& planeSpec(const std::string& icao) {
     for (const PlaneSpec& p : kPlanes) if (icao == p.icao) return p;
     // an unknown type: the nearest in the family by its first three letters, else a mid-size airliner
@@ -1445,10 +1477,61 @@ std::vector<Shape> g_shapes;
 std::vector<ShapeAlias> g_aliases;
 
 // The drawing for a type and the size to draw it at: its own, or (for a type without one) its family's resized to the type.
-const Shape* findShape(const std::string& icao, float& len, float& span) {
+const Shape* exactShape(const std::string& icao, float& len, float& span) {
     for (const ShapeAlias& a : g_aliases) if (a.icao == icao) { len = a.len; span = a.span; return &g_shapes[a.shape]; }
     for (const Shape& sh : g_shapes) if (sh.name == icao) { len = sh.len; span = sh.span; return &sh; }
     return nullptr;
+}
+// A type without a drawing of its own gets the closest there is (worked out once a type): one of its family (the same first three
+// letters: B39M -> B738), else the one nearest in length and span, drawn at the type's own size when that is known.
+struct ShapePick { int shape; float len, span; };
+std::map<std::string, ShapePick> g_shapePicks;
+size_t g_shapePicksFor = 0;   // the number of drawings the picks were made from (made again when the drawings load)
+const Shape* closeShape(const std::string& icao, float& len, float& span) {
+    if (g_shapes.empty() || icao.empty()) return nullptr;
+    if (g_shapePicksFor != g_shapes.size()) { g_shapePicks.clear(); g_shapePicksFor = g_shapes.size(); }
+    auto it = g_shapePicks.find(icao);
+    if (it == g_shapePicks.end()) {
+        const PlaneSpec* sp = planeSpecKnown(icao);
+        const float wantL = sp ? sp->len : 37.57f, wantS = sp ? sp->span : 35.80f;   // unknown altogether: a mid-size airliner
+        auto sizeOf = [&](int i, float& l, float& s) {
+            for (const ShapeAlias& a : g_aliases) if (a.shape == i && a.icao == g_shapes[i].name) { l = a.len; s = a.span; return; }
+            l = g_shapes[i].len; s = g_shapes[i].span;
+        };
+        int best = -1;
+        float bestD = 1e9f;
+        // the family first: drawings, and aliases, whose type shares the first three letters
+        if (icao.size() >= 3) {
+            for (int i = 0; i < (int)g_shapes.size(); ++i) {
+                if (g_shapes[i].name.size() < 3 || g_shapes[i].name.compare(0, 3, icao, 0, 3) != 0) continue;
+                float l, s; sizeOf(i, l, s);
+                const float d = std::fabs(l - wantL) + std::fabs(s - wantS);
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            for (const ShapeAlias& a : g_aliases) {
+                if (a.icao.size() < 3 || a.icao.compare(0, 3, icao, 0, 3) != 0) continue;
+                const float d = std::fabs(a.len - wantL) + std::fabs(a.span - wantS);
+                if (d < bestD) { bestD = d; best = a.shape; }
+            }
+        }
+        if (best < 0) {   // else the nearest in size (relative, so a Cessna is not matched to a 737 for being "only" 30 m off)
+            for (int i = 0; i < (int)g_shapes.size(); ++i) {
+                float l, s; sizeOf(i, l, s);
+                if (l <= 0 || s <= 0) continue;
+                const float d = std::fabs(std::log(l / wantL)) + std::fabs(std::log(s / wantS));
+                if (d < bestD) { bestD = d; best = i; }
+            }
+        }
+        if (best < 0) return nullptr;
+        float l, s; sizeOf(best, l, s);
+        it = g_shapePicks.emplace(icao, ShapePick{best, sp ? sp->len : l, sp ? sp->span : s}).first;
+    }
+    len = it->second.len; span = it->second.span;
+    return &g_shapes[it->second.shape];
+}
+const Shape* findShape(const std::string& icao, float& len, float& span) {
+    if (const Shape* sh = exactShape(icao, len, span)) return sh;
+    return closeShape(icao, len, span);
 }
 
 // Half the fuselage's width (metres) at a point frac of the way back: of the outline's crossings at that height, the one nearest
@@ -2058,7 +2141,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     }
     act.mapShown = true;
     act.mapLat = cLat; act.mapLon = cLon;
-    act.mapNavNm = (g_settings.mapNavaids && g_mapZoom >= 6.0) ? std::min(300.0, halfDiagNm * 1.3) : 0.0;
+    act.mapNavNm = ((g_settings.mapNavaids || g_settings.mapIls) && g_mapZoom >= 6.0) ? std::min(300.0, halfDiagNm * 1.3) : 0.0;
     act.mapFixNm = (g_settings.mapWaypoints && g_mapZoom >= 9.0) ? std::min(60.0, halfDiagNm * 1.3) : 0.0;
     // what AviTab's map datarefs and commands use
     g_mapLastW = r1.x - r0.x; g_mapLastH = r1.y - r0.y; g_mapLastRot = rot; g_mapLastScale = scale; g_mapLastMPerMerc = mPerMerc;
@@ -2066,12 +2149,12 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     // ---- the radio navaids: VOR (a hexagon, with a ring when close), NDB (a dotted ring), DME (a square), localizers (feathers)
     const ImU32 navInk = sat ? IM_COL32(150, 220, 255, 255) : IM_COL32(20, 90, 160, 255);
     const ImU32 ndbInk = sat ? IM_COL32(230, 160, 255, 255) : IM_COL32(130, 40, 120, 255);
-    if (g_settings.mapNavaids && g_mapZoom >= 6.0) {
+    if ((g_settings.mapNavaids || g_settings.mapIls) && g_mapZoom >= 6.0) {
         const double nmPx = scale / (mPerMerc / 1852.0);   // layout units per nautical mile
         for (const MapState::Navaid& n : m.navaids) {
             const ImVec2 q = toS(mercOf(n.lat, n.lon));
             if (n.type == 4 || n.type == 5) {   // the localizer's course, 10 nm out from the antenna past the runway
-                if (g_mapZoom < 9.5) continue;
+                if (!g_settings.mapIls || g_mapZoom < 9.5) continue;
                 const double a = (n.bearing + 180.0) * kPi / 180.0 - rot;
                 const float L = (float)(10.0 * nmPx), half = (float)(std::tan(2.5 * kPi / 180.0) * 10.0 * nmPx);
                 const ImVec2 d((float)std::sin(a), (float)-std::cos(a)), nn(-d.y, d.x);
@@ -2083,6 +2166,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 if (g_mapZoom >= 11) g_labels.push_back({1, tip, 4, n.ident, "", sat ? kInk : IM_COL32(20, 100, 60, 255), 0, 0});
                 continue;
             }
+            if (!g_settings.mapNavaids) continue;   // (ILS only)
             if (q.x < r0.x - 40 || q.x > r1.x + 40 || q.y < r0.y - 40 || q.y > r1.y + 40) continue;
             const ImU32 ink = n.type == 2 ? ndbInk : navInk;
             if (n.type == 3) {
@@ -2280,14 +2364,14 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         if (mapBubble(dl, f, "##msat", ImVec2(x, y), nullptr, "Satellite", satImg)) { g_settings.mapSource = 1; g_settingsChanged = true; }
         // the layers, down the left under the time
         struct Layer { const char* id; const char* name; bool* v; };
-        const Layer layers[7] = {{"##mapt", "Airports", &g_settings.mapAirports}, {"##mnav", "Navaids", &g_settings.mapNavaids},
-                                 {"##mfix", "Waypoints", &g_settings.mapWaypoints}, {"##mrte", "Route", &g_settings.mapRoute},
+        const Layer layers[8] = {{"##mapt", "Airports", &g_settings.mapAirports}, {"##mnav", "Navaids", &g_settings.mapNavaids},
+                                 {"##mils", "ILS", &g_settings.mapIls}, {"##mfix", "Waypoints", &g_settings.mapWaypoints}, {"##mrte", "Route", &g_settings.mapRoute},
                                  {"##mtraf", "Traffic", &g_settings.mapTraffic}, {"##mout", "Outlines", &g_settings.mapOutlines},
                                  {"##mtz", "Time Zones", &g_settings.mapTimeZones}};
         float lwMax = 0;
         for (const Layer& L : layers) lwMax = std::max(lwMax, bubbleW(f, nullptr, L.name));
-        const float step = std::min(36.0f, std::floor((y - 8 - (r0.y + 46)) / 7.0f));
-        for (int i = 0; i < 7; ++i)
+        const float step = std::min(36.0f, std::floor((y - 8 - (r0.y + 46)) / 8.0f));
+        for (int i = 0; i < 8; ++i)
             if (mapBubble(dl, f, layers[i].id, ImVec2(r0.x + 10, r0.y + 46 + i * step), nullptr, layers[i].name, *layers[i].v, lwMax,
                           layers[i].v != &g_settings.mapRoute || !m.route.empty())) {   // Route: greyed until a SimBrief plan is in
                 *layers[i].v = !*layers[i].v; g_settingsChanged = true;
@@ -2314,8 +2398,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             if (d <= reach && d < best + (k == 1 ? 4.0f : 0.0f)) { best = d; kind = k; key = kk; }   // traffic wins near-ties
         };
         if (g_settings.mapTraffic) for (const MapState::Traffic& t : m.traffic) consider(toS(mercOf(t.lat, t.lon)), 1, t.callsign, 18);
-        if (g_settings.mapNavaids && g_mapZoom >= 6.0)
-            for (const MapState::Navaid& n : m.navaids) if ((n.type != 4 && n.type != 5) || g_mapZoom >= 9.5) consider(toS(mercOf(n.lat, n.lon)), 2, n.ident + "|" + std::to_string(n.type), 16);
+        if ((g_settings.mapNavaids || g_settings.mapIls) && g_mapZoom >= 6.0)
+            for (const MapState::Navaid& n : m.navaids) if ((n.type != 4 && n.type != 5) ? g_settings.mapNavaids : (g_settings.mapIls && g_mapZoom >= 9.5)) consider(toS(mercOf(n.lat, n.lon)), 2, n.ident + "|" + std::to_string(n.type), 16);
         if (g_settings.mapWaypoints && g_mapZoom >= 9.0) for (const MapState::Fix& fx : m.fixes) if (fx.enroute || g_mapZoom >= 11) consider(toS(mercOf(fx.lat, fx.lon)), 3, fx.ident, 12);
         if (g_settings.mapRoute) for (size_t i = 0; i < m.route.size(); ++i) consider(toS(mercOf(m.route[i].lat, m.route[i].lon)), 5, std::to_string(i), 12);
         if (g_settings.mapAirports) {
@@ -3230,7 +3314,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     const int jwDoors = g.toliss ? g.jwDoors : (acLen >= 24.0f ? std::max(1, g.jwDoors) : 0);
     const bool doors = jwDoors > 0;
     bool anyDocked = false;
-    for (int k = 0; k < jwDoors && k < 3; ++k) anyDocked = anyDocked || (g.openSam ? g.jwDocked[k] : g.jetway == 2);
+    for (int k = 0; k < jwDoors && k < 3; ++k) anyDocked = anyDocked || g.jwDocked[k];   // each door's own (openSAM's or X-Plane's)
     const float boxTop = a.y + 34, boxBot = e.y - (doors && jwDoors > 1 ? 30 : 14);
     const float px = std::min((boxBot - boxTop) / acLen, (leftW - (doors ? 150 : 40)) / acSpan);   // room at the left for the bubbles
     const ImVec2 nose((a.x + e.x) * 0.5f + (doors ? 30.0f : 0.0f), std::floor((boxTop + boxBot - acLen * px) * 0.5f));
@@ -3249,7 +3333,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             float hw = hwPx;   // the fuselage's edge at this door (it narrows towards the tail)
             if (shape && hw0 > 0) { const float hh = fuselageHalf(*shape, frac, hw0); if (hh > 0) hw = hh * kx * px; }
             const float side = nose.x - hw;
-            const bool docked = g.openSam ? g.jwDocked[k] : g.jetway == 2;
+            const bool docked = g.jwDocked[k];
             const bool open = g.toliss && pax >= 0 && pax < 8 && g.paxDoor[pax] == 2;
             // the block: the door, green while a jetway is on it, blue while the door is open without one
             const ImU32 blockCol = docked ? kGood : open ? IM_COL32(110, 170, 255, 255) : IM_COL32(140, 156, 184, 255);
@@ -3851,6 +3935,16 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         if (!g_mac) tabs.push_back({5, "Media", IM_COL32(250, 45, 85, 255), APP_MUSIC});
         if (g_mac && g_settingsTab == 5) g_settingsTab = 0;
         tabs.push_back({3, "Credits", IM_COL32(236, 152, 50, 255), APP_NOTES});
+        // the highlight glides to the chosen page (as the setting buttons ease), drawn under the names
+        static float selY = -1;
+        float wantY = -1;
+        for (size_t t = 0; t < tabs.size(); ++t) if (tabs[t].id == g_settingsTab) wantY = t + 1 == tabs.size() ? sBot - 50 : sTop + 8 + t * 42;
+        if (wantY >= 0) {
+            if (selY < 0 || std::fabs(selY - wantY) > 400) selY = wantY;
+            selY += (wantY - selY) * (1.0f - std::exp(-ImGui::GetIO().DeltaTime * 16.0f));
+            if (std::fabs(selY - wantY) < 0.3f) selY = wantY;
+            dl->AddRectFilled(ImVec2(18, selY), ImVec2(6 + sW, selY + 40), IM_COL32(70, 140, 255, 110), 10.0f);
+        }
         for (size_t t = 0; t < tabs.size(); ++t) {
             const int i = tabs[t].id;
             const bool last = t + 1 == tabs.size();
@@ -3861,7 +3955,8 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             ImGui::SetCursorScreenPos(a);
             if (ImGui::InvisibleButton(id, ImVec2(e.x - a.x, e.y - a.y)) && g_settingsTab != i) { g_settingsTab = i; g_kbd = false; g_typeInto = nullptr; }
             const bool on = g_settingsTab == i, hot = ImGui::IsItemHovered();
-            if (on || hot) dl->AddRectFilled(a, e, on ? IM_COL32(70, 140, 255, 110) : IM_COL32(255, 255, 255, 18), 10.0f);
+            const Ease ez = eased(id, on, hot && !on, ImGui::IsItemActive());
+            if (ez.hot > 0.01f) dl->AddRectFilled(a, e, IM_COL32(255, 255, 255, (int)(18 * ez.hot + 14 * ez.down)), 10.0f);   // hover fades in and out
             const ImVec2 ic(a.x + 20, a.y + 20);
             dl->AddRectFilled(ImVec2(ic.x - 12, ic.y - 12), ImVec2(ic.x + 12, ic.y + 12), tabs[t].tint, 6.0f);
             icon(dl, tabs[t].glyph, ic, 7.0f, IM_COL32(255, 255, 255, 255));
@@ -4215,7 +4310,11 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         if (closing) g_embed = EmbedArea();   // a page on its way out asks WXPlane for nothing
         // the page grows out of its icon (and back into it) solid, as on an iPad: no fading
         if (opening) placePage(dl, vtx0, cmd0, w, h, easeOut((float)(since / kOpenS)), 1.0f);
-        if (closing) placePage(dl, vtx0, cmd0, w, h, 1.0f - easeOut((float)(since / kCloseS)), 1.0f);
+        if (closing) {   // shrinks back gently (easing in and out), and melts into its icon over the last part instead of vanishing
+            const float t = (float)(since / kCloseS);
+            const float e = t * t * t * (t * (t * 6 - 15) + 10);
+            placePage(dl, vtx0, cmd0, w, h, 1.0f - e, t < 0.55f ? 1.0f : 1.0f - (t - 0.55f) / 0.45f);
+        }
         if (closing) { ImGui::EndDisabled(); st.DisabledAlpha = da; }
     }
     if (covered) { ImGui::EndDisabled(); st.DisabledAlpha = daCover; }
@@ -4335,7 +4434,7 @@ int loadShapes(const std::string& text) {
     return (int)g_shapes.size();
 }
 
-bool hasShape(const std::string& icao) { float l, sp; return findShape(icao, l, sp) != nullptr; }
+bool hasShape(const std::string& icao) { float l, sp; return exactShape(icao, l, sp) != nullptr; }   // a drawing of its own
 const unsigned char* wxLogoPixels(unsigned int& bytes) { bytes = xpt_asset_wxlogo_size; return xpt_asset_wxlogo; }
 const unsigned char* logoPixels(int& w, int& h, int& levels) {   // "XPTL", width, height, levels (u32), then the pixels
     const unsigned char* b = xpt_asset_logo;
@@ -4371,7 +4470,7 @@ bool appVisible(int app) {
     case APP_FOREFLIGHT: return g_settings.showForeflight;
     case APP_SKYVECTOR: return g_settings.showSkyvector;
     case APP_PERFORMANCE: return false;                // removed: accurate figures need the aircraft maker's data
-    case APP_CHECKLISTS: return !g_ownPerformance;   // a ToLiss has its own (on its tablet and ECAM)
+    case APP_CHECKLISTS: return true;   // on every aircraft, ToLiss too (its own checklists, else the airliner set)
     case APP_TRAFFIC: return false;                    // traffic is a layer of the Map
     case APP_MUSIC: return !g_mac && g_settings.mediaEnabled;   // macOS gives no media controls
     default: return app >= 0 && app < APP_COUNT;
@@ -4483,9 +4582,9 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
-    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\n",
+    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\n",
                   g_settings.mapSource == 1 ? 1 : 0, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
-                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0);
+                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0);
     out += buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
         out += key; out += "=";
@@ -4544,6 +4643,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_traffic") g_settings.mapTraffic = v != 0;
         else if (key == "map_outlines") g_settings.mapOutlines = v != 0;
         else if (key == "map_navaids") g_settings.mapNavaids = v != 0;
+        else if (key == "map_ils") g_settings.mapIls = v != 0;
         else if (key == "media_enabled") g_settings.mediaEnabled = v != 0;
         else if (key == "media_duck") g_settings.mediaDuck = std::max(0, std::min(2, v));
         else if (key == "notify_enabled") g_settings.notifyEnabled = v != 0;
