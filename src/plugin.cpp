@@ -282,7 +282,68 @@ void saveSettings() {
     if (std::rename(tmp.c_str(), path.c_str()) != 0) { logMsg("cannot replace %s", path.c_str()); return; }
     g_savedSettings = text;
 }
-void updateNotify();   // (below: the update check's notification)
+// ---- the update check: once a session, the version on the SkunkCrafts Updater's release (the cfg the updater app reads); newer
+// than this one, a notification says so (once, after start-up), as WXPlane does
+std::thread g_updTh;
+std::atomic<bool> g_updCancel{false};
+std::mutex g_updM;
+std::string g_updVersion;   // the newer version, "" when none (guarded by g_updM)
+bool g_updChecked = false, g_updShown = false;
+bool versionNewer(const std::string& a, const std::string& b) {   // a > b, compared number by number ("0.10" > "0.9.2")
+    auto parts = [](const std::string& v) {
+        std::vector<long> p; long n = -1;
+        for (char c : v) { if (std::isdigit((unsigned char)c)) n = (n < 0 ? 0 : n) * 10 + (c - '0'); else if (c == '.') { p.push_back(n < 0 ? 0 : n); n = -1; } else break; }
+        if (n >= 0) p.push_back(n);
+        return p;
+    };
+    const std::vector<long> pa = parts(a), pb = parts(b);
+    for (size_t i = 0; i < std::max(pa.size(), pb.size()); ++i) {
+        const long x = i < pa.size() ? pa[i] : 0, y = i < pb.size() ? pb[i] : 0;
+        if (x != y) return x > y;
+    }
+    return false;
+}
+void updateCheckStart() {
+    if (g_updChecked) return;
+    g_updChecked = true;
+    g_updCancel = false;
+    g_updTh = std::thread([]() {
+        std::string body, err;
+        long status = 0;
+        const std::string url = "https://raw.githubusercontent.com/domvid2005/XPTablet/refs/heads/release/XPTablet/skunkcrafts_updater.cfg";
+        if (!wx::httpGetCancellable(url, "", body, status, err, 15, 64 * 1024, &g_updCancel) || status != 200) {
+            if (!g_updCancel) logMsg("update check: could not read the SkunkCrafts release (%s)", err.empty() ? ("HTTP " + std::to_string(status)).c_str() : err.c_str());
+            return;
+        }
+        std::string ver;
+        size_t at = body.find("version|");
+        if (at != std::string::npos) {
+            at += 8;
+            const size_t e = body.find_first_of("\r\n", at);
+            ver = body.substr(at, e == std::string::npos ? std::string::npos : e - at);
+            while (!ver.empty() && std::isspace((unsigned char)ver.back())) ver.pop_back();
+        }
+        if (ver.empty()) { logMsg("update check: no version in the SkunkCrafts release"); return; }
+        if (versionNewer(ver, XPT_VERSION)) {
+            { std::lock_guard<std::mutex> lk(g_updM); g_updVersion = ver; }
+            logMsg("update check: XPTablet %s is available on the SkunkCrafts Updater (this is %s)", ver.c_str(), XPT_VERSION);
+        } else logMsg("update check: up to date (%s; the SkunkCrafts release is %s)", XPT_VERSION, ver.c_str());
+    });
+}
+void updateCheckStop() {
+    g_updCancel = true;
+    if (g_updTh.joinable()) g_updTh.join();
+}
+// (each frame) the notification, once: after the tablet has started up
+void updateNotify() {
+    if (g_updShown) return;
+    std::string v;
+    { std::lock_guard<std::mutex> lk(g_updM); v = g_updVersion; }
+    if (v.empty()) return;
+    g_updShown = true;
+    xpt::notify("Update available", "XPTablet " + v + " is ready in the SkunkCrafts Updater (this is " XPT_VERSION ")", xpt::APP_SETTINGS);
+}
+
 // once a second: saved whenever the settings differ from the file, whether or not the change was flagged
 void saveSettingsIfChanged(float dt) {
     static float since = 0;
@@ -2053,68 +2114,6 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
     return 1;
 }
 
-
-// ---- the update check: once a session, the version on the SkunkCrafts Updater's release (the cfg the updater app reads); newer
-// than this one, a notification says so (once, after start-up), as WXPlane does
-std::thread g_updTh;
-std::atomic<bool> g_updCancel{false};
-std::mutex g_updM;
-std::string g_updVersion;   // the newer version, "" when none (guarded by g_updM)
-bool g_updChecked = false, g_updShown = false;
-bool versionNewer(const std::string& a, const std::string& b) {   // a > b, compared number by number ("0.10" > "0.9.2")
-    auto parts = [](const std::string& v) {
-        std::vector<long> p; long n = -1;
-        for (char c : v) { if (std::isdigit((unsigned char)c)) n = (n < 0 ? 0 : n) * 10 + (c - '0'); else if (c == '.') { p.push_back(n < 0 ? 0 : n); n = -1; } else break; }
-        if (n >= 0) p.push_back(n);
-        return p;
-    };
-    const std::vector<long> pa = parts(a), pb = parts(b);
-    for (size_t i = 0; i < std::max(pa.size(), pb.size()); ++i) {
-        const long x = i < pa.size() ? pa[i] : 0, y = i < pb.size() ? pb[i] : 0;
-        if (x != y) return x > y;
-    }
-    return false;
-}
-void updateCheckStart() {
-    if (g_updChecked) return;
-    g_updChecked = true;
-    g_updCancel = false;
-    g_updTh = std::thread([]() {
-        std::string body, err;
-        long status = 0;
-        const std::string url = "https://raw.githubusercontent.com/domvid2005/XPTablet/refs/heads/release/XPTablet/skunkcrafts_updater.cfg";
-        if (!wx::httpGetCancellable(url, "", body, status, err, 15, 64 * 1024, &g_updCancel) || status != 200) {
-            if (!g_updCancel) logMsg("update check: could not read the SkunkCrafts release (%s)", err.empty() ? ("HTTP " + std::to_string(status)).c_str() : err.c_str());
-            return;
-        }
-        std::string ver;
-        size_t at = body.find("version|");
-        if (at != std::string::npos) {
-            at += 8;
-            const size_t e = body.find_first_of("\r\n", at);
-            ver = body.substr(at, e == std::string::npos ? std::string::npos : e - at);
-            while (!ver.empty() && std::isspace((unsigned char)ver.back())) ver.pop_back();
-        }
-        if (ver.empty()) { logMsg("update check: no version in the SkunkCrafts release"); return; }
-        if (versionNewer(ver, XPT_VERSION)) {
-            { std::lock_guard<std::mutex> lk(g_updM); g_updVersion = ver; }
-            logMsg("update check: XPTablet %s is available on the SkunkCrafts Updater (this is %s)", ver.c_str(), XPT_VERSION);
-        } else logMsg("update check: up to date (%s; the SkunkCrafts release is %s)", XPT_VERSION, ver.c_str());
-    });
-}
-void updateCheckStop() {
-    g_updCancel = true;
-    if (g_updTh.joinable()) g_updTh.join();
-}
-// (each frame) the notification, once: after the tablet has started up
-void updateNotify() {
-    if (g_updShown) return;
-    std::string v;
-    { std::lock_guard<std::mutex> lk(g_updM); v = g_updVersion; }
-    if (v.empty()) return;
-    g_updShown = true;
-    xpt::notify("Update available", "XPTablet " + v + " is ready in the SkunkCrafts Updater (this is " XPT_VERSION ")", xpt::APP_SETTINGS);
-}
 
 PLUGIN_API int XPluginEnable(void) {
     updateCheckStart();   // (once a session, in the background)
