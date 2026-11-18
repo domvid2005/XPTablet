@@ -2672,7 +2672,7 @@ bool appVisible(int app) {
     case APP_SIMBRIEF: return g_settings.showSimbrief;
     case APP_LIVEMAP: return g_settings.showLive;
     case APP_FOREFLIGHT: return g_settings.showForeflight;
-    case APP_PERFORMANCE: return !g_ownPerformance;
+    case APP_PERFORMANCE: return false;                // removed: accurate figures need the aircraft maker's data
     case APP_CHECKLISTS: return !g_ownPerformance;   // a ToLiss has its own (on its tablet and ECAM)
     case APP_ROUTES: return false;                     // SimBrief does routes
     case APP_TRAFFIC: return false;                    // traffic is a layer of the Map

@@ -139,3 +139,5 @@ of their own and come back to it as they were left. The planning icon switches b
   then "Item | VALUE"), else general airliner / light aircraft lists. Hidden on ToLiss aircraft.
 - Routes removed (SimBrief); the Traffic app became the Map's Traffic layer (TCAS targets: AI, xPilot, LiveTraffic...).
 - Map: Outlines layer (WXPlane's Natural Earth coastlines, borders, states and provinces).
+
+- Performance removed for every aircraft (accurate figures need the manufacturer's certified data; ToLiss has its own).

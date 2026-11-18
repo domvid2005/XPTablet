@@ -206,7 +206,7 @@ int main(int argc, char** argv) {
         if (appVisible(APP_FOREFLIGHT) || !appVisible(APP_SIMBRIEF)) { std::printf("FAIL: web app switch\n"); ++failures; }
         settings() = Settings();
     }
-    // a ToLiss aircraft has its own performance calculator: the Performance app is not offered there
+    // Performance is gone (everywhere); Checklists are not offered in a ToLiss (it has its own)
     {
         SimState t = s; t.toliss = true;
         openApp(APP_PERFORMANCE);
@@ -217,7 +217,8 @@ int main(int argc, char** argv) {
         openApp(APP_PERFORMANCE);
         if (currentApp() != APP_HOME) { std::printf("FAIL: a hidden app must not open\n"); ++failures; }
         ImGui::NewFrame(); build(fonts, s, 800, kLogicalH, act); ImGui::Render();
-        if (!appVisible(APP_PERFORMANCE)) { std::printf("FAIL: Performance must return in other aircraft\n"); ++failures; }
+        if (appVisible(APP_PERFORMANCE) || appVisible(APP_ROUTES) || appVisible(APP_TRAFFIC)) { std::printf("FAIL: Performance, Routes and Traffic are gone for every aircraft\n"); ++failures; }
+        if (appVisible(APP_CHECKLISTS) == false) { std::printf("FAIL: Checklists show outside a ToLiss\n"); ++failures; }
     }
     // dragging: press the first grid icon, carry it into the favorites bar, let go: it must now be a favorite
     {
