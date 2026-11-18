@@ -531,7 +531,25 @@ void star(ImDrawList* dl, ImVec2 c, bool filled, ImU32 col) {
     if (filled) dl->AddConcavePolyFilled(pts, 10, col); else dl->AddPolyline(pts, 10, col, ImDrawFlags_Closed, 1.6f);
 }
 
+// A text field on a page (a note, a search) taking the keyboard: target 2
+std::string* g_typeInto = nullptr;
+bool g_typeMultiline = false;
+bool g_typeChanged = false;
+void popUtf8(std::string& s) {   // the last character, whole
+    while (!s.empty() && ((unsigned char)s.back() & 0xC0) == 0x80) s.pop_back();
+    if (!s.empty()) s.pop_back();
+}
 void typeKey(Actions& act, int code, bool isChar) {
+    if (g_kbdTarget == 2) {
+        if (!g_typeInto) { g_kbd = false; g_kbdTarget = 0; return; }
+        if (!isChar && code == 8) popUtf8(*g_typeInto);
+        else if (!isChar && code == 13) {
+            if (g_typeMultiline) *g_typeInto += '\n';
+            else { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; }
+        } else if (isChar && code >= 32 && code < 127) *g_typeInto += (char)code;
+        g_typeChanged = true;
+        return;
+    }
     if (g_kbdTarget == 1) {   // the address bar
         if (!isChar && code == 8) { if (!g_addrEdit.empty()) g_addrEdit.pop_back(); }
         else if (!isChar && code == 13) { const std::string u = addressFrom(g_addrEdit); if (!u.empty()) { g_navPending = u; g_navForce = true; } g_kbd = false; g_kbdTarget = 0; }
@@ -550,6 +568,8 @@ void typeKey(Actions& act, int code, bool isChar) {
 
 bool webTypingAddress() { return g_kbd && g_kbdTarget == 1; }
 void webAddressKey(int code, bool isChar) { Actions none; typeKey(none, code, isChar); }
+bool tabletTyping() { return g_kbd && (g_kbdTarget == 1 || (g_kbdTarget == 2 && g_typeInto)); }
+void tabletKey(int code, bool isChar) { Actions none; typeKey(none, code, isChar); }
 
 namespace {
 
@@ -603,7 +623,7 @@ float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
     x += kw + gap;
     if (key("##kslash", "/", x, yy, kw, false)) typeKey(act, '/', true);
     x += kw + gap;
-    if (key("##kenter", g_kbdTarget == 1 ? "Go" : "Enter", x, yy, w15, true)) typeKey(act, 13, false);
+    if (key("##kenter", g_kbdTarget == 1 ? "Go" : (g_kbdTarget == 2 && !g_typeMultiline) ? "Done" : "Enter", x, yy, w15, true)) typeKey(act, 13, false);
     return H;
 }
 
@@ -647,9 +667,11 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         if (g_navForce || b.tabs.empty()) {
             act.webNavigate = g_navPending;
         } else {
-            const std::string want = hostOf(g_navPending);
+            // a site is matched by its host; a file (a document) by its whole address
+            auto key = [](const std::string& u) { return u.compare(0, 5, "file:") == 0 ? u : hostOf(u); };
+            const std::string want = key(g_navPending);
             int found = 0;
-            for (const BrowserState::Tab& t : b.tabs) if (!t.url.empty() && hostOf(t.url) == want) { found = t.id; break; }
+            for (const BrowserState::Tab& t : b.tabs) if (!t.url.empty() && key(t.url) == want) { found = t.id; break; }
             const bool blank = b.url.empty() || b.url == "about:blank";
             if (found && found != b.activeTab) act.webTabSelect = found;
             else if (found) { /* already shown */ }
@@ -1130,6 +1152,8 @@ void drawShape(ImDrawList* dl, const Shape& sh, ImVec2 nose, float pxX, float px
 // bubbles: the time (Zulu or local, with the zone) at the top left; Center On Aircraft and North / Heading Lock at the top right.
 double g_mapZoom = 14.0;             // Web Mercator zoom: the world is 256 * 2^zoom layout units across
 bool g_mapFollow = true;             // the map stays centred on the aircraft
+bool g_mapGoto = false;              // centre on a place next time (Airports' Show on map)
+double g_mapGotoLat = 0, g_mapGotoLon = 0;
 MercPt g_mapCenter{0.5, 0.5};
 bool g_mapSeen = false;              // the map has had the aircraft's position once
 constexpr double kMapMinZoom = 2.0, kMapMaxZoom = 19.5;
@@ -1221,6 +1245,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     // without a position the map starts on the whole world; the first position brings it in to the aircraft
     if (m.havePos && !g_mapSeen) { g_mapSeen = true; g_mapCenter = ac; g_mapFollow = true; if (g_mapZoom < 8) g_mapZoom = 14.0; }
     if (!m.havePos && !g_mapSeen) g_mapZoom = std::min(g_mapZoom, 3.0);
+    if (g_mapGoto) { g_mapGoto = false; g_mapFollow = false; g_mapSeen = true; g_mapCenter = mercOf(g_mapGotoLat, g_mapGotoLon); g_mapZoom = 14.0; }
     if (g_mapFollow && m.havePos) g_mapCenter = ac;
     const bool headingUp = g_settings.mapHeadingUp && m.havePos;
     const double rot = headingUp ? m.hdgTrue * kPi / 180.0 : 0.0;
@@ -1313,6 +1338,24 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 const ImU32 c = ((t.x + t.y) & 1) ? (sat ? IM_COL32(40, 52, 44, 255) : IM_COL32(222, 218, 208, 255)) : (sat ? IM_COL32(34, 46, 38, 255) : IM_COL32(236, 232, 224, 255));
                 dl->AddQuadFilled(p00, p10, p11, p01, c);
             }
+        }
+    }
+
+    // ---- the outlines: coastlines, borders, states and provinces (lakes as coast)
+    if (g_settings.mapOutlines) {
+        double la0, lo0, la1, lo1;
+        latLonOf(MercPt{mx0, my1}, la0, lo0);
+        latLonOf(MercPt{mx1, my0}, la1, lo1);
+        std::vector<ImVec2> pts;
+        for (const GeoLine& L : basemapLines()) {
+            if (L.lo1 < lo0 || L.lo0 > lo1 || L.la1 < la0 || L.la0 > la1) continue;
+            if (L.kind == 2 && g_mapZoom < 4) continue;
+            pts.clear();
+            for (const ImVec2& q : L.pts) pts.push_back(toS(mercOf(q.y, q.x)));
+            const ImU32 col = L.kind == 1 ? (sat ? IM_COL32(255, 255, 255, 220) : IM_COL32(60, 60, 80, 220))
+                            : L.kind == 2 ? (sat ? IM_COL32(255, 255, 255, 150) : IM_COL32(90, 90, 110, 170))
+                                          : (sat ? IM_COL32(150, 210, 255, 170) : IM_COL32(70, 120, 180, 170));
+            dl->AddPolyline(pts.data(), (int)pts.size(), col, 0, L.kind == 1 ? 1.6f : 1.0f);
         }
     }
 
@@ -1429,6 +1472,35 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     act.mapShown = true;
     act.mapLat = cLat; act.mapLon = cLon;
 
+    // ---- other aircraft: a chevron along its heading, its call sign and its height against ours (hundreds of feet, TCAS style)
+    if (g_settings.mapTraffic) {
+        for (const MapState::Traffic& t : m.traffic) {
+            const ImVec2 q = toS(mercOf(t.lat, t.lon));
+            if (q.x < r0.x - 30 || q.x > r1.x + 30 || q.y < r0.y - 30 || q.y > r1.y + 30) continue;
+            const double a = t.hdg * kPi / 180.0 - rot;
+            const float sa = (float)std::sin(a), ca = (float)std::cos(a);
+            auto P = [&](float x, float y) { return ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca); };
+            const int rel = (int)std::lround((t.altFt - m.altFt) / 100.0f);
+            const ImU32 col = t.onGround ? IM_COL32(200, 206, 216, 255) : std::abs(rel) <= 10 ? IM_COL32(255, 196, 60, 255) : IM_COL32(60, 220, 255, 255);
+            const ImVec2 tri[4] = {P(0, -9), P(6, 7), P(0, 3), P(-6, 7)};
+            dl->AddConcavePolyFilled(tri, 4, IM_COL32(10, 16, 28, 200));   // a dark edge under it
+            const ImVec2 inner[4] = {P(0, -7.5f), P(4.6f, 5.4f), P(0, 2.2f), P(-4.6f, 5.4f)};
+            std::vector<ImVec2> v(inner, inner + 4);
+            float ar = 0;
+            for (size_t i = 0, j = 3; i < 4; j = i++) ar += (v[j].x - v[i].x) * (v[j].y + v[i].y);
+            if (ar > 0) std::reverse(v.begin(), v.end());
+            dl->AddConcavePolyFilled(v.data(), 4, col);
+            if (g_mapZoom >= 8) {
+                char b[48];
+                if (t.onGround) std::snprintf(b, sizeof b, "%s", t.callsign.c_str());
+                else std::snprintf(b, sizeof b, "%s %c%02d%s", t.callsign.c_str(), rel >= 0 ? '+' : '-', std::min(99, std::abs(rel)), t.vsFpm > 500 ? "\xE2\x86\x91" : t.vsFpm < -500 ? "\xE2\x86\x93" : "");
+                const ImU32 tc = sat ? kInk : IM_COL32(20, 30, 50, 255);
+                textAt(dl, f.small, q.x + 10, q.y - fontPx(f.small) - 1, tc, b);
+                if (g_mapZoom >= 10 && !t.type.empty()) textAt(dl, f.small, q.x + 10, q.y, sat ? kMuted : IM_COL32(70, 80, 100, 255), t.type.c_str());
+            }
+        }
+    }
+
     // ---- the aircraft: its own outline at its real size when that is bigger than the symbol, else the symbol
     if (m.havePos) {
         const ImVec2 q = toS(ac);
@@ -1516,19 +1588,591 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         if (mapBubble(dl, f, "##mosm", ImVec2(x, y), nullptr, "Map", !sat)) { g_settings.mapSource = 0; g_settingsChanged = true; }
         x += bubbleW(f, nullptr, "Map") + 4;
         if (mapBubble(dl, f, "##msat", ImVec2(x, y), nullptr, "Satellite", sat)) { g_settings.mapSource = 1; g_settingsChanged = true; }
-        x += bubbleW(f, nullptr, "Satellite") + 12;
-        if (mapBubble(dl, f, "##mapt", ImVec2(x, y), nullptr, "Airports", g_settings.mapAirports)) { g_settings.mapAirports = !g_settings.mapAirports; g_settingsChanged = true; }
-        x += bubbleW(f, nullptr, "Airports") + 4;
-        if (mapBubble(dl, f, "##mtz", ImVec2(x, y), nullptr, "Time Zones", g_settings.mapTimeZones)) { g_settings.mapTimeZones = !g_settings.mapTimeZones; g_settingsChanged = true; }
+        // the layers, down the left under the time
+        struct Layer { const char* id; const char* name; bool* v; };
+        const Layer layers[4] = {{"##mapt", "Airports", &g_settings.mapAirports}, {"##mtraf", "Traffic", &g_settings.mapTraffic},
+                                 {"##mout", "Outlines", &g_settings.mapOutlines}, {"##mtz", "Time Zones", &g_settings.mapTimeZones}};
+        float lwMax = 0;
+        for (const Layer& L : layers) lwMax = std::max(lwMax, bubbleW(f, nullptr, L.name));
+        for (int i = 0; i < 4; ++i)
+            if (mapBubble(dl, f, layers[i].id, ImVec2(r0.x + 10, r0.y + 50 + i * 36), nullptr, layers[i].name, *layers[i].v, lwMax)) { *layers[i].v = !*layers[i].v; g_settingsChanged = true; }
         // where the map comes from, and whether the airports are still being found
         const char* attr = sat ? "Imagery: Esri, Maxar, Earthstar Geographics" : "\xC2\xA9 OpenStreetMap contributors";
         const ImVec2 as = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, attr);
         dl->AddRectFilled(ImVec2(r1.x - as.x - 12, r1.y - as.y - 6), r1, IM_COL32(255, 255, 255, 190), 4.0f, ImDrawFlags_RoundCornersTopLeft);
         dl->AddText(f.small, fontPx(f.small), ImVec2(r1.x - as.x - 6, r1.y - as.y - 3), IM_COL32(30, 36, 48, 255), attr);
-        if (g_settings.mapAirports && m.aptIndexing) textAt(dl, f.small, r0.x + 12, y - 22, sat ? kInk : IM_COL32(30, 36, 48, 255), "Finding X-Plane's airports...");
+        if (g_settings.mapAirports && m.aptIndexing) textAt(dl, f.small, r0.x + 12, r0.y + 50 + 4 * 36 + 4, sat ? kInk : IM_COL32(30, 36, 48, 255), "Finding X-Plane's airports...");
         (void)missing;
     }
     dl->PopClipRect();
+}
+
+// ---- a text field (the on-screen keyboard types into it; so does the floating window's keyboard) ------------------------------------
+bool textField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, ImVec2 a, ImVec2 b, const char* hint, bool multiline) {
+    ImGui::SetCursorScreenPos(a);
+    const bool hit = ImGui::InvisibleButton(id, ImVec2(b.x - a.x, b.y - a.y));
+    if (hit) { g_kbd = true; g_kbdTarget = 2; g_typeInto = &v; g_typeMultiline = multiline; }
+    const bool focus = g_kbd && g_kbdTarget == 2 && g_typeInto == &v;
+    dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, focus ? 30 : 14), 8.0f);
+    dl->AddRect(a, b, focus ? IM_COL32(110, 170, 255, 220) : IM_COL32(255, 255, 255, 30), 8.0f, 0, focus ? 1.5f : 1.0f);
+    dl->PushClipRect(ImVec2(a.x + 2, a.y + 2), ImVec2(b.x - 2, b.y - 2), true);
+    const float px = fontPx(f.body);
+    const float ty = multiline ? a.y + 8 : std::floor(a.y + (b.y - a.y - px) * 0.5f);
+    if (v.empty() && !focus) textAt(dl, f.body, a.x + 10, ty, kMuted, hint);
+    else {
+        std::string shown = v;
+        if (focus && std::fmod(ImGui::GetTime(), 1.0) < 0.6) shown += "|";
+        if (multiline) dl->AddText(f.body, px, ImVec2(a.x + 10, ty), kInk, shown.c_str(), nullptr, b.x - a.x - 20);
+        else {   // a long line shows its end
+            const float tw = f.body->CalcTextSizeA(px, 1e9f, 0, shown.c_str()).x;
+            const float room = b.x - a.x - 20;
+            textAt(dl, f.body, a.x + 10 - std::max(0.0f, tw - room), ty, kInk, shown.c_str());
+        }
+    }
+    dl->PopClipRect();
+    return hit;
+}
+constexpr float kKbdH = 5 * 34 + 4 * 5 + 16;   // the on-screen keyboard's height
+// the keyboard at the bottom of a page while one of its fields is typed in; the page is drawn kbShift higher so the field shows
+float pageKeyboard(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
+    if (!(g_kbd && g_kbdTarget == 2 && g_typeInto)) return 0;
+    keyboard(dl, f, w, h - kKbdH, act);
+    return kKbdH;
+}
+
+// ---- Notes: a clearance (CRAFT), the ATIS, and a scratchpad to write on by hand or type ------------------------------------------------
+const char* const kCraftLabels[6] = {"Clearance limit", "Route", "Altitude", "Frequency", "Transponder", "Remarks"};
+const char* const kAtisLabels[9] = {"Information", "Time", "Wind", "Visibility", "Clouds", "Temp / dew", "Altimeter", "Runways / approach", "Remarks"};
+std::string g_craft[6], g_atis[9], g_scratch;
+struct Stroke { int color = 0; std::vector<ImVec2> pts; };   // points as fractions of the pad
+std::vector<Stroke> g_strokes;
+int g_notesTab = 0, g_penColor = 0;
+bool g_penMode = true, g_notesChanged = false;
+const ImU32 kPens[3] = {IM_COL32(240, 244, 250, 255), IM_COL32(255, 210, 70, 255), IM_COL32(110, 200, 255, 255)};
+
+void notesPage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
+    const float top = kStatusH + kHeaderH + 8;
+    // the three pads
+    const char* tabs[3] = {"Clearance", "ATIS", "Scratchpad"};
+    for (int i = 0; i < 3; ++i) {
+        char id[16];
+        std::snprintf(id, sizeof id, "##ntab%d", i);
+        if (pill(dl, f, id, tabs[i], ImVec2(12 + i * 128.0f, top), ImVec2(12 + i * 128.0f + 120, top + 30), g_notesTab == i, true) && g_notesTab != i) {
+            g_notesTab = i; g_kbd = false; g_typeInto = nullptr;
+        }
+    }
+    if (pill(dl, f, "##nclear", "Clear", ImVec2(w - 92, top), ImVec2(w - 12, top + 30), false, true)) {
+        if (g_notesTab == 0) for (auto& x : g_craft) x.clear();
+        else if (g_notesTab == 1) for (auto& x : g_atis) x.clear();
+        else { g_scratch.clear(); g_strokes.clear(); }
+        g_notesChanged = true;
+    }
+    const float y0 = top + 42;
+    const bool kb = g_kbd && g_kbdTarget == 2 && g_typeInto;
+    const float bottom = kb ? h - kKbdH : h;
+    if (g_notesTab == 0 || g_notesTab == 1) {
+        const int n = g_notesTab == 0 ? 6 : 9;
+        std::string* vals = g_notesTab == 0 ? g_craft : g_atis;
+        const char* const* labels = g_notesTab == 0 ? kCraftLabels : kAtisLabels;
+        // rows: CRAFT one column (with its letters); ATIS two columns, remarks across
+        struct Row { float x0, x1, y; };
+        std::vector<Row> rows;
+        const float rowH = 50;
+        if (g_notesTab == 0) for (int i = 0; i < n; ++i) rows.push_back({60, w - 12, y0 + i * rowH});
+        else {
+            const float half = std::floor((w - 36) * 0.5f);
+            for (int i = 0; i < 8; ++i) rows.push_back({i < 4 ? 12.0f : 24 + half, i < 4 ? 12 + half : w - 12, y0 + (i % 4) * rowH});
+            rows.push_back({12, w - 12, y0 + 4 * rowH});
+        }
+        // keep the field being typed in above the keyboard
+        float shift = 0;
+        for (int i = 0; i < n; ++i) if (kb && g_typeInto == &vals[i]) shift = std::max(0.0f, rows[i].y + rowH - bottom + 6);
+        dl->PushClipRect(ImVec2(0, top + 36), ImVec2(w, bottom), true);
+        for (int i = 0; i < n; ++i) {
+            const Row& r = rows[i];
+            const float y = r.y - shift;
+            if (g_notesTab == 0 && i < 5) {   // the CRAFT letter
+                const char L[2] = {"CRAFT"[i], 0};
+                dl->AddCircleFilled(ImVec2(32, y + 30), 15.0f, IM_COL32(70, 140, 255, 200), 24);
+                textCentered(dl, f.bold, 32, y + 30 - fontPx(f.bold) * 0.5f, kInk, L);
+            }
+            textAt(dl, f.small, r.x0 + 2, y, kMuted, labels[i]);
+            char id[16];
+            std::snprintf(id, sizeof id, "##nf%d_%d", g_notesTab, i);
+            textField(dl, f, id, vals[i], ImVec2(r.x0, y + 16), ImVec2(r.x1, y + 46), "", false);
+        }
+        dl->PopClipRect();
+        if (g_typeChanged) { g_typeChanged = false; g_notesChanged = true; }
+        pageKeyboard(dl, f, w, h, act);
+        return;
+    }
+    // the scratchpad: pen or keyboard
+    if (pill(dl, f, "##npen", "Pen", ImVec2(12, y0), ImVec2(92, y0 + 28), g_penMode, true)) { g_penMode = true; g_kbd = false; g_typeInto = nullptr; }
+    if (pill(dl, f, "##ntype", "Type", ImVec2(98, y0), ImVec2(178, y0 + 28), !g_penMode, true)) g_penMode = false;
+    for (int i = 0; i < 3; ++i) {   // the pen's colour
+        const ImVec2 c(206 + i * 32.0f, y0 + 14);
+        ImGui::SetCursorScreenPos(ImVec2(c.x - 13, c.y - 13));
+        char id[16];
+        std::snprintf(id, sizeof id, "##npc%d", i);
+        if (ImGui::InvisibleButton(id, ImVec2(26, 26))) { g_penColor = i; g_penMode = true; }
+        dl->AddCircleFilled(c, 10.0f, kPens[i], 20);
+        if (g_penColor == i) dl->AddCircle(c, 13.0f, IM_COL32(110, 170, 255, 255), 24, 2.0f);
+    }
+    if (pill(dl, f, "##nundo", "Undo", ImVec2(306, y0), ImVec2(386, y0 + 28), false, !g_strokes.empty())) { g_strokes.pop_back(); g_notesChanged = true; }
+    const ImVec2 pa(12, y0 + 38), pb(w - 12, bottom - 10);
+    dl->AddRectFilled(pa, pb, IM_COL32(14, 24, 40, 235), 10.0f);
+    for (float ly = pa.y + 34; ly < pb.y - 4; ly += 34) dl->AddLine(ImVec2(pa.x + 10, ly), ImVec2(pb.x - 10, ly), IM_COL32(255, 255, 255, 16), 1.0f);
+    const float pw = pb.x - pa.x, ph = std::max(1.0f, (h - 10) - pa.y);   // strokes are kept as fractions of the whole pad (keyboard or not)
+    if (g_penMode) {
+        ImGui::SetCursorScreenPos(pa);
+        ImGui::InvisibleButton("##npad", ImVec2(pw, pb.y - pa.y));
+        const ImVec2 mp = ImGui::GetIO().MousePos;
+        const ImVec2 q((mp.x - pa.x) / pw, (mp.y - pa.y) / ph);
+        if (ImGui::IsItemActivated()) { g_strokes.push_back(Stroke{g_penColor, {q}}); g_notesChanged = true; }
+        else if (ImGui::IsItemActive() && !g_strokes.empty()) {
+            const ImVec2 last = g_strokes.back().pts.back();
+            if (std::fabs(last.x - q.x) * pw + std::fabs(last.y - q.y) * ph > 1.5f) g_strokes.back().pts.push_back(q);
+        }
+    } else {
+        textField(dl, f, "##nscratch", g_scratch, pa, pb, "Tap to type", true);
+        if (g_typeChanged) { g_typeChanged = false; g_notesChanged = true; }
+    }
+    dl->PushClipRect(pa, pb, true);
+    std::vector<ImVec2> pts;
+    for (const Stroke& st : g_strokes) {
+        pts.clear();
+        for (const ImVec2& q : st.pts) pts.push_back(ImVec2(pa.x + q.x * pw, pa.y + q.y * ph));
+        if (pts.size() == 1) dl->AddCircleFilled(pts[0], 1.6f, kPens[st.color % 3], 8);
+        else dl->AddPolyline(pts.data(), (int)pts.size(), kPens[st.color % 3], 0, 2.2f);
+    }
+    dl->PopClipRect();
+    pageKeyboard(dl, f, w, h, act);
+}
+
+std::string escapeLine(const std::string& v) {
+    std::string o;
+    for (char c : v) { if (c == '\n') o += "\\n"; else if (c == '\\') o += "\\\\"; else o += c; }
+    return o;
+}
+std::string unescapeLine(const std::string& v) {
+    std::string o;
+    for (size_t i = 0; i < v.size(); ++i) {
+        if (v[i] == '\\' && i + 1 < v.size()) { o += v[i + 1] == 'n' ? '\n' : v[i + 1]; ++i; }
+        else o += v[i];
+    }
+    return o;
+}
+
+// ---- Checklists: the aircraft's own file, or a general one for airliners or light aircraft; ticked off item by item ---------------------
+struct CheckSection { std::string title; std::vector<std::pair<std::string, std::string>> items; };
+const char* const kAirlinerChecklist =
+    "# Cockpit preparation\nBatteries | ON\nExternal power / APU | ON\nFlight plan | LOADED\nFuel quantity | CHECKED\nAltimeters | SET\nTakeoff data | SET\n"
+    "# Before start\nDoors | CLOSED\nSeat belt signs | ON\nParking brake | SET\nBeacon | ON\nTransponder | SET\nTakeoff briefing | COMPLETE\n"
+    "# After start\nGenerators | ON\nAPU bleed | OFF\nAnti-ice | AS RQRD\nFlaps | SET\nFlight controls | CHECKED\nGround equipment | CLEAR\n"
+    "# Before takeoff\nCabin | READY\nFlaps | SET\nTrim | SET\nTransponder | TA/RA\nLanding lights | ON\nRunway | CONFIRMED\n"
+    "# After takeoff\nGear | UP\nFlaps | UP\nAutopilot | AS RQRD\nAltimeters | STD at transition\n"
+    "# Approach\nArrival briefing | COMPLETE\nAltimeters | SET\nMinimums | SET\nSeat belt signs | ON\nAuto brake | SET\n"
+    "# Landing\nGear | DOWN\nFlaps | LANDING\nSpeed brakes | ARMED\nLanding clearance | RECEIVED\n"
+    "# After landing\nSpeed brakes | RETRACTED\nFlaps | UP\nTransponder | STBY\nLanding lights | OFF\nAPU | START\n"
+    "# Parking\nParking brake | SET\nEngines | OFF\nSeat belt signs | OFF\nBeacon | OFF\nFuel pumps | OFF\n";
+const char* const kLightChecklist =
+    "# Preflight\nFuel quantity | CHECKED\nOil | CHECKED\nControl locks | REMOVED\nWeather and NOTAMs | CHECKED\n"
+    "# Before start\nSeats and belts | SECURE\nFuel selector | BOTH\nCircuit breakers | IN\nAvionics | OFF\nBeacon | ON\n"
+    "# Engine start\nMixture | RICH\nThrottle | 1/4 IN OPEN\nPropeller area | CLEAR\nMagnetos | START\nOil pressure | CHECKED\n"
+    "# Before takeoff\nParking brake | SET\nFlight controls | FREE AND CORRECT\nInstruments | SET\nRun-up | COMPLETE\nFlaps | SET\nTrim | TAKEOFF\nTransponder | ALT\nLights | ON\n"
+    "# Cruise\nPower | SET\nMixture | LEANED\nFuel | MONITORED\n"
+    "# Before landing\nATIS / altimeter | SET\nFuel selector | BOTH\nMixture | RICH\nCarb heat | AS RQRD\nFlaps | AS RQRD\n"
+    "# After landing\nFlaps | UP\nCarb heat | COLD\nTransponder | STBY\nLights | AS RQRD\n"
+    "# Shutdown\nAvionics | OFF\nMixture | IDLE CUTOFF\nMagnetos | OFF\nMaster | OFF\nParking brake | SET\n";
+
+std::vector<CheckSection> parseChecklist(const std::string& text) {
+    std::vector<CheckSection> out;
+    size_t p = 0;
+    while (p < text.size()) {
+        size_t e = text.find('\n', p);
+        if (e == std::string::npos) e = text.size();
+        std::string line = text.substr(p, e - p);
+        p = e + 1;
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+        size_t b = 0;
+        while (b < line.size() && line[b] == ' ') ++b;
+        line.erase(0, b);
+        if (line.empty() || line.compare(0, 2, "//") == 0) continue;
+        if (line[0] == '#') { size_t k = 1; while (k < line.size() && (line[k] == '#' || line[k] == ' ')) ++k; out.push_back({line.substr(k), {}}); continue; }
+        if (out.empty()) out.push_back({"Checklist", {}});
+        const size_t bar = line.find('|');
+        std::string item = bar == std::string::npos ? line : line.substr(0, bar), val = bar == std::string::npos ? "" : line.substr(bar + 1);
+        while (!item.empty() && item.back() == ' ') item.pop_back();
+        while (!val.empty() && val[0] == ' ') val.erase(0, 1);
+        out.back().items.push_back({item, val});
+    }
+    out.erase(std::remove_if(out.begin(), out.end(), [](const CheckSection& c) { return c.items.empty(); }), out.end());
+    return out;
+}
+
+int g_clSource = -1;    // -1 automatic: the aircraft's own file, else by its size; 0 own, 1 airliner, 2 light aircraft
+int g_clSection = 0;
+std::string g_clKey;    // what the ticks belong to (source and aircraft)
+std::vector<std::vector<bool>> g_clDone;
+
+void checklistsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h) {
+    const float top = kStatusH + kHeaderH + 8;
+    float len = 0, span = 0;
+    const PlaneSpec& spec = planeSpec(s.acfIcao);
+    if (!findShape(s.acfIcao, len, span)) len = spec.len;
+    const bool own = !s.checklistText.empty();
+    int src = g_clSource;
+    if (src < 0 || (src == 0 && !own)) src = own ? 0 : (len >= 24 ? 1 : 2);
+    const char* names[3] = {"This aircraft", "Airliner", "Light aircraft"};
+    float x = 12;
+    for (int i = 0; i < 3; ++i) {
+        if (i == 0 && !own) continue;
+        char id[16];
+        std::snprintf(id, sizeof id, "##cls%d", i);
+        const float bw = f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, names[i]).x + 32;
+        if (pill(dl, f, id, names[i], ImVec2(x, top), ImVec2(x + bw, top + 30), src == i, true)) g_clSource = i;
+        x += bw + 6;
+    }
+    if (own) textRight(dl, f.small, w - 14, top + 8, kMuted, s.checklistSource.c_str());
+    else textRight(dl, f.small, w - 14, top + 8, kMuted, "Your own: Output/XPTablet/Checklists/<ICAO>.txt");
+    const std::vector<CheckSection> list = parseChecklist(src == 0 ? s.checklistText : src == 1 ? kAirlinerChecklist : kLightChecklist);
+    if (list.empty()) return;
+    const std::string key = std::to_string(src) + "|" + s.acfIcao;
+    if (key != g_clKey || g_clDone.size() != list.size()) {
+        g_clKey = key; g_clSection = 0;
+        g_clDone.assign(list.size(), {});
+        for (size_t i = 0; i < list.size(); ++i) g_clDone[i].assign(list[i].items.size(), false);
+    }
+    g_clSection = std::max(0, std::min((int)list.size() - 1, g_clSection));
+    // the sections, with how far each has got
+    const float y0 = top + 42, leftW = 230;
+    card(dl, ImVec2(12, y0), ImVec2(12 + leftW, h - 12), f, nullptr);
+    const float rh = std::min(36.0f, std::floor((h - 12 - y0 - 12) / (float)list.size()));
+    for (size_t i = 0; i < list.size(); ++i) {
+        const float y = y0 + 6 + i * rh;
+        int done = 0;
+        for (bool b : g_clDone[i]) done += b ? 1 : 0;
+        const bool all = done == (int)g_clDone[i].size();
+        char id[32];
+        std::snprintf(id, sizeof id, "##clsec%zu", i);
+        ImGui::SetCursorScreenPos(ImVec2(18, y));
+        if (ImGui::InvisibleButton(id, ImVec2(leftW - 12, rh - 2))) g_clSection = (int)i;
+        if ((int)i == g_clSection) dl->AddRectFilled(ImVec2(18, y), ImVec2(6 + leftW, y + rh - 2), IM_COL32(70, 140, 255, 80), 8.0f);
+        textAt(dl, f.body, 28, std::floor(y + (rh - 2 - fontPx(f.body)) * 0.5f), all ? kGood : kInk, list[i].title.c_str());
+        char c[16];
+        std::snprintf(c, sizeof c, all ? "\xE2\x9C\x93" : "%d/%d", done, (int)g_clDone[i].size());
+        if (all) dl->AddText(f.bold, fontPx(f.bold), ImVec2(leftW - 18, std::floor(y + (rh - 2 - fontPx(f.bold)) * 0.5f)), kGood, "OK");
+        else textRight(dl, f.small, leftW - 2, std::floor(y + (rh - 2 - fontPx(f.small)) * 0.5f), kMuted, c);
+    }
+    // the items: tap one to tick it
+    const CheckSection& sec = list[g_clSection];
+    std::vector<bool>& done = g_clDone[g_clSection];
+    const float rx = 24 + leftW, rw = w - 12 - rx;
+    card(dl, ImVec2(rx, y0), ImVec2(rx + rw, h - 12), f, nullptr);
+    textAt(dl, f.title, rx + 16, y0 + 10, kInk, sec.title.c_str());
+    const float iy0 = y0 + 48, ih = std::min(38.0f, std::floor((h - 12 - 52 - iy0) / std::max(1.0f, (float)sec.items.size())));
+    for (size_t i = 0; i < sec.items.size(); ++i) {
+        const float y = iy0 + i * ih;
+        char id[32];
+        std::snprintf(id, sizeof id, "##cli%zu", i);
+        ImGui::SetCursorScreenPos(ImVec2(rx + 10, y));
+        if (ImGui::InvisibleButton(id, ImVec2(rw - 20, ih - 2))) done[i] = !done[i];
+        const bool on = done[i];
+        const ImVec2 c(rx + 28, y + (ih - 2) * 0.5f);
+        dl->AddCircle(c, 9.0f, on ? kGood : IM_COL32(255, 255, 255, 90), 20, 1.6f);
+        if (on) { dl->AddCircleFilled(c, 9.0f, kGood, 20); dl->AddLine(ImVec2(c.x - 4, c.y), ImVec2(c.x - 1, c.y + 3.5f), IM_COL32(10, 30, 20, 255), 2.0f); dl->AddLine(ImVec2(c.x - 1, c.y + 3.5f), ImVec2(c.x + 5, c.y - 4), IM_COL32(10, 30, 20, 255), 2.0f); }
+        const float ty = std::floor(y + (ih - 2 - fontPx(f.body)) * 0.5f);
+        const ImU32 col = on ? kMuted : kInk;
+        textAt(dl, f.body, rx + 48, ty, col, sec.items[i].first.c_str());
+        if (!sec.items[i].second.empty()) {
+            const float tw = f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, sec.items[i].first.c_str()).x;
+            const float vw = f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, sec.items[i].second.c_str()).x;
+            for (float dx = rx + 56 + tw; dx < rx + rw - 22 - vw; dx += 6) dl->AddCircleFilled(ImVec2(dx, ty + fontPx(f.body) * 0.75f), 0.9f, IM_COL32(255, 255, 255, 60), 4);
+            textRight(dl, f.bold, rx + rw - 16, ty, on ? kMuted : IM_COL32(255, 214, 120, 255), sec.items[i].second.c_str());
+        }
+    }
+    const bool all = std::all_of(done.begin(), done.end(), [](bool b) { return b; });
+    if (pill(dl, f, "##clreset", "Reset", ImVec2(rx + 16, h - 56), ImVec2(rx + 116, h - 24), false, true)) std::fill(done.begin(), done.end(), false);
+    if (pill(dl, f, "##clall", "Reset all", ImVec2(rx + 124, h - 56), ImVec2(rx + 244, h - 24), false, true)) for (auto& d : g_clDone) std::fill(d.begin(), d.end(), false);
+    if (g_clSection + 1 < (int)list.size() && pill(dl, f, "##clnext", "Next section", ImVec2(rx + rw - 156, h - 56), ImVec2(rx + rw - 16, h - 24), all, true)) ++g_clSection;
+}
+
+// ---- Airports: X-Plane's airports (search, or the nearest), each with its radio (CTAF always), runways, parking and METAR -------------
+std::string g_aptQuery, g_aptSel;
+float g_aptScroll = 0;
+const char* surfaceName(int s) {
+    if (s == 1 || (s >= 20 && s <= 38)) return "Asphalt";
+    if (s == 2 || (s >= 50 && s <= 57)) return "Concrete";
+    switch (s) { case 3: return "Grass"; case 4: return "Dirt"; case 5: return "Gravel"; case 12: return "Dry lakebed"; case 13: return "Water"; case 14: return "Snow / ice"; default: return "Other"; }
+}
+double distNmLL(double la1, double lo1, double la2, double lo2, double* brgOut) {
+    const double k = kPi / 180.0;
+    const double dLat = (la2 - la1) * k, dLon = (lo2 - lo1) * k;
+    const double a = std::sin(dLat / 2) * std::sin(dLat / 2) + std::cos(la1 * k) * std::cos(la2 * k) * std::sin(dLon / 2) * std::sin(dLon / 2);
+    if (brgOut) {
+        const double y = std::sin(dLon) * std::cos(la2 * k), x = std::cos(la1 * k) * std::sin(la2 * k) - std::sin(la1 * k) * std::cos(la2 * k) * std::cos(dLon);
+        *brgOut = std::fmod(std::atan2(y, x) / k + 360.0, 360.0);
+    }
+    return 2 * std::atan2(std::sqrt(a), std::sqrt(1 - a)) * 3440.065;
+}
+
+void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    act.airportsShown = true;
+    act.airportSearch = g_aptQuery;
+    const float top = kStatusH + kHeaderH + 8;
+    const bool kb = g_kbd && g_kbdTarget == 2 && g_typeInto == &g_aptQuery;
+    const float bottom = kb ? h - kKbdH : h;
+    // the list
+    const float lw = 270;
+    textField(dl, f, "##aptq", g_aptQuery, ImVec2(12, top), ImVec2(12 + lw, top + 34), "Search: code or name", false);
+    card(dl, ImVec2(12, top + 42), ImVec2(12 + lw, bottom - 10), f, g_aptQuery.empty() ? "NEAREST" : "FOUND");
+    if (s.airportList.empty()) {
+        dl->AddText(f.small, fontPx(f.small), ImVec2(26, top + 74), kMuted, s.airportStatus.empty() ? "No airport found" : s.airportStatus.c_str(), nullptr, lw - 28);
+    }
+    dl->PushClipRect(ImVec2(12, top + 64), ImVec2(12 + lw, bottom - 12), true);
+    for (size_t i = 0; i < s.airportList.size(); ++i) {
+        const AptPoint& p = s.airportList[i];
+        const float y = top + 66 + i * 42;
+        if (y > bottom - 20) break;
+        char id[32];
+        std::snprintf(id, sizeof id, "##aptl%zu", i);
+        ImGui::SetCursorScreenPos(ImVec2(18, y));
+        if (ImGui::InvisibleButton(id, ImVec2(lw - 12, 40))) { g_aptSel = p.icao; g_kbd = false; g_typeInto = nullptr; g_aptScroll = 0; }
+        if (p.icao == g_aptSel) dl->AddRectFilled(ImVec2(18, y), ImVec2(6 + lw, y + 40), IM_COL32(70, 140, 255, 80), 8.0f);
+        textAt(dl, f.bold, 28, y + 3, kInk, p.icao.c_str());
+        if (s.map.havePos) {
+            double brg = 0;
+            const double d = distNmLL(s.map.lat, s.map.lon, p.lat, p.lon, &brg);
+            char b[32];
+            std::snprintf(b, sizeof b, "%.0f nm %03.0f\xC2\xB0", d, brg);
+            textRight(dl, f.small, 2 + lw, y + 5, kMuted, b);
+        }
+        std::string nm = p.name;
+        while (nm.size() > 3 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, nm.c_str()).x > lw - 40) { nm.resize(nm.size() - 3); nm += ".."; }
+        textAt(dl, f.small, 28, y + 22, kMuted, nm.c_str());
+    }
+    dl->PopClipRect();
+    // the first time: the nearest airport, shown
+    if (g_aptSel.empty() && g_aptQuery.empty() && !s.airportList.empty()) g_aptSel = s.airportList[0].icao;
+    if (!g_aptSel.empty()) act.airportOpen = g_aptSel;
+    // the airport
+    const float rx = 24 + lw, rw = w - 12 - rx;
+    const ImVec2 ra(rx, top), rb(rx + rw, bottom - 10);
+    card(dl, ra, rb, f, nullptr);
+    const AirportInfo& ap = s.airport;
+    if (g_aptSel.empty()) { pageKeyboard(dl, f, w, h, act); return; }
+    if (ap.icao != g_aptSel || ap.busy) { textCentered(dl, f.body, rx + rw * 0.5f, top + 60, kMuted, "Reading the airport..."); pageKeyboard(dl, f, w, h, act); return; }
+    if (!ap.found) { textCentered(dl, f.body, rx + rw * 0.5f, top + 60, kMuted, "This airport is not in X-Plane's scenery."); pageKeyboard(dl, f, w, h, act); return; }
+    const AptGeo& g = *ap.geo;
+    if (ap.icao.size() >= 3 && ap.icao.size() <= 4 && s.metar.icao != ap.icao && !s.metar.busy) act.metarSearch = ap.icao;
+    // scrolling: the wheel or a drag over the panel
+    ImGui::SetCursorScreenPos(ra);
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("##aptpanel", ImVec2(rb.x - ra.x, rb.y - ra.y));
+    if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_aptScroll -= ImGui::GetIO().MouseWheel * 40;
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_aptScroll -= ImGui::GetIO().MouseDelta.y;
+    g_aptScroll = std::max(0.0f, g_aptScroll);
+    dl->PushClipRect(ImVec2(ra.x + 2, ra.y + 2), ImVec2(rb.x - 2, rb.y - 2), true);
+    const float x0 = rx + 18, x1 = rx + rw - 18;
+    float y = top + 14 - g_aptScroll;
+    // the name and place
+    textAt(dl, f.title, x0, y, kInk, ap.icao.c_str());
+    const float iw = f.title->CalcTextSizeA(fontPx(f.title), 1e9f, 0, ap.icao.c_str()).x;
+    if (!ap.iata.empty()) textAt(dl, f.small, x0 + iw + 8, y + 8, kMuted, ap.iata.c_str());
+    {
+        ImGui::SetCursorScreenPos(ImVec2(x1 - 120, y));
+        if (pill(dl, f, "##aptmap", "Show on map", ImVec2(x1 - 120, y), ImVec2(x1, y + 28), false, true)) {
+            g_mapGoto = true; g_mapGotoLat = g.lat; g_mapGotoLon = g.lon;
+        }
+    }
+    y += 32;
+    textAt(dl, f.bold, x0, y, kInk, (ap.name.empty() ? g.name : ap.name).c_str());
+    y += 22;
+    std::string place = ap.city;
+    if (!ap.region.empty()) place += (place.empty() ? "" : ", ") + ap.region;
+    else if (!ap.country.empty()) place += (place.empty() ? "" : ", ") + ap.country;
+    {
+        char b[96];
+        std::snprintf(b, sizeof b, "Elevation %.0f ft", g.elevationFt);
+        std::string line = place.empty() ? std::string(b) : place + "  \xC2\xB7  " + b;
+        if (s.map.havePos) {
+            double brg = 0;
+            const double d = distNmLL(s.map.lat, s.map.lon, g.lat, g.lon, &brg);
+            char c[48];
+            std::snprintf(c, sizeof c, "  \xC2\xB7  %.0f nm, %03.0f\xC2\xB0 from you", d, brg);
+            line += c;
+        }
+        textAt(dl, f.small, x0, y, kMuted, line.c_str());
+    }
+    y += 26;
+    // CTAF, always
+    {
+        const ImVec2 a(x0, y), b(x0 + 300, y + 52);
+        dl->AddRectFilled(a, b, IM_COL32(255, 196, 80, 34), 10.0f);
+        dl->AddRect(a, b, IM_COL32(255, 196, 80, 160), 10.0f, 0, 1.2f);
+        textAt(dl, f.small, a.x + 12, a.y + 6, IM_COL32(255, 214, 120, 255), "CTAF");
+        char fq[16];
+        std::snprintf(fq, sizeof fq, "%.3f", ap.ctaf.mhz);
+        textAt(dl, f.title, a.x + 12, a.y + 20, kInk, fq);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 112, a.y + 9), kMuted, ap.ctaf.note.c_str(), nullptr, b.x - a.x - 120);
+    }
+    // the METAR beside it
+    if (s.metar.icao == ap.icao && !s.metar.raw.empty()) dl->AddText(f.mono, fontPx(f.mono), ImVec2(x0 + 314, y + 2), kInk, s.metar.raw.c_str(), nullptr, x1 - x0 - 314);
+    else textAt(dl, f.small, x0 + 314, y + 4, kMuted, s.metar.icao == ap.icao && s.metar.busy ? "METAR: asking NOAA..." : "No METAR");
+    y += 64;
+    // radio
+    textAt(dl, f.small, x0, y, kMuted, "RADIO");
+    y += 20;
+    for (const AirportInfo::Freq& fq : ap.freqs) {
+        textAt(dl, f.body, x0, y, kInk, fq.what.c_str());
+        char b[16];
+        std::snprintf(b, sizeof b, "%.3f", fq.mhz);
+        textAt(dl, f.mono, x0 + 150, y + 1, kInk, b);
+        if (!fq.note.empty()) {
+            std::string n = fq.note;
+            while (n.size() > 3 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, n.c_str()).x > x1 - x0 - 230) { n.resize(n.size() - 3); n += ".."; }
+            textAt(dl, f.small, x0 + 230, y + 2, kMuted, n.c_str());
+        }
+        y += 22;
+    }
+    if (ap.freqs.empty()) { textAt(dl, f.small, x0, y, kMuted, "No frequencies published"); y += 22; }
+    y += 10;
+    // runways
+    textAt(dl, f.small, x0, y, kMuted, "RUNWAYS");
+    y += 20;
+    for (size_t i = 0; i < g.runways.size(); ++i) {
+        const AptGeo::Runway& r = g.runways[i];
+        double la1, lo1, la2, lo2, brg = 0;
+        latLonOf(r.a, la1, lo1);
+        latLonOf(r.b, la2, lo2);
+        const double lenFt = distNmLL(la1, lo1, la2, lo2, &brg) * 6076.12;
+        const AptGeo::RunwayInfo ri = i < g.runwayInfo.size() ? g.runwayInfo[i] : AptGeo::RunwayInfo();
+        char b[128];
+        std::snprintf(b, sizeof b, "%s / %s", r.idA.c_str(), r.idB.c_str());
+        textAt(dl, f.bold, x0, y, kInk, b);
+        std::snprintf(b, sizeof b, "%s x %.0f ft   %s%s   %03.0f\xC2\xB0T", "", r.widthM * 3.28084, surfaceName(ri.surface), ri.lit ? ", lit" : "", brg);
+        char len[32];
+        std::snprintf(len, sizeof len, "%.0f", lenFt);
+        std::string withComma = len;
+        if (withComma.size() > 3) withComma.insert(withComma.size() - 3, ",");
+        textAt(dl, f.body, x0 + 110, y, kInk, (withComma + b).c_str());
+        y += 24;
+    }
+    y += 8;
+    // parking
+    if (!g.stands.empty()) {
+        textAt(dl, f.small, x0, y, kMuted, "PARKING");
+        y += 20;
+        int gates = 0, ties = 0, hangars = 0, misc = 0;
+        for (const auto& st : g.stands) { if (st.type == "gate") ++gates; else if (st.type == "tie_down" || st.type == "tie-down") ++ties; else if (st.type == "hangar") ++hangars; else ++misc; }
+        char b[128];
+        std::snprintf(b, sizeof b, "%d gates  \xC2\xB7  %d ramp / tie-down  \xC2\xB7  %d hangars%s", gates, ties, hangars, misc ? "  \xC2\xB7  others" : "");
+        textAt(dl, f.body, x0, y, kInk, b);
+        y += 24;
+        std::string all;
+        for (size_t i = 0; i < g.stands.size() && i < 120; ++i) { if (!all.empty()) all += ",  "; all += g.stands[i].name; }
+        if (g.stands.size() > 120) all += ",  ...";
+        const ImVec2 sz = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, x1 - x0, all.c_str());
+        dl->AddText(f.small, fontPx(f.small), ImVec2(x0, y), kMuted, all.c_str(), nullptr, x1 - x0);
+        y += sz.y + 10;
+    }
+    const float contentH = y + g_aptScroll - (top + 14);
+    g_aptScroll = std::min(g_aptScroll, std::max(0.0f, contentH - (rb.y - ra.y) + 30));
+    dl->PopClipRect();
+    pageKeyboard(dl, f, w, h, act);
+}
+
+// ---- Documents: PDFs (in the browser's PDF viewer) and pictures (here), from the tablet's folder, the aircraft's and AviTab's charts ----
+float g_docZoom = 1.0f;
+ImVec2 g_docPan(0, 0);
+std::string g_docLast;
+std::string fileUrl(std::string path) {
+    for (char& c : path) if (c == '\\') c = '/';
+    std::string out = "file://";
+    if (path.empty() || path[0] != '/') out += "/";
+    for (unsigned char c : path) {
+        if (std::isalnum(c) || c == '/' || c == '-' || c == '_' || c == '.' || c == ':' || c == '~') out += (char)c;
+        else { char b[4]; std::snprintf(b, sizeof b, "%%%02X", c); out += b; }
+    }
+    return out;
+}
+std::string sizeText(long long b) {
+    char t[24];
+    if (b >= 1 << 20) std::snprintf(t, sizeof t, "%.1f MB", b / 1048576.0);
+    else std::snprintf(t, sizeof t, "%.0f KB", std::max(1.0, b / 1024.0));
+    return t;
+}
+float g_docListScroll = 0;
+
+void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const DocsState& d = s.docs;
+    if (!d.listed) act.docsList = true;
+    const float top = kStatusH + kHeaderH + 8, lw = 290;
+    if (pill(dl, f, "##docref", "Refresh", ImVec2(12, top), ImVec2(112, top + 30), false, true)) act.docsList = true;
+    char cnt[32];
+    std::snprintf(cnt, sizeof cnt, "%d files", (int)d.files.size());
+    textRight(dl, f.small, 12 + lw, top + 8, kMuted, cnt);
+    const ImVec2 la(12, top + 40), lb(12 + lw, h - 12);
+    card(dl, la, lb, f, nullptr);
+    if (d.files.empty()) {
+        std::string t = "Put PDFs and pictures (PNG, JPG) in:\n";
+        for (const std::string& fo : d.folders) t += "\n" + fo;
+        dl->AddText(f.small, fontPx(f.small), ImVec2(la.x + 14, la.y + 14), kMuted, t.c_str(), nullptr, lw - 28);
+    }
+    // the list, by folder; it scrolls with the wheel or a drag
+    ImGui::SetCursorScreenPos(la);
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("##doclist", ImVec2(lb.x - la.x, lb.y - la.y));
+    if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_docListScroll -= ImGui::GetIO().MouseWheel * 40;
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_docListScroll -= ImGui::GetIO().MouseDelta.y;
+    g_docListScroll = std::max(0.0f, g_docListScroll);
+    dl->PushClipRect(ImVec2(la.x + 2, la.y + 2), ImVec2(lb.x - 2, lb.y - 2), true);
+    float y = la.y + 8 - g_docListScroll;
+    std::string folder;
+    for (size_t i = 0; i < d.files.size(); ++i) {
+        const DocEntry& e = d.files[i];
+        if (e.folder != folder) { folder = e.folder; textAt(dl, f.small, la.x + 12, y + 4, kMuted, folder.c_str()); y += 24; }
+        char id[32];
+        std::snprintf(id, sizeof id, "##doc%zu", i);
+        ImGui::SetCursorScreenPos(ImVec2(la.x + 6, y));
+        if (ImGui::InvisibleButton(id, ImVec2(lw - 12, 34)) && y > la.y - 30) {
+            if (e.pdf) { openWeb(e.name.c_str(), fileUrl(e.path).c_str(), true); return; }
+            act.docOpen = e.path; g_docZoom = 1.0f; g_docPan = ImVec2(0, 0);
+        }
+        if (e.path == d.shownPath) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(lb.x - 6, y + 34), IM_COL32(70, 140, 255, 80), 8.0f);
+        // a small page: red for a PDF, blue for a picture
+        const ImVec2 ic(la.x + 22, y + 17);
+        dl->AddRectFilled(ImVec2(ic.x - 7, ic.y - 10), ImVec2(ic.x + 7, ic.y + 10), e.pdf ? IM_COL32(220, 70, 70, 255) : IM_COL32(70, 150, 230, 255), 2.0f);
+        textCentered(dl, f.small, ic.x, ic.y - fontPx(f.small) * 0.5f, kInk, e.pdf ? "P" : "I");
+        std::string nm = e.name;
+        while (nm.size() > 3 && f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, nm.c_str()).x > lw - 110) { nm.resize(nm.size() - 3); nm += ".."; }
+        textAt(dl, f.body, la.x + 38, std::floor(y + 17 - fontPx(f.body) * 0.5f), kInk, nm.c_str());
+        textRight(dl, f.small, lb.x - 12, std::floor(y + 17 - fontPx(f.small) * 0.5f), kMuted, sizeText(e.bytes).c_str());
+        y += 36;
+    }
+    g_docListScroll = std::min(g_docListScroll, std::max(0.0f, y + g_docListScroll - lb.y + 20));
+    dl->PopClipRect();
+    // the picture: fitted, then the wheel or + / - to zoom and a drag to move
+    const ImVec2 va(24 + lw, top), vb(w - 12, h - 12);
+    dl->AddRectFilled(va, vb, IM_COL32(8, 14, 26, 240), 10.0f);
+    if (d.shownPath != g_docLast) { g_docLast = d.shownPath; g_docZoom = 1.0f; g_docPan = ImVec2(0, 0); }
+    if (d.busy) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kMuted, "Opening..."); return; }
+    if (!d.error.empty()) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kWarn, d.error.c_str()); return; }
+    if (!d.tex || d.texW <= 0 || d.texH <= 0) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kMuted, "Choose a document. PDFs open in the browser."); return; }
+    ImGui::SetCursorScreenPos(va);
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("##docview", ImVec2(vb.x - va.x, vb.y - va.y));
+    const ImGuiIO& io = ImGui::GetIO();
+    if (ImGui::IsItemHovered() && io.MouseWheel != 0) g_docZoom = std::max(0.5f, std::min(8.0f, g_docZoom * (io.MouseWheel > 0 ? 1.25f : 0.8f)));
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 2.0f)) { g_docPan.x += io.MouseDelta.x; g_docPan.y += io.MouseDelta.y; }
+    const float fit = std::min((vb.x - va.x - 16) / d.texW, (vb.y - va.y - 16) / d.texH) * g_docZoom;
+    const ImVec2 c((va.x + vb.x) * 0.5f + g_docPan.x, (va.y + vb.y) * 0.5f + g_docPan.y);
+    dl->PushClipRect(va, vb, true);
+    dl->AddImage(d.tex, ImVec2(c.x - d.texW * fit * 0.5f, c.y - d.texH * fit * 0.5f), ImVec2(c.x + d.texW * fit * 0.5f, c.y + d.texH * fit * 0.5f));
+    dl->PopClipRect();
+    if (pill(dl, f, "##docfit", "Fit", ImVec2(vb.x - 154, vb.y - 42), ImVec2(vb.x - 104, vb.y - 12), false, true)) { g_docZoom = 1.0f; g_docPan = ImVec2(0, 0); }
+    if (pill(dl, f, "##docout", "-", ImVec2(vb.x - 98, vb.y - 42), ImVec2(vb.x - 58, vb.y - 12), false, true)) g_docZoom = std::max(0.5f, g_docZoom * 0.8f);
+    if (pill(dl, f, "##docin", "+", ImVec2(vb.x - 52, vb.y - 42), ImVec2(vb.x - 12, vb.y - 12), false, true)) g_docZoom = std::min(8.0f, g_docZoom * 1.25f);
 }
 
 // Where a ToLiss's doors are along the fuselage, as fractions of its length from the nose (cabin doors front to back, then the
@@ -1740,6 +2384,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         {"Airport layouts on the map", "X-Plane's airport data (the Scenery Gateway and its contributors) and your installed scenery", "GNU GPL"},
         {"Time zones", "Natural Earth (via WXPlane)", "Public domain"},
         {"Map pictures", "stb_image by Sean Barrett", "MIT / public domain"},
+        {"Airport facts and CTAF", "OurAirports (ourairports.com) and its contributors", "Public domain"},
         {"METAR reports", "NOAA / National Weather Service, Aviation Weather Center (aviationweather.gov)", "Public domain"},
         {"Weather page with WXPlane installed", "WXPlane by Alpine Aviation", ""},
     };
@@ -1857,7 +2502,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
 void openWeb(const char* site, const char* url, bool chrome) {
     g_site = site; g_url = url; g_chrome = chrome;
     g_navPending = url; g_navForce = false;
-    if (g_kbdTarget == 1) { g_kbd = false; g_kbdTarget = 0; }
+    if (g_kbdTarget == 1 || g_kbdTarget == 2) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; }
     g_app = APP_BROWSER;
 }
 
@@ -1932,6 +2577,10 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         if (app == APP_SETTINGS) settingsPage(dl, f, s, w, h, act);
         else if (app == APP_BROWSER) browserPage(dl, f, s, w, h, act);
         else if (app == APP_MAP) mapPage(dl, f, s, w, h, act);
+        else if (app == APP_NOTES) notesPage(dl, f, w, h, act);
+        else if (app == APP_CHECKLISTS) checklistsPage(dl, f, s, w, h);
+        else if (app == APP_AIRPORTS) airportsPage(dl, f, s, w, h, act);
+        else if (app == APP_DOCUMENTS) documentsPage(dl, f, s, w, h, act);
         else if (app == APP_WEATHER) weatherPage(dl, f, s, w, h, act);
         else if (app == APP_GROUND) groundPage(dl, f, s, w, h, act);
         else placeholderPage(dl, f, app, w, h);
@@ -2024,12 +2673,16 @@ bool appVisible(int app) {
     case APP_LIVEMAP: return g_settings.showLive;
     case APP_FOREFLIGHT: return g_settings.showForeflight;
     case APP_PERFORMANCE: return !g_ownPerformance;
+    case APP_CHECKLISTS: return !g_ownPerformance;   // a ToLiss has its own (on its tablet and ECAM)
+    case APP_ROUTES: return false;                     // SimBrief does routes
+    case APP_TRAFFIC: return false;                    // traffic is a layer of the Map
     default: return app >= 0 && app < APP_COUNT;
     }
 }
 
 // Charts, Live Map, SimBrief and ForeFlight are sites shown as pages of their own. The Browser icon opens the full browser.
 void openApp(int app) {
+    if (g_kbdTarget == 2) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; }   // a page's keyboard closes with the page
     if (app < 0 || app >= APP_COUNT || !appVisible(app)) { g_app = APP_HOME; return; }
     if (app == APP_CHARTS) { openWeb(kChartNames[chartsP()], kChartUrls[chartsP()], false); return; }
     if (app == APP_LIVEMAP) { openWeb(kLiveNames[liveP()], kLiveUrls[liveP()], false); return; }
@@ -2038,6 +2691,48 @@ void openApp(int app) {
     if (app == APP_BROWSER) { g_site = "Browser"; g_chrome = true; }
     g_app = app;
 }
+
+std::string notesToText() {
+    std::string out;
+    for (int i = 0; i < 6; ++i) out += "craft" + std::to_string(i) + "=" + escapeLine(g_craft[i]) + "\n";
+    for (int i = 0; i < 9; ++i) out += "atis" + std::to_string(i) + "=" + escapeLine(g_atis[i]) + "\n";
+    out += "scratch=" + escapeLine(g_scratch) + "\n";
+    for (const Stroke& st : g_strokes) {   // pen colour, then the points (thousandths of the pad)
+        out += "stroke=" + std::to_string(st.color);
+        for (const ImVec2& q : st.pts) out += " " + std::to_string((int)std::lround(q.x * 1000)) + "," + std::to_string((int)std::lround(q.y * 1000));
+        out += "\n";
+    }
+    return out;
+}
+void notesFromText(const std::string& text) {
+    size_t p = 0;
+    g_strokes.clear();
+    while (p < text.size()) {
+        size_t e = text.find('\n', p);
+        if (e == std::string::npos) e = text.size();
+        const std::string line = text.substr(p, e - p);
+        p = e + 1;
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        const std::string k = line.substr(0, eq), v = line.substr(eq + 1);
+        if (k.compare(0, 5, "craft") == 0) { const int i = std::atoi(k.c_str() + 5); if (i >= 0 && i < 6) g_craft[i] = unescapeLine(v); }
+        else if (k.compare(0, 4, "atis") == 0) { const int i = std::atoi(k.c_str() + 4); if (i >= 0 && i < 9) g_atis[i] = unescapeLine(v); }
+        else if (k == "scratch") g_scratch = unescapeLine(v);
+        else if (k == "stroke") {
+            Stroke st;
+            st.color = std::atoi(v.c_str());
+            size_t q = v.find(' ');
+            while (q != std::string::npos && q < v.size()) {
+                int x = 0, y = 0;
+                if (std::sscanf(v.c_str() + q + 1, "%d,%d", &x, &y) == 2) st.pts.push_back(ImVec2(x / 1000.0f, y / 1000.0f));
+                q = v.find(' ', q + 1);
+            }
+            if (!st.pts.empty()) g_strokes.push_back(st);
+        }
+    }
+}
+bool takeNotesChanged() { const bool c = g_notesChanged; g_notesChanged = false; return c; }
+void showOnMap(double lat, double lon) { g_mapGoto = true; g_mapGotoLat = lat; g_mapGotoLon = lon; openApp(APP_MAP); }
 
 Settings& settings() { return g_settings; }
 bool takeSettingsChanged() { const bool c = g_settingsChanged; g_settingsChanged = false; return c; }
@@ -2048,8 +2743,9 @@ std::string settingsToText() {
     std::snprintf(buf, sizeof buf, "charts_provider=%d\nlive_provider=%d\nfavorite_slots=%d\nbrightness=%.2f\nshow_charts=%d\nshow_simbrief=%d\nshow_live=%d\nshow_foreflight=%d\n", chartsP(), liveP(), favSlots(), (double)std::max(0.1f, std::min(1.0f, g_settings.brightness)), g_settings.showCharts ? 1 : 0,
                   g_settings.showSimbrief ? 1 : 0, g_settings.showLive ? 1 : 0, g_settings.showForeflight ? 1 : 0);
     std::string out = buf;
-    std::snprintf(buf, sizeof buf, "plan_provider=%d\nmap_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\n", planP(),
-                  g_settings.mapSource == 1 ? 1 : 0, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0);
+    std::snprintf(buf, sizeof buf, "plan_provider=%d\nmap_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\n", planP(),
+                  g_settings.mapSource == 1 ? 1 : 0, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
+                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0);
     out += buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
         out += key; out += "=";
@@ -2097,6 +2793,8 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_timezones") g_settings.mapTimeZones = v != 0;
         else if (key == "map_heading_up") g_settings.mapHeadingUp = v != 0;
         else if (key == "map_local_time") g_settings.mapLocalTime = v != 0;
+        else if (key == "map_traffic") g_settings.mapTraffic = v != 0;
+        else if (key == "map_outlines") g_settings.mapOutlines = v != 0;
         else if (key == "favorite_slots") g_settings.favoriteSlots = std::max(0, std::min(kMaxFavorites, v));
         else if (key == "brightness") g_settings.brightness = std::max(0.1f, std::min(1.0f, (float)std::atof(val.c_str())));
         else if (key == "show_charts") g_settings.showCharts = v != 0;

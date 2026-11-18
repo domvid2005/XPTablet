@@ -14,7 +14,11 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -28,6 +32,8 @@
 #include "XPLMUtilities.h"
 
 #include "aptdat.h"
+#include "ourairports.h"
+#include "stb_image.h"
 #include "browser.h"
 #include "tiles.h"
 
@@ -362,6 +368,7 @@ int g_webViewW = 0, g_webViewH = 0;
 float g_webViewScale = 0;
 bool g_webTried = false;
 bool g_webShown = false;
+bool g_wantKeys = false;   // the floating window takes the keyboard (a web page or a text field is shown)
 
 bool fileExists(const std::string& p) { FILE* f = std::fopen(p.c_str(), "rb"); if (f) std::fclose(f); return f != nullptr; }
 void makeDirs(const std::string& path) {
@@ -499,6 +506,8 @@ struct TileTex { int tex = 0; int used = 0; };
 std::map<xpt::tiles::Key, TileTex> g_tileTex;
 std::vector<xpt::tiles::Key> g_tileWants;
 bool g_mapStarted = false;
+bool g_ourAirportsStarted = false;
+std::thread g_docThread;   // reads a picture for the Documents page
 
 ImTextureID tileTexture(int src, int z, int x, int y, bool request) {
     const xpt::tiles::Key k{src, z, x, y};
@@ -524,6 +533,9 @@ void mapStop() {
     xpt::tiles::stop();
     xpt::aptdat::stop();
     g_mapStarted = false;
+    xpt::ourairports::stop();
+    g_ourAirportsStarted = false;
+    if (g_docThread.joinable()) g_docThread.join();
     g_sim.map.airports.clear();
     g_sim.map.airportPoints.clear();
 }
@@ -579,6 +591,38 @@ void readMapState() {
     m.hdgTrue = psi ? XPLMGetDataf(psi) : 0.0f;
     m.gsKt = gs ? XPLMGetDataf(gs) * 1.943844f : 0.0f;
     m.tile = tileTexture;
+    static XPLMDataRef elev = XPLMFindDataRef("sim/flightmodel/position/elevation");
+    m.altFt = elev ? (float)(XPLMGetDatad(elev) * 3.28084) : 0.0f;
+    // other aircraft, as X-Plane's TCAS sees them (AI and multiplayer: plugins such as xPilot and LiveTraffic feed it); 0 is us
+    static XPLMDataRef tNum = XPLMFindDataRef("sim/cockpit2/tcas/indicators/tcas_num_acf");
+    static XPLMDataRef tLat = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/lat"), tLon = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/lon");
+    static XPLMDataRef tEle = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/ele"), tPsi = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/psi");
+    static XPLMDataRef tVs = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/vertical_speed"), tV = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/V_msc");
+    static XPLMDataRef tWow = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/weight_on_wheels");
+    static XPLMDataRef tId = XPLMFindDataRef("sim/cockpit2/tcas/targets/flight_id"), tType = XPLMFindDataRef("sim/cockpit2/tcas/targets/icao_type");
+    m.traffic.clear();
+    if (tLat && tLon && tEle) {
+        const int n = std::max(0, std::min(64, tNum ? XPLMGetDatai(tNum) : 64));
+        float la[64] = {}, lo[64] = {}, el[64] = {}, ps[64] = {}, vs[64] = {}, v[64] = {};
+        int wow[64] = {};
+        char ids[512] = {}, types[512] = {};
+        XPLMGetDatavf(tLat, la, 0, 64); XPLMGetDatavf(tLon, lo, 0, 64); XPLMGetDatavf(tEle, el, 0, 64);
+        if (tPsi) XPLMGetDatavf(tPsi, ps, 0, 64);
+        if (tVs) XPLMGetDatavf(tVs, vs, 0, 64);
+        if (tV) XPLMGetDatavf(tV, v, 0, 64);
+        if (tWow) XPLMGetDatavi(tWow, wow, 0, 64);
+        if (tId) XPLMGetDatab(tId, ids, 0, 512);
+        if (tType) XPLMGetDatab(tType, types, 0, 512);
+        for (int i = 1; i < n; ++i) {
+            if (la[i] == 0 && lo[i] == 0) continue;
+            xpt::MapState::Traffic t;
+            t.lat = la[i]; t.lon = lo[i]; t.altFt = el[i] * 3.28084f; t.hdg = ps[i]; t.vsFpm = vs[i]; t.gsKt = v[i] * 1.943844f; t.onGround = wow[i] != 0;
+            t.callsign.assign(ids + i * 8, strnlen(ids + i * 8, 8));
+            t.type.assign(types + i * 8, strnlen(types + i * 8, 8));
+            if (t.callsign.empty()) t.callsign = t.type.empty() ? "TFC" : t.type;
+            m.traffic.push_back(t);
+        }
+    }
     // the sim's moment: this year (X-Plane keeps no year), its day of the year and its UTC time of day
     if (zulu) {
         const std::time_t now = std::time(nullptr);
@@ -603,6 +647,235 @@ void readMapState() {
         m.haveLocalOffset = loc != nullptr;
         m.localOffsetS = std::round(off / 900.0) * 900.0;
     }
+}
+
+// ---- the Airports page: X-Plane's airport and OurAirports' facts, with a CTAF always ---------------------------------------------
+std::string g_aptSearchSent = "\x01";
+std::chrono::steady_clock::time_point g_aptNearestAt;
+std::string g_aptWanted;                       // the airport the page shows
+std::shared_ptr<const xpt::AptGeo> g_aptGeo;   // its layout, once read
+bool g_aptMergedWithOA = false;                // OurAirports' facts are in (they may come later than the layout)
+
+const char* freqName(int kind) {
+    static const char* n[7] = {"ATIS", "UNICOM", "Clearance", "Ground", "Tower", "Approach", "Departure"};
+    return kind >= 0 && kind < 7 ? n[kind] : "Radio";
+}
+std::string oaName(const std::string& t) {
+    if (t == "CTAF") return "CTAF";
+    if (t == "UNIC" || t == "UNICOM") return "UNICOM";
+    if (t == "TWR") return "Tower";
+    if (t == "GND") return "Ground";
+    if (t == "ATIS" || t == "AWOS" || t == "ASOS" || t == "AFIS") return t;
+    if (t == "CLD" || t == "DEL" || t == "CD") return "Clearance";
+    if (t == "APP" || t == "A/D") return "Approach";
+    if (t == "DEP") return "Departure";
+    if (t == "MULTICOM" || t == "MULT") return "MULTICOM";
+    if (t == "RDO" || t == "FSS") return "Radio";
+    return t;
+}
+
+// The airport's facts: its radio from the scenery and from OurAirports (merged, the same frequency once), and the CTAF by these rules:
+// the published CTAF; else UNICOM (the CTAF at most uncontrolled US fields); else the tower's frequency, used as the CTAF when the
+// tower is closed; else 122.900 (MULTICOM), the frequency for a field with none published.
+void buildAirportInfo() {
+    xpt::AirportInfo& a = g_sim.airport;
+    a.icao = g_aptWanted;
+    a.busy = false;
+    a.found = g_aptGeo != nullptr;
+    a.geo = g_aptGeo;
+    a.freqs.clear();
+    a.name.clear(); a.city.clear(); a.country.clear(); a.region.clear(); a.iata.clear();
+    if (!a.found) return;
+    const xpt::ourairports::Info oa = xpt::ourairports::lookup(g_aptWanted);
+    g_aptMergedWithOA = xpt::ourairports::ready();
+    if (oa.found) { a.name = oa.name; a.city = oa.city; a.country = oa.country; a.region = oa.region; a.iata = oa.iata; }
+    auto add = [&](const std::string& what, double mhz, const std::string& note) {
+        for (const auto& f : a.freqs) if (std::fabs(f.mhz - mhz) < 0.003 && f.what == what) return;
+        a.freqs.push_back({what, mhz, note});
+    };
+    for (const auto& f : g_aptGeo->freqs) add(freqName(f.kind), f.mhz, f.name);
+    for (const auto& f : oa.freqs) add(oaName(f.type), f.mhz, f.desc);
+    std::stable_sort(a.freqs.begin(), a.freqs.end(), [](const xpt::AirportInfo::Freq& x, const xpt::AirportInfo::Freq& y) {
+        static const char* order[] = {"ATIS", "AWOS", "ASOS", "AFIS", "CTAF", "UNICOM", "MULTICOM", "Clearance", "Ground", "Tower", "Approach", "Departure"};
+        auto rank = [&](const std::string& s) { for (int i = 0; i < 12; ++i) if (s == order[i]) return i; return 12; };
+        return rank(x.what) < rank(y.what);
+    });
+    auto find = [&](const char* what) -> const xpt::AirportInfo::Freq* { for (const auto& f : a.freqs) if (f.what == what) return &f; return nullptr; };
+    if (const auto* f = find("CTAF")) a.ctaf = {"CTAF", f->mhz, "Published CTAF"};
+    else if (const auto* u = find("UNICOM")) a.ctaf = {"CTAF", u->mhz, "UNICOM, used as the CTAF"};
+    else if (const auto* t = find("Tower")) a.ctaf = {"CTAF", t->mhz, "Tower frequency, the CTAF when the tower is closed"};
+    else a.ctaf = {"CTAF", 122.900, "None published: MULTICOM 122.900"};
+}
+
+void airportsStep(const xpt::Actions& act) {
+    if (!act.airportsShown) return;
+    if (!g_mapStarted) mapStart();   // the index lives with the map's
+    if (!g_ourAirportsStarted) {
+        g_ourAirportsStarted = true;
+        char sys[2048] = "";
+        XPLMGetSystemPath(sys);
+        makeDirs(std::string(sys) + "Output/XPTablet/");
+        xpt::ourairports::start(std::string(sys) + "Output/XPTablet/ourairports");
+    }
+    // the list: the search's results, or the nearest airports (every few seconds, as the aircraft moves)
+    bool indexing = false;
+    { std::vector<std::shared_ptr<const xpt::AptGeo>> l; std::vector<xpt::AptPoint> p; int n = 0; xpt::aptdat::get(l, p, indexing, n); }
+    const auto now = std::chrono::steady_clock::now();
+    if (indexing) { g_sim.airportStatus = "Finding X-Plane's airports..."; g_aptSearchSent = "\x01"; }
+    else if (act.airportSearch != g_aptSearchSent || (act.airportSearch.empty() && now - g_aptNearestAt > std::chrono::seconds(5))) {
+        g_aptSearchSent = act.airportSearch;
+        g_aptNearestAt = now;
+        g_sim.airportList = act.airportSearch.empty() ? (g_sim.map.havePos ? xpt::aptdat::nearest(g_sim.map.lat, g_sim.map.lon, 12) : std::vector<xpt::AptPoint>())
+                                                      : xpt::aptdat::search(act.airportSearch, 12);
+        g_sim.airportStatus.clear();
+    }
+    // the airport shown
+    if (!act.airportOpen.empty() && act.airportOpen != g_aptWanted && !indexing) {
+        g_aptWanted = act.airportOpen;
+        g_aptGeo.reset();
+        g_sim.airport = xpt::AirportInfo();
+        g_sim.airport.icao = g_aptWanted;
+        g_sim.airport.busy = true;
+        xpt::aptdat::requestAirport(g_aptWanted);
+    }
+    std::shared_ptr<const xpt::AptGeo> g;
+    std::string icao;
+    if (xpt::aptdat::takeAirport(g, icao) && icao == g_aptWanted) { g_aptGeo = g; buildAirportInfo(); }
+    else if (!g_sim.airport.busy && g_sim.airport.found && !g_aptMergedWithOA && xpt::ourairports::ready()) buildAirportInfo();
+}
+
+// ---- the Documents page ------------------------------------------------------------------------------------------------------------
+// PDFs and pictures from Output/XPTablet/Documents, the aircraft's folder and AviTab's charts folder. Pictures are read on a thread.
+std::mutex g_docMx;
+bool g_docReady = false;
+std::string g_docPath, g_docError;
+std::vector<uint8_t> g_docPixels;
+int g_docW = 0, g_docH = 0;
+int g_docTex = 0;
+
+void listDocuments() {
+    namespace fs = std::filesystem;
+    xpt::DocsState& d = g_sim.docs;
+    d.files.clear(); d.folders.clear(); d.listed = true;
+    char sys[2048] = "";
+    XPLMGetSystemPath(sys);
+    const std::string root = sys;
+    const std::string mine = root + "Output/XPTablet/Documents";
+    makeDirs(mine + "/");
+    struct Where { std::string path, label; int depth; };
+    std::vector<Where> where = {{mine, "XPTablet's Documents", 4}};
+    const std::string acf = aircraftDir();
+    if (!acf.empty()) where.push_back({acf, "This aircraft", 3});
+    if (fs::exists(fs::u8path(root + "Resources/plugins/AviTab/charts"))) where.push_back({root + "Resources/plugins/AviTab/charts", "AviTab charts", 4});
+    for (const Where& w : where) {
+        d.folders.push_back(w.path);
+        std::error_code ec;
+        fs::recursive_directory_iterator it(fs::u8path(w.path), fs::directory_options::skip_permission_denied, ec), end;
+        for (; !ec && it != end && d.files.size() < 500; it.increment(ec)) {
+            if (it.depth() > w.depth) { it.disable_recursion_pending(); continue; }
+            if (!it->is_regular_file(ec)) continue;
+            std::string ext = it->path().extension().u8string();
+            for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+            const bool pdf = ext == ".pdf";
+            if (!pdf && ext != ".png" && ext != ".jpg" && ext != ".jpeg") continue;
+            xpt::DocEntry e;
+            e.name = it->path().filename().u8string();
+            e.path = it->path().u8string();
+            e.folder = w.label;
+            e.pdf = pdf;
+            e.bytes = (long long)it->file_size(ec);
+            d.files.push_back(e);
+        }
+    }
+    logMsg("documents: %d files", (int)d.files.size());
+}
+
+void docsStep(const xpt::Actions& act) {
+    if (act.docsList) listDocuments();
+    if (!act.docOpen.empty() && act.docOpen != g_sim.docs.shownPath) {
+        if (g_docThread.joinable()) g_docThread.join();
+        g_sim.docs.shownPath = act.docOpen;
+        g_sim.docs.busy = true;
+        g_sim.docs.error.clear();
+        const std::string path = act.docOpen;
+        g_docThread = std::thread([path] {
+            std::string bytes, err;
+            std::vector<uint8_t> px;
+            int w = 0, h = 0;
+            if (!readFile(path, bytes)) err = "The file could not be read";
+            else {
+                int n = 0;
+                unsigned char* p = stbi_load_from_memory((const unsigned char*)bytes.data(), (int)bytes.size(), &w, &h, &n, 4);
+                if (!p) err = "Not a picture XPTablet can show";
+                else {
+                    // at most 4096 across: halved until it fits
+                    std::vector<uint8_t> img(p, p + (size_t)w * h * 4);
+                    stbi_image_free(p);
+                    while (w > 4096 || h > 4096) {
+                        const int nw = w / 2, nh = h / 2;
+                        std::vector<uint8_t> half((size_t)nw * nh * 4);
+                        for (int y = 0; y < nh; ++y)
+                            for (int x = 0; x < nw; ++x)
+                                for (int c = 0; c < 4; ++c)
+                                    half[((size_t)y * nw + x) * 4 + c] = (uint8_t)((img[((size_t)(2 * y) * w + 2 * x) * 4 + c] + img[((size_t)(2 * y) * w + 2 * x + 1) * 4 + c] +
+                                                                                   img[((size_t)(2 * y + 1) * w + 2 * x) * 4 + c] + img[((size_t)(2 * y + 1) * w + 2 * x + 1) * 4 + c]) / 4);
+                        img.swap(half); w = nw; h = nh;
+                    }
+                    px.swap(img);
+                }
+            }
+            std::lock_guard<std::mutex> lk(g_docMx);
+            g_docPath = path; g_docError = err; g_docPixels.swap(px); g_docW = w; g_docH = h; g_docReady = true;
+        });
+    }
+    std::lock_guard<std::mutex> lk(g_docMx);
+    if (!g_docReady) return;
+    g_docReady = false;
+    xpt::DocsState& d = g_sim.docs;
+    if (g_docPath != d.shownPath) return;
+    d.busy = false;
+    d.error = g_docError;
+    d.tex = 0;
+    if (!g_docError.empty() || g_docPixels.empty()) return;
+    if (!g_docTex) XPLMGenerateTextureNumbers(&g_docTex, 1);
+    XPLMBindTexture2d(g_docTex, 0);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_CLAMP_TO_EDGE);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_CLAMP_TO_EDGE);
+    gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    gl.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    gl.TexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGBA, g_docW, g_docH, 0, GL_RGBA, GL_UNSIGNED_BYTE, g_docPixels.data());
+    XPLMBindTexture2d(0, 0);
+    d.tex = (ImTextureID)(intptr_t)g_docTex;
+    d.texW = g_docW; d.texH = g_docH;
+    std::vector<uint8_t>().swap(g_docPixels);
+}
+
+// ---- the Checklists page: the aircraft's own checklist, if it has one ------------------------------------------------------------
+// Output/XPTablet/Checklists/<ICAO>.txt, or xptablet_checklist.txt in the aircraft's folder ("# Section", then "Item | VALUE" lines).
+void loadChecklist() {
+    g_sim.checklistText.clear();
+    g_sim.checklistSource.clear();
+    char sys[2048] = "";
+    XPLMGetSystemPath(sys);
+    makeDirs(std::string(sys) + "Output/XPTablet/Checklists/");
+    std::vector<std::pair<std::string, std::string>> cands;
+    if (!g_sim.acfIcao.empty()) cands.push_back({std::string(sys) + "Output/XPTablet/Checklists/" + g_sim.acfIcao + ".txt", "Checklists/" + g_sim.acfIcao + ".txt"});
+    const std::string acf = aircraftDir();
+    if (!acf.empty()) cands.push_back({acf + "xptablet_checklist.txt", "the aircraft's xptablet_checklist.txt"});
+    for (const auto& c : cands) if (readFile(c.first, g_sim.checklistText)) { g_sim.checklistSource = "From " + c.second; return; }
+}
+
+// ---- Notes: kept in Output/preferences/XPTablet_notes.txt --------------------------------------------------------------------------
+std::string notesPath() { const std::string s = settingsPath(); return s.empty() ? s : s.substr(0, s.size() - 4) + "_notes.txt"; }
+void loadNotes() { std::string t; if (readFile(notesPath(), t)) xpt::notesFromText(t); }
+void saveNotes() {
+    FILE* f = std::fopen(notesPath().c_str(), "wb");
+    if (!f) return;
+    const std::string t = xpt::notesToText();
+    std::fwrite(t.data(), 1, t.size(), f);
+    std::fclose(f);
 }
 
 // One UI frame per sim frame, built by whichever of the two surfaces is drawn first and shared by the other.
@@ -661,9 +934,13 @@ void ensureFrame() {
     if (act.ground != xpt::GA_NONE) g_pendingGround = act;   // carried out from the flight loop, not from inside drawing
     browserStep(act);
     mapStep(act);
+    airportsStep(act);
+    docsStep(act);
     g_webShown = act.webShown;
-    // the floating window keeps the keyboard only while a web page is on it
-    if (!g_webShown && g_win && XPLMHasKeyboardFocus(g_win)) XPLMTakeKeyboardFocus(nullptr);
+    // the floating window keeps the keyboard only while a web page or a text field is on it
+    g_wantKeys = g_webShown || xpt::tabletTyping();
+    if (g_wantKeys && g_win && XPLMGetWindowIsVisible(g_win) && cycle - g_winHoverCycle < 2 && !XPLMHasKeyboardFocus(g_win)) XPLMTakeKeyboardFocus(g_win);
+    if (!g_wantKeys && g_win && XPLMHasKeyboardFocus(g_win)) XPLMTakeKeyboardFocus(nullptr);
 }
 
 // Draws the frame with its top-left corner at (left, top) and sx/sy screen units per layout unit (y up on screen).
@@ -797,16 +1074,17 @@ void noKey(XPLMWindowID, char, XPLMKeyFlags, char, void*, int) {}
 // XPLM's virtual key codes for the editing keys are Windows' (back 8, tab 9, enter 13, escape 27, page/home/end/arrows 33-40,
 // delete 46).
 void winKey(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey, void*, int losingFocus) {
-    if (losingFocus || !g_webShown) return;
+    if (losingFocus) return;
     const unsigned char vk = (unsigned char)vkey, ch = (unsigned char)key;
     const bool down = (flags & xplm_DownFlag) != 0, up = (flags & xplm_UpFlag) != 0;
     const bool editKey = vk == 8 || vk == 9 || vk == 13 || vk == 27 || (vk >= 33 && vk <= 40) || vk == 46;
-    if (xpt::webTypingAddress()) {
+    if (xpt::tabletTyping()) {   // the address bar, a note, a search
         if (!down) return;
-        if (vk == 8 || vk == 13) xpt::webAddressKey(vk, false);
-        else if (ch >= 32 && ch < 127) xpt::webAddressKey(ch, true);
+        if (vk == 8 || vk == 13) xpt::tabletKey(vk, false);
+        else if (ch >= 32 && ch < 127) xpt::tabletKey(ch, true);
         return;
     }
+    if (!g_webShown) return;
     namespace br = xpt::browser;
     if (!br::started()) return;
     if (editKey) {
@@ -881,7 +1159,7 @@ int winClick(XPLMWindowID, int x, int y, XPLMMouseStatus status, void*) {
     io.AddMousePosEvent(lx, ly);
     if (status == xplm_MouseDown) io.AddMouseButtonEvent(0, true);
     else if (status == xplm_MouseUp) io.AddMouseButtonEvent(0, false);
-    if (status == xplm_MouseDown && g_webShown && g_win && !XPLMHasKeyboardFocus(g_win)) XPLMTakeKeyboardFocus(g_win);
+    if (status == xplm_MouseDown && g_wantKeys && g_win && !XPLMHasKeyboardFocus(g_win)) XPLMTakeKeyboardFocus(g_win);
     g_winHoverCycle = XPLMGetCycleNumber();
     return 1;
 }
@@ -1322,12 +1600,13 @@ float flightLoop(float dt, float, int, void*) {
     g_sim.batteryPct = (int)std::lround(g_battery);
     g_sim.charging = fed;
     if (xpt::takeSettingsChanged()) saveSettings();
+    if (xpt::takeNotesChanged()) saveNotes();
     if (g_drZulu) g_sim.zuluSec = (int)XPLMGetDataf(g_drZulu);
     if (g_drIcao) {
         char icao[41] = "";
         const int n = XPLMGetDatab(g_drIcao, icao, 0, 40);
         icao[std::max(0, std::min(40, n))] = 0;
-        g_sim.acfIcao = icao;
+        if (g_sim.acfIcao != icao) { g_sim.acfIcao = icao; loadChecklist(); }
     }
     if ((XPLMGetCycleNumber() & 127) == 0) g_sim.toliss = isToLissAircraft();   // its plugin loads after the aircraft does
     if ((XPLMGetCycleNumber() & 255) == 0) g_sim.wxPlane = XPLMFindPluginBySignature(kWxPlaneSignature) != XPLM_NO_PLUGIN_ID;   // it may load after us
@@ -1370,6 +1649,7 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
     ImGui::GetIO().LogFilename = nullptr;
     xpt::applyStyle();
     loadSettings();
+    loadNotes();
     loadShapesFile();
 
     g_menuItem = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "XPTablet", nullptr, 0);

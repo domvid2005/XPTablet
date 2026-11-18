@@ -25,8 +25,12 @@ XPTablet includes the following open-source software. Their licences require the
     in Output/XPTablet/tiles for a month; the attribution is shown on the map.
   * Airport layouts on the map: read from X-Plane's own apt.dat files (X-Plane's airport data, GNU GPL; the X-Plane Scenery
     Gateway's contributors) and the user's installed scenery. Nothing of it ships with XPTablet.
-  * Time zones: Natural Earth 1:10m time zones (public domain), as prepared for WXPlane (tools/make_tzones.py).
+  * Time zones and the map's outlines: Natural Earth 1:10m time zones and 1:50m coastlines, borders, state and province lines
+    (public domain), as prepared for WXPlane (tools/make_tzones.py, WXPlane's tools/make_basemap.py).
   * stb_image 2.30 by Sean Barrett (decoding the map tiles) - MIT licence or public domain (full text in third_party/stb).
+
+  * Airport facts (names, places, frequencies including CTAF): OurAirports (https://ourairports.com/data/), public domain;
+    downloaded when the Airports page opens and kept a month in Output/XPTablet/ourairports.
 
 Data used by XPTablet (downloaded when asked for): NOAA / National Weather Service Aviation Weather Center, METAR reports. Public domain.
 

@@ -19,5 +19,13 @@ void setView(double lat, double lon, double layoutNm, double pointNm, bool wantL
 // What is ready: the layouts and positions for the latest view, whether the index is still being built and how many it holds.
 void get(std::vector<std::shared_ptr<const AptGeo>>& layouts, std::vector<AptPoint>& points, bool& indexing, int& count);
 
+// Airports whose code starts with, or whose name contains, the text (codes first); empty while the index is being built.
+std::vector<AptPoint> search(const std::string& text, size_t max = 30);
+// The airports nearest a point, nearest first.
+std::vector<AptPoint> nearest(double lat, double lon, size_t max = 20);
+// One airport's whole layout and data, read on the index's thread: ask, then take it when it is ready (null: not yet, or none).
+void requestAirport(const std::string& icao);
+bool takeAirport(std::shared_ptr<const AptGeo>& out, std::string& icao);
+
 } // namespace aptdat
 } // namespace xpt

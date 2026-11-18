@@ -28,7 +28,15 @@ inline void latLonOf(const MercPt& m, double& lat, double& lon) {
 
 struct AptGeo {
     std::string icao, name;
+    int kind = 1;                        // 1 airport, 16 seaplane base, 17 heliport
+    float elevationFt = 0;
     double lat = 0, lon = 0;             // the reference point
+    // radio: kind 0 ATIS/AWOS, 1 UNICOM/CTAF, 2 clearance delivery, 3 ground, 4 tower, 5 approach, 6 departure
+    struct Freq { int kind = 0; double mhz = 0; std::string name; };
+    std::vector<Freq> freqs;
+    // more about each runway (same order as runways): surface (apt.dat code), lights
+    struct RunwayInfo { int surface = 1; bool lit = false; float displacedA = 0, displacedB = 0; };
+    std::vector<RunwayInfo> runwayInfo;
     MercPt lo, hi;                       // the layout's bounds
     std::vector<MercPt> pavement;        // taxiways and aprons, as triangles (every three points one)
     struct Runway { MercPt a, b; float widthM = 45; std::string idA, idB; bool water = false; };
@@ -36,7 +44,7 @@ struct AptGeo {
     // painted lines: 0 taxiway centreline, 1 runway hold position, 2 other hold / ILS critical area, 3 taxiway edge
     struct Line { int kind = 0; std::vector<MercPt> pts; };
     std::vector<Line> lines;
-    struct Stand { MercPt p; float hdg = 0; std::string name; };
+    struct Stand { MercPt p; float hdg = 0; std::string name, type, uses; };   // type: gate, tie_down, hangar...; uses: jets|turboprops...
     std::vector<Stand> stands;
     struct Label { MercPt p; std::string text; };   // a taxiway's name, once along it
     std::vector<Label> taxiways;
@@ -45,7 +53,7 @@ struct AptGeo {
 };
 
 // An airport in the index: where it is, without its layout.
-struct AptPoint { std::string icao; double lat = 0, lon = 0; int kind = 1; };   // kind: 1 land, 16 seaplane base, 17 heliport
+struct AptPoint { std::string icao; double lat = 0, lon = 0; int kind = 1; std::string name; };   // kind: 1 land, 16 seaplane base, 17 heliport
 
 // Reads one airport's rows (from its header row to before the next airport) into its layout. False if it has nothing to draw.
 bool parseAirport(const std::string& rows, AptGeo& out);

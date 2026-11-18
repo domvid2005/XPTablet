@@ -316,11 +316,12 @@ cef_life_span_handler_t* CEF_CALLBACK getLife(cef_client_t*) { return &g_life; }
 cef_display_handler_t* CEF_CALLBACK getDisplay(cef_client_t*) { return &g_display; }
 cef_load_handler_t* CEF_CALLBACK getLoad(cef_client_t*) { return &g_load; }
 
-// Chromium's switches for every process: pages drawn in software (a picture for the plugin, no window of its own), and no
+// Chromium's switches for every process: pages drawn in software (a picture for the plugin, no window of its own; extensions stay
+// on: Chromium's PDF viewer is one, for the Documents page), and no
 // first-run or background chatter.
 void CEF_CALLBACK onBeforeCommandLine(cef_app_t*, const cef_string_t* processType, cef_command_line_t* cl) {
     if (processType && processType->length) return;   // set once, for the browser process; the others inherit them
-    for (const char* sw : {"disable-gpu", "disable-gpu-compositing", "disable-extensions", "no-first-run", "disable-background-networking"}) {
+    for (const char* sw : {"disable-gpu", "disable-gpu-compositing", "no-first-run", "disable-background-networking"}) {
         cef_string_t s = {};
         setStr(&s, sw);
         cl->append_switch(cl, &s);

@@ -259,9 +259,20 @@ bool parseAirport(const std::string& rows, AptGeo& g) {
         if (feat != NONE) finish();
         switch (code) {
         case 1: case 16: case 17:
+            g.kind = code;
+            g.elevationFt = (float)w.d(1);
             g.icao = w.s(4);
             g.name = w.rest(5, le);
             break;
+        case 50: case 51: case 52: case 53: case 54: case 55: case 56:              // radio, in 10 kHz (older files)
+        case 1050: case 1051: case 1052: case 1053: case 1054: case 1055: case 1056: {   // radio, in kHz (8.33 kHz spacing)
+            AptGeo::Freq fq;
+            fq.kind = code >= 1050 ? code - 1050 : code - 50;
+            fq.mhz = code >= 1050 ? w.d(1) / 1000.0 : w.d(1) / 100.0;
+            fq.name = w.rest(2, le);
+            if (fq.mhz > 100 && fq.mhz < 140) g.freqs.push_back(fq);
+            break;
+        }
         case 110: feat = PAVE; closed = true; break;
         case 120: feat = LINEAR; closed = false; break;
         case 130: feat = OTHER; break;
@@ -272,6 +283,12 @@ bool parseAirport(const std::string& rows, AptGeo& g) {
             r.a = mercOf(w.d(9), w.d(10));
             r.b = mercOf(w.d(18), w.d(19));
             g.runways.push_back(r);
+            AptGeo::RunwayInfo ri;
+            ri.surface = w.i(2);
+            ri.lit = w.i(6) > 0;
+            ri.displacedA = (float)w.d(11);
+            ri.displacedB = (float)w.d(20);
+            g.runwayInfo.push_back(ri);
             if (!haveRef) { haveRef = true; latLonOf(MercPt{(r.a.x + r.b.x) * 0.5, (r.a.y + r.b.y) * 0.5}, g.lat, g.lon); }
             break;
         }
@@ -283,6 +300,9 @@ bool parseAirport(const std::string& rows, AptGeo& g) {
             r.a = mercOf(w.d(4), w.d(5));
             r.b = mercOf(w.d(7), w.d(8));
             g.runways.push_back(r);
+            AptGeo::RunwayInfo ri;
+            ri.surface = 13;   // water
+            g.runwayInfo.push_back(ri);
             if (!haveRef) { haveRef = true; latLonOf(MercPt{(r.a.x + r.b.x) * 0.5, (r.a.y + r.b.y) * 0.5}, g.lat, g.lon); }
             break;
         }
@@ -304,6 +324,8 @@ bool parseAirport(const std::string& rows, AptGeo& g) {
             AptGeo::Stand st;
             st.p = mercOf(w.d(1), w.d(2));
             st.hdg = (float)w.d(3);
+            st.type = w.s(4);
+            st.uses = w.s(5);
             st.name = w.rest(6, le);
             g.stands.push_back(st);
             break;

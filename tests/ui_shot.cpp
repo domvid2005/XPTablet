@@ -377,7 +377,7 @@ int main(int argc, char** argv) {
             mp.map.havePos = true; mp.map.lat = 41.7008; mp.map.lon = -86.3222; mp.map.hdgTrue = 92; mp.map.utc = 1795312200;   // 2026-11-23 13:10Z
             mp.map.haveLocalOffset = true; mp.map.localOffsetS = -5 * 3600;
             mp.map.airports.push_back(std::make_shared<AptGeo>(geo));
-            mp.map.airportPoints = {{"KXPT", 41.70, -86.32, 1}, {"KSBN", 41.7087, -86.3173, 1}, {"KGSH", 41.5264, -85.7922, 1}, {"KEKM", 41.7194, -86.0003, 1}};
+            mp.map.airportPoints = {{"KXPT", 41.70, -86.32, 1, ""}, {"KSBN", 41.7087, -86.3173, 1, ""}, {"KGSH", 41.5264, -85.7922, 1, ""}, {"KEKM", 41.7194, -86.0003, 1, ""}};
             settings().mapAirports = true; settings().mapSource = 0; settings().mapLocalTime = true;
             shot(mp, APP_MAP, "map_airport");
             settings().mapSource = 1; settings().mapHeadingUp = true; settings().mapLocalTime = false;
@@ -392,6 +392,70 @@ int main(int argc, char** argv) {
             }
             shot(mp, APP_MAP, "map_timezones");
             settings().mapTimeZones = false; settings().mapLocalTime = false;
+        }
+        {   // the map's traffic and outlines
+            SimState mp = t;
+            mp.map.havePos = true; mp.map.lat = 41.70; mp.map.lon = -86.30; mp.map.hdgTrue = 270; mp.map.altFt = 3000; mp.map.utc = 1795312200;
+            mp.map.traffic = {{41.76, -86.20, 3400, 250, 210, -800, false, "N172SP", "C172"}, {41.62, -86.45, 11000, 90, 420, 1500, false, "DAL1234", "A321"},
+                              {41.705, -86.33, 774, 0, 0, 0, true, "SKW55", "CRJ9"}};
+            settings().mapTraffic = true; settings().mapOutlines = true; settings().mapAirports = false;
+            showOnMap(41.70, -86.30);
+            for (int k = 0; k < 5; ++k) {   // press - five times: about 50 nm across
+                const bool downs[4] = {false, true, false, false};
+                for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(26, kLogicalH - 25); io.AddMouseButtonEvent(0, d);
+                    ImGui::NewFrame(); Actions act; build(fonts, mp, 800, kLogicalH, act); ImGui::Render(); }
+            }
+            shot(mp, APP_MAP, "map_traffic_outlines");
+            settings().mapAirports = true; settings().mapOutlines = false;
+        }
+        {   // Airports: the list, and an airport with its radio, CTAF, runways and parking
+            const std::string rows =
+                "1 774 0 0 KXPT XPTablet Test Field\n1302 datum_lat 41.70000000\n1302 datum_lon -86.32000000\n"
+                "100 45.72 1 0 0.25 1 2 1 09 41.70000000 -86.33500000 0 0 3 0 0 0 27 41.70000000 -86.30500000 0 0 3 0 0 0\n"
+                "100 30.00 3 0 0.25 0 0 1 18 41.71000000 -86.32000000 0 0 1 0 0 0 36 41.69000000 -86.32000000 0 0 1 0 0 0\n"
+                "1050 128650 ATIS\n1053 121900 GND\n1054 118950 TWR\n1055 125250 SOUTH BEND APP\n"
+                "1300 41.70280000 -86.32400000 180 gate jets A1\n1300 41.70280000 -86.32300000 180 gate jets A2\n1300 41.70280000 -86.31800000 180 tie_down props GA1\n";
+            auto geo = std::make_shared<AptGeo>();
+            if (!parseAirport(rows, *geo) || geo->freqs.size() != 4 || geo->elevationFt != 774 || geo->runwayInfo.size() != 2) { std::printf("FAIL: airport radio and runways (%zu freqs)\n", geo->freqs.size()); ++failures; }
+            SimState ap = t;
+            ap.map.havePos = true; ap.map.lat = 41.65; ap.map.lon = -86.40;
+            ap.airportList = {{"KXPT", 41.70, -86.32, 1, "XPTablet Test Field"}, {"KSBN", 41.7087, -86.3173, 1, "South Bend Intl"}, {"3IN6", 41.62, -86.28, 1, "Some Farm Strip"}};
+            ap.airport.icao = "KXPT"; ap.airport.found = true; ap.airport.geo = geo;
+            ap.airport.city = "South Bend"; ap.airport.region = "US-IN";
+            ap.airport.freqs = {{"ATIS", 128.650, "ATIS"}, {"Ground", 121.900, "GND"}, {"Tower", 118.950, "TWR"}, {"Approach", 125.250, "SOUTH BEND APP"}};
+            ap.airport.ctaf = {"CTAF", 118.950, "Tower frequency, the CTAF when the tower is closed"};
+            ap.metar.icao = "KXPT"; ap.metar.raw = "KXPT 180054Z 24014G22KT 10SM FEW035 BKN250 08/02 A2998 RMK AO2";
+            shot(ap, APP_AIRPORTS, "airports");
+        }
+        {   // Notes: a clearance typed in; the scratchpad with handwriting
+            notesFromText("craft0=KORD\ncraft1=PORTAGE ONE, then as filed\ncraft2=5000, expect FL350 10 min after\ncraft3=125.25\ncraft4=4521\n"
+                          "stroke=0 100,200 150,260 200,200 250,260 300,200\nstroke=1 400,500 420,520 460,560 520,600 600,620\nscratch=RWY 27 HOLD SHORT B\n");
+            shot(t, APP_NOTES, "notes_clearance");
+            // the Scratchpad tab (third pill)
+            openApp(APP_NOTES);
+            const bool downs[4] = {false, true, false, false};
+            for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(12 + 2 * 128 + 60, 28 + 46 + 8 + 15); io.AddMouseButtonEvent(0, d);
+                ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); }
+            shot(t, APP_NOTES, "notes_scratchpad");
+            // typing into a field on the Clearance pad
+            const std::string saved = notesToText();
+            if (saved.find("craft0=KORD") == std::string::npos || saved.find("stroke=1 400,500") == std::string::npos) { std::printf("FAIL: notes are kept\n"); ++failures; }
+        }
+        {   // Checklists (not on a ToLiss)
+            SimState c = t; c.toliss = false; c.acfIcao = "C172";
+            shot(c, APP_CHECKLISTS, "checklists_light");
+            c.acfIcao = "B738";
+            c.checklistText = "# Before start\nDoors | CLOSED\nBeacon | ON\n# Taxi\nFlaps | 5\n";
+            c.checklistSource = "From Checklists/B738.txt";
+            shot(c, APP_CHECKLISTS, "checklists_own");
+        }
+        {   // Documents: the list
+            SimState d = t;
+            d.docs.listed = true;
+            d.docs.folders = {"E:/X-Plane 12/Output/XPTablet/Documents"};
+            d.docs.files = {{"A320 FCOM.pdf", "/x/A320 FCOM.pdf", "This aircraft", true, 31457280}, {"Normal checklist.pdf", "/x/n.pdf", "This aircraft", true, 204800},
+                            {"KSBN airport diagram.png", "/x/ksbn.png", "XPTablet's Documents", false, 880000}, {"KORD 10-9.jpg", "/x/kord.jpg", "AviTab charts", false, 1200000}};
+            shot(d, APP_DOCUMENTS, "documents");
         }
         SimState g = s; g.toliss = true; g.acfIcao = "A20N";
         g.ground.toliss = true; g.ground.openSam = true; g.ground.jetway = 1; g.ground.paxDoors = 4; g.ground.cargoDoors = 2; g.ground.cargoDoors = 3; g.ground.deice = true; g.ground.jwDoors = 1; g.ground.slides = 1; g.ground.cabinLight = 0.4f; g.ground.paxDoor[0] = 2; g.ground.paxDoor[1] = 1; g.ground.cargoDoor[0] = 2; g.ground.chocks = true; g.ground.extPower = true;

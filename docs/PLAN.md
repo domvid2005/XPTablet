@@ -125,3 +125,17 @@ stands; taxiway names from the taxi routes). Dots with codes further out.
 
 Browser tabs (0.6.0): up to 8; a page's new windows open as tabs; web apps (Charts, Live Map, SimBrief, planning) each keep a tab
 of their own and come back to it as they were left. The planning icon switches between ForeFlight and SkyVector.
+
+## 0.7.0: Airports, Documents, Notes, Checklists; Traffic and Outlines on the map
+
+- Airports: search (code or name) or the nearest; X-Plane's apt.dat (the scenery you fly in: runways, radio, elevation, stands)
+  merged with OurAirports (names, places, more frequencies). CTAF is always shown: the published CTAF, else UNICOM, else the
+  tower's frequency (the CTAF when the tower is closed), else 122.900 MULTICOM. METAR from NOAA. Show on map.
+- Documents: PDFs and PNG/JPG from Output/XPTablet/Documents, the aircraft's folder and AviTab's charts. Pictures in the tablet's
+  own viewer (zoom, pan); PDFs in a browser tab (Chromium's PDF viewer, so extensions are no longer switched off).
+- Notes: Clearance (CRAFT), ATIS and a scratchpad (pen in three colours, or typed); kept in Output/preferences/XPTablet_notes.txt.
+  The on-screen keyboard and the floating window's keyboard type into any field.
+- Checklists: the aircraft's own (Output/XPTablet/Checklists/<ICAO>.txt or xptablet_checklist.txt in its folder: "# Section",
+  then "Item | VALUE"), else general airliner / light aircraft lists. Hidden on ToLiss aircraft.
+- Routes removed (SimBrief); the Traffic app became the Map's Traffic layer (TCAS targets: AI, xPilot, LiveTraffic...).
+- Map: Outlines layer (WXPlane's Natural Earth coastlines, borders, states and provinces).

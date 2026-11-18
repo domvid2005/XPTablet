@@ -36,6 +36,8 @@ struct Settings {
     bool mapTimeZones = false;    // the time zone boundaries
     bool mapHeadingUp = false;    // Heading Lock (else North Lock)
     bool mapLocalTime = false;    // the time bubble shows local time (else Zulu)
+    bool mapTraffic = true;       // AI and multiplayer aircraft
+    bool mapOutlines = false;     // coastlines, borders, states and provinces
 };
 Settings& settings();
 std::string settingsToText();
@@ -122,6 +124,36 @@ struct MapState {
     std::vector<AptPoint> airportPoints;                    // positions around the view
     bool aptIndexing = false;     // the airport index is still being built
     int aptCount = 0;
+    float altFt = 0;              // the aircraft's altitude (MSL)
+    // other aircraft (X-Plane's AI and multiplayer, as TCAS sees them)
+    struct Traffic { double lat = 0, lon = 0; float altFt = 0, hdg = 0, gsKt = 0, vsFpm = 0; bool onGround = false; std::string callsign, type; };
+    std::vector<Traffic> traffic;
+};
+
+// The Airports page: one airport, read from X-Plane's scenery (apt.dat) and OurAirports.
+struct AirportInfo {
+    std::string icao;
+    bool busy = false;            // being read
+    bool found = false;
+    std::shared_ptr<const AptGeo> geo;   // runways, radio, stands, layout
+    std::string name, city, country, region, iata;   // from OurAirports when it knows the airport
+    struct Freq { std::string what; double mhz = 0; std::string note; };
+    std::vector<Freq> freqs;      // every frequency, X-Plane's and OurAirports' merged
+    Freq ctaf;                    // always set: published CTAF, else UNICOM, else the tower's (when closed), else 122.900 MULTICOM
+    std::string metar;            // the latest report, when fetched
+};
+
+// The Documents page: what is in the folders, and the picture being looked at.
+struct DocEntry { std::string name, path, folder; bool pdf = false; long long bytes = 0; };
+struct DocsState {
+    bool listed = false;
+    std::vector<DocEntry> files;
+    std::vector<std::string> folders;   // the folders looked in (to tell the user where to put files)
+    std::string shownPath;        // the picture shown
+    ImTextureID tex = 0;
+    int texW = 0, texH = 0;
+    bool busy = false;
+    std::string error;
 };
 
 struct SimState {
@@ -143,6 +175,12 @@ struct SimState {
     MetarLookup metar;
     GroundState ground;
     MapState map;
+    AirportInfo airport;
+    std::vector<AptPoint> airportList;   // the search's results, or the nearest airports
+    std::string airportStatus;    // why the list is empty ("Finding X-Plane's airports...")
+    DocsState docs;
+    std::string checklistText;    // the aircraft's own checklist file (see Checklists), "" for the built-in ones
+    std::string checklistSource;  // where it came from
 };
 
 // What the user asked for on the Ground page; the host carries it out.
@@ -166,6 +204,13 @@ struct Actions {
     int webTabSelect = 0, webTabClose = 0;   // a tab's id: show it, close it (0: none)
     // the Map page: shown this frame, its centre, and the airports to have ready around it
     bool mapShown = false, mapLayouts = false;
+    // the Airports page: list airports matching this text ("" with airportsShown: the nearest), or read one in full
+    bool airportsShown = false;
+    std::string airportSearch;    // sent when it changes
+    std::string airportOpen;      // the airport to show
+    // the Documents page: list the folders (again), show a picture
+    bool docsList = false;
+    std::string docOpen;
     double mapLat = 0, mapLon = 0, mapLayoutNm = 0, mapPointNm = 0;
 };
 
@@ -191,6 +236,15 @@ bool hasShape(const std::string& icao);   // a drawing for this type (its own, o
 int currentApp();
 // The browser's address bar is taking typed keys (the floating window's keyboard goes there instead of to the page).
 bool webTypingAddress();
+// Something on the tablet is taking typed keys (the address bar, a note, a search): the floating window's keyboard goes there.
+bool tabletTyping();
+void tabletKey(int code, bool isChar);   // code: a character, or 8 (back) / 13 (enter)
+// The Notes page's contents, kept between sessions by the host
+std::string notesToText();
+void notesFromText(const std::string& text);
+bool takeNotesChanged();
+// Open the Map page centred on a place (the Airports page's "Show on map")
+void showOnMap(double lat, double lon);
 void webAddressKey(int code, bool isChar);   // code: a character, or 8 (back) / 13 (enter)
 void openApp(int app);   // APP_HOME: the home screen
 const char* appName(int app);                // the icon's label (Charts and Live Map carry their provider's name)

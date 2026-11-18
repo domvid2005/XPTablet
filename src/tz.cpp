@@ -8,6 +8,8 @@
 extern "C" {
 extern const unsigned char xpt_asset_tzones[];
 extern const unsigned int xpt_asset_tzones_size;
+extern const unsigned char xpt_asset_basemap[];
+extern const unsigned int xpt_asset_basemap_size;
 }
 
 namespace xpt {
@@ -69,6 +71,40 @@ const TzData& tzData() {
 } // namespace
 
 const std::vector<TzLine>& tzLines() { return tzData().lines; }
+
+const std::vector<GeoLine>& basemapLines() {
+    static std::vector<GeoLine> lines;
+    static bool done = false;
+    if (done) return lines;
+    done = true;
+    const unsigned char* b = xpt_asset_basemap;
+    const size_t n = xpt_asset_basemap_size;
+    if (n < 12 || std::memcmp(b, "WXBM", 4) != 0) return lines;
+    size_t at = 12;
+    auto varint = [&](uint64_t& v) { v = 0; int sh = 0; while (at < n) { const unsigned char c = b[at++]; v |= (uint64_t)(c & 0x7F) << sh; if (!(c & 0x80)) return true; sh += 7; if (sh > 63) return false; } return false; };
+    const uint32_t count = (uint32_t)b[8] | ((uint32_t)b[9] << 8) | ((uint32_t)b[10] << 16) | ((uint32_t)b[11] << 24);
+    lines.reserve(count);
+    for (uint32_t i = 0; i < count && at < n; ++i) {
+        GeoLine L;
+        L.kind = b[at++];
+        uint64_t np = 0;
+        if (!varint(np) || np > 1000000) break;
+        L.pts.reserve((size_t)np);
+        int64_t x = 0, y = 0;
+        L.lo0 = L.la0 = 1e9f; L.lo1 = L.la1 = -1e9f;
+        for (uint64_t k = 0; k < np; ++k) {
+            uint64_t ux = 0, uy = 0;
+            if (!varint(ux) || !varint(uy)) break;
+            x += (int64_t)(ux >> 1) ^ -(int64_t)(ux & 1);
+            y += (int64_t)(uy >> 1) ^ -(int64_t)(uy & 1);
+            const ImVec2 q((float)(x / 2000.0), (float)(y / 2000.0));
+            L.pts.push_back(q);
+            L.lo0 = std::min(L.lo0, q.x); L.lo1 = std::max(L.lo1, q.x); L.la0 = std::min(L.la0, q.y); L.la1 = std::max(L.la1, q.y);
+        }
+        lines.push_back(std::move(L));
+    }
+    return lines;
+}
 
 bool tzStdQuarterHours(double lat, double lon, int& q) {
     struct Hit { double lat = 1e9, lon = 1e9; int q = 0; bool ok = false; };

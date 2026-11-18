@@ -10,6 +10,9 @@ namespace xpt {
 
 struct TzLine { float lo0, la0, lo1, la1; std::vector<ImVec2> pts; };   // pts: (lon, lat)
 const std::vector<TzLine>& tzLines();
+// The map's outlines (Natural Earth 1:50m, from WXPlane): kind 0 coast, 1 country border, 2 state / province line, 3 lake
+struct GeoLine { int kind; float lo0, la0, lo1, la1; std::vector<ImVec2> pts; };   // pts: (lon, lat)
+const std::vector<GeoLine>& basemapLines();
 // The standard UTC offset (quarter hours) of the time zone at a point; false where the data has none (the open sea)
 bool tzStdQuarterHours(double lat, double lon, int& q);
 
