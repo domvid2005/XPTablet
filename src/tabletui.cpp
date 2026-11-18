@@ -3694,8 +3694,8 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         // Cabin Ready: tells the aircraft the cabin is secure (the CABIN READY memo); greyed once given, until after takeoff or landing
         const ImVec2 ra(cx0, y), rb(cx1, std::min(split - 14, y + 44));
         if (g.cabinReady) {
-            dl->AddRectFilled(ra, rb, IM_COL32(255, 255, 255, 14), 14.0f);
-            textCentered(dl, f.bold, (ra.x + rb.x) * 0.5f, std::floor((ra.y + rb.y) * 0.5f - fontPx(f.bold) * 0.5f), kMuted, "Cabin Ready  \xE2\x9C\x93");
+            dl->AddRectFilled(ra, rb, IM_COL32(52, 168, 96, 255), 14.0f);   // green: the cabin is ready
+            textCentered(dl, f.bold, (ra.x + rb.x) * 0.5f, std::floor((ra.y + rb.y) * 0.5f - fontPx(f.bold) * 0.5f), IM_COL32(255, 255, 255, 255), "Cabin Ready");
         } else {
             ImGui::SetCursorScreenPos(ra);
             const bool hit = ImGui::InvisibleButton("##cabready", ImVec2(rb.x - ra.x, rb.y - ra.y));
@@ -4381,7 +4381,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             if (pill(dl, f, id, modes[i], ImVec2(lx, y), ImVec2(lx + colW, y + 30), g_settings.mediaDuck == i, g_settings.mediaEnabled) && g_settings.mediaEnabled) { g_settings.mediaDuck = i; g_settingsChanged = true; }
             y += 36;
         }
-        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y + 2), kMuted, "Paused media plays again when the radio is quiet. Receiving: xPilot's COM1 and COM2; on Windows also VATSIM voice apps (TrackAudio, swift...). Transmitting: xPilot's push-to-talk. X-Plane's own ATC voice cannot be told apart.", nullptr, colW);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y + 2), kMuted, "Paused media plays again when the radio is quiet. Receiving: X-Plane's own ATC and ATIS, xPilot's COM1 and COM2, and on Windows VATSIM voice apps (TrackAudio, swift...). Transmitting: X-Plane's and xPilot's push-to-talk.", nullptr, colW);
         // the right: what is going on now
         float ry = top;
         const MediaState& md = s.media;
@@ -4718,15 +4718,16 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         const float by = b.y - 46;
         dl->AddLine(ImVec2(a.x, by), ImVec2(b.x, by), IM_COL32(255, 255, 255, (int)(40 * e)));
         dl->AddLine(ImVec2(c.x, by), ImVec2(c.x, b.y), IM_COL32(255, 255, 255, (int)(40 * e)));
-        auto button = [&](const char* id, const char* label, ImVec2 p0, ImVec2 p1, bool bold) {
+        auto button = [&](const char* id, const char* label, ImVec2 p0, ImVec2 p1, bool bold, ImDrawFlags corner) {
             ImGui::SetCursorScreenPos(p0);
             const bool hit = ImGui::InvisibleButton(id, ImVec2(p1.x - p0.x, p1.y - p0.y));
-            if (ImGui::IsItemHovered()) dl->AddRectFilled(p0, p1, IM_COL32(255, 255, 255, 18), 0.0f);
+            // the highlight fits the button: square on the inside, the alert's own rounded corner on the outside
+            if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(p0.x + 1, p0.y + 1), ImVec2(p1.x - 1, p1.y - 1), IM_COL32(255, 255, 255, ImGui::IsItemActive() ? 30 : 18), 17.0f * sc, corner);
             textCentered(dl, bold ? f.bold : f.body, (p0.x + p1.x) * 0.5f, std::floor((p0.y + p1.y) * 0.5f - fontPx(f.body) * 0.5f), IM_COL32(110, 170, 255, A), label);
             return hit;
         };
-        if (button("##lowclose", "Close", ImVec2(a.x, by), ImVec2(c.x, b.y), false)) g_lowAlert = 0;
-        if (button("##lowplug", "Plug In", ImVec2(c.x, by), ImVec2(b.x, b.y), true)) { g_lowAlert = 0; g_charger = true; g_settingsChanged = true; }
+        if (button("##lowclose", "Close", ImVec2(a.x, by), ImVec2(c.x, b.y), false, ImDrawFlags_RoundCornersBottomLeft)) g_lowAlert = 0;
+        if (button("##lowplug", "Plug In", ImVec2(c.x, by), ImVec2(b.x, b.y), true, ImDrawFlags_RoundCornersBottomRight)) { g_lowAlert = 0; g_charger = true; g_settingsChanged = true; }
     }
     if (powerAnim) {
         ImGui::EndDisabled();
@@ -4842,6 +4843,26 @@ int loadShapes(const std::string& text) {
     return (int)g_shapes.size();
 }
 
+std::string checklistFor(const std::string& text, const std::string& icao, const std::string& engine) {
+    std::string out;
+    size_t p = 0;
+    while (p < text.size()) {
+        size_t e = text.find('\n', p);
+        if (e == std::string::npos) e = text.size();
+        std::string line = text.substr(p, e - p);
+        p = e + 1;
+        if (!line.empty() && line[0] == '[') {
+            const size_t close = line.find(']');
+            if (close == std::string::npos) continue;
+            const std::string tags = "," + line.substr(1, close - 1) + ",";
+            if (tags.find("," + icao + ",") == std::string::npos && (engine.empty() || tags.find("," + engine + ",") == std::string::npos)) continue;
+            line = line.substr(close + 1);
+            while (!line.empty() && line[0] == ' ') line.erase(0, 1);
+        }
+        out += line + "\n";
+    }
+    return out;
+}
 void setBattery(float pct) { g_batt = std::max(0.0f, std::min(100.0f, pct)); }
 bool hasShape(const std::string& icao) { float l, sp; return exactShape(icao, l, sp) != nullptr; }   // a drawing of its own
 const unsigned char* wxLogoPixels(unsigned int& bytes) { bytes = xpt_asset_wxlogo_size; return xpt_asset_wxlogo; }

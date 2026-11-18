@@ -22,7 +22,7 @@ SRCS="emulator/web/web.cpp src/tabletui.cpp src/tabrender.cpp src/metar.cpp src/
       third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_party/imgui/imgui_tables.cpp third_party/imgui/imgui_widgets.cpp"
 "$EMXX" -std=c++17 -O2 -Isrc -Ithird_party/imgui -DIMGUI_DISABLE_OBSOLETE_FUNCTIONS -DIMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS $SRCS "$OUT/xpt_assets.o" "$OUT/xpt_shapes.o" \
   -sUSE_WEBGL2=1 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=67108864 -sSINGLE_FILE=1 -sENVIRONMENT=web \
-  -sEXPORTED_RUNTIME_METHODS=stringToNewUTF8,UTF8ToString \
+  -sEXPORTED_RUNTIME_METHODS=stringToNewUTF8,UTF8ToString --embed-file assets/checklists/airbus.txt@/checklists/airbus.txt \
   -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_emu_mouse,_emu_wheel,_emu_typing,_emu_key,_emu_char,_emu_scale,_emu_width,_emu_shape,_emu_tile,_emu_text,_emu_aircraft,_emu_place,_emu_set,_emu_intruder,_emu_new_traffic,_emu_battery,_emu_reset_settings,_emu_alt,_emu_gs,_emu_on_ground \
   -o "$OUT/emu.js"
 python3 - "$OUT" <<'PY'

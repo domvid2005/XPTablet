@@ -329,7 +329,9 @@ const EmbedArea& embedArea();   // as of the last build()
 // shapes were read; types without one are drawn from their measurements instead.
 int loadShapes(const std::string& text);
 bool hasShape(const std::string& icao);
-void setBattery(float pct);   // the tablet's battery level (the emulators' test controls)   // a drawing for this type (its own, or its family's)
+void setBattery(float pct);
+// The bundled checklists' lines for one aircraft: a line "[TAGS] item | value" is kept when a tag is its ICAO type or its engine
+std::string checklistFor(const std::string& text, const std::string& icao, const std::string& engine);   // the tablet's battery level (the emulators' test controls)   // a drawing for this type (its own, or its family's)
 
 int currentApp();
 // The browser's address bar is taking typed keys (the floating window's keyboard goes there instead of to the page).

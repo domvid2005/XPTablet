@@ -129,6 +129,8 @@ if(XPT_BUILD_PLUGIN)
   # the aircraft top views: a data file read at run time (GPL-3.0, with its licence and README), next to the platform folders
   add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_SOURCE_DIR}/assets/shapes" "${CMAKE_BINARY_DIR}/package/XPTablet/shapes")
+  add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory   # the Airbus checklists (GPL-2, with their licence)
+    "${CMAKE_SOURCE_DIR}/assets/checklists" "${CMAKE_BINARY_DIR}/package/XPTablet/checklists")
   set_target_properties(XPTablet PROPERTIES
     PREFIX "" OUTPUT_NAME "XPTablet" SUFFIX ".xpl"
     LIBRARY_OUTPUT_DIRECTORY "${XPT_OUT}" RUNTIME_OUTPUT_DIRECTORY "${XPT_OUT}")

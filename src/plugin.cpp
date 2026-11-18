@@ -1032,6 +1032,31 @@ void loadChecklist() {
     const std::string acf = aircraftDir();
     if (!acf.empty()) cands.push_back({acf + "xptablet_checklist.txt", "the aircraft's xptablet_checklist.txt"});
     for (const auto& c : cands) if (readFile(c.first, g_sim.checklistText)) { g_sim.checklistSource = "From " + c.second; return; }
+    // the Airbus types: the bundled checklists (FlightGear A320-family, GPL-2), the lines for this type and its engine
+    static const char* const kAirbus[] = {"A319", "A320", "A20N", "A321", "A21N", "A339", "A333", "A346"};
+    bool airbus = false;
+    for (const char* t : kAirbus) airbus = airbus || g_sim.acfIcao == t;
+    if (!airbus) return;
+    char path[2048] = "";
+    XPLMGetPluginInfo(XPLMGetMyID(), nullptr, path, nullptr, nullptr);
+    std::string dir = path;
+    for (int up = 0; up < 2; ++up) { const size_t cut = dir.find_last_of("/\\"); if (cut != std::string::npos) dir.resize(cut); }
+    std::string text;
+    if (!readFile(dir + "/checklists/airbus.txt", text)) return;
+    // the engine: ToLiss's single-aisles say which (AirbusFBW/EngineTypeIndex: 0 IAE V2500, 3 LEAP-1A seen; 1 CFM56, 2 PW1100G taken
+    // as the others); the A330-900 has Trent 7000s, the A340-600 Trent 500s
+    std::string eng, engName;
+    const std::string& ic = g_sim.acfIcao;
+    if (ic == "A339") { eng = "TRENT7000"; engName = "Trent 7000"; }
+    else if (ic == "A346") { eng = "TRENT500"; engName = "Trent 500"; }
+    else if (XPLMDataRef r = XPLMFindDataRef("AirbusFBW/EngineTypeIndex")) {
+        const int k = (XPLMGetDataRefTypes(r) & xplmType_Int) ? XPLMGetDatai(r) : (int)XPLMGetDataf(r);
+        static const char* const ids[4] = {"V2500", "CFM56", "PW1100G", "LEAP"}, *names[4] = {"IAE V2500", "CFM56", "PW1100G", "LEAP-1A"};
+        if (k >= 0 && k < 4) { eng = ids[k]; engName = names[k]; }
+    }
+    const std::string out = xpt::checklistFor(text, ic, eng);
+    g_sim.checklistText = out;
+    g_sim.checklistSource = "Airbus checklists (FlightGear A320-family, GPL-2)" + (engName.empty() ? std::string() : "  \xC2\xB7  " + engName);
 }
 
 // ---- Notes: kept in Output/preferences/XPTablet_notes.txt --------------------------------------------------------------------------
@@ -1062,6 +1087,9 @@ void mediaStep(const xpt::Actions& act) {
     if (act.mediaSeek >= 0) xpt::media::seek(act.mediaSeek);
     // the radios: xPilot says when COM1 or COM2 is receiving (looked for now and then: it may load after us)
     static XPLMDataRef com1 = nullptr, com2 = nullptr, rxOld = nullptr, ptt = nullptr;
+    // X-Plane's own radios too: its ATC, ATIS and plugins' voices received on COM1 / COM2, and the pilot's voice sent
+    static XPLMDataRef xpRx1 = XPLMFindDataRef("sim/atc/com1_rx"), xpRx2 = XPLMFindDataRef("sim/atc/com2_rx");
+    static XPLMDataRef xpTx1 = XPLMFindDataRef("sim/atc/com1_tx"), xpTx2 = XPLMFindDataRef("sim/atc/com2_tx");
     if ((XPLMGetCycleNumber() & 255) == 1 && ((!com1 && !rxOld) || !ptt)) {
         com1 = XPLMFindDataRef("xpilot/audio/com1_rx");
         com2 = XPLMFindDataRef("xpilot/audio/com2_rx");
@@ -1072,8 +1100,10 @@ void mediaStep(const xpt::Actions& act) {
         if (!r) return false;
         return (XPLMGetDataRefTypes(r) & xplmType_Int) ? XPLMGetDatai(r) != 0 : XPLMGetDataf(r) > 0.5f;
     };
-    const bool rx = on(com1) || on(com2) || on(rxOld), tx = on(ptt);
-    xpt::media::setDuck(st.mediaDuck, rx || tx, rx || tx ? "xPilot" : "");
+    const bool pilotRx = on(com1) || on(com2) || on(rxOld), xpRx = on(xpRx1) || on(xpRx2);
+    const bool rx = pilotRx || xpRx, tx = on(ptt) || on(xpTx1) || on(xpTx2);
+    const char* who = pilotRx || on(ptt) ? "xPilot" : "X-Plane ATC";
+    xpt::media::setDuck(st.mediaDuck, rx || tx, rx || tx ? who : "");
     const xpt::media::Now n = xpt::media::now();
     xpt::MediaState& m = g_sim.media;
     m.supported = n.supported; m.active = n.active; m.app = n.app; m.title = n.title; m.artist = n.artist; m.album = n.album;
@@ -1081,7 +1111,7 @@ void mediaStep(const xpt::Actions& act) {
     m.posSec = n.posSec; m.lenSec = n.lenSec; m.canSeek = n.canSeek;
     m.radioRx = rx || n.radioApp;
     m.radioTx = tx;
-    m.radioSource = rx ? "xPilot" : n.radioApp ? n.radioAppName : "";
+    m.radioSource = rx ? who : n.radioApp ? n.radioAppName : "";
     m.ducked = n.ducked;
     // the cover, into a texture of its own (mipmapped: it is shown small and large)
     static int version = 0;

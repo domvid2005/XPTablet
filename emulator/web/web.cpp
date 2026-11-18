@@ -322,6 +322,20 @@ void step(double dt, double now) {
     m.tile = tile;
     g_s.zuluSec = (int)(utc % 86400);
     g_s.acfIcao = g_ac.icao;
+    {   // the Airbus types' bundled checklists (as the plugin finds them), with the usual engine of each model
+        static std::string forType = "?", text;
+        if (forType != g_ac.icao) {
+            forType = g_ac.icao;
+            static const char* const types[][3] = {{"A319", "CFM56", "CFM56"}, {"A320", "CFM56", "CFM56"}, {"A20N", "LEAP", "LEAP-1A"}, {"A321", "V2500", "IAE V2500"},
+                                                   {"A21N", "LEAP", "LEAP-1A"}, {"A339", "TRENT7000", "Trent 7000"}, {"A333", "", ""}, {"A346", "TRENT500", "Trent 500"}};
+            g_s.checklistText.clear(); g_s.checklistSource.clear();
+            for (const auto& t : types) if (g_ac.icao == t[0]) {
+                if (text.empty()) { if (FILE* fp = std::fopen("/checklists/airbus.txt", "rb")) { char buf[4096]; size_t n; while ((n = std::fread(buf, 1, sizeof buf, fp)) > 0) text.append(buf, n); std::fclose(fp); } }
+                g_s.checklistText = checklistFor(text, t[0], t[1]);
+                g_s.checklistSource = std::string("Airbus checklists (FlightGear A320-family, GPL-2)") + (t[2][0] ? std::string("  \xC2\xB7  ") + t[2] : "");
+            }
+        }
+    }
     g_s.toliss = g_ac.toliss;
     g_s.batteryPct = 100; g_s.charging = g_battery;
     g_s.autoDimLevel = 1.0f - 0.55f * std::max(0.0f, std::min(1.0f, -g_sunPitch / 8.0f));
