@@ -576,6 +576,7 @@ int getInt(void* r) { return *(int*)r; }
 void setInt(void* r, int v) { *(int*)r = v; }
 float getFloat(void* r) { return *(float*)r; }
 void setBrightness(void*, float v) { g_brightness = std::max(0.0f, std::min(1.0f, v)); }
+int getOwnsAviTab(void*) { return g_ownsAviTab ? 1 : 0; }
 int getInMenu(void*) { return xpt::currentApp() == xpt::APP_HOME ? 1 : 0; }
 float getZero(void*) { return 0.0f; }
 int getZeroI(void*) { return 0; }
@@ -603,6 +604,9 @@ void registerDatarefs(const std::string& prefix) {
     regInt(prefix + "/panel_powered", &g_panelPowered, true);
     regFloat(prefix + "/brightness", getFloat, setBrightness, &g_brightness);
     regIntFn(prefix + "/is_in_menu", getInMenu);
+    // 1 when XPTablet provides AviTab's interface (AviTab is not installed). WXPlane reads it: it then leaves the tablet's screen
+    // alone and shows on the Weather page, instead of drawing over the screen as it does on AviTab.
+    if (prefix == "xptablet") regIntFn(prefix + "/owns_avitab", getOwnsAviTab);
     // the map app's position: filled in when the map exists
     regFloat(prefix + "/map/latitude", getZero, nullptr, nullptr);
     regFloat(prefix + "/map/longitude", getZero, nullptr, nullptr);
