@@ -261,17 +261,33 @@ std::string settingsPath() {
     const size_t cut = s.find_last_of("/\\");
     return cut == std::string::npos ? std::string() : s.substr(0, cut + 1) + "XPTablet.prf";
 }
+std::string g_savedSettings;   // the settings as last read or written, so a change of any kind is seen and saved
 void loadSettings() {
     std::string text;
     if (!settingsPath().empty() && readFile(settingsPath(), text)) xpt::settingsFromText(text);
+    g_savedSettings = xpt::settingsToText();   // (what is in force now: a later difference is a change to save)
 }
 void saveSettings() {
     const std::string path = settingsPath();
-    FILE* f = path.empty() ? nullptr : std::fopen(path.c_str(), "wb");
-    if (!f) { logMsg("cannot write %s", path.c_str()); return; }
+    if (path.empty()) return;
     const std::string text = xpt::settingsToText();
-    std::fwrite(text.data(), 1, text.size(), f);
-    std::fclose(f);
+    // written beside it, then put in its place: a crash or a full disk mid-write never leaves the settings empty
+    const std::string tmp = path + ".tmp";
+    FILE* f = std::fopen(tmp.c_str(), "wb");
+    if (!f) { logMsg("cannot write %s", tmp.c_str()); return; }
+    const bool ok = std::fwrite(text.data(), 1, text.size(), f) == text.size();
+    if (std::fclose(f) != 0 || !ok) { std::remove(tmp.c_str()); logMsg("cannot write %s", tmp.c_str()); return; }
+    std::remove(path.c_str());   // (Windows will not rename over a file)
+    if (std::rename(tmp.c_str(), path.c_str()) != 0) { logMsg("cannot replace %s", path.c_str()); return; }
+    g_savedSettings = text;
+}
+// once a second: saved whenever the settings differ from the file, whether or not the change was flagged
+void saveSettingsIfChanged(float dt) {
+    static float since = 0;
+    since += dt;
+    if (since < 1.0f) return;
+    since = 0;
+    if (xpt::settingsToText() != g_savedSettings) saveSettings();
 }
 
 // The aircraft top views: shapes/aircraft_shapes.txt next to the platform folders (XPTablet/<platform>/XPTablet.xpl).
@@ -1975,6 +1991,7 @@ float flightLoop(float dt, float, int, void*) {
     g_sim.batteryPct = (int)std::lround(g_battery);
     g_sim.charging = fed;
     if (xpt::takeSettingsChanged()) saveSettings();
+    saveSettingsIfChanged(sec);
     if (xpt::takeNotesChanged()) saveNotes();
     if (g_drZulu) g_sim.zuluSec = (int)XPLMGetDataf(g_drZulu);
     if (g_drIcao) {
@@ -2052,6 +2069,7 @@ PLUGIN_API int XPluginEnable(void) {
 }
 
 PLUGIN_API void XPluginDisable(void) {
+    if (xpt::settingsToText() != g_savedSettings) saveSettings();   // nothing changed is lost when the sim or the plugins reload
     XPLMUnregisterKeySniffer(keySniffer, 1, nullptr);
     XPLMUnregisterDrawCallback(drawPanel, xplm_Phase_Gauges, 0, nullptr);
     if (g_loop) { XPLMDestroyFlightLoop(g_loop); g_loop = nullptr; }

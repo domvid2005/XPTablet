@@ -406,16 +406,27 @@ void step(double dt, double now) {
         md.posSec = g_songPos; md.lenSec = kSongLen[g_song]; md.canSeek = true;
         if (g_song == 3) { md.art = 0; md.artW = md.artH = 0; }   // a song without a cover: the disc is shown
         else if (!g_artTex[g_song]) {   // the cover: the song's two colours, corner to corner, with a ring
-            std::vector<unsigned char> px(256 * 256 * 4);
-            for (int y = 0; y < 256; ++y) for (int x = 0; x < 256; ++x) {
-                const float t = (x + y) / 510.0f, r = std::hypot(x - 128.0f, y - 128.0f);
-                const float ring = (r > 60 && r < 70) || r < 14 ? 0.35f : 0.0f;
-                for (int c = 0; c < 3; ++c) px[(y * 256 + x) * 4 + c] = (unsigned char)std::min(255.0f, so.c0[c] + (so.c1[c] - so.c0[c]) * t + 255 * ring);
-                px[(y * 256 + x) * 4 + 3] = 255;
+            // drawn at 512 px with every edge anti-aliased (coverage from the distance to the edge), so it stays smooth scaled
+            const int N = 512;
+            std::vector<unsigned char> px((size_t)N * N * 4);
+            auto cov = [](float d) { return std::max(0.0f, std::min(1.0f, 0.5f - d)); };   // d: signed distance (px), < 0 inside
+            for (int y = 0; y < N; ++y) for (int x = 0; x < N; ++x) {
+                const float fx = x + 0.5f, fy = y + 0.5f, t = (fx + fy) / (2.0f * N);
+                const float r = std::hypot(fx - N * 0.5f, fy - N * 0.5f);
+                // a soft glow in the middle, a ring and a dot, light over the song's two colours
+                const float glow = 0.10f * std::max(0.0f, 1.0f - r / (N * 0.42f));
+                const float ring = 0.38f * cov(std::fabs(r - N * 0.255f) - N * 0.022f);
+                const float dot = 0.45f * cov(r - N * 0.055f);
+                const float add = glow + ring + dot;
+                for (int c = 0; c < 3; ++c) {
+                    const float base = so.c0[c] + (so.c1[c] - so.c0[c]) * t;
+                    px[((size_t)y * N + x) * 4 + c] = (unsigned char)std::min(255.0f, base + (255.0f - base) * add);
+                }
+                px[((size_t)y * N + x) * 4 + 3] = 255;
             }
-            g_artTex[g_song] = uploadLevels(px.data(), 256, 256, 1);
+            g_artTex[g_song] = uploadLevels(px.data(), N, N, 1);
         }
-        if (g_song != 3) { md.art = (ImTextureID)(intptr_t)g_artTex[g_song]; md.artW = md.artH = 256; }
+        if (g_song != 3) { md.art = (ImTextureID)(intptr_t)g_artTex[g_song]; md.artW = md.artH = 512; }
         const bool heard = g_radioRx || g_radioTx || now - g_radioLast < 1.2;
         if (g_radioRx || g_radioTx) g_radioLast = now;
         md.radioTx = g_radioTx;

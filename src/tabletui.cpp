@@ -209,6 +209,15 @@ void wallpaperIn(ImDrawList* dl, ImVec2 o, float w, float h, int which, float ro
         }
 }
 void wallpaper(ImDrawList* dl, float w, float h) { wallpaperIn(dl, ImVec2(0, 0), w, h, g_settings.wallpaper); }
+// the theme's dark tone, for what lies over the page (the pull-down, glass cards, banners): navy turned towards the theme's sky
+// a navy tone moved by a share of how far the theme's sky is from Navy's (so on Navy it is exactly the tone given)
+ImU32 themeTone(int r, int g, int b, int a) {
+    const Backdrop& bd = kBackdrops[std::max(0, std::min(4, g_settings.wallpaper))];
+    const ImU32 n = kBackdrops[0].bot, t = bd.bot;
+    auto ch = [&](int base, int sh) { const int d = (int)((t >> sh) & 255) - (int)((n >> sh) & 255); return std::max(0, std::min(255, base + (int)std::lround(d * 0.35f))); };
+    return IM_COL32(ch(r, IM_COL32_R_SHIFT), ch(g, IM_COL32_G_SHIFT), ch(b, IM_COL32_B_SHIFT), std::max(0, std::min(255, a)));
+}
+ImU32 themeDark(int a) { return themeTone(12, 20, 40, a); }
 
 // A small white pictogram for each app, drawn from lines and circles inside a circle of radius r around c.
 void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
@@ -747,7 +756,7 @@ float easeOut(float t) { t = std::max(0.0f, std::min(1.0f, t)); const float u = 
 ImU32 mixCol(ImU32 a, ImU32 b, float t);
 bool pageHeader(ImDrawList* dl, const Fonts& f, float w, const char* title) {
     // the bar under the status bar: dark, tinted with the theme's accent (the status bar itself never changes)
-    dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, kStatusH + kHeaderH), mixCol(IM_COL32(10, 24, 48, 235), accentCol(235), 0.16f));
+    dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, kStatusH + kHeaderH), mixCol(themeTone(10, 24, 48, 235), accentCol(235), 0.16f));
     dl->AddLine(ImVec2(0, kStatusH + kHeaderH), ImVec2(w, kStatusH + kHeaderH), accentCol(60));
     ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
     const bool back = ImGui::InvisibleButton("##home", ImVec2(96, kHeaderH));
@@ -771,7 +780,7 @@ const ImU32 kCard = IM_COL32(10, 22, 44, 210), kCardLine = IM_COL32(255, 255, 25
             kMuted = IM_COL32(150, 168, 198, 255), kGood = IM_COL32(80, 214, 124, 255), kWarn = IM_COL32(255, 190, 90, 255);
 
 void card(ImDrawList* dl, ImVec2 a, ImVec2 b, const Fonts& f, const char* title) {
-    dl->AddRectFilled(a, b, kCard, 12.0f);
+    dl->AddRectFilled(a, b, themeTone(10, 22, 44, 210), 12.0f);   // kCard, in the theme's tone
     dl->AddRect(a, b, kCardLine, 12.0f);
     if (title) dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 14, a.y + 10), kMuted, title);
 }
@@ -807,13 +816,16 @@ bool pill(ImDrawList* dl, const Fonts& f, const char* id, const char* label, ImV
     ImGui::EndDisabled();
     const Ease e = eased(id, on && enabled, hot && enabled, down && enabled);
     // off: a light veil (brighter when hovered); on: blue; pressed: a touch smaller and brighter
-    ImU32 bg = mixCol(IM_COL32(255, 255, 255, 30), IM_COL32(255, 255, 255, 52), e.hot);
-    bg = mixCol(bg, accentCol(225), e.on);
-    bg = mixCol(bg, e.on > 0.5f ? accentLite(255) : IM_COL32(255, 255, 255, 74), e.down);
+    // hovered, plainly: off, the veil brightens and takes a tint and an outline of the accent; on, the accent lightens
+    ImU32 off = mixCol(IM_COL32(255, 255, 255, 30), mixCol(IM_COL32(255, 255, 255, 64), accentCol(90), 0.35f), e.hot);
+    ImU32 lit = mixCol(accentCol(225), accentLite(245), e.hot * 0.45f);
+    ImU32 bg = mixCol(off, lit, e.on);
+    bg = mixCol(bg, e.on > 0.5f ? accentLite(255) : IM_COL32(255, 255, 255, 84), e.down);
     if (!enabled) bg = IM_COL32(255, 255, 255, 14);
     const float inset = e.down * 1.5f;
     const ImVec2 a2(a.x + inset, a.y + inset), b2(b.x - inset, b.y - inset);
     dl->AddRectFilled(a2, b2, bg, (b2.y - a2.y) * 0.5f);
+    if (enabled && e.hot * (1 - e.on) > 0.02f) dl->AddRect(a2, b2, accentLite((int)(150 * e.hot * (1 - e.on))), (b2.y - a2.y) * 0.5f, 0, 1.2f);
     textCentered(dl, f.small, (a.x + b.x) * 0.5f, std::floor((a.y + b.y - fontPx(f.small)) * 0.5f), enabled ? kInk : IM_COL32(236, 241, 250, 90), label);
     return hit && enabled;
 }
@@ -822,7 +834,9 @@ bool pill(ImDrawList* dl, const Fonts& f, const char* id, const char* label, ImV
 // value set from elsewhere (auto dim). Greyed and inert when not enabled. Returns true when the user changed the value.
 bool smoothSlider(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, ImVec2 b, float& v, float vmin, float vmax, int steps, bool enabled, const char* text) {
     static ImGuiStorage shownAt;   // where each slider's knob is drawn (0..1), by id
-    const float textW = 64, x0 = a.x + 12, x1 = b.x - textW - 12, cy = (a.y + b.y) * 0.5f;
+    // the value's room on the right fits its text (a short % leaves the track long), at least that of "100%"
+    const float textW = (text && *text) ? std::max(f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, "100%").x, f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, text).x) + 6 : 0;
+    const float x0 = a.x + 12, x1 = b.x - textW - 12, cy = (a.y + b.y) * 0.5f;
     ImGui::SetCursorScreenPos(a);
     ImGui::BeginDisabled(!enabled);
     ImGui::InvisibleButton(id, ImVec2(b.x - a.x, b.y - a.y));
@@ -1143,7 +1157,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
                 ImGui::SetNextItemAllowOverlap();
                 if (ImGui::InvisibleButton(id, ImVec2(e.x - a.x - 22, e.y - a.y)) && !on) act.webTabSelect = t.id;
                 const bool hot = ImGui::IsItemHovered();
-                dl->AddRectFilled(a, e, on ? IM_COL32(10, 24, 48, 255) : hot ? IM_COL32(255, 255, 255, 22) : IM_COL32(255, 255, 255, 10), 8.0f, ImDrawFlags_RoundCornersTop);
+                dl->AddRectFilled(a, e, on ? themeTone(10, 24, 48, 255) : hot ? IM_COL32(255, 255, 255, 22) : IM_COL32(255, 255, 255, 10), 8.0f, ImDrawFlags_RoundCornersTop);
                 // the last tab's x clears it (the helper opens a fresh search page in its place): there is always one
                 std::string title = isStartPage(t.url) ? std::string("New tab") : !t.title.empty() ? t.title : hostOf(t.url);
                 const float room = e.x - a.x - 34;
@@ -1172,7 +1186,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         }
         top += tabsH;
         const float barH = 40, bmH = 34;
-        dl->AddRectFilled(ImVec2(0, top), ImVec2(w, top + barH + bmH), IM_COL32(10, 24, 48, 235));
+        dl->AddRectFilled(ImVec2(0, top), ImVec2(w, top + barH + bmH), themeTone(10, 24, 48, 235));
         const float my = top + barH * 0.5f;
         if (iconButton("##bback", ImVec2(8, top + 4), ImVec2(36, top + barH - 4), b.canBack)) act.webNav = 1;
         arrow(dl, ImVec2(22, my), true, b.canBack ? ink : dim);
@@ -1189,7 +1203,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         dl->PushClipRect(a, e, true);
         const std::string shown = editing ? g_addrEdit : (b.url.empty() ? g_url : b.url);
         const float ty = std::floor(my - fontPx(f.body) * 0.5f);
-        if (editing && g_addrEdit.empty()) dl->AddText(f.body, fontPx(f.body), ImVec2(a.x + 14, ty), dim, "Type an address or a search");
+        if (editing && g_addrEdit.empty()) dl->AddText(f.body, fontPx(f.body), ImVec2(a.x + 19, ty), dim, "Type an address or a search");   // (clear of the caret)
         else dl->AddText(f.body, fontPx(f.body), ImVec2(a.x + 14, ty), ink, shown.c_str());
         if (editing) {   // the caret
             const float cx = a.x + 14 + f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, g_addrEdit.c_str()).x + 1;
@@ -1728,8 +1742,8 @@ bool mapBubble(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, const c
     ImGui::EndDisabled();
     const float inset = e.down * 1.2f;
     const ImVec2 a2(a.x + inset, a.y + inset), b2(b.x - inset, b.y - inset);
-    ImU32 bg = mixCol(IM_COL32(12, 22, 40, 225), IM_COL32(26, 40, 64, 238), e.hot);
-    bg = mixCol(bg, mixCol(IM_COL32(12, 22, 40, 240), accentCol(240), 0.38f), e.on * 0.85f);   // lit: the theme's accent, darkened
+    ImU32 bg = mixCol(themeTone(12, 22, 40, 225), themeTone(26, 40, 64, 238), e.hot);
+    bg = mixCol(bg, mixCol(themeTone(12, 22, 40, 240), accentCol(240), 0.38f), e.on * 0.85f);   // lit: the theme's accent, darkened
     dl->AddRectFilled(a2, b2, bg, 9.0f);
     dl->AddRect(a2, b2, mixCol(IM_COL32(255, 255, 255, 46), accentLite(255), e.on), 9.0f, 0, 1.0f + 0.6f * e.on);
     const float tx = a.x + (b.x - a.x - lw - tw) * 0.5f;
@@ -1895,7 +1909,7 @@ bool drawCard(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L, Im
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 2.0f)) g_cardScroll -= ImGui::GetIO().MouseDelta.y;
     g_cardScroll = std::max(0.0f, std::min(g_cardScroll, full - H));
     dl->AddRectFilled(ImVec2(a.x + 2, a.y + 4), ImVec2(e.x + 2, e.y + 4), IM_COL32(0, 0, 0, 70), 14.0f);
-    dl->AddRectFilled(a, e, IM_COL32(14, 26, 48, 246), 14.0f);
+    dl->AddRectFilled(a, e, themeTone(14, 26, 48, 246), 14.0f);
     dl->AddRect(a, e, IM_COL32(255, 255, 255, 40), 14.0f);
     bool pressed = false;
     dl->PushClipRect(ImVec2(a.x, a.y + 2), ImVec2(e.x, e.y - 2), true);
@@ -1961,7 +1975,7 @@ bool drawCard(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L, Im
     ImGui::SetCursorScreenPos(ImVec2(xc.x - 14, xc.y - 14));
     if (ImGui::InvisibleButton("##cardclose", ImVec2(28, 28))) g_selKind = 0;
     const bool xh = ImGui::IsItemHovered();
-    dl->AddCircleFilled(xc, 13.0f, IM_COL32(14, 26, 48, 255), 0);   // over whatever scrolls under it
+    dl->AddCircleFilled(xc, 13.0f, themeTone(14, 26, 48, 255), 0);   // over whatever scrolls under it
     if (xh) dl->AddCircleFilled(xc, 13.0f, IM_COL32(255, 255, 255, 30), 0);
     dl->AddLine(ImVec2(xc.x - 5, xc.y - 5), ImVec2(xc.x + 5, xc.y + 5), kInk, 1.6f);
     dl->AddLine(ImVec2(xc.x - 5, xc.y + 5), ImVec2(xc.x + 5, xc.y - 5), kInk, 1.6f);
@@ -2465,7 +2479,14 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         std::string t;
         if (g_settings.mapLocalTime) {
             bool est = false;
-            const double tLat = movedOff ? cLat : m.lat, tLon = movedOff ? cLon : m.lon;
+            // the place: under the pointer while it is over the map; else the aircraft (centred on it), else the + in the middle
+            double tLat = movedOff ? cLat : m.lat, tLon = movedOff ? cLon : m.lon;
+            const ImVec2 mp = ImGui::GetIO().MousePos;
+            if (mp.x > r0.x + 130 && mp.x < r1.x - 4 && mp.y > r0.y + 4 && mp.y < r1.y - 40) {   // (off the bubbles at the sides)
+                double la = 0, lo = 0;
+                latLonOf(fromS(mp), la, lo);
+                tLat = la; tLon = lo;
+            }
             const double off = localOffsetAt(m, tLat, tLon, est);
             t = clockOf(utc + (long long)off) + " " + (est ? "~" : "") + zoneOf(tLat, tLon, off, utc);
         } else {
@@ -2680,7 +2701,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
 }
 
 // ---- a text field (the on-screen keyboard types into it; so does the floating window's keyboard) ------------------------------------
-bool textField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, ImVec2 a, ImVec2 b, const char* hint, bool multiline) {
+// ruled: the pad's line spacing (the scratchpad's lines): each line of text sits on one of them (0: plain)
+bool textField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, ImVec2 a, ImVec2 b, const char* hint, bool multiline, float ruled = 0) {
     ImGui::SetCursorScreenPos(a);
     const bool hit = ImGui::InvisibleButton(id, ImVec2(b.x - a.x, b.y - a.y));
     if (hit) { g_kbd = true; g_kbdTarget = 2; g_typeInto = &v; g_typeMultiline = multiline; }
@@ -2694,7 +2716,32 @@ bool textField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, I
     else {
         std::string shown = v;
         if (focus && std::fmod(ImGui::GetTime(), 1.0) < 0.6) shown += "|";
-        if (multiline) dl->AddText(f.body, px, ImVec2(a.x + 10, ty), kInk, shown.c_str(), nullptr, b.x - a.x - 20);
+        if (multiline && ruled > 0) {   // line by line, each on a rule (wrapped at the box's width)
+            const float wrapW = b.x - a.x - 20;
+            // how many lines: past the box, it moves up a whole line at a time (the text stays on the rules) so the last shows
+            int lines = 0;
+            for (int pass = 0; pass < 2; ++pass) {
+            const int fits = std::max(1, (int)std::floor((b.y - a.y) / ruled));
+            float y = a.y + ruled - px - 6 - (pass == 1 ? std::max(0, lines - fits) * ruled : 0.0f);
+            int count = 0;
+            size_t p0 = 0;
+            while (p0 <= shown.size()) {
+                size_t nl = shown.find('\n', p0);
+                if (nl == std::string::npos) nl = shown.size();
+                const char* s0 = shown.c_str() + p0, *e0 = shown.c_str() + nl;
+                do {
+                    const char* cut = e0 == s0 ? e0 : f.body->CalcWordWrapPositionA(px / f.body->FontSize, s0, e0, wrapW);
+                    if (cut == s0 && s0 < e0) ++cut;
+                    if (pass == 1) dl->AddText(f.body, px, ImVec2(a.x + 10, y), kInk, s0, cut);
+                    y += ruled; ++count;
+                    s0 = cut;
+                    while (s0 < e0 && *s0 == ' ') ++s0;
+                } while (s0 < e0);
+                p0 = nl + 1;
+            }
+            lines = count;
+            }
+        } else if (multiline) dl->AddText(f.body, px, ImVec2(a.x + 10, ty), kInk, shown.c_str(), nullptr, b.x - a.x - 20);
         else {   // a long line shows its end
             const float tw = f.body->CalcTextSizeA(px, 1e9f, 0, shown.c_str()).x;
             const float room = b.x - a.x - 20;
@@ -2831,7 +2878,7 @@ void notesPage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
     }
     if (pill(dl, f, "##neraser", "Eraser", ImVec2(332, y0), ImVec2(418, y0 + 28), g_eraser && g_penMode, true)) { g_eraser = !(g_eraser && g_penMode); g_penMode = true; g_kbd = false; g_typeInto = nullptr; }
     const ImVec2 pa(12, y0 + 38), pb(w - 12, bottom - 10);
-    dl->AddRectFilled(pa, pb, IM_COL32(14, 24, 40, 235), 10.0f);
+    dl->AddRectFilled(pa, pb, themeTone(14, 24, 40, 235), 10.0f);
     for (float ly = pa.y + 34; ly < pb.y - 4; ly += 34) dl->AddLine(ImVec2(pa.x + 10, ly), ImVec2(pb.x - 10, ly), IM_COL32(255, 255, 255, 16), 1.0f);
     const float pw = pb.x - pa.x, ph = std::max(1.0f, (h - 10) - pa.y);   // strokes are kept as fractions of the whole pad (keyboard or not)
     if (g_penMode) {
@@ -2851,7 +2898,7 @@ void notesPage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
             if (std::fabs(last.x - q.x) * pw + std::fabs(last.y - q.y) * ph > 1.5f) g_strokes.back().pts.push_back(q);
         }
     } else {
-        textField(dl, f, "##nscratch", g_scratch, pa, pb, "Tap to type", true);
+        textField(dl, f, "##nscratch", g_scratch, pa, pb, "Tap to type", true, 34.0f);   // on the pad's lines
         if (g_typeChanged) { g_typeChanged = false; g_notesChanged = true; }
     }
     dl->PushClipRect(pa, pb, true);
@@ -3586,7 +3633,7 @@ void planPreview(ImDrawList* dl, const Fonts& f, const FlightPlan& p, float w, f
     const float sc = 0.94f + 0.06f * t;
     const ImVec2 c(w * 0.5f, kStatusH + (h - kStatusH) * 0.5f);
     const ImVec2 a(std::floor(c.x - pw * 0.5f * sc), std::floor(c.y - ph * 0.5f * sc)), b(std::floor(c.x + pw * 0.5f * sc), std::floor(c.y + ph * 0.5f * sc));
-    dl->AddRectFilled(a, b, IM_COL32(14, 22, 40, (int)(235 * t)), 20.0f);   // solid enough that the page under it does not read through
+    dl->AddRectFilled(a, b, themeDark((int)(235 * t)), 20.0f);   // solid enough that the page under it does not read through
     glass(dl, a, b, 20.0f, t);
     const int A = (int)(255 * t);
     auto col = [&](ImU32 c0) { return (c0 & 0x00FFFFFF) | ((ImU32)(((c0 >> 24) & 255) * t) << 24); };
@@ -3748,7 +3795,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             std::snprintf(lbl, sizeof lbl, "%s", docked ? "Disconnect" : "Connect");
             const bool moving = g.jwMoving[k];
             const bool canPress = gnd && !moving && (!g.openSam || g.jetway == 1 || g.jetway == 2);
-            dl->AddRectFilled(ImVec2(bx, by - 14), ImVec2(bx + bw, by + 14), IM_COL32(16, 30, 56, 255), 14.0f);
+            dl->AddRectFilled(ImVec2(bx, by - 14), ImVec2(bx + bw, by + 14), themeTone(16, 30, 56, 255), 14.0f);
             if (pill(dl, f, id, lbl, ImVec2(bx, by - 14), ImVec2(bx + bw, by + 14), docked, canPress)) { act.ground = GA_JETWAY_DOOR; act.groundIndex = k; }
             // under the bubble: the door's name and what the jetway is doing
             // as openSAM shows it: connected only once the jetway is there, "jetway moving" until then (both kinds of jetway)
@@ -3999,7 +4046,7 @@ std::string agoText(double t) {
 // glass, as iOS draws it: a light veil over what is behind, a hairline edge, a faint sheen at the top
 void glass(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha) {
     const int A = (int)(255 * alpha);
-    dl->AddRectFilled(a, b, IM_COL32(18, 28, 50, 215 * A / 255), r);   // a dark frosted base: what is behind barely shows
+    dl->AddRectFilled(a, b, themeDark(215 * A / 255), r);   // a dark frosted base (theme's tone): what is behind barely shows
     dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, 24 * A / 255), r);
     dl->AddRectFilledMultiColor(ImVec2(a.x + r * 0.3f, a.y + 1), ImVec2(b.x - r * 0.3f, a.y + std::min(24.0f, (b.y - a.y) * 0.4f)),
                                 IM_COL32(255, 255, 255, 16 * A / 255), IM_COL32(255, 255, 255, 16 * A / 255), IM_COL32(255, 255, 255, 0), IM_COL32(255, 255, 255, 0));
@@ -4013,12 +4060,25 @@ void cover(ImDrawList* dl, const MediaState& m, ImVec2 a, float size, float r) {
         const ImVec2 uv0((aw - side) * 0.5f / aw, (ah - side) * 0.5f / ah), uv1(1 - uv0.x, 1 - uv0.y);
         dl->AddImageRounded(m.art, a, b, uv0, uv1, IM_COL32(255, 255, 255, 255), r);
     } else {
-        dl->AddRectFilledMultiColor(a, b, IM_COL32(250, 45, 85, 255), IM_COL32(255, 120, 90, 255), IM_COL32(170, 40, 140, 255), IM_COL32(90, 40, 160, 255));
-        dl->AddRect(a, b, IM_COL32(0, 0, 0, 0), r);
-        // no cover: a disc (the user's disc icon, drawn as shapes so it is sharp at any size), its hole showing the colours behind
+        // a rounded gradient (the corners shaded vertex by vertex, as the wallpaper's are)
+        const int v0 = dl->VtxBuffer.Size;
+        dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, 255), r);
+        const ImU32 tl = IM_COL32(250, 45, 85, 255), tr = IM_COL32(255, 120, 90, 255), br = IM_COL32(170, 40, 140, 255), bl = IM_COL32(90, 40, 160, 255);
+        for (int i = v0; i < dl->VtxBuffer.Size; ++i) {
+            ImDrawVert& v = dl->VtxBuffer[i];
+            const float u = std::max(0.0f, std::min(1.0f, (v.pos.x - a.x) / size)), t = std::max(0.0f, std::min(1.0f, (v.pos.y - a.y) / size));
+            const ImU32 c = mixCol(mixCol(tl, tr, u), mixCol(bl, br, u), t);
+            v.col = (c & 0x00FFFFFF) | (v.col & 0xFF000000);
+        }
+        // no cover: a disc (the user's disc icon, drawn as shapes so it is sharp at any size): a soft shadow under it, a faint
+        // groove and sheen, and its hole showing the colours behind
         const ImVec2 c(a.x + size * 0.5f, a.y + size * 0.5f);
-        dl->AddCircleFilled(c, size * 0.30f, IM_COL32(255, 255, 255, 235), 64);
-        dl->AddCircleFilled(c, size * 0.055f, IM_COL32(205, 55, 120, 255), 24);
+        const float R = size * 0.30f;
+        for (int k = 3; k >= 1; --k) dl->AddCircleFilled(ImVec2(c.x, c.y + size * 0.015f * k), R + size * 0.012f * k, IM_COL32(40, 0, 40, 22), 96);
+        dl->AddCircleFilled(c, R, IM_COL32(255, 255, 255, 238), 96);
+        dl->AddCircle(c, R * 0.72f, IM_COL32(205, 55, 120, 40), 96, std::max(1.0f, size * 0.012f));   // the groove
+        dl->AddCircle(c, R * 0.30f, IM_COL32(205, 55, 120, 70), 64, std::max(1.0f, size * 0.010f));   // the label's edge
+        dl->AddCircleFilled(c, size * 0.055f, IM_COL32(205, 55, 120, 255), 32);
     }
 }
 // the track's progress: a bar with a dot to drag (when the player allows), the times beside it (inline) or under it
@@ -4116,7 +4176,10 @@ void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
     const float top = kStatusH + kHeaderH + 14, bot = h - 14;
     const float art = std::min(bot - top - 20, w * 0.42f);
     const ImVec2 a(std::floor(w * 0.06f + 10), top + std::floor((bot - top - art) * 0.5f));
-    dl->AddRectFilled(ImVec2(a.x + 4, a.y + 10), ImVec2(a.x + art + 4, a.y + art + 14), IM_COL32(0, 0, 0, 70), 22.0f);   // its shadow
+    for (int k = 4; k >= 1; --k) {   // its shadow: soft, centred under it, a little lower (as a cover lifts off the page)
+        const float g = 3.0f * k;
+        dl->AddRectFilled(ImVec2(a.x - g, a.y + 6 - g), ImVec2(a.x + art + g, a.y + art + 6 + g), IM_COL32(0, 0, 0, 16), 20.0f + g);
+    }
     cover(dl, m, a, art, 20.0f);
     const float x = a.x + art + 36, x1 = w - 30;
     float y = a.y + 6;
@@ -4251,8 +4314,8 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     dl->PushClipRect(ImVec2(0, kStatusH), ImVec2(w, h), true);   // never over the status bar
     // the veil: what is behind, dimmed and softened (a frosted look)
     dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(6, 12, 26, (int)(130 * k)));
-    dl->AddRectFilled(ImVec2(0, kStatusH + oy), ImVec2(w, h + oy), IM_COL32(12, 20, 40, 235));   // frosted: the page only just shows through   // light: the page shows through
-    dl->AddRectFilledMultiColor(ImVec2(0, kStatusH + oy), ImVec2(w, kStatusH + oy + H * 0.5f), IM_COL32(120, 160, 255, 26), IM_COL32(255, 120, 200, 18), IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 0));
+    dl->AddRectFilled(ImVec2(0, kStatusH + oy), ImVec2(w, h + oy), themeDark(235));   // frosted, in the theme's tone: the page only just shows through
+    dl->AddRectFilledMultiColor(ImVec2(0, kStatusH + oy), ImVec2(w, kStatusH + oy + H * 0.5f), accentCol(26), IM_COL32(255, 120, 200, 18), IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 0));
     ImGui::SetCursorScreenPos(ImVec2(0, kStatusH + oy));
     ImGui::SetNextItemAllowOverlap();   // the buttons, sliders and the bar drawn over it still get their presses
     ImGui::InvisibleButton("##ccback", ImVec2(w, H));   // the pull-down takes the presses on it (none reach the page under it)
@@ -4267,6 +4330,10 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         const ImVec2 a(m, top + 34), b(m + colL, top + 34 + 214);
         glass(dl, a, b, 24.0f);
         const float art = 74;
+        for (int k = 3; k >= 1; --k) {   // a soft shadow, centred under the cover
+            const float g = 2.0f * k;
+            dl->AddRectFilled(ImVec2(a.x + 16 - g, a.y + 19 - g), ImVec2(a.x + 16 + art + g, a.y + 19 + art + g), IM_COL32(0, 0, 0, 18), 12.0f + g);
+        }
         cover(dl, md, ImVec2(a.x + 16, a.y + 16), art, 12.0f);
         const float tx = a.x + 16 + art + 12, tw = b.x - tx - 14;
         if (!md.supported) dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 20), kMuted, "Media controls are not available on this computer.", nullptr, tw);
@@ -4950,7 +5017,7 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
         dl->PushClipRect(ImVec2(0, kStatusH), ImVec2(w, h), true);
         wallpaper(dl, w, h);
         dl->PopClipRect();
-        dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(8, 18, 36, 170));
+        dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), themeTone(8, 18, 36, 170));   // the veil, in the theme's tone
         if (pageHeader(dl, f, w, app == APP_BROWSER ? g_site.c_str() : appName(app))) openApp(APP_HOME);
         if (app == APP_SETTINGS) settingsPage(dl, f, s, w, h, act);
         else if (app == APP_BROWSER) browserPage(dl, f, s, w, h, act);
@@ -5255,6 +5322,7 @@ void settingsFromText(const std::string& text) {
             p = e + 1;
         }
     };
+    g_settings.bookmarks.clear();   // (read again, the file's bookmarks replace these rather than adding a second set)
     size_t pos = 0;
     while (pos < text.size()) {
         size_t end = text.find('\n', pos);

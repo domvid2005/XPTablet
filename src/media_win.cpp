@@ -34,6 +34,8 @@ using namespace winrt::Windows::Storage::Streams;
 GlobalSystemMediaTransportControlsSessionManager g_mgr{nullptr};
 std::wstring g_sessionApp;          // the shown session's app (its AppUserModelId: "Spotify.exe", "MSEdge", ...)
 std::wstring g_lastTrack;           // title + artist the cover was read for
+std::string g_trackArt;             // that track's cover, handed over on every poll (so it stays, rather than showing once)
+int g_artTries = 0;                 // asked for it this many times (apps often give it a moment after the title)
 std::map<DWORD, float> g_baseVol;   // a lowered process's own volume before
 
 std::string narrow(const std::wstring& w) {
@@ -166,10 +168,12 @@ bool poll(Info& info, std::string& artBytes) {
         info.title = narrow(std::wstring(props.Title()));
         info.artist = narrow(std::wstring(props.Artist()));
         info.album = narrow(std::wstring(props.AlbumTitle()));
-        // the cover: read once per track (it is given as a stream)
+        // the cover: read per track (it is given as a stream), kept, and asked again until the app gives it
         const std::wstring track = std::wstring(props.Title()) + L"\x01" + std::wstring(props.Artist());
-        if (track != g_lastTrack) {
-            g_lastTrack = track;
+        // apps often give the picture a moment after the title: asked again (up to ~8 tries) until it comes
+        if (track != g_lastTrack) { g_lastTrack = track; g_artTries = 0; g_trackArt.clear(); }
+        if (g_trackArt.empty() && g_artTries < 8) {
+            ++g_artTries;
             const auto thumb = props.Thumbnail();
             if (thumb) {
                 const auto stream = thumb.OpenReadAsync().get();
@@ -177,10 +181,11 @@ bool poll(Info& info, std::string& artBytes) {
                 if (size > 0) {
                     Buffer buf(size);
                     const auto got = stream.ReadAsync(buf, size, InputStreamOptions::None).get();
-                    artBytes.assign((const char*)got.data(), got.Length());
+                    g_trackArt.assign((const char*)got.data(), got.Length());
                 }
             }
         }
+        artBytes = g_trackArt;
     } catch (...) {
         return !info.title.empty();
     }
