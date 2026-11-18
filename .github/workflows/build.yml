@@ -65,63 +65,6 @@ jobs:
           name: XPTablet-${{ runner.os }}
           path: build/package/XPTablet   # contains lin_x64 / mac_x64 / win_x64
 
-  emulator:
-    # the desktop emulator (the plugin against a stand-in X-Plane) for each system, and on Linux a screen-less run of its smoke test
-    strategy:
-      matrix:
-        os: [ubuntu-22.04, macos-15, windows-2022]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Fetch X-Plane SDK
-        shell: bash
-        run: |
-          curl -fsSL "$SDK_URL" -o sdk.zip
-          unzip -q sdk.zip -d sdk
-          echo "SDK_DIR=$(find "$PWD/sdk" -type d -name CHeaders -exec dirname {} \; | head -1)" >> "$GITHUB_ENV"
-      - name: Linux deps
-        if: runner.os == 'Linux'
-        run: |
-          for i in 1 2 3; do
-            sudo apt-get -o Acquire::Retries=2 update && sudo apt-get -o Acquire::Retries=2 install -y libssl-dev zlib1g-dev \
-              libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl-dev libegl1 libgl1-mesa-dri && exit 0
-            sleep 20
-          done
-          exit 1
-      - name: Windows deps
-        if: runner.os == 'Windows'
-        run: vcpkg install curl:x64-windows-static
-      - name: Configure (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: cmake -S . -B build -DXPLANE_SDK="$SDK_DIR" -DXPT_BUILD_EMULATOR=ON -DXPT_BUILD_EMULATOR_HEADLESS=ON -DXPT_BUILD_TESTS=OFF
-      - name: Configure (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: cmake -S . -B build -DXPLANE_SDK="$SDK_DIR" -DXPT_BUILD_EMULATOR=ON -DXPT_BUILD_TESTS=OFF -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static
-      - run: cmake --build build --config Release --target xptablet_emulator
-      - name: Headless smoke test (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          cmake --build build --target xptablet_emu_headless
-          ./build/xptablet_emu_headless --script emulator/tests/smoke.txt --out emulator-pictures --data emu-data --scale 2
-      - name: Package
-        shell: bash
-        run: |
-          mkdir -p out
-          exe=$(find build -maxdepth 2 -type f \( -name "XPTablet Emulator" -o -name "XPTablet Emulator.exe" \) | head -1)
-          cp "$exe" out/
-          cp -r "$(dirname "$exe")/XPTablet" out/
-          cp docs/EMULATOR.md out/README.md
-      - uses: actions/upload-artifact@v4
-        with:
-          name: XPTablet-Emulator-${{ runner.os }}
-          path: out
-      - uses: actions/upload-artifact@v4
-        if: runner.os == 'Linux'
-        with:
-          name: XPTablet-Emulator-pictures
-          path: emulator-pictures
-
   bundle:
     needs: build
     runs-on: ubuntu-22.04
@@ -131,7 +74,7 @@ jobs:
       - name: Merge platforms
         run: |
           mkdir -p out/XPTablet
-          # only the plugin's parts (the emulators and their pictures are artifacts of their own)
+          # only the plugin's parts
           for os in Linux Windows macOS; do cp -r parts/XPTablet-$os/* out/XPTablet/; done
           find out -type f
       - uses: actions/upload-artifact@v4

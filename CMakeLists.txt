@@ -129,6 +129,15 @@ if(XPT_BUILD_PLUGIN)
   # the aircraft top views: a data file read at run time (GPL-3.0, with its licence and README), next to the platform folders
   add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_SOURCE_DIR}/assets/shapes" "${CMAKE_BINARY_DIR}/package/XPTablet/shapes")
+  # SkunkCrafts Updater: the plugin folder carries skunkcrafts_updater.cfg, which tells the updater app where XPTablet's update depot
+  # is (the "release" branch of the GitHub repo, made by tools/skunkcrafts_release.sh) and which version this download is. Written by
+  # the Linux build only (the CI bundle merges the three platforms' folders, one copy of it is enough).
+  file(STRINGS "${CMAKE_SOURCE_DIR}/src/version.h" XPT_VERSION_LINE REGEX "#define XPT_VERSION ")
+  string(REGEX REPLACE ".*\"(.*)\".*" "\\1" XPT_VERSION_STR "${XPT_VERSION_LINE}")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/version.h")
+  if(NOT WIN32 AND NOT APPLE)
+    configure_file("${CMAKE_SOURCE_DIR}/tools/skunkcrafts_updater.cfg.in" "${CMAKE_BINARY_DIR}/package/XPTablet/skunkcrafts_updater.cfg" @ONLY NEWLINE_STYLE UNIX)
+  endif()
   add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory   # the Airbus checklists (GPL-2, with their licence)
     "${CMAKE_SOURCE_DIR}/assets/checklists" "${CMAKE_BINARY_DIR}/package/XPTablet/checklists")
   set_target_properties(XPTablet PROPERTIES
@@ -172,7 +181,7 @@ endif()
 # driven by a script; for tests and CI.
 option(XPT_BUILD_EMULATOR "Build the desktop emulator (fetches GLFW)" OFF)
 option(XPT_BUILD_EMULATOR_HEADLESS "Build the screen-less emulator (Linux, EGL)" OFF)
-if((XPT_BUILD_EMULATOR OR XPT_BUILD_EMULATOR_HEADLESS) AND XPLANE_SDK)
+if((XPT_BUILD_EMULATOR OR XPT_BUILD_EMULATOR_HEADLESS) AND XPLANE_SDK AND EXISTS "${CMAKE_SOURCE_DIR}/emulator/xplm_emu.cpp")   # (the emulator is not on GitHub)
   # the plugin's own sources, built into the emulator, with the XPLM functions coming from the emulator instead of X-Plane
   add_library(xpt_emu_core STATIC
     src/plugin.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp src/tiles.cpp src/aptdat.cpp src/ourairports.cpp

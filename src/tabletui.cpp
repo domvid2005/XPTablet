@@ -2428,12 +2428,15 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             if (g_mapZoom >= 10.5) g_labels.push_back({0, q, 6, fx.ident, "", ink, 0, IM_COL32(10, 16, 28, 190)});
         }
     }
-    // ---- the trail flown (with Route on): dashed, in a darker, quieter tone of the accent than the route, under it
-    if (g_settings.mapRoute && g_crumbs.size() >= 2) {
+    // ---- the trail flown (Display settings): a solid line in a darker, quieter tone of the accent than the route, under it
+    if (g_settings.mapTrail && g_crumbs.size() >= 2) {
         const ImU32 trail = mixCol(mixCol(accentCol(255), IM_COL32(120, 124, 134, 255), 0.5f), IM_COL32(0, 0, 0, 255), 0.25f);
         std::vector<ImVec2> pts;
         auto flushTrail = [&] {
-            if (pts.size() >= 2) { dashed(dl, pts, IM_COL32(255, 255, 255, 90), 4.2f, 6.0f, 4.0f); dashed(dl, pts, trail, 2.4f, 6.0f, 4.0f); }
+            if (pts.size() >= 2) {   // solid: a faint light edge, then the line
+                dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(255, 255, 255, 80), 0, 4.4f);
+                dl->AddPolyline(pts.data(), (int)pts.size(), trail, 0, 2.6f);
+            }
             pts.clear();
         };
         for (const Crumb& c : g_crumbs) {
@@ -3549,6 +3552,7 @@ Progress flightProgress(const SimState& s) {
     return pr;
 }
 // the bar: departure, the line flown (in the accent colour), the aircraft on it, destination; the figures over it
+std::string fitText(ImFont* fnt, const std::string& t, float width);   // (below)
 void progressStrip(ImDrawList* dl, const Fonts& f, const SimState& s, const Progress& pr, ImVec2 a, ImVec2 b, bool compact) {
     const FlightPlan& p = s.plan;
     const float cy = compact ? b.y - 12 : (a.y + b.y) * 0.5f + 4;
@@ -3572,8 +3576,16 @@ void progressStrip(ImDrawList* dl, const Fonts& f, const SimState& s, const Prog
     char t[96];
     if (pr.etaMin >= 0) std::snprintf(t, sizeof t, "%.0f nm flown  \xC2\xB7  %.0f nm to go  \xC2\xB7  %d:%02d left", pr.flownNm, pr.leftNm, pr.etaMin / 60, pr.etaMin % 60);
     else std::snprintf(t, sizeof t, "%.0f nm flown  \xC2\xB7  %.0f nm to go", pr.flownNm, pr.leftNm);
-    if (compact) textAt(dl, f.small, a.x, a.y, kMuted, t);
-    else textRight(dl, f.small, b.x, a.y - 2, kMuted, t);
+    // never over the aircraft: in the pull-down, on the "Flight" title's line (right of it); on the page, above the bar on the side
+    // the aircraft is not (right while it is in the first half, left after)
+    // (on the page: lifted clear of the aircraft's top, which reaches 13 px above the bar)
+    const float ty = std::min(a.y - 2, std::floor(cy - 13 - fontPx(f.small) - 2));
+    if (compact) {   // beside the box's "Flight" title (fitted to the room right of it, never over it or the aircraft below)
+        const float room = b.x - (a.x + f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, "Flight").x + 14);
+        textRight(dl, f.small, b.x, a.y - 21, kMuted, fitText(f.small, t, room).c_str());
+    }
+    else if (pr.frac < 0.5f) textRight(dl, f.small, b.x, ty, kMuted, t);
+    else textAt(dl, f.small, a.x, ty, kMuted, t);
 }
 double g_previewT0 = 0;   // when the plan preview window appeared (it grows in)
 float rowStep = 21;   // the Flight Plan rows' spacing (the fuel and weights card closes it up)
@@ -3752,7 +3764,14 @@ void planPreview(ImDrawList* dl, const Fonts& f, const FlightPlan& p, float w, f
     {   // the flight: a solid line with the aircraft on it, the distance and time over it
         dl->AddLine(ImVec2(nx[0] + 12, cy), ImVec2(nx[1] - 12, cy), IM_COL32(200, 214, 240, (int)(170 * t)), 2.5f);
         const ImVec2 mid((nx[0] + nx[1]) * 0.5f, cy);
-        dl->AddTriangleFilled(ImVec2(mid.x + 9, cy), ImVec2(mid.x - 6, cy - 6), ImVec2(mid.x - 6, cy + 6), IM_COL32(220, 230, 250, A));
+        // the plan's aircraft: its own outline (as on the route bar and the map), nose along the line; an arrowhead if none
+        float sl = 0, ss = 0;
+        if (const Shape* sh = findShape(p.aircraft, sl, ss)) {
+            const float L = 26.0f, k = L / std::max(1.0f, std::max(sl, ss));
+            const int v0 = dl->VtxBuffer.Size;
+            drawShape(dl, *sh, ImVec2(mid.x, cy - sl * k * 0.5f), k * ss / std::max(1.0f, sh->span), k * sl / std::max(1.0f, sh->len), IM_COL32(255, 255, 255, A), IM_COL32(150, 162, 186, A));
+            turnSince(dl, v0, mid, 1.5707963f);   // nose up -> nose right (towards the destination)
+        } else dl->AddTriangleFilled(ImVec2(mid.x + 9, cy), ImVec2(mid.x - 6, cy - 6), ImVec2(mid.x - 6, cy + 6), IM_COL32(220, 230, 250, A));
         std::string over;
         if (!p.distanceNm.empty()) over = p.distanceNm + " nm";
         if (!p.ete.empty()) over += (over.empty() ? "" : "  \xC2\xB7  ") + p.ete;
@@ -4058,6 +4077,7 @@ void weatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
 int g_settingsTab = 0;   // 0 General, 1 Display, 2 Data, 3 Credits, 4 Notifications, 5 Media (not on macOS)
 
 float g_creditsScroll = 0;
+void scrollBar(ImDrawList* dl, float x, float y0, float y1, float scroll, float content, float shown);   // (below)
 void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
     const float top = kStatusH + kHeaderH + 10;
     const ImVec2 ca(left, top), cb(w - 12, h - 12);
@@ -4112,6 +4132,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
     dl->PopClipRect();
     const float content = y + 30 + g_creditsScroll - (top + 38);
     g_creditsScroll = std::min(g_creditsScroll, std::max(0.0f, content - (cb.y - ca.y - 40)));
+    scrollBar(dl, cb.x - 7, ca.y + 34, cb.y - 8, g_creditsScroll, content, cb.y - ca.y - 40);   // (it shows there is more below)
 }
 
 // ---- notifications, the pull-down (music and the notification list) and the Music app --------------------------------------------------
@@ -4143,6 +4164,17 @@ std::string agoText(double t) {
     char b[24];
     if (s < 3600) std::snprintf(b, sizeof b, "%dm ago", (int)(s / 60)); else std::snprintf(b, sizeof b, "%dh ago", (int)(s / 3600));
     return b;
+}
+// the pull-down's boxes, sized so the left column (Media, Brightness, Flight) ends clear of the bar at the bottom, as the list does
+constexpr float kCcMediaH = 196, kCcBrightH = 88, kCcGap = 10, kCcBottomGap = 36;
+// a thin scroll bar at x, from y0 to y1, for content taller than what shows (nothing when it all fits)
+void scrollBar(ImDrawList* dl, float x, float y0, float y1, float scroll, float content, float shown) {
+    if (content <= shown + 1 || y1 - y0 < 20) return;
+    const float track = y1 - y0, len = std::max(24.0f, track * shown / content);
+    const float t = std::max(0.0f, std::min(1.0f, scroll / std::max(1.0f, content - shown)));
+    const float top = y0 + (track - len) * t;
+    dl->AddRectFilled(ImVec2(x - 1.5f, y0), ImVec2(x + 1.5f, y1), IM_COL32(255, 255, 255, 18), 2.0f);
+    dl->AddRectFilled(ImVec2(x - 2, top), ImVec2(x + 2, top + len), IM_COL32(255, 255, 255, 120), 2.0f);
 }
 // glass, as iOS draws it: a light veil over what is behind, a hairline edge, a faint sheen at the top
 void glass(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha) {
@@ -4437,7 +4469,7 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     if (music) {
         const MediaState& md = s.media;
         textAt(dl, f.title, m + 4, top + 2, kInk, "Media");   // as Notifications beside it; the box level with Clear All
-        const ImVec2 a(m, top + 34), b(m + colL, top + 34 + 214);
+        const ImVec2 a(m, top + 34), b(m + colL, top + 34 + kCcMediaH);
         glass(dl, a, b, 24.0f);
         const float art = 74;
         for (int k = 3; k >= 1; --k) {   // a soft shadow, centred under the cover
@@ -4455,14 +4487,14 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         }
         if (md.active) progressBar(dl, f, md, ImVec2(a.x + 16, a.y + 104), b.x - 16, "##ccprog", true, act);
         playerButtons(dl, md, ImVec2(std::floor((a.x + b.x) * 0.5f), a.y + 146), 18.0f, "##ccmp", act);
-        textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y - 26, md.radioRx || md.radioTx ? kWarn : kMuted, fitText(f.small, radioLine(md), colL - 24).c_str());
+        textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y - 24, md.radioRx || md.radioTx ? kWarn : kMuted, fitText(f.small, radioLine(md), colL - 24).c_str());
         // the Music app
         ImGui::SetCursorScreenPos(ImVec2(a.x + 16, a.y + 16));
         if (ImGui::InvisibleButton("##ccart", ImVec2(art, art))) { g_ccTarget = 0; openApp(APP_MUSIC); }
     }
     {   // the screen's brightness: the slider, and auto dim (as in Settings, Display)
-        const float by = music ? top + 34 + 214 + 12 : top + 34;
-        const ImVec2 a(m, by), b(m + colL, by + 92);
+        const float by = music ? top + 34 + kCcMediaH + kCcGap : top + 34;
+        const ImVec2 a(m, by), b(m + colL, by + kCcBrightH);
         glass(dl, a, b, 24.0f);
         textAt(dl, f.bold, a.x + 16, a.y + 12, kInk, "Brightness");
         float br = g_settings.autoDim ? s.autoDimLevel : std::max(0.1f, std::min(1.0f, g_settings.brightness));
@@ -4477,7 +4509,7 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     {   // the flight's progress, under the brightness (only with a flight plan)
         const Progress pr = flightProgress(s);
         if (pr.ok) {
-            const float py = (music ? top + 34 + 214 + 12 : top + 34) + 92 + 12;
+            const float py = (music ? top + 34 + kCcMediaH + kCcGap : top + 34) + kCcBrightH + kCcGap;
             const ImVec2 a(m, py), b(m + colL, py + 70);
             glass(dl, a, b, 24.0f);
             textAt(dl, f.bold, a.x + 16, a.y + 10, kInk, "Flight");
@@ -4502,7 +4534,7 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         textCentered(dl, f.bold, (a.x + b.x) * 0.5f, std::floor(a.y + 20 - fontPx(f.bold) * 0.5f), any ? kInk : kMuted, "Clear All");
         y += 52;
     }
-    const float listTop = y, listBot = h + oy - 34;
+    const float listTop = y, listBot = h + oy - kCcBottomGap;   // (clear of the bar at the bottom, as the boxes at the left)
     if (!g_settings.notifyEnabled) textCentered(dl, f.small, (nx0 + nx1) * 0.5f, y + 20, kMuted, "Notifications are off (Settings, Notifications).");
     else if (g_notes.empty()) textCentered(dl, f.small, (nx0 + nx1) * 0.5f, y + 20, kMuted, "No notifications");
     const float cardH = 72, gapY = 10;
@@ -4549,6 +4581,7 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     }
     g_notes.erase(std::remove_if(g_notes.begin(), g_notes.end(), [&](const Note& n) { return n.dying && std::fabs(n.dx) > w; }), g_notes.end());
     dl->PopClipRect();
+    scrollBar(dl, nx1 + 8, listTop, listBot, g_ccScroll, content, listBot - listTop);   // (when the list is longer than shows)
     // the bar to push it back up
     const float by = h + oy - 16;
     ImGui::SetCursorScreenPos(ImVec2(w * 0.5f - 110, by - 18));
@@ -4797,7 +4830,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             for (int i = 0; i < 5; ++i) {   // the wallpaper itself, made small, with its accent under it
                 const Backdrop& bd = kBackdrops[i];
                 const Accent& ac = kAccents[i];
-                const ImVec2 a(rx + i * (tw + 8), ry), b(a.x + tw, ry + th);
+                const ImVec2 a(std::floor(rx + i * (tw + 8)), std::floor(ry)), b(a.x + tw, a.y + th);   // (on whole pixels: even edges)
                 char id[16];
                 std::snprintf(id, sizeof id, "##wp%d", i);
                 ImGui::SetCursorScreenPos(a);
@@ -4807,11 +4840,17 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
                 wallpaperIn(dl, a, tw, th, i, 8.0f);
                 dl->PopClipRect();
                 // the frame on the picture's own rounded edge; the chosen one ringed in the theme's accent
-                if (sel) dl->AddRect(ImVec2(a.x - 3, a.y - 3), ImVec2(b.x + 3, b.y + 3), accentLite(255), 11.0f, 0, 2.0f);
+                // chosen: a ring that hugs the picture's edge all round (no dark gap between them, the same on every side)
+                if (sel) dl->AddRect(ImVec2(a.x - 1, a.y - 1), ImVec2(b.x + 1, b.y + 1), accentLite(255), 9.0f, 0, 2.5f);
                 else dl->AddRect(a, b, hot ? IM_COL32(255, 255, 255, 110) : IM_COL32(255, 255, 255, 40), 8.0f, 0, 1.0f);
                 dl->AddCircleFilled(ImVec2((a.x + b.x) * 0.5f, b.y + 10), 5.0f, IM_COL32(ac.r, ac.g, ac.b, 255), 0);
                 textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y + 18, sel ? kInk : kMuted, bd.name);
             }
+            ry += th + 34 + 22;   // under the themes: the flight's trail on the map
+            const char* trailNames[2] = {"Shown", "Hidden"};
+            int tr = g_settings.mapTrail ? 0 : 1;
+            choice("##chtrail", rx, ry, colW, "Flight trail on the map (since the SimBrief plan)", trailNames, tr, true);
+            if ((tr == 0) != g_settings.mapTrail) { g_settings.mapTrail = tr == 0; g_settingsChanged = true; }
         }
         return;
     }
@@ -5394,7 +5433,7 @@ bool takeSettingsChanged() { const bool c = g_settingsChanged; g_settingsChanged
 
 std::string settingsToText() {
     normalizeLayout();
-    char buf[256];
+    char buf[512];   // (room for the longest line of settings)
     std::snprintf(buf, sizeof buf, "favorite_slots=%d\nbrightness=%.2f\nshow_charts=%d\nshow_navigraph=%d\nshow_simbrief=%d\nshow_live=%d\nshow_vatsim=%d\nshow_foreflight=%d\nshow_skyvector=%d\n",
                   favSlots(), (double)std::max(0.1f, std::min(1.0f, g_settings.brightness)), g_settings.showCharts ? 1 : 0, g_settings.showNavigraph ? 1 : 0,
                   g_settings.showSimbrief ? 1 : 0, g_settings.showLive ? 1 : 0, g_settings.showVatsim ? 1 : 0, g_settings.showForeflight ? 1 : 0, g_settings.showSkyvector ? 1 : 0);
@@ -5410,9 +5449,9 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
-    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\nmap_rings=%d\nphysical_keys=%d\nwallpaper=%d\naccent=%d\nbattery=%d\ncharger=%d\n",
+    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\nmap_rings=%d\nmap_trail=%d\nphysical_keys=%d\nwallpaper=%d\naccent=%d\nbattery=%d\ncharger=%d\n",
                   g_settings.mapSource == 1 ? 1 : 0, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
-                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0, g_settings.physicalKeys ? 1 : 0, g_settings.wallpaper, g_settings.accent, (int)std::ceil(g_batt - 0.001f), g_charger ? 1 : 0);
+                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0, g_settings.mapTrail ? 1 : 0, g_settings.physicalKeys ? 1 : 0, g_settings.wallpaper, g_settings.accent, (int)std::ceil(g_batt - 0.001f), g_charger ? 1 : 0);
     out += buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
         out += key; out += "=";
@@ -5474,6 +5513,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_navaids") g_settings.mapNavaids = v != 0;
         else if (key == "map_ils") g_settings.mapIls = v != 0;
         else if (key == "map_rings") g_settings.mapRings = v != 0;
+        else if (key == "map_trail") g_settings.mapTrail = v != 0;
         else if (key == "physical_keys") g_settings.physicalKeys = v != 0;
         else if (key == "wallpaper") { g_settings.wallpaper = std::max(0, std::min(4, v)); g_settings.accent = g_settings.wallpaper; }
         else if (key == "accent") g_settings.accent = std::max(0, std::min(4, v));

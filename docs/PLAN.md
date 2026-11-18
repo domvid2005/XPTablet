@@ -185,5 +185,5 @@ of their own and come back to it as they were left. The planning icon switches b
 ## Emulator
 - emulator/: the real plugin built against a stand-in X-Plane (every XPLM call it makes), a simulated aircraft, traffic, time and
   weather, and a control panel; a desktop app (GLFW) for Windows/macOS/Linux and a screen-less Linux one for scripted tests and CI.
-  See docs/EMULATOR.md. It already found one thing: after XPluginStop the plugin kept its font scale, so a second start in the same
+  (Kept off GitHub, on the developer's machine.) It already found one thing: after XPluginStop the plugin kept its font scale, so a second start in the same
   process (without unloading) crashed; it now resets it.

@@ -49,6 +49,7 @@ struct Settings {
     bool mapIls = true;           // ILS and localizer courses (a layer of their own)
     bool mapWaypoints = false;    // fixes
     bool mapRoute = true;         // the SimBrief flight plan
+    bool mapTrail = true;         // the trail flown since the plan was imported (Display settings)
     std::string simbriefUser;     // SimBrief user name or pilot ID (the Flight Plan page and the route on the map)
     bool autoDim = false;         // the screen dims itself as the daylight goes (WXPlane's curve); the brightness slider rests
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
