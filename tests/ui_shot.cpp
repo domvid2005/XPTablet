@@ -221,7 +221,7 @@ int main(int argc, char** argv) {
         openApp(APP_NAVIGRAPH);
         if (currentApp() != APP_BROWSER || browserChrome() || std::string(browserUrl()).find("navigraph") == std::string::npos) { std::printf("FAIL: the Navigraph icon\n"); ++failures; }
         openApp(APP_HOME); openApp(APP_VATSIM);
-        if (std::string(browserUrl()).find("vatsim") == std::string::npos || std::string(appName(APP_VATSIM)) != "VATSIM Map") { std::printf("FAIL: the VATSIM icon\n"); ++failures; }
+        if (std::string(browserUrl()).find("vatsim") == std::string::npos || std::string(appName(APP_VATSIM)) != "VATSIM Radar") { std::printf("FAIL: the VATSIM icon\n"); ++failures; }
         openApp(APP_HOME);
         openApp(APP_BROWSER);
         if (!browserChrome()) { std::printf("FAIL: the Browser icon opens the full browser\n"); ++failures; }
@@ -480,6 +480,20 @@ int main(int argc, char** argv) {
             tap(mp, 400 - 4.48f * unitsPerNm, cy);   // the VOR, 4.5 nm west
             shot(mp, APP_MAP, "map_card_vor");
             tap(mp, 700, 300);   // an empty place: the card closes
+            {   // a crowd: labels find free places around their aircraft, never over each other
+                SimState crowd = mp;
+                crowd.map.traffic.clear();
+                const char* cs[8] = {"UAL12", "AAL845", "SWA2231", "DAL77", "JBU402", "N123AB", "SKW5521", "ENY3310"};
+                for (int i = 0; i < 8; ++i)
+                    crowd.map.traffic.push_back({41.70 + 0.012 * (i % 3) - 0.01, -86.30 + 0.018 * i - 0.06, 3000.0f + i * 700, 90.0f + i * 30, 250, 0, false, cs[i], i % 2 ? "B738" : "A320"});
+                shot(crowd, APP_MAP, "map_traffic_crowd");
+                // one closing head-on, 200 ft above, 0.5 nm out: TCAS RA range (it pulses red)
+                SimState ra = mp;
+                ra.map.aglFt = 2400; ra.map.altFt = 3000; ra.map.gsKt = 140; ra.map.hdgTrue = 0;
+                ra.map.traffic = {{41.70 + 0.5 / 60.0, -86.30, 3200, 180, 250, -300, false, "N555RA", "C172"}, {41.70 + 3.0 / 60.0, -86.33, 9000, 90, 250, 0, false, "FAR123", "B738"}};
+                if (!trafficInRA(ra.map, ra.map.traffic[0]) || trafficInRA(ra.map, ra.map.traffic[1])) { std::printf("FAIL: TCAS RA range\n"); ++failures; }
+                shot(ra, APP_MAP, "map_traffic_ra");
+            }
             settings().mapAirports = true;
         }
         {   // every provider on the home screen: the services' own icons

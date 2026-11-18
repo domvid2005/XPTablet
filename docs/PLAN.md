@@ -168,8 +168,14 @@ of their own and come back to it as they were left. The planning icon switches b
 - AviTab commands: app_routes opens Flight Plan, app_navigraph opens Navigraph Charts.
 
 ## 0.9.1
-- New icons: Material Design Icons pictograms (Settings cog, Flight Plan list-status, Checklists check, Documents file, Map four-point
-  star, Ground airplane, Airports airport, Browser globe) drawn sharp from their vector paths; ForeFlight, Navigraph, SkyVector and
-  Volanta tiles from their own logos. One mipmapped atlas (assets/icons.rgba, tools/make_icons_rgba.py). Credited in Credits.
+- The VATSIM web map is now VATSIM Radar (vatsim-radar.com), with its own logo.
+- New icons: Material Design Icons pictograms (Settings cog, Flight Plan four-point star, Checklists check, Documents file, Ground airplane, Airports airport, Browser globe) drawn sharp from their vector paths; ForeFlight, Navigraph, SkyVector,
+  Volanta, VATSIM Radar and SimBrief tiles from their own logos. One mipmapped atlas (assets/icons.rgba, tools/make_icons_rgba.py). Credited in Credits.
 - Map cards stay clear of the map's buttons (layers, time, locks, zoom bar); one at a time, with its ×.
 - Settings Display no longer repeats the map's options (they are on the map).
+- Map labels (traffic, navaids, ILS, waypoints, route, airports) placed so none overlap: each tries 8 places around its item, most
+  important first (traffic, route, navaids, airports, waypoints); with no free place it is left off (the item can still be tapped).
+- Under 2 nm with Airports on: the whole layout (taxiway edges and names, stands); stand names from 0.5 nm. Taxiway names never overlap.
+- TCAS: traffic in resolution-advisory range (TCAS II v7.1 tau / DMOD / ZTHR for our height; none below 1000 ft AGL) or about to
+  collide (0.15 nm, 300 ft) pulses red with a spreading ring and a red label.
+- Settings Display: the clock zone (Zulu / Local) under the favourites bar.

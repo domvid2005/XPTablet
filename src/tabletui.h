@@ -147,6 +147,8 @@ struct MapState {
     bool aptIndexing = false;     // the airport index is still being built
     int aptCount = 0;
     float altFt = 0;              // the aircraft's altitude (MSL)
+    float vsFpm = 0, aglFt = 0;   // its vertical speed, its height above the ground
+    bool onGround = false;
     // other aircraft (X-Plane's AI and multiplayer, as TCAS sees them)
     struct Traffic { double lat = 0, lon = 0; float altFt = 0, hdg = 0, gsKt = 0, vsFpm = 0; bool onGround = false; std::string callsign, type; };
     std::vector<Traffic> traffic;
@@ -313,5 +315,7 @@ bool appVisible(int app);                 // on the home screen (web app icons c
 int touchTestCount();                     // marks in the Settings touch test (for the tests)
 const char* browserUrl();                 // the address the web page shows
 bool browserChrome();                     // the full browser (address bar, bookmarks) rather than a web app's own page
+
+bool trafficInRA(const MapState& m, const MapState::Traffic& t);   // TCAS RA range (or about to collide): drawn pulsing red
 
 } // namespace xpt

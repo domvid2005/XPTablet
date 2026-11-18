@@ -56,7 +56,7 @@ const AppDef kApps[APP_COUNT] = {
     {"foreflight", "ForeFlight", IM_COL32(30, 140, 222, 255), "https://plan.foreflight.com"},
     {"browser", "Browser", IM_COL32(72, 110, 240, 255), nullptr},          {"settings", "Settings", IM_COL32(110, 120, 140, 255), nullptr},
     {"navigraph", "Navigraph", IM_COL32(28, 52, 92, 255), "https://charts.navigraph.com"},
-    {"vatsim", "VATSIM Map", IM_COL32(44, 150, 96, 255), "https://map.vatsim.net"},
+    {"vatsim", "VATSIM Radar", IM_COL32(18, 28, 52, 255), "https://vatsim-radar.com"},
     {"skyvector", "SkyVector", IM_COL32(32, 132, 108, 255), "https://skyvector.com"},
 };
 enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM, ICON_SKYVECTOR };   // pictures of their own (the other web apps borrow one)
@@ -75,15 +75,14 @@ double localOffsetAt(const MapState& m, double lat, double lon, bool& estimate);
 void fillConcave(ImDrawList* dl, std::vector<ImVec2> v, ImU32 col);
 std::string zoneOf(double lat, double lon, double offS, long long utc);
 ImTextureID g_logo = 0;   // XPTablet's logo texture (from the host)
-ImTextureID g_icons = 0;  // the icons' atlas (tools/make_icons_rgba.py): 4 x 3 cells; pictograms (white, tinted) then the services' tiles
+ImTextureID g_icons = 0;  // the icons' atlas (tools/make_icons_rgba.py): 4 x 4 cells; pictograms (white, tinted) then the services' tiles
 // the atlas cell of an app's pictogram (Material Design Icons), or -1: drawn from lines instead
 int glyphCell(int app) {
     switch (app) {
     case APP_SETTINGS: return 0;     // cog
-    case APP_ROUTES: return 1;       // list-status
+    case APP_ROUTES: return 4;       // star-four-points
     case APP_CHECKLISTS: return 2;   // check-bold
     case APP_DOCUMENTS: return 3;    // file-document
-    case APP_MAP: return 4;          // star-four-points
     case APP_GROUND: return 5;       // airplane
     case APP_AIRPORTS: return 6;     // airport
     case APP_BROWSER: return 7;      // web
@@ -97,13 +96,15 @@ int brandCell(int app) {
     case APP_NAVIGRAPH: return 9;
     case APP_SKYVECTOR: return 10;
     case APP_LIVEMAP: return 11;     // Volanta
+    case APP_VATSIM: return 12;      // VATSIM Radar
+    case APP_SIMBRIEF: return 13;
     default: return -1;
     }
 }
 void cellUv(int cell, ImVec2& uv0, ImVec2& uv1) {
     const float in = 1.5f / 256.0f;   // a little inside the cell, so its neighbours never bleed in
-    uv0 = ImVec2((cell % 4 + in) / 4.0f, (cell / 4 + in) / 3.0f);
-    uv1 = ImVec2((cell % 4 + 1 - in) / 4.0f, (cell / 4 + 1 - in) / 3.0f);
+    uv0 = ImVec2((cell % 4 + in) / 4.0f, (cell / 4 + in) / 4.0f);   // 4 x 4 cells
+    uv1 = ImVec2((cell % 4 + 1 - in) / 4.0f, (cell / 4 + 1 - in) / 4.0f);
 }
 
 ImU32 appColor(int app) { return (app == APP_WEATHER && g_wx) ? IM_COL32(22, 24, 29, 255) : kApps[app].color; }
@@ -1488,6 +1489,72 @@ void dashed(ImDrawList* dl, const std::vector<ImVec2>& p, ImU32 col, float thick
     }
 }
 
+// ---- TCAS: is this traffic in resolution-advisory range (or about to collide)? TCAS II v7.1's thresholds for our height above the
+// ground: the time to the closest point (tau) and its distance (DMOD) across, and the height apart (ZTHR) or the time to the same height.
+// No advisories on the ground or below 1000 ft above it, as TCAS itself.
+bool tcasRA(const MapState& m, const MapState::Traffic& t) {
+    if (!m.havePos || t.onGround) return false;
+    const double kLat = 60.0, kLon = 60.0 * std::cos(m.lat * kPi / 180.0);
+    const double ex = (t.lon - m.lon) * kLon, ny = (t.lat - m.lat) * kLat;   // nm: east, north
+    const double range = std::sqrt(ex * ex + ny * ny);
+    const double dz = t.altFt - m.altFt;
+    if (range < 0.15 && std::fabs(dz) < 300) return true;   // as good as touching (on the ground too)
+    if (m.onGround || m.aglFt < 1000) return false;
+    float tauS, dmod, zthr;
+    if (m.aglFt < 2350) { tauS = 15; dmod = 0.20f; zthr = 600; }
+    else if (m.altFt < 5000) { tauS = 20; dmod = 0.35f; zthr = 600; }
+    else if (m.altFt < 10000) { tauS = 25; dmod = 0.55f; zthr = 600; }
+    else if (m.altFt < 20000) { tauS = 30; dmod = 0.80f; zthr = 600; }
+    else if (m.altFt < 42000) { tauS = 35; dmod = 1.10f; zthr = 700; }
+    else { tauS = 35; dmod = 1.10f; zthr = 800; }
+    // closing: the speeds (kt) along each track
+    const double ha = m.hdgTrue * kPi / 180.0, ta = t.hdg * kPi / 180.0;
+    const double vx = t.gsKt * std::sin(ta) - m.gsKt * std::sin(ha), vy = t.gsKt * std::cos(ta) - m.gsKt * std::cos(ha);
+    const double closing = -(ex * vx + ny * vy) / std::max(1e-6, range);   // kt, + when getting closer
+    const bool horiz = range < dmod || (closing > 0 && range / closing * 3600.0 < tauS);
+    const double vClose = -(dz > 0 ? 1 : -1) * (t.vsFpm - m.vsFpm);         // ft/min, + when the heights come together
+    const bool vert = std::fabs(dz) < zthr || (vClose > 0 && std::fabs(dz) / vClose * 60.0 < tauS);
+    return horiz && vert;
+}
+
+// ---- the map's labels: placed after everything is drawn, most important first, each where it touches no other label or symbol
+struct MapLabel { int prio; ImVec2 q; float gap; std::string l1, l2; ImU32 c1, c2, bg; };
+struct LRect { float x0, y0, x1, y1; bool hits(const LRect& o) const { return x0 < o.x1 && o.x0 < x1 && y0 < o.y1 && o.y0 < y1; } };
+std::vector<MapLabel> g_labels;
+std::vector<LRect> g_symbols;   // the symbols drawn (labels keep off them)
+void symbolAt(ImVec2 q, float r) { g_symbols.push_back({q.x - r, q.y - r, q.x + r, q.y + r}); }
+void placeLabels(ImDrawList* dl, const Fonts& f, ImVec2 r0, ImVec2 r1) {
+    std::stable_sort(g_labels.begin(), g_labels.end(), [](const MapLabel& a, const MapLabel& b) { return a.prio > b.prio; });
+    std::vector<LRect> placed;
+    const float fs = fontPx(f.small), lh = fs + 1;
+    for (const MapLabel& L : g_labels) {
+        const float pad = L.bg ? 3.0f : 1.0f;
+        const float tw = std::max(f.small->CalcTextSizeA(fs, 1e9f, 0, L.l1.c_str()).x, L.l2.empty() ? 0.0f : f.small->CalcTextSizeA(fs, 1e9f, 0, L.l2.c_str()).x);
+        const float w = tw + 2 * pad, h = (L.l2.empty() ? 1 : 2) * lh + 2 * pad - 1, g = L.gap, d = g * 0.72f;
+        const ImVec2 q = L.q;
+        const ImVec2 cand[8] = {{q.x + g, q.y - h * 0.5f}, {q.x - g - w, q.y - h * 0.5f}, {q.x + d, q.y - d - h}, {q.x + d, q.y + d},
+                                {q.x - w * 0.5f, q.y - g - h}, {q.x - w * 0.5f, q.y + g}, {q.x - d - w, q.y - d - h}, {q.x - d - w, q.y + d}};
+        for (const ImVec2& c : cand) {
+            const LRect R{c.x, c.y, c.x + w, c.y + h};
+            if (R.x0 < r0.x + 2 || R.x1 > r1.x - 2 || R.y0 < r0.y + 2 || R.y1 > r1.y - 2) continue;
+            bool free = true;
+            for (const LRect& o : placed) if (R.hits(o)) { free = false; break; }
+            if (free) for (const LRect& o : g_symbols) {
+                if (q.x >= o.x0 && q.x <= o.x1 && q.y >= o.y0 && q.y <= o.y1) continue;   // its own symbol
+                if (R.hits(o)) { free = false; break; }
+            }
+            if (!free) continue;
+            placed.push_back(R);
+            if (L.bg) dl->AddRectFilled(ImVec2(R.x0, R.y0), ImVec2(R.x1, R.y1), L.bg, 3.0f);
+            textAt(dl, f.small, R.x0 + pad, R.y0 + pad, L.c1, L.l1.c_str());
+            if (!L.l2.empty()) textAt(dl, f.small, R.x0 + pad, R.y0 + pad + lh, L.c2, L.l2.c_str());
+            break;
+        }
+    }
+    g_labels.clear();
+    g_symbols.clear();
+}
+
 // ---- the map's cards (a tapped traffic, navaid, fix, route point or airport) -------------------------------------------------------------
 int g_selKind = 0;        // 0 none, 1 traffic, 2 navaid, 3 fix, 4 airport, 5 route point
 std::string g_selKey;     // which: call sign, ident|type, ident, ICAO, index
@@ -1767,6 +1834,9 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     if (g_settings.mapAirports) {
         const ImVec2 uv = ImGui::GetFontTexUvWhitePixel();
         const bool layouts = g_mapZoom >= 11.5;
+        const bool close = g_mapShownNm < 1.9;      // under 2 nm: the whole layout, taxiways and their names, stands
+        const bool closest = g_mapShownNm < 0.75;   // 0.5 nm and in: the stands' names too
+        std::vector<LRect> twy;                     // the taxiway names placed (none drawn over another)
         std::vector<std::string> drawn;
         if (layouts) {
             for (const auto& ap : m.airports) {
@@ -1810,7 +1880,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 // the painted lines
                 std::vector<ImVec2> pts;
                 for (const AptGeo::Line& L : g.lines) {
-                    if (L.kind == 3 && g_mapZoom < 14.3) continue;
+                    if (L.kind == 3 && !close) continue;
                     pts.clear();
                     for (const MercPt& p : L.pts) pts.push_back(toS(p));
                     const ImU32 col = L.kind == 1 ? IM_COL32(236, 64, 72, 255) : L.kind == 2 ? IM_COL32(255, 168, 60, 255)
@@ -1819,19 +1889,25 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     dl->AddPolyline(pts.data(), (int)pts.size(), col, 0, th);
                 }
                 // the stands and the taxiway names, close in
-                if (g_mapZoom >= 14.6)
+                if (close)
                     for (const AptGeo::Stand& st : g.stands) {
                         const ImVec2 q = toS(st.p);
                         if (q.x < r0.x - 40 || q.x > r1.x + 40 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
                         dl->AddCircleFilled(q, 3.0f, IM_COL32(255, 255, 255, 235), 0);
                         dl->AddCircle(q, 3.0f, IM_COL32(20, 24, 32, 200), 0, 1.0f);
-                        if (g_mapZoom >= 15.2 && !st.name.empty()) textAt(dl, f.small, q.x + 5, q.y - fontPx(f.small) * 0.5f, sat ? kInk : IM_COL32(30, 36, 48, 255), st.name.c_str());
+                        if (closest && !st.name.empty()) textAt(dl, f.small, q.x + 5, q.y - fontPx(f.small) * 0.5f, sat ? kInk : IM_COL32(30, 36, 48, 255), st.name.c_str());
                     }
-                if (g_mapZoom >= 13.8)
+                if (close)
                     for (const AptGeo::Label& lb : g.taxiways) {
                         const ImVec2 q = toS(lb.p);
                         if (q.x < r0.x || q.x > r1.x || q.y < r0.y || q.y > r1.y) continue;
                         const ImVec2 ts = f.bold->CalcTextSizeA(fontPx(f.small), 1e9f, 0, lb.text.c_str());
+                        const LRect R{q.x - ts.x * 0.5f - 6, q.y - ts.y * 0.5f - 3, q.x + ts.x * 0.5f + 6, q.y + ts.y * 0.5f + 3};
+                        bool clash = false;
+                        for (const LRect& o : twy) if (R.hits(o)) { clash = true; break; }
+                        if (clash) continue;
+                        twy.push_back(R);
+                        g_symbols.push_back(R);   // the map's other labels keep off it
                         dl->AddRectFilled(ImVec2(q.x - ts.x * 0.5f - 4, q.y - ts.y * 0.5f - 1), ImVec2(q.x + ts.x * 0.5f + 4, q.y + ts.y * 0.5f + 1), IM_COL32(250, 210, 40, 255), 3.0f);
                         dl->AddText(f.bold, fontPx(f.small), ImVec2(q.x - ts.x * 0.5f, q.y - ts.y * 0.5f), IM_COL32(16, 16, 16, 255), lb.text.c_str());
                     }
@@ -1846,10 +1922,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 const ImU32 dot = p.kind == 17 ? IM_COL32(180, 90, 220, 255) : p.kind == 16 ? IM_COL32(40, 140, 220, 255) : IM_COL32(32, 92, 200, 255);
                 dl->AddCircleFilled(q, 4.0f, IM_COL32(255, 255, 255, 230), 0);
                 dl->AddCircleFilled(q, 2.8f, dot, 0);
-                if (g_mapZoom >= 8.5) {
-                    const ImU32 tc = sat ? kInk : IM_COL32(24, 40, 80, 255);
-                    textAt(dl, f.small, q.x + 6, q.y - fontPx(f.small) * 0.5f, tc, p.icao.c_str());
-                }
+                symbolAt(q, 4.5f);
+                if (g_mapZoom >= 8.5) g_labels.push_back({2, q, 6, p.icao, "", sat ? kInk : IM_COL32(24, 40, 80, 255), 0, 0});
             }
         }
         act.mapLayouts = layouts;
@@ -1880,7 +1954,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 dl->AddLine(q, l, IM_COL32(30, 160, 90, 200), 1.2f);
                 dl->AddLine(q, r, IM_COL32(30, 160, 90, 200), 1.2f);
                 dl->AddLine(q, tip, IM_COL32(30, 160, 90, 140), 1.0f);
-                if (g_mapZoom >= 11) textAt(dl, f.small, tip.x + 4, tip.y - fontPx(f.small) * 0.5f, sat ? kInk : IM_COL32(20, 100, 60, 255), n.ident.c_str());
+                if (g_mapZoom >= 11) g_labels.push_back({1, tip, 4, n.ident, "", sat ? kInk : IM_COL32(20, 100, 60, 255), 0, 0});
                 continue;
             }
             if (q.x < r0.x - 40 || q.x > r1.x + 40 || q.y < r0.y - 40 || q.y > r1.y + 40) continue;
@@ -1912,10 +1986,9 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 if (n.type == 2) std::snprintf(b, sizeof b, "%s %.0f", n.ident.c_str(), n.freq);
                 else if (n.type == 3) std::snprintf(b, sizeof b, "%s %.2f", n.ident.c_str(), n.freq);
                 else std::snprintf(b, sizeof b, "%s", n.ident.c_str());
-                const ImVec2 ts = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, b);
-                dl->AddRectFilled(ImVec2(q.x + 9, q.y - ts.y * 0.5f - 1), ImVec2(q.x + 13 + ts.x, q.y + ts.y * 0.5f + 1), sat ? IM_COL32(10, 16, 28, 170) : IM_COL32(255, 255, 255, 190), 3.0f);
-                textAt(dl, f.small, q.x + 11, q.y - ts.y * 0.5f, ink, b);
+                g_labels.push_back({3, q, 10, b, "", ink, 0, sat ? IM_COL32(10, 16, 28, 170) : IM_COL32(255, 255, 255, 190)});
             }
+            symbolAt(q, n.type == 3 && g_mapZoom >= 9 ? 9.0f : 7.0f);
         }
     }
     // ---- fixes: small triangles (terminal ones only close in)
@@ -1926,7 +1999,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             if (q.x < r0.x - 30 || q.x > r1.x + 30 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
             const ImU32 ink = sat ? IM_COL32(200, 230, 255, 230) : IM_COL32(40, 70, 120, 230);
             dl->AddTriangle(ImVec2(q.x, q.y - 4.5f), ImVec2(q.x + 4, q.y + 3), ImVec2(q.x - 4, q.y + 3), ink, 1.2f);
-            if (g_mapZoom >= 10.5) textAt(dl, f.small, q.x + 6, q.y - fontPx(f.small) * 0.5f, ink, fx.ident.c_str());
+            symbolAt(q, 4.5f);
+            if (g_mapZoom >= 10.5) g_labels.push_back({0, q, 6, fx.ident, "", ink, 0, 0});
         }
     }
     // ---- the SimBrief flight plan: a magenta line through its fixes
@@ -1941,11 +2015,9 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             dl->AddCircleFilled(q, 3.2f, IM_COL32(255, 255, 255, 255), 0);
             dl->AddCircle(q, 3.2f, IM_COL32(236, 60, 220, 255), 0, 1.5f);
             if (g_mapZoom >= 6.5 && (g_mapZoom >= 8.5 || i == 0 || i + 1 == pts.size())) {
-                const char* id = m.route[i].ident.c_str();
-                const ImVec2 ts = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, id);
-                dl->AddRectFilled(ImVec2(q.x + 6, q.y - ts.y - 6), ImVec2(q.x + 10 + ts.x, q.y - 4), IM_COL32(236, 60, 220, 230), 3.0f);
-                textAt(dl, f.small, q.x + 8, q.y - ts.y - 5, IM_COL32(255, 255, 255, 255), id);
+                g_labels.push_back({4, q, 6, m.route[i].ident, "", IM_COL32(255, 255, 255, 255), 0, IM_COL32(236, 60, 220, 230)});
             }
+            symbolAt(q, 4.0f);
         }
     }
 
@@ -1959,7 +2031,15 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             auto P = [&](float x, float y) { return ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca); };
             const int rel = (int)std::lround((t.altFt - m.altFt) / 100.0f);
             // above: cyan, within 1000 ft: amber, below: green; on the ground: grey
-            const ImU32 col = t.onGround ? IM_COL32(200, 206, 216, 255) : std::abs(rel) <= 10 ? IM_COL32(255, 196, 60, 255) : rel > 0 ? IM_COL32(60, 220, 255, 255) : IM_COL32(110, 230, 140, 255);
+            ImU32 col = t.onGround ? IM_COL32(200, 206, 216, 255) : std::abs(rel) <= 10 ? IM_COL32(255, 196, 60, 255) : rel > 0 ? IM_COL32(60, 220, 255, 255) : IM_COL32(110, 230, 140, 255);
+            const bool ra = tcasRA(m, t);
+            if (ra) {   // a resolution advisory (or a collision): red, pulsing twice a second, with a ring spreading out
+                const float ph = (float)std::fmod(ImGui::GetTime() * 2.0, 1.0);
+                const float k = 0.5f + 0.5f * std::cos(ph * 2.0f * (float)kPi);
+                col = IM_COL32(255, (int)(40 + 70 * (1 - k)), (int)(40 + 70 * (1 - k)), 255);
+                dl->AddCircleFilled(q, 14.0f + 6.0f * k, IM_COL32(255, 30, 30, (int)(40 + 50 * k)), 0);
+                dl->AddCircle(q, 12.0f + 18.0f * ph, IM_COL32(255, 40, 40, (int)(220 * (1 - ph))), 0, 2.0f);
+            }
             float tl = 0, ts = 0;
             const Shape* tsh = t.type.empty() ? nullptr : findShape(t.type, tl, ts);
             if (tsh) {   // its type's outline, 24 units long (or its real size, close in)
@@ -1981,10 +2061,10 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 char b[48];
                 if (t.onGround) std::snprintf(b, sizeof b, "%s", t.callsign.c_str());
                 else std::snprintf(b, sizeof b, "%s %c%02d%s", t.callsign.c_str(), rel >= 0 ? '+' : '-', std::min(99, std::abs(rel)), t.vsFpm > 500 ? "\xE2\x86\x91" : t.vsFpm < -500 ? "\xE2\x86\x93" : "");
-                const ImU32 tc = sat ? kInk : IM_COL32(20, 30, 50, 255);
-                textAt(dl, f.small, q.x + 10, q.y - fontPx(f.small) - 1, tc, b);
-                if (g_mapZoom >= 10 && !t.type.empty()) textAt(dl, f.small, q.x + 10, q.y, sat ? kMuted : IM_COL32(70, 80, 100, 255), t.type.c_str());
+                g_labels.push_back({ra ? 6 : 5, q, 13, b, g_mapZoom >= 10 ? t.type : std::string(), ra ? IM_COL32(220, 20, 30, 255) : sat ? kInk : IM_COL32(20, 30, 50, 255), sat ? kMuted : IM_COL32(70, 80, 100, 255),
+                                    sat ? IM_COL32(10, 16, 28, 150) : IM_COL32(255, 255, 255, 170)});
             }
+            symbolAt(q, 11.0f);
         }
     }
 
@@ -2022,6 +2102,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         }
     }
 
+    symbolAt(sc, 18.0f);   // our aircraft (labels keep off it)
+    placeLabels(dl, f, r0, r1);
     // ---- the bubbles
     {   // the time: Zulu, or local (with its zone) at the aircraft, or at the + in the middle while the map is moved off it
         const bool movedOff = !g_mapFollow || !m.havePos;
@@ -3187,12 +3269,14 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"Route on the map", "Your flight plan from SimBrief (simbrief.com)", ""},
         {"METAR reports", "NOAA / National Weather Service, Aviation Weather Center (aviationweather.gov)", "Public domain"},
         {"Weather page with WXPlane installed", "WXPlane by Alpine Aviation", ""},
-        {"App icons", "Material Design Icons by Pictogrammers (pictogrammers.com): cog, list-status, check-bold, file-document, star-four-points, airplane, airport, web", "Apache 2.0"},
+        {"App icons", "Material Design Icons by Pictogrammers (pictogrammers.com): cog, check-bold, file-document, star-four-points, airplane, airport, web", "Apache 2.0"},
         {"ForeFlight icon", "The ForeFlight logo is a trademark of ForeFlight LLC, used only to show their web app", "Trademark"},
         {"Navigraph icon", "The Navigraph logo is a trademark of Navigraph, used only to show their charts web app", "Trademark"},
         {"SkyVector icon", "The SkyVector logo is a trademark of SkyVector (Seattle Avionics), used only to show their web app", "Trademark"},
         {"Volanta icon", "The Volanta logo is a trademark of Orbx, used only to show their web map", "Trademark"},
-        {"", "XPTablet is not made by or affiliated with ForeFlight, Navigraph, SkyVector, Volanta / Orbx, ChartFox, SimBrief or VATSIM.", ""},
+        {"SimBrief icon", "The SimBrief logo is a trademark of SimBrief (Navigraph), used only to show their web app", "Trademark"},
+        {"VATSIM Radar icon", "The VATSIM Radar logo belongs to VATSIM Radar (vatsim-radar.com), used only to show their web map", "Trademark"},
+        {"", "XPTablet is not made by or affiliated with ForeFlight, Navigraph, SkyVector, Volanta / Orbx, VATSIM Radar, ChartFox, SimBrief or VATSIM.", ""},
     };
     float y = top + 38 - g_creditsScroll;
     const float x0 = left + 18, xLic = w - 30, wrap = w - 30 - x0 - 150;
@@ -3268,7 +3352,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         textAt(dl, f.bold, lx, y, kInk, "Live map");
         y += 22;
         toggle("##tgvo", lx, y, q, "Volanta", g_settings.showLive, true);
-        toggle("##tgva", lx + q + 8, y, q, "VATSIM Map", g_settings.showVatsim, true);
+        toggle("##tgva", lx + q + 8, y, q, "VATSIM Radar", g_settings.showVatsim, true);
         y += 42;
         textAt(dl, f.bold, lx, y, kInk, "Flight planning");
         y += 22;
@@ -3340,8 +3424,8 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         }
         const char* clockNames[2] = {"Zulu", "Local"};
         int clk = g_settings.statusLocalTime ? 1 : 0;
-        float cy = top;
-        choice("##chclk", rx, cy, w - 18 - rx, "Clock (tap it in the status bar too)", clockNames, clk, true);
+        y += 46;   // under the favorites bar
+        choice("##chclk", lx, y, colW, "Clock zone (tap the clock in the status bar too)", clockNames, clk, true);
         if (clk != (g_settings.statusLocalTime ? 1 : 0)) g_settings.statusLocalTime = clk == 1;
         return;
     }
@@ -3380,6 +3464,7 @@ void openWeb(const char* site, const char* url, bool chrome) {
 }
 
 } // namespace
+bool trafficInRA(const MapState& m, const MapState::Traffic& t) { return tcasRA(m, t); }
 
 Fonts loadFonts(float pixelScale) {
     ImGuiIO& io = ImGui::GetIO();

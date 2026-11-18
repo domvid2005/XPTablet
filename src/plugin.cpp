@@ -832,6 +832,11 @@ void readMapState() {
     m.tile = tileTexture;
     static XPLMDataRef elev = XPLMFindDataRef("sim/flightmodel/position/elevation");
     m.altFt = elev ? (float)(XPLMGetDatad(elev) * 3.28084) : 0.0f;
+    static XPLMDataRef vvi = XPLMFindDataRef("sim/flightmodel/position/vh_ind_fpm"), agl = XPLMFindDataRef("sim/flightmodel/position/y_agl");
+    static XPLMDataRef gnd = XPLMFindDataRef("sim/flightmodel/failures/onground_any");
+    m.vsFpm = vvi ? XPLMGetDataf(vvi) : 0.0f;
+    m.aglFt = agl ? XPLMGetDataf(agl) * 3.28084f : 0.0f;
+    m.onGround = gnd && XPLMGetDatai(gnd) != 0;
     // other aircraft, as X-Plane's TCAS sees them (AI and multiplayer: plugins such as xPilot and LiveTraffic feed it); 0 is us
     static XPLMDataRef tNum = XPLMFindDataRef("sim/cockpit2/tcas/indicators/tcas_num_acf");
     static XPLMDataRef tLat = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/lat"), tLon = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/lon");

@@ -11,7 +11,7 @@ from svgpath import raster
 
 CELL = 256
 ORDER = ["cog", "list-status", "check-bold", "file-document", "star-four-points", "airplane", "airport", "web",   # pictograms
-         "foreflight", "navigraph", "skyvector", "volanta"]                                                       # tiles
+         "foreflight", "navigraph", "skyvector", "volanta", "vatsimradar", "simbrief"]                                                       # tiles
 root = os.path.join(os.path.dirname(__file__), "..", "assets", "brands")
 
 def gradient(c0, c1, radial=False):
@@ -35,6 +35,8 @@ def place(bg, rgb, alpha, box, size):
     return out
 
 def tile(name):
+    if name == "simbrief":   # its own square: the papers on dark grey
+        return np.asarray(Image.open(os.path.join(root, "simbrief.png")).convert("RGB").crop((348, 63, 852, 567)).resize((CELL, CELL), Image.LANCZOS)).astype(float)
     if name == "volanta":   # its own app icon
         return np.asarray(Image.open(os.path.join(root, "volanta.png")).convert("RGB").resize((CELL, CELL), Image.LANCZOS)).astype(float)
     if name == "foreflight":   # the white sun-and-aircraft mark, lifted off its banner, on ForeFlight's blue
@@ -48,10 +50,35 @@ def tile(name):
         a = np.clip((n.max(axis=2) - 128) / 40, 0, 1)   # the banner's centre is up to ~110 bright: above it is the star
         col = np.where(a[..., None] > 0, (n - bg * (1 - a[..., None])) / np.maximum(a[..., None], 1e-3), 0)
         return place(gradient((52, 70, 116), (18, 26, 46), radial=True), col, a, (481, 153, 717, 389), 150)
-    if name == "skyvector":   # the globe (with its shadow) on white
+    if name == "vatsimradar":   # its round radar logo (SVG: a blue disc, then grey parts), on a dark tile
+        import re as _re
+        from svgpath import raster as _raster
+        svg = open(os.path.join(root, "vatsimradar.svg")).read()
+        out = gradient((26, 38, 68), (12, 18, 34), radial=True)
+        S, M = 200, (CELL - 200) // 2
+        def comp(alpha, rgb):
+            a = np.zeros((CELL, CELL)); a[M:M + S, M:M + S] = np.asarray(alpha).astype(float) / 255
+            return out * (1 - a[..., None]) + np.array(rgb, float)[None, None, :] * a[..., None]
+        for c in _re.finditer(r"<circle cx='([\d.]+)' cy='([\d.]+)' r='([\d.]+)' fill='#(\w+)'", svg):
+            cx, cy, r, col = float(c.group(1)), float(c.group(2)), float(c.group(3)), c.group(4)
+            d = "M%f,%fA%f,%f 0 1,0 %f,%fA%f,%f 0 1,0 %f,%fZ" % (cx - r, cy, r, r, cx + r, cy, r, r, cx - r, cy)
+            out = comp(_raster(d, S), [int(col[i:i + 2], 16) for i in (0, 2, 4)])
+        for pth in _re.finditer(r"<path d='([^']+)' fill='#(\w+)'", svg):
+            col = pth.group(2)
+            out = comp(_raster(pth.group(1), S), [int(col[i:i + 2], 16) for i in (0, 2, 4)])
+        return out
+    if name == "skyvector":   # the globe alone (cut on its circle; its own shadow was clipped by the wordmark), with a soft shadow, on white
         s = np.asarray(Image.open(os.path.join(root, "skyvector.png")).convert("RGB")).astype(float)
-        a = np.ones(s.shape[:2])
-        return place(np.full((CELL, CELL, 3), 255.0), s, a, (0, 0, 400, 324), 214)
+        cx, cy, r = 182.0, 170.0, 151.0
+        y, x = np.mgrid[0:s.shape[0], 0:s.shape[1]] + 0.5
+        a = np.clip(r - np.hypot(x - cx, y - cy) + 0.5, 0, 1)
+        out = np.full((CELL, CELL, 3), 255.0)
+        # the shadow: a soft ellipse under the globe
+        yy, xx = np.mgrid[0:CELL, 0:CELL] + 0.5
+        sh = np.clip(1 - np.hypot((xx - 128) / 78, (yy - 226) / 9), 0, 1) ** 1.4 * 0.32
+        out = out * (1 - sh[..., None]) + np.array([90, 100, 115.0]) * sh[..., None]
+        return place(out, s, a, (int(cx - r - 1), int(cy - r - 1), int(cx + r + 2), int(cy + r + 2)), 178)
+    return None
 
 cols = 4
 rows = (len(ORDER) + cols - 1) // cols
