@@ -71,8 +71,11 @@ no internet needed. "METAR search": an ICAO code typed on the page's own keys, t
 
 ## Ground page
 
-The aircraft is drawn from its real measurements (a table of types in tabletui.cpp: length, span, fuselage width, engines, sweep),
-so each type has its true proportions. Jetway: openSAM when installed (openSAM/toggle_jwy, opensam/jetway/status), else X-Plane's
+The aircraft is drawn from AircraftShapesSVG's top views (RexKramer1 and amnesica, GPL-3.0; source in third_party/, converted by
+tools/make_shapes.py into assets/shapes/aircraft_shapes.txt, shipped as XPTablet/shapes/ and read at run time, credited in
+Settings > Credits). Each is resized to its type's published length and span; types without a drawing use their family's,
+resized (ALIASES in make_shapes.py: A319, B736, MD8x, E175/E190, Challengers, Globals, Learjets, Falcons, ...). Types with
+neither are drawn from their measurements (a table in tabletui.cpp). Jetway: openSAM when installed (openSAM/toggle_jwy, opensam/jetway/status), else X-Plane's
 (sim/ground_ops/jetway). Ground power, service vehicles and pushback: X-Plane's commands.
 
 ToLiss (names read from the A320's plugin): cabin doors AirbusFBW/PaxDoorModeArray and cargo doors AirbusFBW/CargoDoorModeArray
@@ -80,7 +83,8 @@ ToLiss (names read from the A320's plugin): cabin doors AirbusFBW/PaxDoorModeArr
 chocks AirbusFBW/Chocks, ground power AirbusFBW/EnableExternalPower, ground air AirbusFBW/GroundHPAir and GroundLPAir, de-icing
 toliss_airbus/iscsinterface/animatedDeice and quickDeice. The stairs, catering trucks and baggage loaders have no dataref or command:
 the ToLiss shows them itself with the doors, as chosen on its own EFB (only their animation values, toliss/anim/..., are published).
-XPTablet writes what it finds to Log.txt once per ToLiss aircraft ("[XPTablet] ToLiss: ...").
+XPTablet writes what it finds to Log.txt once per ToLiss aircraft ("[XPTablet] ToLiss: ..."). Confirmed in the A320 (2026-11-17):
+PaxDoorModeArray has 4 values, CargoDoorModeArray 3 (forward, aft, bulk), both writable; the door and de-ice names are commands.
 
 ## Browser engine
 

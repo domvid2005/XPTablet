@@ -243,6 +243,18 @@ void saveSettings() {
     std::fclose(f);
 }
 
+// The aircraft top views: shapes/aircraft_shapes.txt next to the platform folders (XPTablet/<platform>/XPTablet.xpl).
+void loadShapesFile() {
+    char path[2048] = "";
+    XPLMGetPluginInfo(XPLMGetMyID(), nullptr, path, nullptr, nullptr);
+    std::string p = path;
+    for (int up = 0; up < 2; ++up) { const size_t cut = p.find_last_of("/\\"); if (cut != std::string::npos) p.resize(cut); }
+    const std::string file = p + "/shapes/aircraft_shapes.txt";
+    std::string text;
+    if (!readFile(file, text)) { logMsg("%s not found: aircraft are drawn from their measurements", file.c_str()); return; }
+    logMsg("%d aircraft top views (AircraftShapesSVG) read", xpt::loadShapes(text));
+}
+
 void loadAircraftConfig() {
     g_panelLeft = g_panelBottom = g_panelWidth = g_panelHeight = 0;
     g_panelEnabled = g_panelPowered = 0;
@@ -952,6 +964,7 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
     ImGui::GetIO().LogFilename = nullptr;
     xpt::applyStyle();
     loadSettings();
+    loadShapesFile();
 
     g_menuItem = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "XPTablet", nullptr, 0);
     g_menu = XPLMCreateMenu("XPTablet", XPLMFindPluginsMenu(), g_menuItem, menuHandler, nullptr);

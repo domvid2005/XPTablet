@@ -11,6 +11,11 @@ XPTablet includes the following open-source software. Their licences require the
     with zlib (zlib licence).
   * OpenSSL 3 (TLS for the downloads, Linux build, statically linked) - Apache License 2.0 (full text below).
 
+  * Aircraft top views (the shapes folder): AircraftShapesSVG by RexKramer1 and amnesica (BelugaProject),
+    https://github.com/RexKramer1/AircraftShapesSVG - GNU General Public License v3.0. They are a separate data file read at run
+    time; its licence and README are in the shapes folder, and its source (the SVG files and tools/make_shapes.py) is in
+    XPTablet's repository.
+
 Data used by XPTablet (downloaded when asked for): NOAA / National Weather Service Aviation Weather Center, METAR reports. Public domain.
 
 ================================================================================

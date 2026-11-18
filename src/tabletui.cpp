@@ -585,7 +585,7 @@ void metarPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
     if (r.hasAltim) { std::snprintf(b, sizeof b, "%d hPa  %.2f in", (int)std::lround(r.altimHpa), r.altimHpa / wx::kInHgToHpa); row("QNH", b); }
 }
 
-void simWeatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+void simWeatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act, bool wxNotOnTablet) {
     // two views, switched at the right end of the title bar
     {
         const float y0 = kStatusH + 9, bw = 108;
@@ -677,7 +677,10 @@ void simWeatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
             y += 22;
         }
     }
-    textCentered(dl, f.small, w * 0.5f, h - 24, kMuted, "X-Plane's own weather where you are. Airport reports: METAR search, top right. A radar map comes later.");
+    if (wxNotOnTablet)
+        textCentered(dl, f.small, w * 0.5f, h - 24, kWarn, "The installed WXPlane does not show on the tablet yet: update WXPlane and it appears here. Until then, X-Plane's own weather.");
+    else
+        textCentered(dl, f.small, w * 0.5f, h - 24, kMuted, "X-Plane's own weather where you are. Airport reports: METAR search, top right. A radar map comes later.");
 }
 
 // ---- Ground: jetway, ground power, chocks, service vehicles, pushback, and on a ToLiss its doors -------------------------------------------
@@ -775,6 +778,48 @@ void planeTopDown(ImDrawList* dl, ImVec2 nose, float px, const PlaneSpec& p, ImU
     dl->AddLine(P(-hw * 0.55f, noseLen * 0.62f), P(hw * 0.55f, noseLen * 0.62f), shade2, 1.5f);          // the windscreen
 }
 
+// ---- the aircraft top views (AircraftShapesSVG by RexKramer1 and amnesica, GPL-3.0), read from the plugin's shapes folder --------
+struct Shape {
+    std::string name;
+    float len = 0, span = 0;                       // metres, as stored
+    std::vector<std::vector<ImVec2>> fills, lines; // metres, nose at y = 0, centreline at x = 0
+};
+struct ShapeAlias { std::string icao; int shape; float len, span; };
+std::vector<Shape> g_shapes;
+std::vector<ShapeAlias> g_aliases;
+
+// The drawing for a type and the size to draw it at: its own, or (for a type without one) its family's resized to the type.
+const Shape* findShape(const std::string& icao, float& len, float& span) {
+    for (const ShapeAlias& a : g_aliases) if (a.icao == icao) { len = a.len; span = a.span; return &g_shapes[a.shape]; }
+    for (const Shape& sh : g_shapes) if (sh.name == icao) { len = sh.len; span = sh.span; return &sh; }
+    return nullptr;
+}
+
+// Half the fuselage's width (metres) at a point frac of the way back: of the outline's crossings at that height, the one nearest
+// near the width at a quarter of the way back (where nothing but the fuselage is), so wings and engines are passed over.
+float fuselageHalf(const Shape& sh, float frac, float ref) {
+    const float y = frac * sh.len;
+    float best = -1;
+    for (const std::vector<ImVec2>& p : sh.fills)
+        for (size_t i = 0, n = p.size(); i < n; ++i) {
+            const ImVec2 a = p[i], b = p[(i + 1) % n];
+            if ((a.y > y) == (b.y > y) || a.y == b.y) continue;
+            const float x = std::fabs(a.x + (b.x - a.x) * (y - a.y) / (b.y - a.y));
+            if (ref <= 0 ? (best < 0 || x < best) : (best < 0 || std::fabs(x - ref) < std::fabs(best - ref))) best = x;
+        }
+    return best;
+}
+
+void drawShape(ImDrawList* dl, const Shape& sh, ImVec2 nose, float pxX, float pxY, ImU32 fill, ImU32 line) {
+    std::vector<ImVec2> pts;
+    auto map = [&](const std::vector<ImVec2>& p) {
+        pts.resize(p.size());
+        for (size_t i = 0; i < p.size(); ++i) pts[i] = ImVec2(nose.x + p[i].x * pxX, nose.y + p[i].y * pxY);
+    };
+    for (const std::vector<ImVec2>& p : sh.fills) { map(p); if (pts.size() >= 3) dl->AddConcavePolyFilled(pts.data(), (int)pts.size(), fill); }
+    for (const std::vector<ImVec2>& p : sh.lines) { map(p); if (pts.size() >= 2) dl->AddPolyline(pts.data(), (int)pts.size(), line, 0, 1.0f); }
+}
+
 // Where a ToLiss's doors are along the fuselage, as fractions of its length from the nose (cabin doors front to back, then the
 // cargo doors: forward, aft, bulk; all cargo doors are on the right).
 float paxDoorAt(int pair, int pairs) {
@@ -791,6 +836,9 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     const float leftW = std::floor(w * 0.44f);
     const bool gnd = g.onGround;
     const PlaneSpec& spec = planeSpec(s.acfIcao);
+    float shLen = 0, shSpan = 0;
+    const Shape* shape = findShape(s.acfIcao, shLen, shSpan);
+    const float acLen = shape ? shLen : spec.len, acSpan = shape ? shSpan : spec.span;
 
     // ---- the aircraft and its doors
     const ImVec2 a(12, top), e(12 + leftW, bot);
@@ -798,19 +846,25 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     char b[96];
     std::snprintf(b, sizeof b, "%s", s.acfIcao.empty() ? "AIRCRAFT" : s.acfIcao.c_str());
     textAt(dl, f.small, a.x + 14, a.y + 10, kMuted, b);
-    std::snprintf(b, sizeof b, "%.1f m long  \xC2\xB7  %.1f m span", spec.len, spec.span);
+    std::snprintf(b, sizeof b, "%.1f m long  \xC2\xB7  %.1f m span", acLen, acSpan);
     textRight(dl, f.small, e.x - 14, a.y + 10, kMuted, b);
     const bool doors = g.toliss && g.paxDoors > 0;
     const float boxTop = a.y + 34, boxBot = e.y - (doors ? 46 : 14);
-    const float px = std::min((boxBot - boxTop) / spec.len, (leftW - (doors ? 70 : 40)) / spec.span);   // the door buttons sit at the card's edges, clear of the wings
-    const ImVec2 nose((a.x + e.x) * 0.5f, std::floor((boxTop + boxBot - spec.len * px) * 0.5f));
-    planeTopDown(dl, nose, px, spec, IM_COL32(200, 211, 230, 255), IM_COL32(120, 136, 164, 255));
-    const float hwPx = spec.fus * 0.5f * px;
+    const float px = std::min((boxBot - boxTop) / acLen, (leftW - (doors ? 70 : 40)) / acSpan);   // the door buttons sit at the card's edges, clear of the wings
+    const ImVec2 nose((a.x + e.x) * 0.5f, std::floor((boxTop + boxBot - acLen * px) * 0.5f));
+    // the drawing, resized to the type's length and span (kx, ky: from the drawing's metres to the type's)
+    const float kx = shape ? acSpan / shape->span : 1.0f, ky = shape ? acLen / shape->len : 1.0f;
+    if (shape) drawShape(dl, *shape, nose, px * kx, px * ky, IM_COL32(200, 211, 230, 255), IM_COL32(104, 120, 150, 255));
+    else planeTopDown(dl, nose, px, spec, IM_COL32(200, 211, 230, 255), IM_COL32(120, 136, 164, 255));
+    const float hw0 = shape ? fuselageHalf(*shape, 0.25f, 0) : -1;   // the fuselage's half-width forward of the wing, drawing metres
+    const float hwPx = (shape && hw0 > 0 ? hw0 * kx : spec.fus * 0.5f) * px;
     if (doors) {
         auto doorCol = [](int mode) { return mode == 2 ? kGood : mode == 1 ? IM_COL32(110, 170, 255, 255) : IM_COL32(120, 136, 164, 255); };
         auto doorButton = [&](const char* id, const char* lbl, bool left, float frac, float bw, int mode, int action, int index) {
-            const float y = nose.y + frac * spec.len * px;
-            const float side = left ? nose.x - hwPx : nose.x + hwPx;
+            const float y = nose.y + frac * acLen * px;
+            float hw = hwPx;   // the fuselage's edge at this door (it narrows towards the tail)
+            if (shape && hw0 > 0) { const float h = fuselageHalf(*shape, frac, hw0); if (h > 0) hw = h * kx * px; }
+            const float side = left ? nose.x - hw : nose.x + hw;
             const float x = left ? a.x + 12 : e.x - 12 - bw;
             // the door on the fuselage, a leader to its button, and the button: lit when the door is open
             dl->AddRectFilled(ImVec2(side - (left ? 0 : 3), y - 4), ImVec2(side + (left ? 3 : 0), y + 4), doorCol(mode));
@@ -908,11 +962,18 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
 void weatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const float top = kStatusH + kHeaderH;
     const ImVec2 c(w * 0.5f, top + (h - top) * 0.42f);
-    if (!s.wxPlane) { simWeatherPage(dl, f, s, w, h, act); return; }
-    // WXPlane is asked to draw here every frame, whatever its version: nothing is checked beforehand. The note below is only what
-    // is left on the page while it has not drawn (it draws over it).
+    if (!s.wxPlane) { simWeatherPage(dl, f, s, w, h, act, false); return; }
+    // WXPlane is asked to draw here every frame, whatever its version: nothing is checked beforehand. While the installed WXPlane
+    // does not draw on the tablet (one from before it could), the page is the built-in weather, and WXPlane is still asked every
+    // frame: the moment it draws, it covers the page and takes it over.
+    if (s.wxEmbed == -1) {
+        simWeatherPage(dl, f, s, w, h, act, true);
+        g_embed.active = true;   // asked, but given no pointer: the built-in page keeps it
+        g_embed.x = 0; g_embed.y = top; g_embed.w = w; g_embed.h = h - top;
+        return;
+    }
     dl->AddRectFilled(ImVec2(0, top), ImVec2(w, h), IM_COL32(18, 20, 26, 255));
-    if (s.wxEmbed != 1) textCentered(dl, f.body, c.x, c.y, IM_COL32(190, 200, 220, 255), s.wxEmbed == 0 ? "Opening WXPlane..." : "Waiting for WXPlane to draw here (the installed WXPlane has not answered).");
+    if (s.wxEmbed != 1) textCentered(dl, f.body, c.x, c.y, IM_COL32(190, 200, 220, 255), "Opening WXPlane...");
     ImGui::SetCursorScreenPos(ImVec2(0, top));
     ImGui::InvisibleButton("##wxplane", ImVec2(w, h - top));   // the pointer here belongs to WXPlane
     const ImGuiIO& io = ImGui::GetIO();
@@ -927,8 +988,42 @@ void weatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
 
 void sectionTitle(const Fonts& f, const char* t) { ImGui::PushFont(f.bold); ImGui::TextUnformatted(t); ImGui::PopFont(); }
 
+// Settings' second view: who made what XPTablet is built from.
+int g_settingsTab = 0;   // 0 the settings, 1 credits
+
+void creditsPage(ImDrawList* dl, const Fonts& f, float w, float h) {
+    const float top = kStatusH + kHeaderH + 10;
+    card(dl, ImVec2(12, top), ImVec2(w - 12, h - 12), f, "CREDITS");
+    struct Credit { const char* what; const char* who; const char* licence; };
+    static const Credit kCredits[] = {
+        {"XPTablet", "Alpine Aviation", "Freeware"},
+        {"Aircraft top views (Ground page)", "AircraftShapesSVG by RexKramer1 and amnesica (BelugaProject), github.com/RexKramer1/AircraftShapesSVG", "GNU GPL v3.0"},
+        {"User interface", "Dear ImGui by Omar Cornut and contributors", "MIT"},
+        {"Text", "IBM Plex Sans (IBM Corp.), JetBrains Mono (The JetBrains Mono Project Authors)", "SIL Open Font License 1.1"},
+        {"Downloads", "libcurl (Daniel Stenberg and contributors), zlib (Jean-loup Gailly, Mark Adler), OpenSSL on Linux", "curl, zlib, Apache 2.0"},
+        {"METAR reports", "NOAA / National Weather Service, Aviation Weather Center (aviationweather.gov)", "Public domain"},
+        {"Weather page with WXPlane installed", "WXPlane by Alpine Aviation", ""},
+    };
+    float y = top + 38;
+    const float x0 = 30, xLic = w - 30, wrap = w - 60 - 170;
+    for (const Credit& c : kCredits) {
+        textAt(dl, f.bold, x0, y, kInk, c.what);
+        if (*c.licence) textRight(dl, f.small, xLic, y + 2, kMuted, c.licence);
+        const ImVec2 sz = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, wrap, c.who);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(x0, y + 21), kMuted, c.who, nullptr, wrap);
+        y += 21 + sz.y + 10;
+    }
+    textAt(dl, f.small, x0, y + 2, kMuted, "Full licence texts: LICENSES.txt and shapes/LICENSE-GPL-3.0.txt in the XPTablet folder.");
+}
+
 void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     (void)act;
+    {   // two views, switched at the right end of the title bar
+        const float y0 = kStatusH + 9, bw = 92;
+        if (pill(dl, f, "##setmain", "Settings", ImVec2(w - 14 - 2 * bw - 6, y0), ImVec2(w - 14 - bw - 6, y0 + 28), g_settingsTab == 0, true)) g_settingsTab = 0;
+        if (pill(dl, f, "##setcred", "Credits", ImVec2(w - 14 - bw, y0), ImVec2(w - 14, y0 + 28), g_settingsTab == 1, true)) g_settingsTab = 1;
+    }
+    if (g_settingsTab == 1) { creditsPage(dl, f, w, h); return; }
     const float top = kStatusH + kHeaderH;
     const float colW = std::floor(w * 0.5f) - 24;
     ImGui::SetCursorScreenPos(ImVec2(18, top + 12));
@@ -1101,6 +1196,68 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
 }
 
 int currentApp() { return g_app; }
+
+int loadShapes(const std::string& text) {
+    g_shapes.clear(); g_aliases.clear();
+    std::vector<std::string> pendingAliases;
+    size_t pos = 0;
+    std::vector<float> v;
+    while (pos < text.size()) {
+        size_t end = text.find('\n', pos);
+        if (end == std::string::npos) end = text.size();
+        const char* p = text.c_str() + pos;
+        const char* q = text.c_str() + end;
+        pos = end + 1;
+        while (p < q && (*p == ' ' || *p == '\r')) ++p;
+        if (p >= q || *p == '#') continue;
+        const char* sp = p;
+        while (sp < q && *sp != ' ') ++sp;
+        const std::string key(p, sp);
+        if (key == "shape") {
+            g_shapes.emplace_back();
+            g_shapes.back().name = std::string(sp + 1, q);
+            while (!g_shapes.back().name.empty() && (g_shapes.back().name.back() == '\r' || g_shapes.back().name.back() == ' ')) g_shapes.back().name.pop_back();
+            continue;
+        }
+        if (key == "alias") { pendingAliases.emplace_back(sp + 1, q); continue; }
+        if (g_shapes.empty()) continue;
+        v.clear();
+        for (const char* c = sp; c < q;) {
+            char* e2 = nullptr;
+            const float x = std::strtof(c, &e2);
+            if (e2 == c) { ++c; continue; }
+            v.push_back(x);
+            c = e2;
+        }
+        Shape& sh = g_shapes.back();
+        if (key == "size" && v.size() >= 2) { sh.len = v[0]; sh.span = v[1]; }
+        else if ((key == "fill" || key == "line") && v.size() >= 4) {
+            std::vector<ImVec2> pts;
+            for (size_t i = 0; i + 1 < v.size(); i += 2) pts.emplace_back(v[i], v[i + 1]);
+            if (key == "fill") {
+                // ImGui's concave fill needs the outline clockwise on screen (y down): the drawings come either way round
+                double area = 0;
+                for (size_t i = 0, n = pts.size(); i < n; ++i) area += (double)pts[i].x * pts[(i + 1) % n].y - (double)pts[(i + 1) % n].x * pts[i].y;
+                if (area < 0) std::reverse(pts.begin(), pts.end());
+            }
+            (key == "fill" ? sh.fills : sh.lines).push_back(std::move(pts));
+        }
+    }
+    // a shape is usable with a size and something to fill
+    std::vector<Shape> ok;
+    for (Shape& sh : g_shapes) if (sh.len > 0.5f && sh.span > 0.5f && !sh.fills.empty()) ok.push_back(std::move(sh));
+    g_shapes.swap(ok);
+    for (const std::string& line : pendingAliases) {   // "<type> <drawing> <length> <span>"
+        char icao[16] = "", shape[16] = "";
+        float len = 0, span = 0;
+        if (std::sscanf(line.c_str(), "%15s %15s %f %f", icao, shape, &len, &span) != 4 || len <= 0 || span <= 0) continue;
+        for (size_t i = 0; i < g_shapes.size(); ++i)
+            if (g_shapes[i].name == shape) { g_aliases.push_back({icao, (int)i, len, span}); break; }
+    }
+    return (int)g_shapes.size();
+}
+
+bool hasShape(const std::string& icao) { float l, sp; return findShape(icao, l, sp) != nullptr; }
 const unsigned char* wxLogoPixels(unsigned int& bytes) { bytes = xpt_asset_wxlogo_size; return xpt_asset_wxlogo; }
 int touchTestCount() { return (int)g_touches.size(); }
 const EmbedArea& embedArea() { return g_embed; }

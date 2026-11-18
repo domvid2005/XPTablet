@@ -116,6 +116,9 @@ if(XPT_BUILD_PLUGIN)
   set(XPT_OUT "${CMAKE_BINARY_DIR}/package/XPTablet/${XPT_PLATFORM_DIR}")
   add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_SOURCE_DIR}/LICENSES.txt" "${XPT_OUT}/LICENSES.txt")
+  # the aircraft top views: a data file read at run time (GPL-3.0, with its licence and README), next to the platform folders
+  add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_SOURCE_DIR}/assets/shapes" "${CMAKE_BINARY_DIR}/package/XPTablet/shapes")
   set_target_properties(XPTablet PROPERTIES
     PREFIX "" OUTPUT_NAME "XPTablet" SUFFIX ".xpl"
     LIBRARY_OUTPUT_DIRECTORY "${XPT_OUT}" RUNTIME_OUTPUT_DIRECTORY "${XPT_OUT}")
@@ -133,6 +136,7 @@ if(XPT_BUILD_TESTS)
   # every screen of the tablet, drawn off-line at several screen shapes (and as PNG pictures where zlib is available)
   add_executable(ui_shot tests/ui_shot.cpp)
   target_link_libraries(ui_shot PRIVATE xpt_ui)
+  target_compile_definitions(ui_shot PRIVATE XPT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
   find_package(ZLIB QUIET)
   if(ZLIB_FOUND)
     target_compile_definitions(ui_shot PRIVATE XPT_UI_PNG=1)

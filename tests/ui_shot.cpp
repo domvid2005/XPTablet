@@ -123,6 +123,15 @@ int main(int argc, char** argv) {
     io.Fonts->GetTexDataAsAlpha8(&tex, &tw, &th);
     io.Fonts->SetTexID((ImTextureID)(intptr_t)1);
 
+    {   // the aircraft top views, as the plugin reads them from its shapes folder
+        std::string text;
+        FILE* sf = std::fopen(XPT_SOURCE_DIR "/assets/shapes/aircraft_shapes.txt", "rb");
+        if (sf) { char buf[65536]; size_t n; while ((n = std::fread(buf, 1, sizeof buf, sf)) > 0) text.append(buf, n); std::fclose(sf); }
+        const int n = loadShapes(text);
+        if (n < 150) { std::printf("FAIL: only %d aircraft shapes read\n", n); return 1; }
+        for (const char* t : {"A319", "A20N", "A21N", "A339", "A346", "B736", "B738", "B39M", "MD82", "CRJ9", "CL60", "GL7T", "DH8D", "FA8X", "FA7X", "F2TH", "RFAL", "C172"})
+            if (!hasShape(t)) { std::printf("FAIL: no shape for %s\n", t); return 1; }
+    }
     SimState s;
     s.acfIcao = "A321"; s.zuluSec = 23 * 3600 + 7 * 60; s.onPanel = true;
     s.panel[0] = 1024; s.panel[1] = 0; s.panel[2] = 800; s.panel[3] = 480;
@@ -282,6 +291,8 @@ int main(int argc, char** argv) {
         if (std::fabs(e.mx - 400) > 0.01f || std::fabs(e.my - (300 - e.y)) > 0.01f || e.down) { std::printf("FAIL: weather embed pointer\n"); ++failures; }
         t.wxEmbed = -1; run(t);
         if (!embedArea().active) { std::printf("FAIL: WXPlane is asked every frame, answered or not\n"); ++failures; }
+        if (embedArea().mx > -1e8f || embedArea().down) { std::printf("FAIL: while WXPlane does not draw, the built-in page keeps the pointer\n"); ++failures; }
+        { std::vector<Batch> b; clipDrawData(ImGui::GetDrawData(), b); Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_weather_wx_old.png"); }
         t.wxPlane = false; t.wxEmbed = 0; run(t);
         if (embedArea().active) { std::printf("FAIL: no WXPlane, no area\n"); ++failures; }
         openApp(APP_HOME); run(s); openApp(APP_HOME);
@@ -341,7 +352,20 @@ int main(int argc, char** argv) {
         g.ground.toliss = true; g.ground.openSam = true; g.ground.jetway = 1; g.ground.paxDoors = 4; g.ground.cargoDoors = 2; g.ground.cargoDoors = 3; g.ground.deice = true; g.ground.paxDoor[0] = 2; g.ground.paxDoor[1] = 1; g.ground.cargoDoor[0] = 2; g.ground.chocks = true; g.ground.extPower = true;
         shot(g, APP_GROUND, "ground_toliss");
         { SimState g2 = g; g2.acfIcao = "A21N"; g2.ground.paxDoors = 8; shot(g2, APP_GROUND, "ground_a321"); }
-        { SimState g3 = t; g3.acfIcao = "A339"; shot(g3, APP_GROUND, "ground_a339"); g3.acfIcao = "C172"; shot(g3, APP_GROUND, "ground_c172"); g3.acfIcao = "MD82"; shot(g3, APP_GROUND, "ground_md82"); g3.acfIcao = "B744"; shot(g3, APP_GROUND, "ground_b744"); }
+        { SimState g3 = t;
+          for (const char* ty : {"A339", "C172", "MD82", "B744", "B738", "CL60", "FA8X", "CRJ9", "DH8D", "GL7T", "RFAL", "A346", "ZZZZ"}) { g3.acfIcao = ty; shot(g3, APP_GROUND, (std::string("ground_") + ty).c_str()); }
+          SimState g4 = g; g4.acfIcao = "A319"; shot(g4, APP_GROUND, "ground_a319"); g4.acfIcao = "A346"; g4.ground.paxDoors = 8; shot(g4, APP_GROUND, "ground_a346_doors"); }
+        {   // Settings, then its Credits view (the pill at the right of the title bar)
+            shot(s, APP_SETTINGS, "settings");
+            const bool downs[4] = {false, true, false, false};
+            for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(800 - 14 - 46, 28 + 9 + 14); io.AddMouseButtonEvent(0, d);
+                ImGui::NewFrame(); Actions act; build(fonts, s, 800, kLogicalH, act); ImGui::Render(); }
+            std::vector<Batch> b;
+            for (int i = 0; i < 2; ++i) { io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, s, 800, kLogicalH, act); ImGui::Render(); clipDrawData(ImGui::GetDrawData(), b); }
+            Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_credits.png");
+            for (bool d : downs) { io.AddMousePosEvent(800 - 14 - 92 - 6 - 46, 28 + 9 + 14); io.AddMouseButtonEvent(0, d);   // back to the settings
+                ImGui::NewFrame(); Actions act; build(fonts, s, 800, kLogicalH, act); ImGui::Render(); }
+        }
         // the METAR search: type KBOS on the page's keys, press Search, and show an answer
         {
             SimState m = t;
