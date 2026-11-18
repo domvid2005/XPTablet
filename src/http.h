@@ -1,0 +1,23 @@
+#pragma once
+#include <atomic>
+#include <cstddef>
+#include <string>
+
+namespace wx {
+
+void httpGlobalInit();
+void httpGlobalCleanup();
+// "libcurl 8.14.1, OpenSSL/3.0.13, certificates /etc/ssl/certs/ca-certificates.crt" (for the log)
+std::string httpTlsInfo();
+
+// Blocking GET (call from the worker thread only). Returns true on HTTP 2xx; `status` receives the code.
+bool httpGet(const std::string& url, std::string& body, long& status, std::string& error, long timeoutSec = 12, size_t maxBytes = 8u * 1024u * 1024u);
+// The same with an HTTP byte range ("first-last", e.g. "0-65535"): only that part of the file is downloaded.
+bool httpGetRange(const std::string& url, const std::string& range, std::string& body, long& status, std::string& error, long timeoutSec = 20,
+                  size_t maxBytes = 16u * 1024u * 1024u);
+// The same, abandoned as soon as *cancel becomes true (for workers that must stop quickly when the plugin is disabled).
+// `range` may be empty for the whole file.
+bool httpGetCancellable(const std::string& url, const std::string& range, std::string& body, long& status, std::string& error,
+                        long timeoutSec, size_t maxBytes, const std::atomic<bool>* cancel);
+
+} // namespace wx

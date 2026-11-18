@@ -4,9 +4,11 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 
+#include "metar.h"
 #include "version.h"
 
 extern "C" {
@@ -18,6 +20,8 @@ extern const unsigned char xpt_asset_plex_bold[];
 extern const unsigned int xpt_asset_plex_bold_size;
 extern const unsigned char xpt_asset_mono[];
 extern const unsigned int xpt_asset_mono_size;
+extern const unsigned char xpt_asset_wxlogo[];
+extern const unsigned int xpt_asset_wxlogo_size;
 }
 
 namespace xpt {
@@ -46,6 +50,8 @@ const char* const kLiveUrls[2] = {"https://fly.volanta.app", "https://map.vatsim
 const ImU32 kLiveColors[2] = {IM_COL32(198, 92, 204, 255), IM_COL32(44, 150, 96, 255)};
 enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM };   // the Live Map icon's two pictures
 
+bool g_wx = false;             // WXPlane is installed (told by the host each frame): the Weather icon and page are WXPlane's
+ImTextureID g_wxLogo = 0;
 Settings g_settings;
 bool g_settingsChanged = false;
 std::string g_url = "https://chartfox.org", g_site = "Browser";   // what the web page shows
@@ -57,7 +63,7 @@ void openWeb(const char* site, const char* url, bool chrome);
 
 int chartsP() { return g_settings.chartsProvider == 1 ? 1 : 0; }
 int liveP() { return g_settings.liveProvider == 1 ? 1 : 0; }
-ImU32 appColor(int app) { return app == APP_LIVEMAP ? kLiveColors[liveP()] : kApps[app].color; }
+ImU32 appColor(int app) { return app == APP_LIVEMAP ? kLiveColors[liveP()] : (app == APP_WEATHER && g_wx) ? IM_COL32(22, 24, 29, 255) : kApps[app].color; }
 int appIcon(int app) { return app == APP_LIVEMAP ? (liveP() ? (int)ICON_VATSIM : (int)ICON_VOLANTA) : app; }
 
 // Every app is in exactly one of the two lists (grid order, favorites bar); whatever a settings file left out goes to the grid's end.
@@ -266,7 +272,12 @@ bool g_dragging = false;
 void drawTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, bool label, float scale, float shadeK) {
     const ImVec2 a(c.x - tile * 0.5f * scale, c.y - tile * 0.5f * scale), b(c.x + tile * 0.5f * scale, c.y + tile * 0.5f * scale);
     dl->AddRectFilled(a, b, shade(appColor(app), shadeK), tile * 0.24f * scale);
-    icon(dl, appIcon(app), c, tile * 0.32f * scale, IM_COL32(255, 255, 255, 255));
+    if (app == APP_WEATHER && g_wx && g_wxLogo) {   // WXPlane's own logo, WX above PLANE, on its dark tile
+        const float r = tile * 0.46f * scale;
+        dl->AddImage(g_wxLogo, ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r));
+    } else {
+        icon(dl, appIcon(app), c, tile * 0.32f * scale, IM_COL32(255, 255, 255, 255));
+    }
     if (label) textCentered(dl, f.small, c.x, c.y + tile * 0.5f + 6, IM_COL32(236, 241, 250, 255), appName(app));
 }
 
@@ -445,21 +456,463 @@ void browserPage(ImDrawList* dl, const Fonts& f, float w, float h) {
     webContent(dl, f, w, h, top + barH + bmH);
 }
 
-// Weather: WXPlane's own screen when WXPlane is installed (it draws itself into the page: the host passes the area on), otherwise
-// a note until the built-in weather map exists.
-void weatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h) {
-    const float top = kStatusH + kHeaderH;
-    const ImVec2 c(w * 0.5f, top + (h - top) * 0.42f);
-    if (!s.wxPlane || s.wxEmbed < 0) {
-        dl->AddRectFilled(ImVec2(c.x - 48, c.y - 48), ImVec2(c.x + 48, c.y + 48), appColor(APP_WEATHER), 22.0f);
-        icon(dl, APP_WEATHER, c, 30, IM_COL32(255, 255, 255, 255));
-        textCentered(dl, f.body, c.x, c.y + 64, IM_COL32(210, 220, 236, 255),
-                     s.wxPlane ? "This WXPlane is too old to show here. Update WXPlane to see it on the tablet."
-                               : "The built-in weather map arrives in a later build. With WXPlane installed, WXPlane shows here.");
+// ---- small pieces the pages share ---------------------------------------------------------------------------------------------------
+const ImU32 kCard = IM_COL32(10, 22, 44, 210), kCardLine = IM_COL32(255, 255, 255, 30), kInk = IM_COL32(236, 241, 250, 255),
+            kMuted = IM_COL32(150, 168, 198, 255), kGood = IM_COL32(80, 214, 124, 255), kWarn = IM_COL32(255, 190, 90, 255);
+
+void card(ImDrawList* dl, ImVec2 a, ImVec2 b, const Fonts& f, const char* title) {
+    dl->AddRectFilled(a, b, kCard, 12.0f);
+    dl->AddRect(a, b, kCardLine, 12.0f);
+    if (title) dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 14, a.y + 10), kMuted, title);
+}
+void textAt(ImDrawList* dl, ImFont* font, float x, float y, ImU32 col, const char* txt) { dl->AddText(font, fontPx(font), ImVec2(x, y), col, txt); }
+void textRight(ImDrawList* dl, ImFont* font, float xRight, float y, ImU32 col, const char* txt) {
+    const ImVec2 sz = font->CalcTextSizeA(fontPx(font), 1e9f, 0, txt);
+    dl->AddText(font, fontPx(font), ImVec2(std::floor(xRight - sz.x), y), col, txt);
+}
+// A rounded button drawn by hand at a fixed place. on: shown lit. enabled: can be pressed.
+bool pill(ImDrawList* dl, const Fonts& f, const char* id, const char* label, ImVec2 a, ImVec2 b, bool on, bool enabled) {
+    ImGui::SetCursorScreenPos(a);
+    ImGui::BeginDisabled(!enabled);
+    const bool hit = ImGui::InvisibleButton(id, ImVec2(b.x - a.x, b.y - a.y));
+    const bool hot = ImGui::IsItemHovered(), down = ImGui::IsItemActive();
+    ImGui::EndDisabled();
+    const ImU32 bg = !enabled ? IM_COL32(255, 255, 255, 14) : on ? IM_COL32(70, 140, 255, down ? 255 : 220) : IM_COL32(255, 255, 255, down ? 70 : hot ? 50 : 30);
+    dl->AddRectFilled(a, b, bg, (b.y - a.y) * 0.5f);
+    textCentered(dl, f.small, (a.x + b.x) * 0.5f, std::floor((a.y + b.y - fontPx(f.small)) * 0.5f), enabled ? kInk : IM_COL32(236, 241, 250, 90), label);
+    return hit && enabled;
+}
+
+// ---- Weather without WXPlane: X-Plane's own weather where the aircraft is ---------------------------------------------------------------
+const char* coverWord(float c) { return c < 0.06f ? "CLR" : c < 0.30f ? "FEW" : c < 0.55f ? "SCT" : c < 0.90f ? "BKN" : "OVC"; }
+
+// The METAR search: an airport code typed on the page's own keys (the cockpit tablet has no keyboard), the report as received
+// and what it says.
+int g_wxTab = 0;              // 0 the conditions at the aircraft, 1 the METAR search
+std::string g_metarInput;
+
+void metarPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const float top = kStatusH + kHeaderH + 10, bot = h - 12, gap = 10;
+    const float lw = std::floor(w * 0.52f);
+    char b[160];
+    // the code and the keys
+    const ImVec2 a(12, top), e(12 + lw, bot);
+    card(dl, a, e, f, "AIRPORT");
+    const float ix = a.x + 14, iw = lw - 28;
+    const ImVec2 i0(ix, a.y + 34), i1(ix + iw - 110, a.y + 34 + 40);
+    dl->AddRectFilled(i0, i1, IM_COL32(255, 255, 255, 22), 10.0f);
+    dl->AddRect(i0, i1, IM_COL32(110, 170, 255, 160), 10.0f);
+    if (g_metarInput.empty()) textAt(dl, f.body, i0.x + 14, i0.y + 11, kMuted, "ICAO code, e.g. KBOS");
+    else textAt(dl, f.title, i0.x + 14, i0.y + 9, kInk, g_metarInput.c_str());
+    const bool can = g_metarInput.size() >= 3 && !s.metar.busy;
+    if (pill(dl, f, "##msearch", s.metar.busy ? "Searching" : "Search", ImVec2(i1.x + 10, i0.y + 2), ImVec2(ix + iw, i1.y - 2), can, can)) act.metarSearch = g_metarInput;
+    const char* rowsK[4] = {"1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"};
+    const float kg = 5, kw = std::floor((iw - 9 * kg) / 10), ky0 = i1.y + 14, kh = std::min(42.0f, std::floor((e.y - 14 - ky0 - 3 * kg) / 4));
+    for (int r = 0; r < 4; ++r) {
+        const int n = (int)std::strlen(rowsK[r]);
+        float x = ix + (r == 2 ? (kw + kg) * 0.5f : r == 3 ? (kw + kg) * 1.0f : 0.0f);
+        const float y = ky0 + r * (kh + kg);
+        for (int k = 0; k < n; ++k, x += kw + kg) {
+            char id[8], lbl[2] = {rowsK[r][k], 0};
+            std::snprintf(id, sizeof id, "##k%c", rowsK[r][k]);
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            const bool hit = ImGui::InvisibleButton(id, ImVec2(kw, kh));
+            const bool down = ImGui::IsItemActive(), hot = ImGui::IsItemHovered();
+            dl->AddRectFilled(ImVec2(x, y), ImVec2(x + kw, y + kh), IM_COL32(255, 255, 255, down ? 90 : hot ? 52 : 32), 8.0f);
+            textCentered(dl, f.bold, x + kw * 0.5f, std::floor(y + (kh - fontPx(f.bold)) * 0.5f), kInk, lbl);
+            if (hit && g_metarInput.size() < 4) g_metarInput += rowsK[r][k];
+        }
+        if (r == 3) {   // backspace, to the right of the last row
+            const float bx = x, bw = ix + iw - bx;
+            ImGui::SetCursorScreenPos(ImVec2(bx, y));
+            const bool hit = ImGui::InvisibleButton("##kback", ImVec2(bw, kh));
+            dl->AddRectFilled(ImVec2(bx, y), ImVec2(bx + bw, y + kh), IM_COL32(255, 255, 255, ImGui::IsItemActive() ? 90 : 32), 8.0f);
+            textCentered(dl, f.small, bx + bw * 0.5f, std::floor(y + (kh - fontPx(f.small)) * 0.5f), kInk, "Delete");
+            if (hit && !g_metarInput.empty()) g_metarInput.pop_back();
+        }
+    }
+    // the report
+    const ImVec2 ra(e.x + gap, top), re(w - 12, bot);
+    card(dl, ra, re, f, "REPORT");
+    const float tx = ra.x + 14, tw = re.x - ra.x - 28;
+    float y = ra.y + 36;
+    const MetarLookup& m = s.metar;
+    if (m.raw.empty()) {
+        const char* msg = m.busy ? "Asking NOAA..." : !m.error.empty() ? m.error.c_str() : "Type an airport's ICAO code and press Search.";
+        dl->AddText(f.body, fontPx(f.body), ImVec2(tx, y), m.error.empty() || m.busy ? kMuted : kWarn, msg, nullptr, tw);
         return;
     }
+    wx::Report r;
+    wx::parseReport(m.raw, r);
+    // flight category from the ceiling and the visibility
+    int ceil = -1;
+    for (const wx::CloudGroup& c : r.clouds) if (c.cover >= wx::CloudGroup::BKN && (ceil < 0 || c.baseFtAgl < ceil)) ceil = c.baseFtAgl;
+    const double visSm = r.cavok ? 10.0 : r.hasVis ? r.visM / wx::kSmToM : -1;
+    const char* cat = ""; ImU32 catCol = kGood;
+    if (visSm >= 0 || ceil >= 0) {
+        const double v = visSm < 0 ? 99 : visSm; const int c = ceil < 0 ? 99999 : ceil;
+        if (v < 1 || c < 500) { cat = "LIFR"; catCol = IM_COL32(230, 110, 230, 255); }
+        else if (v < 3 || c < 1000) { cat = "IFR"; catCol = IM_COL32(240, 84, 84, 255); }
+        else if (v <= 5 || c <= 3000) { cat = "MVFR"; catCol = IM_COL32(110, 170, 255, 255); }
+        else { cat = "VFR"; catCol = kGood; }
+    }
+    textAt(dl, f.title, tx, y, kInk, m.icao.c_str());
+    if (*cat) textRight(dl, f.bold, re.x - 14, y + 3, catCol, cat);
+    y += 30;
+    const ImVec2 rs = f.mono->CalcTextSizeA(fontPx(f.mono), 1e9f, tw - 20, m.raw.c_str());
+    dl->AddRectFilled(ImVec2(tx, y), ImVec2(tx + tw, y + rs.y + 16), IM_COL32(0, 0, 0, 80), 8.0f);
+    dl->AddText(f.mono, fontPx(f.mono), ImVec2(tx + 10, y + 8), IM_COL32(180, 230, 190, 255), m.raw.c_str(), nullptr, tw - 20);
+    y += rs.y + 28;
+    auto row = [&](const char* k, const char* v) { if (y + 20 > re.y - 8) return; textAt(dl, f.body, tx, y, kMuted, k); textRight(dl, f.bold, re.x - 14, y, kInk, v); y += 23; };
+    if (r.hour >= 0) { std::snprintf(b, sizeof b, "%02d:%02dZ", r.hour, r.minute); row("Observed", b); }
+    if (r.hasWind) {
+        if (r.windKt < 1) std::snprintf(b, sizeof b, "calm");
+        else if (r.windVariable) std::snprintf(b, sizeof b, "variable / %d kt", (int)std::lround(r.windKt));
+        else if (r.gustKt > r.windKt) std::snprintf(b, sizeof b, "%03d\xC2\xB0 / %d G%d kt", r.windDir, (int)std::lround(r.windKt), (int)std::lround(r.gustKt));
+        else std::snprintf(b, sizeof b, "%03d\xC2\xB0 / %d kt", r.windDir, (int)std::lround(r.windKt));
+        row("Wind", b);
+    }
+    if (visSm >= 0) { if (visSm >= 10) std::snprintf(b, sizeof b, "10+ SM"); else std::snprintf(b, sizeof b, "%.1f SM  (%d m)", visSm, (int)(std::lround(r.visM / 100) * 100)); row("Visibility", b); }
+    if (!r.wxText.empty()) row("Weather", r.wxText.c_str());
+    {
+        std::string c;
+        static const char* cov[5] = {"FEW", "SCT", "BKN", "OVC", "VV"};
+        for (const wx::CloudGroup& g : r.clouds) { std::snprintf(b, sizeof b, "%s%s%03d", c.empty() ? "" : "  ", cov[std::max(0, std::min(4, g.cover))], g.baseFtAgl / 100); c += b; }
+        if (c.empty() && (r.clearSky || r.cavok)) c = "clear";
+        if (!c.empty()) row("Clouds", c.c_str());
+    }
+    if (r.hasTemp) { if (r.hasDewp) std::snprintf(b, sizeof b, "%d / %d \xC2\xB0""C", (int)std::lround(r.tempC), (int)std::lround(r.dewpC)); else std::snprintf(b, sizeof b, "%d \xC2\xB0""C", (int)std::lround(r.tempC)); row("Temp / Dew", b); }
+    if (r.hasAltim) { std::snprintf(b, sizeof b, "%d hPa  %.2f in", (int)std::lround(r.altimHpa), r.altimHpa / wx::kInHgToHpa); row("QNH", b); }
+}
+
+void simWeatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    // two views, switched at the right end of the title bar
+    {
+        const float y0 = kStatusH + 9, bw = 108;
+        if (pill(dl, f, "##wxcond", "At the aircraft", ImVec2(w - 14 - 2 * bw - 6, y0), ImVec2(w - 14 - bw - 6, y0 + 28), g_wxTab == 0, true)) g_wxTab = 0;
+        if (pill(dl, f, "##wxmetar", "METAR search", ImVec2(w - 14 - bw, y0), ImVec2(w - 14, y0 + 28), g_wxTab == 1, true)) g_wxTab = 1;
+    }
+    if (g_wxTab == 1) { metarPage(dl, f, s, w, h, act); return; }
+    const SimWeather& x = s.wx;
+    const float top = kStatusH + kHeaderH + 10, bot = h - 34, gap = 10;
+    const float c0 = 12, cw = (w - 2 * c0 - 2 * gap) / 3;
+    char b[96];
+    // 1: at the aircraft
+    {
+        const ImVec2 a(c0, top), e(c0 + cw, bot);
+        card(dl, a, e, f, "AT THE AIRCRAFT");
+        const ImVec2 c(a.x + cw * 0.5f, a.y + 100);
+        const float r = 52;
+        dl->AddCircle(c, r, IM_COL32(255, 255, 255, 60), 48, 2.0f);
+        for (int i = 0; i < 4; ++i) {
+            const float an = i * kPi * 0.5f - kPi * 0.5f;
+            textCentered(dl, f.small, c.x + std::cos(an) * (r + 11), c.y + std::sin(an) * (r + 11) - fontPx(f.small) * 0.5f, kMuted, i == 0 ? "N" : i == 1 ? "E" : i == 2 ? "S" : "W");
+        }
+        if (x.valid && x.windKt >= 1) {   // an arrow flying with the wind: from where it blows, through the centre
+            const float an = (x.windDir - 90) * kPi / 180;
+            const ImVec2 from(c.x + std::cos(an) * (r - 6), c.y + std::sin(an) * (r - 6)), to(c.x - std::cos(an) * (r - 22), c.y - std::sin(an) * (r - 22));
+            dl->AddLine(from, to, IM_COL32(110, 170, 255, 255), 3.0f);
+            const ImVec2 n(std::cos(an), std::sin(an)), t(-n.y, n.x);
+            dl->AddTriangleFilled(ImVec2(to.x - n.x * 4, to.y - n.y * 4), ImVec2(to.x + n.x * 10 + t.x * 7, to.y + n.y * 10 + t.y * 7), ImVec2(to.x + n.x * 10 - t.x * 7, to.y + n.y * 10 - t.y * 7), IM_COL32(110, 170, 255, 255));
+        }
+        float y = a.y + 176;
+        auto row = [&](const char* k, const char* v) { textAt(dl, f.body, a.x + 14, y, kMuted, k); textRight(dl, f.bold, e.x - 14, y, kInk, v); y += 24; };
+        if (!x.valid) { textCentered(dl, f.body, c.x, y, kMuted, "No weather data from the sim yet."); }
+        else {
+            if (x.windKt < 1) std::snprintf(b, sizeof b, "calm"); else std::snprintf(b, sizeof b, "%03d\xC2\xB0 / %d kt", ((int)std::lround(x.windDir) + 359) % 360 + 1, (int)std::lround(x.windKt));
+            row("Wind", b);
+            if (x.visSm >= 10) std::snprintf(b, sizeof b, "10+ SM"); else std::snprintf(b, sizeof b, "%.1f SM", x.visSm);
+            row("Visibility", b);
+            std::snprintf(b, sizeof b, "%d / %d \xC2\xB0""C", (int)std::lround(x.tempC), (int)std::lround(x.dewC));
+            row("Temp / Dew", b);
+            std::snprintf(b, sizeof b, "%d hPa  %.2f in", (int)std::lround(x.qnhHpa), x.qnhHpa / 33.8639f);
+            row("QNH", b);
+            row("Rain", x.rain < 0.02f ? "none" : x.rain < 0.3f ? "light" : x.rain < 0.7f ? "moderate" : "heavy");
+        }
+    }
+    // 2: cloud layers, as a column of sky with the aircraft's height marked
+    {
+        const ImVec2 a(c0 + cw + gap, top), e(a.x + cw, bot);
+        card(dl, a, e, f, "CLOUDS");
+        const float y0 = a.y + 40, y1 = e.y - 16, colX = a.x + 16, colW = 46;
+        float topFt = 20000;
+        for (int i = 0; i < x.clouds; ++i) topFt = std::max(topFt, x.cloudTopFt[i] + 3000);
+        topFt = std::max(topFt, x.altFt + 3000);
+        auto yOf = [&](float ft) { return y1 - (y1 - y0) * std::max(0.0f, std::min(1.0f, ft / topFt)); };
+        dl->AddRectFilledMultiColor(ImVec2(colX, y0), ImVec2(colX + colW, y1), IM_COL32(20, 50, 110, 255), IM_COL32(20, 50, 110, 255), IM_COL32(70, 130, 210, 255), IM_COL32(70, 130, 210, 255));
+        float ty = y0;
+        if (!x.valid || x.clouds == 0) textAt(dl, f.body, colX + colW + 14, y0, kInk, x.valid ? "Sky clear" : "No data");
+        for (int i = x.clouds - 1; i >= 0; --i) {   // highest first, so the list reads top down like the sky
+            const float yb = yOf(x.cloudBaseFt[i]), yt = yOf(x.cloudTopFt[i]);
+            dl->AddRectFilled(ImVec2(colX, std::min(yt, yb - 3)), ImVec2(colX + colW, yb), IM_COL32(236, 241, 250, (int)(90 + 150 * std::min(1.0f, x.cloudCover[i]))), 3.0f);
+            std::snprintf(b, sizeof b, "%s  %d ft", coverWord(x.cloudCover[i]), (int)(std::lround(x.cloudBaseFt[i] / 100) * 100));
+            textAt(dl, f.bold, colX + colW + 14, ty, kInk, b);
+            std::snprintf(b, sizeof b, "tops %d ft", (int)(std::lround(x.cloudTopFt[i] / 100) * 100));
+            textAt(dl, f.small, colX + colW + 14, ty + 19, kMuted, b);
+            ty += 46;
+        }
+        if (x.valid) {   // the aircraft
+            const float ya = yOf(x.altFt);
+            dl->AddTriangleFilled(ImVec2(colX - 9, ya - 5), ImVec2(colX - 9, ya + 5), ImVec2(colX - 1, ya), kWarn);
+            dl->AddLine(ImVec2(colX, ya), ImVec2(colX + colW, ya), kWarn, 1.5f);
+        }
+    }
+    // 3: winds aloft
+    {
+        const ImVec2 a(c0 + 2 * (cw + gap), top), e(a.x + cw, bot);
+        card(dl, a, e, f, "WINDS ALOFT");
+        float y = a.y + 38;
+        textAt(dl, f.small, a.x + 14, y, kMuted, "Altitude"); textRight(dl, f.small, e.x - 14, y, kMuted, "From / kt");
+        y += 22;
+        const int rows = (int)((e.y - 12 - y) / 22);
+        int step = 1;
+        while (x.aloft > 0 && (x.aloft + step - 1) / step > rows) ++step;
+        if (!x.valid || x.aloft == 0) textAt(dl, f.body, a.x + 14, y, kMuted, "No data");
+        for (int i = x.aloft - 1; i >= 0; i -= step) {   // highest first
+            if (x.aloftFt[i] >= 18000) std::snprintf(b, sizeof b, "FL%03d", (int)std::lround(x.aloftFt[i] / 100)); else std::snprintf(b, sizeof b, "%d ft", (int)(std::lround(x.aloftFt[i] / 100) * 100));
+            const bool here = std::fabs(x.aloftFt[i] - x.altFt) < 1500;
+            textAt(dl, here ? f.bold : f.body, a.x + 14, y, here ? kWarn : kInk, b);
+            std::snprintf(b, sizeof b, "%03d\xC2\xB0 / %d", ((int)std::lround(x.aloftDir[i]) + 359) % 360 + 1, (int)std::lround(x.aloftKt[i]));
+            textRight(dl, f.mono, e.x - 14, y + 1, kInk, b);
+            y += 22;
+        }
+    }
+    textCentered(dl, f.small, w * 0.5f, h - 24, kMuted, "X-Plane's own weather where you are. Airport reports: METAR search, top right. A radar map comes later.");
+}
+
+// ---- Ground: jetway, ground power, chocks, service vehicles, pushback, and on a ToLiss its doors -------------------------------------------
+// Aircraft are drawn from their real measurements, so every type comes out at its true shape and the fleet at one scale.
+// Lengths in metres. eng: 2 or 4 under the wings, -2 two at the rear fuselage, -1 one jet at the rear, 1 one propeller on the
+// nose, 12 two propellers on the wings. sweep: of the wing's leading edge, degrees.
+struct PlaneSpec { const char* icao; float len, span, fus; int eng; float sweep; };
+const PlaneSpec kPlanes[] = {
+    {"A318", 31.44f, 34.10f, 3.95f, 2, 25}, {"A319", 33.84f, 35.80f, 3.95f, 2, 25}, {"A19N", 33.84f, 35.80f, 3.95f, 2, 25},
+    {"A320", 37.57f, 35.80f, 3.95f, 2, 25}, {"A20N", 37.57f, 35.80f, 3.95f, 2, 25}, {"A321", 44.51f, 35.80f, 3.95f, 2, 25},
+    {"A21N", 44.51f, 35.80f, 3.95f, 2, 25}, {"A332", 58.82f, 60.30f, 5.64f, 2, 30}, {"A333", 63.66f, 60.30f, 5.64f, 2, 30},
+    {"A338", 58.82f, 64.00f, 5.64f, 2, 30}, {"A339", 63.66f, 64.00f, 5.64f, 2, 30}, {"A342", 59.40f, 60.30f, 5.64f, 4, 30},
+    {"A343", 63.69f, 60.30f, 5.64f, 4, 30}, {"A345", 67.93f, 63.45f, 5.64f, 4, 31}, {"A346", 75.36f, 63.45f, 5.64f, 4, 31},
+    {"A359", 66.80f, 64.75f, 5.96f, 2, 32}, {"A35K", 73.79f, 64.75f, 5.96f, 2, 32}, {"A388", 72.72f, 79.75f, 7.14f, 4, 33},
+    {"B737", 33.60f, 35.80f, 3.76f, 2, 25}, {"B738", 39.47f, 35.80f, 3.76f, 2, 25}, {"B739", 42.10f, 35.80f, 3.76f, 2, 25},
+    {"B38M", 39.52f, 35.92f, 3.76f, 2, 25}, {"B39M", 42.16f, 35.92f, 3.76f, 2, 25}, {"B752", 47.32f, 38.05f, 3.76f, 2, 25},
+    {"B753", 54.47f, 38.05f, 3.76f, 2, 25}, {"B762", 48.51f, 47.57f, 5.03f, 2, 31}, {"B763", 54.94f, 47.57f, 5.03f, 2, 31},
+    {"B772", 63.73f, 60.93f, 6.20f, 2, 31}, {"B77L", 63.73f, 64.80f, 6.20f, 2, 31}, {"B77W", 73.86f, 64.80f, 6.20f, 2, 31},
+    {"B788", 56.72f, 60.12f, 5.77f, 2, 32}, {"B789", 62.81f, 60.12f, 5.77f, 2, 32}, {"B78X", 68.28f, 60.12f, 5.77f, 2, 32},
+    {"B744", 70.66f, 64.44f, 6.50f, 4, 37}, {"B748", 76.25f, 68.40f, 6.50f, 4, 37},
+    {"E170", 29.90f, 26.00f, 3.01f, 2, 23}, {"E175", 31.68f, 26.00f, 3.01f, 2, 23}, {"E190", 36.24f, 28.72f, 3.01f, 2, 23},
+    {"E195", 38.65f, 28.72f, 3.01f, 2, 23}, {"BCS1", 35.00f, 35.10f, 3.70f, 2, 25}, {"BCS3", 38.70f, 35.10f, 3.70f, 2, 25},
+    {"CRJ2", 26.77f, 21.21f, 2.69f, -2, 24}, {"CRJ7", 32.30f, 23.20f, 2.69f, -2, 25}, {"CRJ9", 36.20f, 24.85f, 2.69f, -2, 25},
+    {"MD82", 45.06f, 32.87f, 3.34f, -2, 24}, {"MD83", 45.06f, 32.87f, 3.34f, -2, 24}, {"MD88", 45.06f, 32.87f, 3.34f, -2, 24},
+    {"B712", 37.80f, 28.45f, 3.34f, -2, 24}, {"CL60", 20.85f, 19.61f, 2.69f, -2, 25}, {"GLF5", 29.40f, 28.50f, 2.40f, -2, 27},
+    {"C25A", 14.53f, 15.19f, 1.60f, -2, 0}, {"C510", 12.37f, 13.16f, 1.50f, -2, 0}, {"E55P", 15.64f, 15.91f, 1.80f, -2, 20},
+    {"SF50", 9.42f, 11.79f, 1.56f, -1, 0},
+    {"C172", 8.28f, 11.00f, 1.07f, 1, 0}, {"C152", 7.34f, 10.16f, 1.02f, 1, 0}, {"SR22", 7.92f, 11.68f, 1.27f, 1, 0},
+    {"P28A", 7.16f, 9.14f, 1.07f, 1, 0}, {"PC12", 14.40f, 16.28f, 1.53f, 1, 0}, {"TBM9", 10.74f, 12.83f, 1.30f, 1, 0},
+    {"C208", 11.46f, 15.87f, 1.62f, 1, 0}, {"BE58", 9.09f, 11.53f, 1.07f, 12, 0}, {"BE9L", 10.82f, 15.32f, 1.45f, 12, 0},
+    {"B350", 14.22f, 17.65f, 1.45f, 12, 0}, {"DA42", 8.56f, 13.42f, 1.20f, 12, 0},
+};
+const PlaneSpec& planeSpec(const std::string& icao) {
+    for (const PlaneSpec& p : kPlanes) if (icao == p.icao) return p;
+    // an unknown type: the nearest in the family by its first three letters, else a mid-size airliner
+    for (const PlaneSpec& p : kPlanes) if (icao.size() >= 3 && icao.compare(0, 3, p.icao, 3) == 0) return p;
+    static const PlaneSpec generic = {"", 37.57f, 35.80f, 3.95f, 2, 25};
+    return generic;
+}
+
+// The aircraft from above, nose up, its nose at `nose` and `px` screen units per metre.
+void planeTopDown(ImDrawList* dl, ImVec2 nose, float px, const PlaneSpec& p, ImU32 col, ImU32 shade2) {
+    const float L = p.len, hw = p.fus * 0.5f, semi = p.span * 0.5f;
+    auto P = [&](float x, float y) { return ImVec2(nose.x + x * px, nose.y + y * px); };   // metres: x right, y aft of the nose
+    const bool prop = p.eng == 1 || p.eng == 12, rear = p.eng < 0;
+    // mirrored shapes are given in the same turning direction on both sides (ImGui's smooth edges depend on it)
+    auto quad = [&](float s, ImVec2 q0, ImVec2 q1, ImVec2 q2, ImVec2 q3) { if (s > 0) dl->AddQuadFilled(q0, q1, q2, q3, col); else dl->AddQuadFilled(q3, q2, q1, q0, col); };
+    const float sw = std::tan(p.sweep * kPi / 180.0f);
+    // wing: root chord and where it sits along the fuselage
+    const float cr = prop ? p.span * 0.15f : p.span * 0.17f, ct = prop ? p.span * 0.09f : p.span * 0.045f;
+    const float mid = prop ? 0.34f : rear ? 0.56f : 0.46f;                      // the root's mid-chord along the fuselage
+    const float yr = L * mid - cr * 0.5f;                                       // root leading edge
+    const float kink = prop ? 0.0f : 0.34f;                                     // inboard part with a straight trailing edge
+    for (int sgn = -1; sgn <= 1; sgn += 2) {
+        const float s = (float)sgn;
+        const float xk = hw + (semi - hw) * kink, yk = yr + (xk - hw * 0.5f) * sw, ytip = yr + (semi - hw * 0.5f) * sw;
+        if (kink > 0) {
+            quad(s, P(s * hw * 0.5f, yr), P(s * xk, yk), P(s * xk, yr + cr * 0.98f), P(s * hw * 0.5f, yr + cr));
+            quad(s, P(s * xk, yk), P(s * semi, ytip), P(s * semi, ytip + ct), P(s * xk, yr + cr * 0.98f));
+        } else {
+            quad(s, P(s * hw * 0.5f, yr), P(s * semi, ytip), P(s * semi, ytip + ct), P(s * hw * 0.5f, yr + cr));
+        }
+        // tailplane
+        const float ts = p.span * (prop ? 0.17f : 0.175f), tc = cr * (prop ? 0.50f : 0.60f), ty = L - tc * 1.25f, tsw = prop ? 0.1f : 0.60f;
+        quad(s, P(s * hw * 0.3f, ty), P(s * ts, ty + ts * tsw), P(s * ts, ty + ts * tsw + tc * 0.40f), P(s * hw * 0.3f, ty + tc));
+        // engines
+        const float nl = std::min(p.fus * 1.15f, p.span * 0.11f), nd = nl * 0.52f;
+        auto nacelle = [&](float x, float y) { dl->AddRectFilled(P(s * x - nd * 0.5f, y), P(s * x + nd * 0.5f, y + nl), col, nd * 0.5f * px); };
+        if (p.eng == 2 || p.eng == 4) {
+            const float x1 = hw + (semi - hw) * (p.eng == 4 ? 0.30f : 0.31f);
+            nacelle(x1, yr + (x1 - hw * 0.5f) * sw - nl * 0.62f);
+            if (p.eng == 4) { const float x2 = hw + (semi - hw) * 0.60f; nacelle(x2, yr + (x2 - hw * 0.5f) * sw - nl * 0.62f); }
+        } else if (p.eng == -2) {
+            nacelle(hw + nd * 0.62f, L * 0.74f);
+        } else if (p.eng == 12) {
+            const float x1 = hw + (semi - hw) * 0.26f;
+            nacelle(x1, yr - nl * 0.55f);
+            dl->AddLine(P(s * x1 - nd * 1.5f, yr - nl * 0.55f), P(s * x1 + nd * 1.5f, yr - nl * 0.55f), shade2, 2.0f);   // propeller disc
+        }
+    }
+    if (p.eng == -1) dl->AddRectFilled(P(-p.fus * 0.22f, L * 0.62f), P(p.fus * 0.22f, L * 0.80f), shade2, p.fus * 0.22f * px);   // one engine on top
+    // fuselage: a rounded nose, a straight body and a tail cone
+    const float noseLen = p.fus * (prop ? 1.4f : 1.7f), tailLen = p.fus * (prop ? 3.4f : 3.0f);
+    const int N = 12;
+    dl->PathClear();
+    for (int i = 0; i <= N; ++i) { const float a = kPi * 0.5f * i / N; dl->PathLineTo(P(-hw * std::cos(a), noseLen * (1 - std::sin(a)))); }   // left side: body shoulder up to the tip
+    for (int i = N - 1; i >= 0; --i) { const float a = kPi * 0.5f * i / N; dl->PathLineTo(P(hw * std::cos(a), noseLen * (1 - std::sin(a)))); }  // tip down the right side
+    dl->PathLineTo(P(hw, L - tailLen));
+    dl->PathLineTo(P(hw * 0.22f, L));
+    dl->PathLineTo(P(-hw * 0.22f, L));
+    dl->PathLineTo(P(-hw, L - tailLen));
+    dl->PathFillConvex(col);
+    if (p.eng == 1) dl->AddLine(P(-p.span * 0.085f, 0.05f), P(p.span * 0.085f, 0.05f), shade2, 2.0f);   // the propeller
+    dl->AddLine(P(0, L - tailLen * 0.95f), P(0, L - 0.2f), shade2, std::max(1.5f, p.fus * 0.07f * px));   // the fin, seen edge-on
+    dl->AddLine(P(-hw * 0.55f, noseLen * 0.62f), P(hw * 0.55f, noseLen * 0.62f), shade2, 1.5f);          // the windscreen
+}
+
+// Where a ToLiss's doors are along the fuselage, as fractions of its length from the nose (cabin doors front to back, then the
+// cargo doors: forward, aft, bulk; all cargo doors are on the right).
+float paxDoorAt(int pair, int pairs) {
+    static const float two[2] = {0.135f, 0.845f}, four[4] = {0.115f, 0.355f, 0.600f, 0.865f}, three[3] = {0.125f, 0.50f, 0.855f};
+    if (pairs <= 2) return two[std::min(pair, 1)];
+    if (pairs == 3) return three[std::min(pair, 2)];
+    return four[std::min(pair, 3)];
+}
+const float kCargoAt[3] = {0.245f, 0.665f, 0.745f};
+
+void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const GroundState& g = s.ground;
+    const float top = kStatusH + kHeaderH + 10, bot = h - 12;
+    const float leftW = std::floor(w * 0.44f);
+    const bool gnd = g.onGround;
+    const PlaneSpec& spec = planeSpec(s.acfIcao);
+
+    // ---- the aircraft and its doors
+    const ImVec2 a(12, top), e(12 + leftW, bot);
+    card(dl, a, e, f, nullptr);
+    char b[96];
+    std::snprintf(b, sizeof b, "%s", s.acfIcao.empty() ? "AIRCRAFT" : s.acfIcao.c_str());
+    textAt(dl, f.small, a.x + 14, a.y + 10, kMuted, b);
+    std::snprintf(b, sizeof b, "%.1f m long  \xC2\xB7  %.1f m span", spec.len, spec.span);
+    textRight(dl, f.small, e.x - 14, a.y + 10, kMuted, b);
+    const bool doors = g.toliss && g.paxDoors > 0;
+    const float boxTop = a.y + 34, boxBot = e.y - (doors ? 46 : 14);
+    const float px = std::min((boxBot - boxTop) / spec.len, (leftW - (doors ? 70 : 40)) / spec.span);   // the door buttons sit at the card's edges, clear of the wings
+    const ImVec2 nose((a.x + e.x) * 0.5f, std::floor((boxTop + boxBot - spec.len * px) * 0.5f));
+    planeTopDown(dl, nose, px, spec, IM_COL32(200, 211, 230, 255), IM_COL32(120, 136, 164, 255));
+    const float hwPx = spec.fus * 0.5f * px;
+    if (doors) {
+        auto doorCol = [](int mode) { return mode == 2 ? kGood : mode == 1 ? IM_COL32(110, 170, 255, 255) : IM_COL32(120, 136, 164, 255); };
+        auto doorButton = [&](const char* id, const char* lbl, bool left, float frac, float bw, int mode, int action, int index) {
+            const float y = nose.y + frac * spec.len * px;
+            const float side = left ? nose.x - hwPx : nose.x + hwPx;
+            const float x = left ? a.x + 12 : e.x - 12 - bw;
+            // the door on the fuselage, a leader to its button, and the button: lit when the door is open
+            dl->AddRectFilled(ImVec2(side - (left ? 0 : 3), y - 4), ImVec2(side + (left ? 3 : 0), y + 4), doorCol(mode));
+            dl->AddLine(ImVec2(left ? x + bw : x, y), ImVec2(side, y), IM_COL32(255, 255, 255, 46), 1.0f);
+            dl->AddRectFilled(ImVec2(x, y - 12), ImVec2(x + bw, y + 12), IM_COL32(16, 30, 56, 255), 12.0f);
+            if (pill(dl, f, id, lbl, ImVec2(x, y - 12), ImVec2(x + bw, y + 12), mode == 2, gnd)) { act.ground = action; act.groundIndex = index; }
+            if (mode == 1) dl->AddCircleFilled(ImVec2(left ? x + bw - 8 : x + 8, y), 2.5f, doorCol(1), 8);   // armed for automatic opening
+        };
+        const int pairs = (g.paxDoors + 1) / 2;
+        for (int i = 0; i < g.paxDoors && i < 8; ++i) {
+            char id[16], lbl[8];
+            std::snprintf(id, sizeof id, "##pd%d", i);
+            std::snprintf(lbl, sizeof lbl, "%d%c", i / 2 + 1, (i % 2) == 0 ? 'L' : 'R');
+            doorButton(id, lbl, (i % 2) == 0, paxDoorAt(i / 2, pairs), 44, g.paxDoor[i], GA_PAX_DOOR, i);
+        }
+        // the cargo doors share the right side with the cabin doors: their buttons sit a little off the door's own height
+        // where a cabin door's button is in the way
+        const char* cargoName[3] = {"FWD cargo", "AFT cargo", "Bulk"};
+        const float nudge[3] = {0.0f, 0.0f, 0.012f};
+        for (int i = 0; i < g.cargoDoors && i < 3; ++i) {
+            char id[16];
+            std::snprintf(id, sizeof id, "##cd%d", i);
+            doorButton(id, cargoName[i], false, kCargoAt[i] + nudge[i], i == 2 ? 50.0f : 80.0f, g.cargoDoor[i], GA_CARGO_DOOR, i);
+        }
+        const float by = e.y - 38, bw = (leftW - 28 - 8) * 0.5f;
+        if (pill(dl, f, "##dclose", "Close all doors", ImVec2(a.x + 14, by), ImVec2(a.x + 14 + bw, by + 26), false, gnd)) act.ground = GA_DOORS_CLOSE;
+        if (pill(dl, f, "##dauto", "All doors automatic", ImVec2(a.x + 22 + bw, by), ImVec2(a.x + 22 + 2 * bw, by + 26), false, gnd)) act.ground = GA_DOORS_AUTO;
+    }
+
+    // ---- the services
+    const float rx = e.x + 10, rw = w - 12 - rx;
+    card(dl, ImVec2(rx, top), ImVec2(rx + rw, bot), f, "SERVICES");
+    float y = top + 32;
+    const int rows = g.toliss ? (g.deice ? 7 : 6) : 4;
+    const float rowH = std::min(50.0f, std::floor((bot - 12 - y) / rows)), bx1 = rx + rw - 14, bh = std::min(28.0f, rowH - 14);
+    auto rowLabel = [&](const char* name, const char* state, ImU32 stateCol, bool lit) {
+        dl->AddCircleFilled(ImVec2(rx + 20, y + rowH * 0.5f - 2), 4.0f, lit ? kGood : IM_COL32(255, 255, 255, 40), 12);   // a lamp: lit when connected
+        textAt(dl, f.bold, rx + 34, y + rowH * 0.5f - 19, kInk, name);
+        if (state && *state) textAt(dl, f.small, rx + 34, y + rowH * 0.5f, stateCol, state);
+    };
+    auto btn = [&](const char* id, const char* label, float right, float width, bool on, bool enabled) {
+        const float by = y + (rowH - 4 - bh) * 0.5f;
+        return pill(dl, f, id, label, ImVec2(right - width, by), ImVec2(right, by + bh), on, enabled);
+    };
+    auto rowEnd = [&]() { y += rowH; dl->AddLine(ImVec2(rx + 14, y - 3), ImVec2(rx + rw - 14, y - 3), IM_COL32(255, 255, 255, 18)); };
+    {   // jetway
+        const bool docked = g.openSam && g.jetway == 2;
+        const char* st = !g.openSam ? "X-Plane's own jetways" : docked ? "Connected" : g.jetway == 1 ? "Ready to connect" : g.jetway == 0 ? "No jetway at this stand" : "Moving";
+        rowLabel("Jetway", st, docked ? kGood : kMuted, docked);
+        if (btn("##jw", docked ? "Disconnect" : "Connect", bx1, 104, docked, gnd && (!g.openSam || g.jetway == 1 || g.jetway == 2))) act.ground = GA_JETWAY;
+        rowEnd();
+    }
+    {   // ground power
+        rowLabel("Ground power", g.toliss ? (g.extPower ? "Connected" : "Not connected") : "Ask the ground crew", g.toliss && g.extPower ? kGood : kMuted, g.toliss && g.extPower);
+        if (btn("##gpu", g.toliss ? (g.extPower ? "Remove" : "Connect") : "Request", bx1, 104, g.toliss && g.extPower, gnd)) act.ground = GA_GPU;
+        rowEnd();
+    }
+    if (g.toliss) {   // chocks, ground air and de-icing: where the aircraft lets them be set
+        rowLabel("Chocks", g.chocks ? "In place" : "Removed", g.chocks ? kGood : kMuted, g.chocks);
+        if (btn("##chk", g.chocks ? "Remove" : "Set", bx1, 104, g.chocks, gnd)) act.ground = GA_CHOCKS;
+        rowEnd();
+        rowLabel("Ground air", g.hpAir || g.lpAir ? "Connected" : "Not connected", g.hpAir || g.lpAir ? kGood : kMuted, g.hpAir || g.lpAir);
+        if (btn("##hp", "HP start", bx1 - 84, 78, g.hpAir, gnd)) act.ground = GA_HP_AIR;
+        if (btn("##lp", "LP cond", bx1, 78, g.lpAir, gnd)) act.ground = GA_LP_AIR;
+        rowEnd();
+        if (g.deice) {
+            rowLabel("De-icing", "The trucks spray, or done at once", kMuted, false);
+            if (btn("##di", "Trucks", bx1 - 84, 78, false, gnd)) act.ground = GA_DEICE;
+            if (btn("##diq", "Instant", bx1, 78, false, gnd)) act.ground = GA_DEICE_QUICK;
+            rowEnd();
+        }
+    }
+    {   // service vehicles
+        rowLabel("Service vehicles", g.toliss ? "Stairs, catering and loaders come with the doors" : "Fuel, catering, baggage (X-Plane's trucks)", kMuted, false);
+        if (btn("##trk", g.toliss ? "X-Plane's" : "Call", bx1, 104, false, gnd)) act.ground = GA_TRUCKS;
+        rowEnd();
+    }
+    {   // pushback
+        rowLabel("Pushback", "X-Plane's tug", kMuted, false);
+        const float bw = 54;
+        const char* names[4] = {"Left", "Back", "Right", "Stop"};
+        const int acts[4] = {GA_PUSH_LEFT, GA_PUSH_STRAIGHT, GA_PUSH_RIGHT, GA_PUSH_STOP};
+        for (int i = 0; i < 4; ++i) {
+            char id[8];
+            std::snprintf(id, sizeof id, "##pb%d", i);
+            if (btn(id, names[i], bx1 - (3 - i) * (bw + 5), bw, false, gnd)) act.ground = acts[i];
+        }
+        rowEnd();
+    }
+    if (!gnd) textCentered(dl, f.small, rx + rw * 0.5f, top + 10, kWarn, "Ground services are available on the ground.");
+}
+
+// Weather: WXPlane's own screen when WXPlane is installed (it draws itself into the page: the host passes the area on), otherwise
+// a note until the built-in weather map exists.
+void weatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const float top = kStatusH + kHeaderH;
+    const ImVec2 c(w * 0.5f, top + (h - top) * 0.42f);
+    if (!s.wxPlane) { simWeatherPage(dl, f, s, w, h, act); return; }
+    // WXPlane is asked to draw here every frame, whatever its version: nothing is checked beforehand. The note below is only what
+    // is left on the page while it has not drawn (it draws over it).
     dl->AddRectFilled(ImVec2(0, top), ImVec2(w, h), IM_COL32(18, 20, 26, 255));
-    if (s.wxEmbed == 0) textCentered(dl, f.body, c.x, c.y, IM_COL32(190, 200, 220, 255), "Opening WXPlane...");
+    if (s.wxEmbed != 1) textCentered(dl, f.body, c.x, c.y, IM_COL32(190, 200, 220, 255), s.wxEmbed == 0 ? "Opening WXPlane..." : "Waiting for WXPlane to draw here (the installed WXPlane has not answered).");
     ImGui::SetCursorScreenPos(ImVec2(0, top));
     ImGui::InvisibleButton("##wxplane", ImVec2(w, h - top));   // the pointer here belongs to WXPlane
     const ImGuiIO& io = ImGui::GetIO();
@@ -475,15 +928,18 @@ void weatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
 void sectionTitle(const Fonts& f, const char* t) { ImGui::PushFont(f.bold); ImGui::TextUnformatted(t); ImGui::PopFont(); }
 
 void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    (void)act;
     const float top = kStatusH + kHeaderH;
     const float colW = std::floor(w * 0.5f) - 24;
     ImGui::SetCursorScreenPos(ImVec2(18, top + 12));
     ImGui::BeginChild("##settings", ImVec2(colW, h - top - 24), 0, ImGuiWindowFlags_NoBackground);
     sharp(ImGui::GetWindowDrawList());
     sectionTitle(f, "Display");
-    float br = s.brightness;
+    // The tablet's own brightness, kept in the settings. The aircraft has a say too (its tablet's brightness knob writes
+    // avitab/brightness every frame, which is why a slider on that value alone would not move): the screen shows the two multiplied.
+    float br = std::max(0.1f, std::min(1.0f, g_settings.brightness));
     ImGui::SetNextItemWidth(-1);
-    if (ImGui::SliderFloat("##brightness", &br, 0.1f, 1.0f, "Brightness %.2f")) { act.setBrightness = true; act.brightness = br; }
+    if (ImGui::SliderFloat("##brightness", &br, 0.1f, 1.0f, "Brightness %.2f")) { g_settings.brightness = br; g_settingsChanged = true; }
     int slots = favSlots();   // snaps to whole numbers; 0 takes the bar away
     ImGui::SetNextItemWidth(-1);
     if (ImGui::SliderInt("##favorites", &slots, 0, kMaxFavorites, slots == 0 ? "Favorites bar off" : "Favorites bar %d") && slots != favSlots()) {
@@ -543,6 +999,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     dl->AddRectFilled(a, b, IM_COL32(0, 0, 0, 80), 10.0f);
     dl->AddRect(a, b, IM_COL32(255, 255, 255, 40), 10.0f);
     ImGui::SetCursorScreenPos(a);
+    ImGui::SetNextItemAllowOverlap();   // the Clear button lies inside this area: without this the area took its presses
     ImGui::InvisibleButton("##touch", ImVec2(b.x - a.x, b.y - a.y));
     if (ImGui::IsItemActive()) {
         const ImVec2 m = ImGui::GetIO().MousePos;
@@ -618,6 +1075,8 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     if (g_app == APP_PERFORMANCE && g_ownPerformance) g_app = APP_HOME;
     g_px = std::max(1.0f, s.pixelScale);
     g_embed = EmbedArea();
+    g_wx = s.wxPlane;
+    g_wxLogo = f.wxLogo;
     ImGuiStyle& st = ImGui::GetStyle();
     st.CircleTessellationMaxError = 0.30f / g_px;   // curves are as smooth on a dense screen as on a plain one
     st.CurveTessellationTol = 1.25f / g_px;
@@ -633,7 +1092,8 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         if (pageHeader(dl, f, w, app == APP_BROWSER ? g_site.c_str() : appName(app))) g_app = APP_HOME;
         if (app == APP_SETTINGS) settingsPage(dl, f, s, w, h, act);
         else if (app == APP_BROWSER) browserPage(dl, f, w, h);
-        else if (app == APP_WEATHER) weatherPage(dl, f, s, w, h);
+        else if (app == APP_WEATHER) weatherPage(dl, f, s, w, h, act);
+        else if (app == APP_GROUND) groundPage(dl, f, s, w, h, act);
         else placeholderPage(dl, f, app, w, h);
     }
     ImGui::End();
@@ -641,6 +1101,8 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
 }
 
 int currentApp() { return g_app; }
+const unsigned char* wxLogoPixels(unsigned int& bytes) { bytes = xpt_asset_wxlogo_size; return xpt_asset_wxlogo; }
+int touchTestCount() { return (int)g_touches.size(); }
 const EmbedArea& embedArea() { return g_embed; }
 const char* browserUrl() { return g_url.c_str(); }
 bool browserChrome() { return g_chrome; }
@@ -648,6 +1110,7 @@ bool browserChrome() { return g_chrome; }
 const char* appName(int app) {
     if (app == APP_CHARTS) return kChartNames[chartsP()];
     if (app == APP_LIVEMAP) return kLiveNames[liveP()];
+    if (app == APP_WEATHER && g_wx) return "WXPlane";
     return (app >= 0 && app < APP_COUNT) ? kApps[app].name : "Home";
 }
 
@@ -678,7 +1141,7 @@ bool takeSettingsChanged() { const bool c = g_settingsChanged; g_settingsChanged
 std::string settingsToText() {
     normalizeLayout();
     char buf[256];
-    std::snprintf(buf, sizeof buf, "charts_provider=%d\nlive_provider=%d\nfavorite_slots=%d\nshow_charts=%d\nshow_simbrief=%d\nshow_live=%d\nshow_foreflight=%d\n", chartsP(), liveP(), favSlots(), g_settings.showCharts ? 1 : 0,
+    std::snprintf(buf, sizeof buf, "charts_provider=%d\nlive_provider=%d\nfavorite_slots=%d\nbrightness=%.2f\nshow_charts=%d\nshow_simbrief=%d\nshow_live=%d\nshow_foreflight=%d\n", chartsP(), liveP(), favSlots(), (double)std::max(0.1f, std::min(1.0f, g_settings.brightness)), g_settings.showCharts ? 1 : 0,
                   g_settings.showSimbrief ? 1 : 0, g_settings.showLive ? 1 : 0, g_settings.showForeflight ? 1 : 0);
     std::string out = buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
@@ -717,6 +1180,7 @@ void settingsFromText(const std::string& text) {
         if (key == "charts_provider") g_settings.chartsProvider = v == 1 ? 1 : 0;
         else if (key == "live_provider") g_settings.liveProvider = v == 1 ? 1 : 0;
         else if (key == "favorite_slots") g_settings.favoriteSlots = std::max(0, std::min(kMaxFavorites, v));
+        else if (key == "brightness") g_settings.brightness = std::max(0.1f, std::min(1.0f, (float)std::atof(val.c_str())));
         else if (key == "show_charts") g_settings.showCharts = v != 0;
         else if (key == "show_simbrief") g_settings.showSimbrief = v != 0;
         else if (key == "show_live") g_settings.showLive = v != 0;

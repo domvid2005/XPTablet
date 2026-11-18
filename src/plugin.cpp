@@ -27,6 +27,8 @@
 
 #include "imgui.h"
 #include "json_mini.h"
+#include "http.h"
+#include "metarfetch.h"
 #include "tabletui.h"
 #include "tabrender.h"
 #include "version.h"
@@ -151,6 +153,18 @@ float g_winOx = 0, g_winOy = 0;
 
 XPLMDataRef g_drClickX = nullptr, g_drClickY = nullptr, g_drZulu = nullptr, g_drIcao = nullptr, g_drVr = nullptr, g_drUiScale = nullptr, g_drBus = nullptr;
 float g_battery = 100.0f;            // the tablet's own battery, percent
+int g_wxLogoTex = 0;                 // the WXPlane icon's picture
+xpt::Actions g_pendingGround;        // a press on the Ground page, waiting for the flight loop
+
+// X-Plane's weather at the aircraft, the ground services and the ToLiss doors: looked up once, read in the flight loop
+struct SimRefs {
+    XPLMDataRef windDir = nullptr, windMs = nullptr, vis = nullptr, temp = nullptr, dew = nullptr, qnh = nullptr, rain = nullptr, alt = nullptr;
+    XPLMDataRef cBase = nullptr, cTop = nullptr, cCover = nullptr, aAlt = nullptr, aDir = nullptr, aKt = nullptr, onGround = nullptr;
+    XPLMDataRef jwStatus = nullptr;                                    // openSAM
+    XPLMDataRef paxDoor = nullptr, cargoDoor = nullptr, chocks = nullptr, extPower = nullptr, hpAir = nullptr, lpAir = nullptr;   // ToLiss
+    bool probed = false;                                               // what the ToLiss offers has been written to Log.txt
+    bool found = false;
+} g_refs;
 std::vector<XPLMDataRef> g_ownedRefs;
 struct Cmd { XPLMCommandRef ref; int id; };
 std::vector<Cmd> g_cmds;
@@ -159,6 +173,18 @@ int g_menuItem = -1;
 XPLMFlightLoopID g_loop = nullptr;
 
 bool panelActive() { return g_ownsAviTab && g_panelEnabled != 0 && g_panelWidth > 0 && g_panelHeight > 0; }
+
+// Where the tablet's picture goes inside the aircraft's rectangle. AviTab's picture is 800 x 480 and is centred in the rectangle at
+// that shape, and aircraft are drawn around exactly that (the ToLiss A320 reserves 1024 x 640 and AviTab fills 1024 x 614 of it; its
+// own menu strip meets that picture's top edge). Filling the whole rectangle put our top rows under the aircraft's own artwork.
+constexpr float kPanelAspect = 800.0f / 480.0f;
+void panelPicture(float& l, float& b, float& w, float& h) {
+    const float rw = (float)g_panelWidth, rh = (float)g_panelHeight;
+    if (rw / rh > kPanelAspect) { h = rh; w = std::floor(rh * kPanelAspect); }
+    else { w = rw; h = std::floor(rw / kPanelAspect); }
+    l = (float)g_panelLeft + std::floor((rw - w) * 0.5f);
+    b = (float)g_panelBottom + std::floor((rh - h) * 0.5f);
+}
 
 // ---- the cockpit tablet's place: AviTab.json in the aircraft folder ------------------------------------------------------------------
 std::string aircraftDir() {
@@ -246,9 +272,11 @@ void loadAircraftConfig() {
 bool panelPointer(float& x, float& y) {
     if (!panelActive() || !g_panelPowered || !g_drClickX || !g_drClickY) return false;
     const float cx = XPLMGetDataf(g_drClickX), cy = XPLMGetDataf(g_drClickY);
-    if (cx < g_panelLeft || cx > g_panelLeft + g_panelWidth || cy < g_panelBottom || cy > g_panelBottom + g_panelHeight) return false;
-    x = (cx - g_panelLeft) / g_panelWidth * g_logW;
-    y = (g_panelBottom + g_panelHeight - cy) / g_panelHeight * xpt::kLogicalH;
+    float l, b, w, h;
+    panelPicture(l, b, w, h);
+    if (cx < l || cx > l + w || cy < b || cy > b + h) return false;
+    x = (cx - l) / w * g_logW;
+    y = (b + h - cy) / h * xpt::kLogicalH;
     return true;
 }
 
@@ -270,6 +298,25 @@ void buildFonts(float scale) {
     gl.TexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
     io.Fonts->SetTexID((ImTextureID)(intptr_t)g_fontTex);
     io.Fonts->ClearTexData();
+    if (!g_wxLogoTex) {   // the WXPlane icon's picture, with its smaller copies (trilinear: clean at any icon size)
+        unsigned int bytes = 0;
+        const unsigned char* px = xpt::wxLogoPixels(bytes);
+        XPLMGenerateTextureNumbers(&g_wxLogoTex, 1);
+        XPLMBindTexture2d(g_wxLogoTex, 0);
+        int level = 0, last = 0;
+        size_t off = 0;
+        for (int n = 256; n >= 1 && off + (size_t)n * n * 4 <= bytes; n /= 2, ++level) {
+            gl.TexImage2D(GL_TEXTURE_2D, level, (GLint)GL_RGBA, n, n, 0, GL_RGBA, GL_UNSIGNED_BYTE, px + off);
+            off += (size_t)n * n * 4;
+            last = level;
+        }
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, 0x2703 /* GL_LINEAR_MIPMAP_LINEAR */);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_CLAMP_TO_EDGE);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_CLAMP_TO_EDGE);
+        gl.TexParameteri(GL_TEXTURE_2D, 0x813D /* GL_TEXTURE_MAX_LEVEL */, last);
+    }
+    g_fonts.wxLogo = (ImTextureID)(intptr_t)g_wxLogoTex;
     g_fontScale = scale;
 }
 
@@ -291,7 +338,7 @@ void ensureFrame() {
     float ww = 800, wh = 480;
     if (winShown) windowLayout(ww, wh);
     float aspect;
-    if (panelActive()) aspect = (float)g_panelWidth / (float)g_panelHeight;
+    if (panelActive()) aspect = kPanelAspect;   // AviTab's shape, whatever the rectangle's
     else aspect = ww / wh;
     g_logW = xpt::kLogicalH * std::max(0.6f, std::min(2.6f, aspect));
     if (winShown) {
@@ -301,7 +348,7 @@ void ensureFrame() {
     }
     // pixels per layout unit, for crisp text: the larger of the two surfaces
     float need = 1.0f;
-    if (panelActive()) need = std::max(need, (float)g_panelHeight / xpt::kLogicalH);
+    if (panelActive()) { float pl, pb, pw, ph; panelPicture(pl, pb, pw, ph); need = std::max(need, ph / xpt::kLogicalH); }
     if (winShown) need = std::max(need, g_winScale * (g_drUiScale ? std::max(1.0f, XPLMGetDataf(g_drUiScale)) : 1.0f));
     need = std::max(1.0f, std::min(3.0f, need));
     if (g_fontScale <= 0 || std::fabs(need - g_fontScale) > 0.08f * g_fontScale) buildFonts(need);
@@ -333,7 +380,8 @@ void ensureFrame() {
     xpt::build(g_fonts, g_sim, g_logW, xpt::kLogicalH, act);
     ImGui::Render();
     xpt::clipDrawData(ImGui::GetDrawData(), g_batches);
-    if (act.setBrightness) g_brightness = std::max(0.1f, std::min(1.0f, act.brightness));
+    if (!act.metarSearch.empty()) { xpt::metarRequest(act.metarSearch); g_sim.metar = xpt::MetarLookup(); g_sim.metar.icao = act.metarSearch; g_sim.metar.busy = true; }
+    if (act.ground != xpt::GA_NONE) g_pendingGround = act;   // carried out from the flight loop, not from inside drawing
 }
 
 // Draws the frame with its top-left corner at (left, top) and sx/sy screen units per layout unit (y up on screen).
@@ -408,21 +456,25 @@ void fillRect(float l, float b, float r, float t, float red, float green, float 
     gl.Color4f(1, 1, 1, 1);
 }
 
+float userBrightness() { return std::max(0.1f, std::min(1.0f, xpt::settings().brightness)); }
+
 // ---- the cockpit tablet ---------------------------------------------------------------------------------------------------------------
 // Runs while X-Plane draws the 3-D cockpit's panel texture: the coordinates are that texture's pixels, origin bottom-left.
 int drawPanel(XPLMDrawingPhase, int, void*) {
     if (!panelActive() || !g_ctx || !loadGl()) return 1;
-    const float l = (float)g_panelLeft, b = (float)g_panelBottom, w = (float)g_panelWidth, h = (float)g_panelHeight;
+    float l, b, w, h;
+    panelPicture(l, b, w, h);
     if (!g_panelPowered) { fillRect(l, b, l + w, b + h, 0, 0, 0); return 1; }
     ensureFrame();
-    if (g_brightness < 0.999f) {
+    const float bright = g_brightness * userBrightness();   // the aircraft's knob times the Settings slider
+    if (bright < 0.999f) {
         std::vector<xpt::Batch> dim = g_batches;
-        xpt::scaleColors(dim, g_brightness);
+        xpt::scaleColors(dim, bright);
         drawBatches(dim, l, b + h, w / g_logW, h / xpt::kLogicalH);
     } else {
         drawBatches(g_batches, l, b + h, w / g_logW, h / xpt::kLogicalH);
     }
-    drawEmbedded(l, b + h, w / g_logW, h / xpt::kLogicalH, 1.0f, g_brightness);
+    drawEmbedded(l, b + h, w / g_logW, h / xpt::kLogicalH, 1.0f, bright);
     return 1;
 }
 
@@ -505,8 +557,15 @@ void winDraw(XPLMWindowID w, void*) {
     int l = 0, t = 0, r = 0, b = 0;
     XPLMGetWindowGeometry(w, &l, &t, &r, &b);
     fillRect((float)l, (float)b, (float)r, (float)t, 0, 0, 0);
-    drawBatches(g_batches, (float)l + g_winOx, (float)t - g_winOy, g_winScale, g_winScale);
-    drawEmbedded((float)l + g_winOx, (float)t - g_winOy, g_winScale, g_winScale, g_drUiScale ? std::max(1.0f, XPLMGetDataf(g_drUiScale)) : 1.0f, 1.0f);
+    const float bright = userBrightness();   // the window has no aircraft knob: the Settings slider alone
+    if (bright < 0.999f) {
+        std::vector<xpt::Batch> dim = g_batches;
+        xpt::scaleColors(dim, bright);
+        drawBatches(dim, (float)l + g_winOx, (float)t - g_winOy, g_winScale, g_winScale);
+    } else {
+        drawBatches(g_batches, (float)l + g_winOx, (float)t - g_winOy, g_winScale, g_winScale);
+    }
+    drawEmbedded((float)l + g_winOx, (float)t - g_winOy, g_winScale, g_winScale, g_drUiScale ? std::max(1.0f, XPLMGetDataf(g_drUiScale)) : 1.0f, bright);
 }
 int winClick(XPLMWindowID, int x, int y, XPLMMouseStatus status, void*) {
     if (!g_ctx) return 1;
@@ -669,7 +728,170 @@ void registerCommands(const std::string& p) {
 
 void menuHandler(void*, void*) { toggleWindow(); }
 
+void findSimRefs() {
+    SimRefs& r = g_refs;
+    if (!r.found) {
+        r.found = true;
+        r.windDir = XPLMFindDataRef("sim/weather/aircraft/wind_now_direction_degt");
+        r.windMs = XPLMFindDataRef("sim/weather/aircraft/wind_now_speed_msc");
+        r.vis = XPLMFindDataRef("sim/weather/aircraft/visibility_reported_sm");
+        r.temp = XPLMFindDataRef("sim/weather/aircraft/temperature_ambient_deg_c");
+        r.dew = XPLMFindDataRef("sim/weather/aircraft/dewpoint_deg_c");
+        r.qnh = XPLMFindDataRef("sim/weather/aircraft/qnh_pas");
+        r.rain = XPLMFindDataRef("sim/weather/aircraft/precipitation_on_aircraft_ratio");
+        r.alt = XPLMFindDataRef("sim/flightmodel/position/elevation");
+        r.cBase = XPLMFindDataRef("sim/weather/aircraft/cloud_base_msl_m");
+        r.cTop = XPLMFindDataRef("sim/weather/aircraft/cloud_tops_msl_m");
+        r.cCover = XPLMFindDataRef("sim/weather/aircraft/cloud_coverage_percent");
+        r.aAlt = XPLMFindDataRef("sim/weather/aircraft/wind_altitude_msl_m");
+        r.aDir = XPLMFindDataRef("sim/weather/aircraft/wind_direction_degt");
+        r.aKt = XPLMFindDataRef("sim/weather/aircraft/wind_speed_kts");
+        r.onGround = XPLMFindDataRef("sim/flightmodel/failures/onground_any");
+    }
+    // other plugins' datarefs appear when they load (an aircraft's own plugin after the aircraft): looked for until found
+    if (!r.jwStatus) r.jwStatus = XPLMFindDataRef("opensam/jetway/status");
+    if (!r.paxDoor) r.paxDoor = XPLMFindDataRef("AirbusFBW/PaxDoorModeArray");
+    if (!r.cargoDoor) r.cargoDoor = XPLMFindDataRef("AirbusFBW/CargoDoorModeArray");
+    if (!r.chocks) r.chocks = XPLMFindDataRef("AirbusFBW/Chocks");
+    if (!r.extPower) r.extPower = XPLMFindDataRef("AirbusFBW/EnableExternalPower");
+    if (!r.hpAir) r.hpAir = XPLMFindDataRef("AirbusFBW/GroundHPAir");
+    if (!r.lpAir) r.lpAir = XPLMFindDataRef("AirbusFBW/GroundLPAir");
+}
+
+// Something another plugin offers under this name: a command, or a dataref to set to 1. True when it was there.
+bool trigger(const char* name) {
+    if (const XPLMCommandRef c = XPLMFindCommand(name)) { XPLMCommandOnce(c); return true; }
+    if (const XPLMDataRef d = XPLMFindDataRef(name)) {
+        if (!XPLMCanWriteDataRef(d)) { logMsg("%s is a read-only dataref", name); return false; }
+        if (XPLMGetDataRefTypes(d) & xplmType_Int) XPLMSetDatai(d, 1); else XPLMSetDataf(d, 1.0f);
+        return true;
+    }
+    logMsg("%s: neither a command nor a dataref", name);
+    return false;
+}
+bool offered(const char* name) { return XPLMFindCommand(name) != nullptr || XPLMFindDataRef(name) != nullptr; }
+
+// Once per ToLiss aircraft: what its plugin offers for the Ground page, in Log.txt, so a wrong guess shows up there.
+void probeToLiss() {
+    auto describe = [](const char* name) {
+        const XPLMDataRef d = XPLMFindDataRef(name);
+        if (XPLMFindCommand(name)) { logMsg("ToLiss: %s is a command", name); return; }
+        if (!d) { logMsg("ToLiss: %s not found", name); return; }
+        const int t = XPLMGetDataRefTypes(d);
+        const int n = (t & xplmType_IntArray) ? XPLMGetDatavi(d, nullptr, 0, 0) : (t & xplmType_FloatArray) ? XPLMGetDatavf(d, nullptr, 0, 0) : 1;
+        logMsg("ToLiss: %s is %s%s%s%s, %d value(s), %s", name, (t & xplmType_Int) ? "int " : "", (t & xplmType_Float) ? "float " : "", (t & xplmType_IntArray) ? "int[] " : "",
+               (t & xplmType_FloatArray) ? "float[] " : "", n, XPLMCanWriteDataRef(d) ? "writable" : "read-only");
+    };
+    for (const char* n : {"AirbusFBW/PaxDoorModeArray", "AirbusFBW/CargoDoorModeArray", "AirbusFBW/BulkDoor", "AirbusFBW/Chocks", "AirbusFBW/EnableExternalPower",
+                          "toliss_airbus/iscsinterface/animatedDeice", "toliss_airbus/iscsinterface/quickDeice", "toliss_airbus/door_commands/all_to_mode_close",
+                          "toliss_airbus/door_commands/all_to_mode_auto"})
+        describe(n);
+}
+
+// The built-in Weather page's numbers and the Ground page's state. A few times a second is plenty.
+void readSimState() {
+    const SimRefs& r = g_refs;
+    const float mToFt = 3.28084f;
+    xpt::SimWeather& x = g_sim.wx;
+    x.valid = r.windDir && r.windMs && r.qnh && r.temp;
+    if (x.valid) {
+        x.windDir = XPLMGetDataf(r.windDir);
+        x.windKt = XPLMGetDataf(r.windMs) * 1.943844f;
+        x.visSm = r.vis ? XPLMGetDataf(r.vis) : 10.0f;
+        x.tempC = XPLMGetDataf(r.temp);
+        x.qnhHpa = XPLMGetDataf(r.qnh) / 100.0f;
+        x.rain = r.rain ? XPLMGetDataf(r.rain) : 0.0f;
+        x.altFt = r.alt ? (float)XPLMGetDatad(r.alt) * mToFt : 0.0f;
+        float base[3] = {0, 0, 0}, topm[3] = {0, 0, 0}, cov[3] = {0, 0, 0};
+        if (r.cBase) XPLMGetDatavf(r.cBase, base, 0, 3);
+        if (r.cTop) XPLMGetDatavf(r.cTop, topm, 0, 3);
+        if (r.cCover) XPLMGetDatavf(r.cCover, cov, 0, 3);
+        x.clouds = 0;
+        for (int i = 0; i < 3; ++i)
+            if (cov[i] >= 0.06f && topm[i] > base[i]) { x.cloudBaseFt[x.clouds] = base[i] * mToFt; x.cloudTopFt[x.clouds] = topm[i] * mToFt; x.cloudCover[x.clouds] = cov[i]; ++x.clouds; }
+        float alt[13] = {}, dir[13] = {}, kt[13] = {}, dews[13] = {};
+        const int n = (r.aAlt && r.aDir && r.aKt) ? std::min({XPLMGetDatavf(r.aAlt, alt, 0, 13), XPLMGetDatavf(r.aDir, dir, 0, 13), XPLMGetDatavf(r.aKt, kt, 0, 13)}) : 0;
+        x.aloft = 0;
+        for (int i = 0; i < n && i < 13; ++i) { x.aloftFt[x.aloft] = alt[i] * mToFt; x.aloftDir[x.aloft] = dir[i]; x.aloftKt[x.aloft] = kt[i]; ++x.aloft; }
+        // the dew point comes in layers too: the one nearest the aircraft
+        x.dewC = x.tempC;
+        if (r.dew && n > 0 && XPLMGetDatavf(r.dew, dews, 0, 13) >= n) {
+            int best = 0;
+            for (int i = 1; i < n; ++i) if (std::fabs(alt[i] * mToFt - x.altFt) < std::fabs(alt[best] * mToFt - x.altFt)) best = i;
+            x.dewC = std::min(x.tempC, dews[best]);
+        }
+    }
+    xpt::GroundState& g = g_sim.ground;
+    g.onGround = !r.onGround || XPLMGetDatai(r.onGround) != 0;
+    g.openSam = XPLMFindCommand("openSAM/toggle_jwy") != nullptr && r.jwStatus != nullptr;
+    g.jetway = g.openSam ? XPLMGetDatai(r.jwStatus) : 0;
+    g.toliss = g_sim.toliss && r.paxDoor != nullptr;
+    g.paxDoors = g.cargoDoors = 0;
+    if (g.toliss) {
+        // the arrays are as long as the largest ToLiss needs: the A319/A320 have two pairs of cabin doors, the A321 four
+        const int have = XPLMGetDatavi(r.paxDoor, nullptr, 0, 0);
+        const bool long321 = g_sim.acfIcao.compare(0, 3, "A21") == 0 || g_sim.acfIcao == "A321";
+        g.paxDoors = std::min(have, long321 ? 8 : 4);
+        XPLMGetDatavi(r.paxDoor, g.paxDoor, 0, g.paxDoors);
+        if (r.cargoDoor) { g.cargoDoors = std::min(XPLMGetDatavi(r.cargoDoor, nullptr, 0, 0), 3); XPLMGetDatavi(r.cargoDoor, g.cargoDoor, 0, g.cargoDoors); }   // forward, aft, bulk
+        g.deice = offered("toliss_airbus/iscsinterface/animatedDeice") || offered("toliss_airbus/iscsinterface/quickDeice");
+        if (!g_refs.probed) { g_refs.probed = true; probeToLiss(); }
+        g.chocks = r.chocks && XPLMGetDatai(r.chocks) != 0;
+        g.extPower = r.extPower && XPLMGetDatai(r.extPower) != 0;
+        g.hpAir = r.hpAir && XPLMGetDatai(r.hpAir) != 0;
+        g.lpAir = r.lpAir && XPLMGetDatai(r.lpAir) != 0;
+    }
+}
+
+void once(const char* cmd) {
+    const XPLMCommandRef c = XPLMFindCommand(cmd);
+    if (c) XPLMCommandOnce(c); else logMsg("command %s not found", cmd);
+}
+void toggleInt(XPLMDataRef ref) { if (ref) XPLMSetDatai(ref, XPLMGetDatai(ref) ? 0 : 1); }
+
+// What was pressed on the Ground page.
+void doGround(const xpt::Actions& act) {
+    const SimRefs& r = g_refs;
+    const xpt::GroundState& g = g_sim.ground;
+    switch (act.ground) {
+    case xpt::GA_JETWAY: once(g.openSam ? "openSAM/toggle_jwy" : "sim/ground_ops/jetway"); break;
+    case xpt::GA_GPU: if (g.toliss && r.extPower) toggleInt(r.extPower); else once("sim/ground_ops/toggle_gpu_request"); break;
+    case xpt::GA_CHOCKS: if (g.toliss) toggleInt(r.chocks); break;
+    case xpt::GA_HP_AIR: if (g.toliss) toggleInt(r.hpAir); break;
+    case xpt::GA_LP_AIR: if (g.toliss) toggleInt(r.lpAir); break;
+    case xpt::GA_TRUCKS: once("sim/ground_ops/service_plane"); break;
+    case xpt::GA_PUSH_LEFT: once("sim/ground_ops/pushback_left"); break;
+    case xpt::GA_PUSH_STRAIGHT: once("sim/ground_ops/pushback_straight"); break;
+    case xpt::GA_PUSH_RIGHT: once("sim/ground_ops/pushback_right"); break;
+    case xpt::GA_PUSH_STOP: once("sim/ground_ops/pushback_stop"); break;
+    case xpt::GA_DOORS_CLOSE: if (g.toliss) trigger("toliss_airbus/door_commands/all_to_mode_close"); break;
+    case xpt::GA_DOORS_AUTO: if (g.toliss) trigger("toliss_airbus/door_commands/all_to_mode_auto"); break;
+    case xpt::GA_DEICE: if (g.toliss) trigger("toliss_airbus/iscsinterface/animatedDeice"); break;
+    case xpt::GA_DEICE_QUICK: if (g.toliss) trigger("toliss_airbus/iscsinterface/quickDeice"); break;
+    case xpt::GA_PAX_DOOR:
+    case xpt::GA_CARGO_DOOR: {   // ToLiss door modes: 0 closed, 1 automatic, 2 open
+        const bool pax = act.ground == xpt::GA_PAX_DOOR;
+        const XPLMDataRef ref = pax ? r.paxDoor : r.cargoDoor;
+        const int n = pax ? g.paxDoors : g.cargoDoors, i = act.groundIndex;
+        if (!g.toliss || !ref || i < 0 || i >= n) break;
+        int v = (pax ? g.paxDoor[i] : g.cargoDoor[i]) == 2 ? 0 : 2;
+        XPLMSetDatavi(ref, &v, i, 1);
+        logMsg("%s door %d: mode %d", pax ? "cabin" : "cargo", i, v);
+        break;
+    }
+    default: break;
+    }
+}
+
 float flightLoop(float dt, float, int, void*) {
+    findSimRefs();
+    if ((XPLMGetCycleNumber() & 7) == 0) readSimState();
+    {   // the METAR search's answer
+        xpt::MetarAnswer a;
+        if (xpt::metarPoll(a)) { g_sim.metar.busy = false; g_sim.metar.icao = a.icao; g_sim.metar.raw = a.raw; g_sim.metar.error = a.error; }
+        else g_sim.metar.busy = xpt::metarBusy();
+    }
+    if (g_pendingGround.ground != xpt::GA_NONE) { doGround(g_pendingGround); g_pendingGround = xpt::Actions(); readSimState(); }
     // The battery: fed while any of the aircraft's buses is live (full in about 1.5 h), otherwise it runs down (about 6 h).
     bool fed = false;
     if (g_drBus) {
@@ -747,6 +969,9 @@ PLUGIN_API int XPluginEnable(void) {
     g_loop = XPLMCreateFlightLoop(&fl);
     XPLMScheduleFlightLoop(g_loop, -1.0f, 1);
     g_sim.wxPlane = XPLMFindPluginBySignature(kWxPlaneSignature) != XPLM_NO_PLUGIN_ID;
+    wx::httpGlobalInit();
+    logMsg("downloads: %s", wx::httpTlsInfo().c_str());
+    xpt::metarStart();
     loadAircraftConfig();
     return 1;
 }
@@ -756,6 +981,8 @@ PLUGIN_API void XPluginDisable(void) {
     if (g_loop) { XPLMDestroyFlightLoop(g_loop); g_loop = nullptr; }
     if (g_capture) { XPLMDestroyWindow(g_capture); g_capture = nullptr; }
     g_captureDown = false;
+    xpt::metarStop();
+    wx::httpGlobalCleanup();
 }
 
 PLUGIN_API void XPluginStop(void) {
@@ -772,6 +999,7 @@ PLUGIN_API void XPluginStop(void) {
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int msg, void* param) {
     if (msg == XPLM_MSG_PLANE_LOADED && (intptr_t)param == 0) {   // the user's aircraft
         loadAircraftConfig();
+        g_refs.probed = false;
         g_sim.toliss = false;   // looked for again once the new aircraft's plugins are in
         xpt::openApp(xpt::APP_HOME);
     } else if (msg == XPLM_MSG_ENTERED_VR) {

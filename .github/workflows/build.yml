@@ -19,13 +19,42 @@ jobs:
           curl -fsSL "$SDK_URL" -o sdk.zip
           unzip -q sdk.zip -d sdk
           echo "SDK_DIR=$(find "$PWD/sdk" -type d -name CHeaders -exec dirname {} \; | head -1)" >> "$GITHUB_ENV"
-      - name: Configure
-        shell: bash
+      - name: Linux deps
+        if: runner.os == 'Linux'
+        # libcurl itself is built from source (CMakeLists.txt, XPT_BUNDLE_CURL); only OpenSSL's and zlib's static libraries are needed.
+        # GitHub's Ubuntu runners use the Azure mirror under ubuntu.com. During Canonical's DNS outage (2026-11-11,
+        # "Temporary failure resolving 'azure.archive.ubuntu.com'") every *.ubuntu.com mirror failed, so after two attempts the
+        # sources are pointed at kernel.org's Ubuntu mirror, which does not depend on ubuntu.com. Skipped if the headers are there.
+        run: |
+          if dpkg -s libssl-dev zlib1g-dev >/dev/null 2>&1; then echo "libssl-dev and zlib1g-dev already installed"; exit 0; fi
+          for i in 1 2 3 4 5; do
+            if sudo apt-get -o Acquire::Retries=2 update && sudo apt-get -o Acquire::Retries=2 install -y libssl-dev zlib1g-dev; then exit 0; fi
+            echo "apt attempt $i failed"
+            if [ "$i" = 2 ]; then
+              echo "switching to mirrors.edge.kernel.org"
+              printf '%s\n' \
+                "deb http://mirrors.edge.kernel.org/ubuntu jammy main universe" \
+                "deb http://mirrors.edge.kernel.org/ubuntu jammy-updates main universe" \
+                "deb http://mirrors.edge.kernel.org/ubuntu jammy-security main universe" | sudo tee /etc/apt/sources.list
+              sudo rm -f /etc/apt/sources.list.d/ubuntu.sources
+            fi
+            sleep 20
+          done
+          exit 1
+      - name: Windows deps
+        if: runner.os == 'Windows'
+        run: vcpkg install curl:x64-windows-static
+      - name: Configure (Linux/macOS)
+        if: runner.os != 'Windows'
         run: cmake -S . -B build -DXPLANE_SDK="$SDK_DIR"
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cmake -S . -B build -DXPLANE_SDK="$SDK_DIR" -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static
       - run: cmake --build build --config Release
       - name: Check Linux plugin dependencies
         if: runner.os == 'Linux'
-        # the plugin may only need libc, libm, libdl and the loader (X-Plane provides XPLM and OpenGL at run time)
+        # libcurl/OpenSSL/zlib are built in: the plugin may only need libc, libm, libdl and the loader (X-Plane provides XPLM and OpenGL)
         run: |
           X=build/package/XPTablet/lin_x64/XPTablet.xpl
           objdump -p "$X" | grep NEEDED || true

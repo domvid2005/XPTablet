@@ -27,6 +27,53 @@ if(XPT_BUILD_PLUGIN AND (NOT XPLANE_SDK OR NOT EXISTS "${XPLANE_SDK}/CHeaders/XP
   message(FATAL_ERROR "Set -DXPLANE_SDK=<SDK folder> (CHeaders/XPLM/XPLMDisplay.h missing), or -DXPT_BUILD_PLUGIN=OFF for the UI tests only.")
 endif()
 
+find_package(Threads REQUIRED)
+include(FetchContent)
+set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+if(XPT_BUILD_PLUGIN)
+# --- libcurl ------------------------------------------------------------------------------------------------------------
+# Linux: built from source with OpenSSL and zlib linked in statically, and kept private (-Wl,--exclude-libs,ALL below). Linking the
+# system libcurl.so.4 broke under Steam's Linux runtime (2026-11-11): it puts its own libcurl.so.4 in the process, built with the
+# CURL_OPENSSL_3 symbol versions, and the plugin wanted CURL_OPENSSL_4 ("version `CURL_OPENSSL_4' not found"). A bundled
+# libcurl.so.4 would clash with the one already loaded. The certificate bundle is found at run time (http.cpp).
+# Windows: vcpkg's static curl (Schannel). macOS: the system libcurl.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  option(XPT_BUNDLE_CURL "Build libcurl, OpenSSL and zlib into the plugin (Linux)" ON)
+endif()
+if(XPT_BUNDLE_CURL)
+  set(OPENSSL_USE_STATIC_LIBS TRUE)
+  find_package(OpenSSL 3 REQUIRED)
+  set(ZLIB_USE_STATIC_LIBS ON)
+  foreach(opt BUILD_CURL_EXE BUILD_LIBCURL_DOCS BUILD_MISC_DOCS ENABLE_CURL_MANUAL BUILD_EXAMPLES CURL_USE_LIBPSL CURL_USE_LIBSSH2
+              CURL_USE_LIBSSH USE_LIBIDN2 USE_NGHTTP2 USE_NGTCP2 USE_QUICHE USE_MSH3 CURL_BROTLI CURL_ZSTD CURL_USE_GSSAPI ENABLE_ARES
+              USE_LIBRTMP CURL_ENABLE_EXPORT_TARGET PICKY_COMPILER CURL_USE_PKGCONFIG CURL_CA_FALLBACK)
+    set(${opt} OFF CACHE BOOL "" FORCE)
+  endforeach()
+  foreach(opt CURL_USE_OPENSSL CURL_ZLIB CURL_DISABLE_LDAP CURL_DISABLE_LDAPS CURL_DISABLE_INSTALL CURL_DISABLE_DICT CURL_DISABLE_GOPHER
+              CURL_DISABLE_IMAP CURL_DISABLE_MQTT CURL_DISABLE_POP3 CURL_DISABLE_RTSP CURL_DISABLE_SMB CURL_DISABLE_SMTP CURL_DISABLE_TELNET
+              CURL_DISABLE_TFTP)
+    set(${opt} ON CACHE BOOL "" FORCE)
+  endforeach()
+  set(CURL_CA_BUNDLE "none" CACHE STRING "" FORCE)
+  set(CURL_CA_PATH "none" CACHE STRING "" FORCE)
+  FetchContent_Declare(curl
+    URL https://github.com/curl/curl/releases/download/curl-8_14_1/curl-8.14.1.tar.xz
+    URL_HASH SHA256=f4619a1e2474c4bbfedc88a7c2191209c8334b48fa1f4e53fd584cc12e9120dd)
+  FetchContent_MakeAvailable(curl)
+  if(TARGET CURL::libcurl_static)
+    set(XPT_CURL CURL::libcurl_static)
+  else()
+    set(XPT_CURL CURL::libcurl)
+  endif()
+else()
+  find_package(CURL REQUIRED)
+  set(XPT_CURL CURL::libcurl)
+endif()
+endif()
+
 # --- Dear ImGui (third_party/imgui, MIT) and the fonts, embedded at build time ------------------------------------------
 add_library(xpt_imgui STATIC
   third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_party/imgui/imgui_tables.cpp third_party/imgui/imgui_widgets.cpp)
@@ -34,23 +81,24 @@ target_include_directories(xpt_imgui PUBLIC third_party/imgui)
 target_compile_definitions(xpt_imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS IMGUI_DISABLE_WIN32_FUNCTIONS)
 set(XPT_ASSET_FILES
   ${CMAKE_SOURCE_DIR}/third_party/fonts/IBMPlexSans-Regular.ttf ${CMAKE_SOURCE_DIR}/third_party/fonts/IBMPlexSans-SemiBold.ttf
-  ${CMAKE_SOURCE_DIR}/third_party/fonts/IBMPlexSans-Bold.ttf ${CMAKE_SOURCE_DIR}/third_party/fonts/JetBrainsMono-Regular.ttf)
+  ${CMAKE_SOURCE_DIR}/third_party/fonts/IBMPlexSans-Bold.ttf ${CMAKE_SOURCE_DIR}/third_party/fonts/JetBrainsMono-Regular.ttf
+  ${CMAKE_SOURCE_DIR}/assets/wxplane_stacked.rgba)
 add_custom_command(
   OUTPUT ${CMAKE_BINARY_DIR}/xpt_assets.c
   COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${CMAKE_BINARY_DIR}/xpt_assets.c -P ${CMAKE_SOURCE_DIR}/cmake/embed_assets.cmake
   DEPENDS ${XPT_ASSET_FILES} ${CMAKE_SOURCE_DIR}/cmake/embed_assets.cmake
   COMMENT "Embedding the tablet's fonts")
 # The tablet itself: its screens and the triangle clipper. No X-Plane calls, so the tests build it too.
-add_library(xpt_ui STATIC src/tabletui.cpp src/tabrender.cpp ${CMAKE_BINARY_DIR}/xpt_assets.c)
+add_library(xpt_ui STATIC src/tabletui.cpp src/tabrender.cpp src/metar.cpp ${CMAKE_BINARY_DIR}/xpt_assets.c)
 target_include_directories(xpt_ui PUBLIC src)
 target_link_libraries(xpt_ui PUBLIC xpt_imgui)
 
 # --- The plugin: <build>/package/XPTablet/<lin_x64|mac_x64|win_x64>/XPTablet.xpl ------------------------------------------
 if(XPT_BUILD_PLUGIN)
-  add_library(XPTablet MODULE src/plugin.cpp src/json_mini.cpp)
+  add_library(XPTablet MODULE src/plugin.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp)
   target_include_directories(XPTablet PRIVATE "${XPLANE_SDK}/CHeaders/XPLM")
   target_compile_definitions(XPTablet PRIVATE XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM303=1)
-  target_link_libraries(XPTablet PRIVATE xpt_ui ${CMAKE_DL_LIBS})
+  target_link_libraries(XPTablet PRIVATE xpt_ui ${XPT_CURL} Threads::Threads ${CMAKE_DL_LIBS})
   if(WIN32)
     set(XPT_PLATFORM_DIR win_x64)
     target_compile_definitions(XPTablet PRIVATE IBM=1 NOMINMAX=1 WIN32_LEAN_AND_MEAN=1)

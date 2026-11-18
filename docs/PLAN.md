@@ -63,6 +63,25 @@ WXPlane, which draws itself there (no Pop out tab on the tablet). The two plugin
 and the pointer, WXPlane draws and answers. A WXPlane too old to know the message leaves it unanswered and the page says so.
 Without WXPlane the page will be a built-in radar and METAR map (not built yet).
 
+## Built-in Weather page (no WXPlane)
+
+"At the aircraft": X-Plane's own weather where the aircraft is (wind, visibility, temperature, QNH, rain, cloud layers, winds aloft),
+no internet needed. "METAR search": an ICAO code typed on the page's own keys, the latest report from NOAA's Aviation Weather Center
+(aviationweather.gov) and what it says. A radar map is still to come.
+
+## Ground page
+
+The aircraft is drawn from its real measurements (a table of types in tabletui.cpp: length, span, fuselage width, engines, sweep),
+so each type has its true proportions. Jetway: openSAM when installed (openSAM/toggle_jwy, opensam/jetway/status), else X-Plane's
+(sim/ground_ops/jetway). Ground power, service vehicles and pushback: X-Plane's commands.
+
+ToLiss (names read from the A320's plugin): cabin doors AirbusFBW/PaxDoorModeArray and cargo doors AirbusFBW/CargoDoorModeArray
+(0 closed, 1 automatic, 2 open: to confirm in the sim, with the door order), all doors toliss_airbus/door_commands/all_to_mode_*,
+chocks AirbusFBW/Chocks, ground power AirbusFBW/EnableExternalPower, ground air AirbusFBW/GroundHPAir and GroundLPAir, de-icing
+toliss_airbus/iscsinterface/animatedDeice and quickDeice. The stairs, catering trucks and baggage loaders have no dataref or command:
+the ToLiss shows them itself with the doors, as chosen on its own EFB (only their animation values, toliss/anim/..., are published).
+XPTablet writes what it finds to Log.txt once per ToLiss aircraft ("[XPTablet] ToLiss: ...").
+
 ## Browser engine
 
 X-Plane 12 ships Chromium Embedded Framework itself (Resources/dlls/64/cef; 12.4.4 has CEF 117.1.4+ga26f38b, Chromium 117.0.5938.92).

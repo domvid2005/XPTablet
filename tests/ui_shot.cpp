@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -54,9 +55,18 @@ void raster(Canvas& cv, const std::vector<Batch>& batches, const unsigned char* 
                     const float ax = fx - ix, ay = fy - iy;
                     auto T = [&](int a, int b) { a = std::max(0, std::min(tw - 1, a)); b = std::max(0, std::min(th - 1, b)); return tex[(size_t)b * tw + a] / 255.0f; };
                     const float ta = (T(ix, iy) * (1 - ax) + T(ix + 1, iy) * ax) * (1 - ay) + (T(ix, iy + 1) * (1 - ax) + T(ix + 1, iy + 1) * ax) * ay;
-                    const float a = col[3] * ta;
+                    float a = col[3] * ta;
+                    float tc[3] = {1, 1, 1};
+                    if ((intptr_t)bt.tex == 2) {   // the WXPlane icon's picture: 256 x 256 RGBA
+                        unsigned int nb = 0;
+                        const unsigned char* px = wxLogoPixels(nb);
+                        const int lx = std::max(0, std::min(255, (int)(u * 256))), ly = std::max(0, std::min(255, (int)(w * 256)));
+                        const unsigned char* q = px + ((size_t)ly * 256 + lx) * 4;
+                        for (int k = 0; k < 3; ++k) tc[k] = q[k] / 255.0f;
+                        a = col[3] * q[3] / 255.0f;
+                    }
                     float* o = &cv.rgb[((size_t)y * cv.w + x) * 3];
-                    for (int k = 0; k < 3; ++k) o[k] = o[k] * (1 - a) + col[k] * a;
+                    for (int k = 0; k < 3; ++k) o[k] = o[k] * (1 - a) + col[k] * tc[k] * a;
                 }
         }
 }
@@ -106,7 +116,8 @@ int main(int argc, char** argv) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     applyStyle();
-    const Fonts fonts = loadFonts(scale);
+    Fonts fonts = loadFonts(scale);
+    fonts.wxLogo = (ImTextureID)(intptr_t)2;
     unsigned char* tex = nullptr;
     int tw = 0, th = 0;
     io.Fonts->GetTexDataAsAlpha8(&tex, &tw, &th);
@@ -270,12 +281,111 @@ int main(int argc, char** argv) {
         if (!e.active || e.x != 0 || e.y < 60 || e.w != 800 || std::fabs(e.y + e.h - kLogicalH) > 0.01f) { std::printf("FAIL: weather embed area\n"); ++failures; }
         if (std::fabs(e.mx - 400) > 0.01f || std::fabs(e.my - (300 - e.y)) > 0.01f || e.down) { std::printf("FAIL: weather embed pointer\n"); ++failures; }
         t.wxEmbed = -1; run(t);
-        if (embedArea().active) { std::printf("FAIL: an old WXPlane gets no area\n"); ++failures; }
+        if (!embedArea().active) { std::printf("FAIL: WXPlane is asked every frame, answered or not\n"); ++failures; }
         t.wxPlane = false; t.wxEmbed = 0; run(t);
         if (embedArea().active) { std::printf("FAIL: no WXPlane, no area\n"); ++failures; }
         openApp(APP_HOME); run(s); openApp(APP_HOME);
         io.DisplaySize = ImVec2(800, kLogicalH); ImGui::NewFrame(); { Actions act; build(fonts, s, 800, kLogicalH, act); } ImGui::Render();
         if (embedArea().active) { std::printf("FAIL: the area is only for the Weather page\n"); ++failures; }
+    }
+    // Settings: the brightness slider moves and is kept; the touch test's Clear button clears (it lies inside the touch area)
+    {
+        settings() = Settings();
+        openApp(APP_SETTINGS);
+        const float W = 800, H = kLogicalH;
+        auto frame = [&](float x, float y, bool down) {
+            io.DisplaySize = ImVec2(W, H); io.DeltaTime = 1.0f / 60.0f;
+            io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, down);
+            ImGui::NewFrame(); Actions act; build(fonts, s, W, H, act); ImGui::Render();
+        };
+        frame(-1000, -1000, false); frame(-1000, -1000, false);
+        // drag the brightness slider (the first control of the left column) from its right end to its left third
+        frame(380, 120, false); frame(380, 120, true); frame(150, 120, true); frame(150, 120, true); frame(150, 120, false); frame(150, 120, false);
+        if (settings().brightness > 0.6f || settings().brightness < 0.1f) { std::printf("FAIL: brightness slider (%.2f)\n", settings().brightness); ++failures; }
+        const std::string txt = settingsToText();
+        const float set = settings().brightness;
+        settings() = Settings(); settingsFromText(txt);
+        if (std::fabs(settings().brightness - set) > 0.011f) { std::printf("FAIL: brightness is not kept\n"); ++failures; }
+        // marks in the touch test, then Clear (bottom right of the area)
+        frame(600, 330, false); frame(600, 330, true); frame(640, 360, true); frame(680, 380, true); frame(680, 380, false); frame(680, 380, false);
+        if (touchTestCount() < 2) { std::printf("FAIL: touch test marks (%d)\n", touchTestCount()); ++failures; }
+        const float cx = W - 18 - 70 + 30, cy = H - 14 - 34 + 13;
+        frame(cx, cy, false); frame(cx, cy, false); frame(cx, cy, true); frame(cx, cy, true); frame(cx, cy, false); frame(cx, cy, false);
+        if (touchTestCount() != 0) { std::printf("FAIL: the touch test's Clear button (%d marks left)\n", touchTestCount()); ++failures; }
+        settings() = Settings();
+    }
+    // The built-in Weather page (no WXPlane) and the Ground page, with data and without: drawn, pictured, and the Ground page's
+    // buttons ask for the right things
+    {
+        auto shot = [&](const SimState& t, int app, const char* name) {
+            openApp(app);
+            std::vector<Batch> b;
+            for (int i = 0; i < 2; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
+                ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); clipDrawData(ImGui::GetDrawData(), b); }
+            if (b.empty()) { std::printf("FAIL: %s not drawn\n", name); ++failures; }
+            Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_" + name + ".png");
+        };
+        SimState t = s; t.wxPlane = false;
+        shot(t, APP_WEATHER, "weather_nodata");
+        if (std::string(appName(APP_WEATHER)) != "Weather") { std::printf("FAIL: without WXPlane the icon is Weather\n"); ++failures; }
+        t.wx.valid = true; t.wx.windDir = 240; t.wx.windKt = 14; t.wx.visSm = 7; t.wx.tempC = 12; t.wx.dewC = 8; t.wx.qnhHpa = 1009; t.wx.rain = 0.2f; t.wx.altFt = 4200;
+        t.wx.clouds = 3; const float cb[3] = {2800, 9000, 24000}, ct[3] = {5200, 11500, 26000}, cc[3] = {0.45f, 0.7f, 0.2f};
+        for (int i = 0; i < 3; ++i) { t.wx.cloudBaseFt[i] = cb[i]; t.wx.cloudTopFt[i] = ct[i]; t.wx.cloudCover[i] = cc[i]; }
+        t.wx.aloft = 13; for (int i = 0; i < 13; ++i) { t.wx.aloftFt[i] = 3000.0f + i * 3500.0f; t.wx.aloftDir[i] = 230.0f + i * 4; t.wx.aloftKt[i] = 12.0f + i * 7; }
+        shot(t, APP_WEATHER, "weather_builtin");
+        if (embedArea().active) { std::printf("FAIL: the built-in weather page hands nothing to WXPlane\n"); ++failures; }
+        shot(s, APP_HOME, "home_wxplane");
+        if (std::string(appName(APP_WEATHER)) != "WXPlane") { std::printf("FAIL: with WXPlane the icon is WXPlane\n"); ++failures; }
+        shot(t, APP_GROUND, "ground_generic");
+        SimState g = s; g.toliss = true; g.acfIcao = "A20N";
+        g.ground.toliss = true; g.ground.openSam = true; g.ground.jetway = 1; g.ground.paxDoors = 4; g.ground.cargoDoors = 2; g.ground.cargoDoors = 3; g.ground.deice = true; g.ground.paxDoor[0] = 2; g.ground.paxDoor[1] = 1; g.ground.cargoDoor[0] = 2; g.ground.chocks = true; g.ground.extPower = true;
+        shot(g, APP_GROUND, "ground_toliss");
+        { SimState g2 = g; g2.acfIcao = "A21N"; g2.ground.paxDoors = 8; shot(g2, APP_GROUND, "ground_a321"); }
+        { SimState g3 = t; g3.acfIcao = "A339"; shot(g3, APP_GROUND, "ground_a339"); g3.acfIcao = "C172"; shot(g3, APP_GROUND, "ground_c172"); g3.acfIcao = "MD82"; shot(g3, APP_GROUND, "ground_md82"); g3.acfIcao = "B744"; shot(g3, APP_GROUND, "ground_b744"); }
+        // the METAR search: type KBOS on the page's keys, press Search, and show an answer
+        {
+            SimState m = t;
+            openApp(APP_WEATHER);
+            auto tap = [&](float x, float y) {
+                Actions got;
+                const bool downs[4] = {false, true, false, false};
+                for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, d);
+                    ImGui::NewFrame(); Actions act; build(fonts, m, 800, kLogicalH, act); ImGui::Render(); if (!act.metarSearch.empty()) got = act; }
+                return got;
+            };
+            tap(800 - 14 - 54, 28 + 9 + 14);   // the "METAR search" view
+            // the keys: rows of 10 from x = 26, each (388 - 45) / 10 wide plus 5; the rows start under the code box
+            const float kw = std::floor((416.0f - 28.0f - 45.0f) / 10.0f), ky0 = 84 + 34 + 40 + 14, kh = std::min(42.0f, std::floor((468.0f - 14.0f - ky0 - 15.0f) / 4.0f));
+            auto key = [&](char c) {
+                const char* rowsK[4] = {"1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"};
+                for (int r = 0; r < 4; ++r) { const char* q = std::strchr(rowsK[r], c); if (!q) continue;
+                    const float x0 = 26 + (r == 2 ? (kw + 5) * 0.5f : r == 3 ? (kw + 5) : 0.0f);
+                    tap(x0 + (float)(q - rowsK[r]) * (kw + 5) + kw * 0.5f, ky0 + r * (kh + 5) + kh * 0.5f); }
+            };
+            key('K'); key('B'); key('O'); key('S');
+            const Actions r2 = tap(26 + (416 - 28) - 55, 84 + 34 + 20);
+            if (r2.metarSearch != "KBOS") { std::printf("FAIL: METAR search typed '%s'\n", r2.metarSearch.c_str()); ++failures; }
+            m.metar.icao = "KBOS"; m.metar.raw = "KBOS 180054Z 24014G22KT 7SM -RA SCT028 BKN090 12/08 A2980 RMK AO2 SLP090";
+            { std::vector<Batch> bb; for (int i = 0; i < 2; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
+                ImGui::NewFrame(); Actions act; build(fonts, m, 800, kLogicalH, act); ImGui::Render(); clipDrawData(ImGui::GetDrawData(), bb); }
+              Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, bb, tex, tw, th, scale); writePng(cv, out + "/tablet_weather_metar.png"); }
+            tap(800 - 14 - 108 - 6 - 54, 28 + 9 + 14);   // back to "At the aircraft" for the pictures that follow
+        }
+        // press Connect (jetway): the first row's button, right end of the Services card
+        auto press = [&](const SimState& st, float x, float y) {
+            Actions got;
+            const bool downs[6] = {false, false, true, true, false, false};
+            for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, d);
+                ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); if (act.ground != GA_NONE) got = act; }
+            return got;
+        };
+        openApp(APP_GROUND);
+        Actions r = press(g, 722, 139);
+        if (r.ground != GA_JETWAY) { std::printf("FAIL: the jetway button (%d)\n", r.ground); ++failures; }
+        g.ground.onGround = false;
+        r = press(g, 722, 139);
+        if (r.ground != GA_NONE) { std::printf("FAIL: no ground services in the air\n"); ++failures; }
+        openApp(APP_HOME);
     }
     ImGui::DestroyContext();
     std::printf(failures ? "ui_shot: %d failure(s)\n" : "ui_shot: ok\n", failures);
