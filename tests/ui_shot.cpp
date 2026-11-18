@@ -17,6 +17,7 @@
 #endif
 
 #include "imgui.h"
+#include "imgui_internal.h"   // (the error log: ImGui's own record of unbalanced calls, which it shows on screen in the sim)
 #include "tabletui.h"
 #include "tabrender.h"
 
@@ -779,6 +780,17 @@ int main(int argc, char** argv) {
         const Actions r = press(g, 78, jy);
         if (r.ground != GA_NONE) { std::printf("FAIL: no jetway in the air\n"); ++failures; }
         openApp(APP_HOME);
+    }
+    {   // ImGui's recoverable errors (a Push without its Pop, an item before Begin...): in the sim each one is a "Dear ImGui" pop-up
+        const ImGuiContext& g = *ImGui::GetCurrentContext();
+        const char* log = g.DebugLogBuf.c_str();
+        int errs = 0;
+        for (const char* p = log; (p = std::strstr(p, "[imgui-error]")) != nullptr; ++p) {
+            const char* e = std::strchr(p, '\n');
+            std::printf("ImGui error: %.*s\n", (int)(e ? e - p : (long)std::strlen(p)), p);
+            if (++errs > 20) break;
+        }
+        if (errs) { std::printf("ui_shot: %d ImGui error(s) in the frames above\n", errs); ++failures; }
     }
     ImGui::DestroyContext();
     std::printf(failures ? "ui_shot: %d failure(s)\n" : "ui_shot: ok\n", failures);

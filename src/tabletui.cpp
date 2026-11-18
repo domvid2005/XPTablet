@@ -1715,8 +1715,15 @@ void drawShape(ImDrawList* dl, const Shape& sh, ImVec2 nose, float pxX, float px
 double g_mapZoom = 14.0;             // Web Mercator zoom: the world is 256 * 2^zoom layout units across (from the range below)
 // The range (the middle to the top or bottom edge): WXPlane's steps, with two closer ones for taxiing; the shown range eases to
 // the chosen one in log space, as WXPlane's does.
-const double kRangesNm[] = {0.25, 0.5, 1, 2, 5, 10, 20, 40, 80, 160, 320, 640, 1280, 2500};
-constexpr int kRangeN = 14, kRangeTaxi = 2;   // 1 nm: where the map starts on the aircraft
+// Close in, small steps (down to 0.05 nm, about 90 m to the edge: a stand and the aircraft on it); farther out, WXPlane's doubling steps.
+const double kRangesNm[] = {0.05, 0.08, 0.1, 0.15, 0.2, 0.25, 0.35, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10, 15, 20, 30, 40, 60, 80, 120, 160, 320, 640, 1280, 2500};
+constexpr int kRangeN = (int)(sizeof kRangesNm / sizeof kRangesNm[0]);
+constexpr int kRangeTaxi = 9;   // 1 nm: where the map starts on the aircraft
+int rangeIndexOf(double nm) {   // the step nearest a range (in log space)
+    int best = 0;
+    for (int i = 1; i < kRangeN; ++i) if (std::fabs(std::log(kRangesNm[i] / nm)) < std::fabs(std::log(kRangesNm[best] / nm))) best = i;
+    return best;
+}
 int g_mapRange = kRangeTaxi;
 double g_mapShownNm = 1.0;
 bool g_mapFollow = true;             // the map stays centred on the aircraft
@@ -2523,7 +2530,9 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             dl->AddCircle(q, rr, IM_COL32(16, 20, 30, 90), 96, 3.0f);
             dl->AddCircle(q, rr, IM_COL32(255, 255, 255, 200), 96, 1.2f);
             char b[24];
-            std::snprintf(b, sizeof b, "%g", nice * fr);
+            const double vnm = nice * fr;   // close in (under 0.1 nm), in feet to the nearest 10: "380 ft", not "0.0625"
+            if (vnm < 0.1) std::snprintf(b, sizeof b, "%.0f ft", std::round(vnm * 6076.12 / 10.0) * 10.0);
+            else std::snprintf(b, sizeof b, "%g", vnm);
             const ImVec2 tp(q.x + rr * 0.707f + 3, q.y + rr * 0.707f - 2);
             for (int dx = -1; dx <= 1; ++dx) for (int dy = -1; dy <= 1; ++dy) if (dx || dy) dl->AddText(f.small, fontPx(f.small), ImVec2(tp.x + dx, tp.y + dy), IM_COL32(16, 20, 30, 170), b);
             dl->AddText(f.small, fontPx(f.small), tp, IM_COL32(255, 255, 255, 255), b);
@@ -2612,7 +2621,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         const float y = r1.y - 40;
         char rng[24];
         const double rnm = kRangesNm[g_mapRange];
-        if (rnm >= 1) std::snprintf(rng, sizeof rng, "%.0f nm", rnm); else std::snprintf(rng, sizeof rng, "%.2g nm", rnm);
+        std::snprintf(rng, sizeof rng, "%g nm", rnm);   // (0.05, 0.75, 1.5, 7.5 ... as they are)
         float x = r0.x + 10;
         if (mapBubble(dl, f, "##mzout", ImVec2(x, y), nullptr, "-", false, 34)) g_mapRange = std::min(kRangeN - 1, g_mapRange + 1);
         x += 34 + 4;
@@ -3611,7 +3620,7 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         double la = 0, lo = 0;
         for (const FlightPlan::Leg& l : p.legs) { la += l.lat; lo += l.lon; }
         showOnMap(la / p.legs.size(), lo / p.legs.size());
-        g_mapRange = 9;   // 160 nm
+        g_mapRange = rangeIndexOf(160);
         return;
     }
     if (!p.loaded) {

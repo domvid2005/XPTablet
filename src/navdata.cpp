@@ -77,8 +77,9 @@ void load() {
         const double fr = std::atof(w[4]);
         v.freq = (float)(code == 2 ? fr : fr / 100.0);   // NDB in kHz, the others in 10 kHz
         const double b = std::atof(w[6]);
-        // localizers: the magnetic course x 1000 plus the true one ("180163.180": 180 magnetic, 163.18 true); VORs: the variation
-        v.bearing = (float)((code == 4 || code == 5) ? std::fmod(b, 1000.0) : b);
+        // localizers: the true course plus the magnetic one x 360 ("33207.373": 92 magnetic, 87.373 true, KMIA 09's IBUL in
+        // Navigraph's 1200 data; checked on all 4117 localizers): the remainder after 360 is the true course. VORs: the variation.
+        v.bearing = (float)((code == 4 || code == 5) ? std::fmod(std::fmod(b, 360.0) + 360.0, 360.0) : b);
         v.ident = w[7];
         // the name: the rest of the original line after the region
         if (n >= 10) {
