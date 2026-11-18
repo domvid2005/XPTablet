@@ -18,7 +18,7 @@ constexpr float kLogicalH = 480.0f;   // the tablet is always laid out 480 units
 // as the settings file keeps the home screen by these numbers.
 enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_ROUTES, APP_WEATHER, APP_GROUND, APP_CHECKLISTS,
            APP_PERFORMANCE, APP_TRAFFIC, APP_NOTES, APP_SIMBRIEF, APP_LIVEMAP, APP_FOREFLIGHT, APP_BROWSER, APP_SETTINGS,
-           APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_COUNT };
+           APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_MUSIC, APP_COUNT };
 
 constexpr int kMaxFavorites = 5;   // the favorites bar holds up to 5 icons; its size is chosen in Settings, 0 removes it
 
@@ -46,6 +46,11 @@ struct Settings {
     std::string simbriefUser;     // SimBrief user name or pilot ID (the Flight Plan page and the route on the map)
     bool autoDim = false;         // the screen dims itself as the daylight goes (WXPlane's curve); the brightness slider rests
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
+    bool mediaEnabled = true;     // the Music app and the music controls in the pull-down (not on macOS)
+    int mediaDuck = 0;            // while the radios receive: 0 leave the music alone, 1 lower it to 50 %, 2 pause it (and play it again after)
+    bool notifyEnabled = true;    // notifications: banners, and the list in the pull-down
+    bool notifyTcas = true;       // a TCAS alert (traffic in resolution-advisory range)
+    bool notifySimbrief = true;   // a new SimBrief flight plan (checked every 2 minutes with the SimBrief ID)
 };
 Settings& settings();
 std::string settingsToText();
@@ -108,6 +113,7 @@ struct GroundState {
     bool beacon = false, enginesRunning = false, parkBrake = false;
     float groundSpeedKt = 0;
     float cabinLight = -1;        // ToLiss: the cabin lights, 0..1, -1 unknown
+    bool slidesAuto = false;      // ToLiss: the slides follow the aircraft's own rule (armed once the beacon is on and the doors shut, disarmed parked)
 };
 
 // The web browser (a program of its own, run by the plugin): what it shows.
@@ -125,6 +131,19 @@ struct BrowserState {
 };
 
 // A pilot on VATSIM (the Map's traffic card): who, where, and the filed flight plan.
+// What is playing on the computer (Windows: the system's media controls; Linux: MPRIS players), from the host
+struct MediaState {
+    bool supported = false;       // this computer's media controls can be used (Windows, Linux)
+    bool active = false;          // a player is there
+    std::string app, title, artist, album;
+    bool playing = false, canPrev = true, canNext = true;
+    ImTextureID art = 0;          // the cover, artW x artH pixels; 0: none
+    int artW = 0, artH = 0;
+    bool radioRx = false;         // the radios are receiving (xPilot's COM1/COM2, VATSIM voice apps)
+    bool ducked = false;          // the music is lowered or paused for the radio now
+    std::string radioSource;      // what the radio is heard through ("xPilot", "TrackAudio"...), "" none
+};
+
 struct VatsimPilot {
     bool found = false, hasPlan = false;
     std::string callsign, name, cid, server, rating, squawk, logon;
@@ -176,6 +195,7 @@ struct FlightPlan {
     std::string blockFuel, tripFuel, reserveFuel, altnFuel, taxiFuel, extraFuel, zfw, tow, ldw;
     std::string pdfUrl;           // the briefing (the OFP as SimBrief's PDF)
     std::string importedAt;       // when (Zulu)
+    std::string ofpId;            // SimBrief's request id and generation time: a new plan has a new one
     struct Leg { std::string ident, airway, alt, legNm, totalTime, type; double lat = 0, lon = 0; };
     std::vector<Leg> legs;
 };
@@ -234,12 +254,16 @@ struct SimState {
     FlightPlan plan;
     float autoDimLevel = 1.0f;    // what auto dim makes of the brightness now (from the sun)
     std::vector<std::pair<std::string, std::string>> dataInfo;   // Settings, Data: where the tablet's data comes from, and how it is
+    bool mac = false;             // macOS: no media controls (no Music app, no Media settings)
+    MediaState media;
+    int newPlanSeq = 0;           // goes up when the 2-minute check finds a new SimBrief plan (then newPlanText says which)
+    std::string newPlanText;
 };
 
 // What the user asked for on the Ground page; the host carries it out.
 enum GroundAction { GA_NONE, GA_JETWAY, GA_GPU, GA_CHOCKS, GA_HP_AIR, GA_LP_AIR, GA_TRUCKS, GA_PUSH_LEFT, GA_PUSH_STRAIGHT, GA_PUSH_RIGHT, GA_PUSH_STOP,
                     GA_PAX_DOOR, GA_CARGO_DOOR, GA_DOORS_CLOSE, GA_DOORS_AUTO, GA_DEICE, GA_DEICE_QUICK,
-                    GA_JETWAY_DOOR, GA_SLIDES_ARM, GA_SLIDES_DISARM, GA_CABIN_LIGHT };
+                    GA_JETWAY_DOOR, GA_SLIDES_ARM, GA_SLIDES_DISARM, GA_CABIN_LIGHT, GA_SLIDES_AUTO };
 
 struct Actions {
     int ground = GA_NONE;
@@ -268,6 +292,7 @@ struct Actions {
     bool planClear = false;       // forget it
     bool clearTileCache = false;  // delete the map tiles kept on disk
     std::string docOpen;
+    int media = 0;                // the music: 1 play / pause, 2 previous, 3 next
     double mapLat = 0, mapLon = 0, mapLayoutNm = 0, mapPointNm = 0;
     double mapNavNm = 0, mapFixNm = 0;   // navaids and fixes to have ready around the centre (0: none)
 };
@@ -317,6 +342,9 @@ const char* browserUrl();                 // the address the web page shows
 bool browserChrome();                     // the full browser (address bar, bookmarks) rather than a web app's own page
 
 bool trafficInRA(const MapState& m, const MapState::Traffic& t);
-int powerState();   // 0 on, 1 fading off, 2 off, 3 starting, 4 waking   // TCAS RA range (or about to collide): drawn pulsing red
+int powerState();
+void notify(const std::string& title, const std::string& body, int app);   // a notification (a banner, then the pull-down's list); tapping opens app
+int notificationCount();
+bool pullDownOpen();   // 0 on, 1 fading off, 2 off, 3 starting, 4 waking   // TCAS RA range (or about to collide): drawn pulsing red
 
 } // namespace xpt

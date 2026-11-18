@@ -36,6 +36,7 @@
 #include "navdata.h"
 #include "vatsim.h"
 #include "simbrief.h"
+#include "media.h"
 #include "ourairports.h"
 #include "stb_image.h"
 #include "browser.h"
@@ -185,6 +186,7 @@ struct SimRefs {
     XPLMDataRef slides = nullptr, cabinPerc = nullptr, cabinLevel = nullptr, exitConfig = nullptr;   // ToLiss
     bool wasDocked[3] = {false, false, false};                         // for opening and closing the doors with the jetways
     bool xpJetway = false;                                             // without openSAM: X-Plane's own jetways, as last pressed
+    bool wantDoor[3] = {false, false, false};                          // the doors the user connected (only those open and show docked)
     XPLMDataRef jwNumber = nullptr;                                    // openSAM: how many jetways serve the plane
     XPLMDataRef beacon = nullptr, engRun = nullptr, parkBrake = nullptr, isChocked = nullptr, gs = nullptr, tlParkBrake = nullptr;
     XPLMDataRef paxDoor = nullptr, cargoDoor = nullptr, chocks = nullptr, extPower = nullptr, hpAir = nullptr, lpAir = nullptr;   // ToLiss
@@ -648,10 +650,11 @@ std::mutex g_sbMx;
 bool g_sbDone = false;
 xpt::FlightPlan g_sbPlan;
 
-void simbriefFetch(const std::string& user) {
+bool g_sbQuiet = false;   // the 2-minute check (not Import): nothing is shown unless the plan is new
+void simbriefFetch(const std::string& user, bool quiet = false) {
     if (g_sbThread.joinable()) g_sbThread.join();
-    g_sim.plan.busy = true;
-    g_sim.plan.status = "Asking SimBrief...";
+    g_sbQuiet = quiet;
+    if (!quiet) { g_sim.plan.busy = true; g_sim.plan.status = "Asking SimBrief..."; }
     g_sbThread = std::thread([user] {
         const std::string url = xpt::simbriefUrl(user);
         std::string body, err;
@@ -674,6 +677,17 @@ void planToRoute() {
 
 void planStep(const xpt::Actions& act) {
     if (act.planImport && !xpt::settings().simbriefUser.empty() && !g_sim.plan.busy) simbriefFetch(xpt::settings().simbriefUser);
+    {   // every 2 minutes with the SimBrief ID: a new plan is loaded and announced
+        static double next = 30;
+        const double now = XPLMGetElapsedTime();
+        const xpt::Settings& st = xpt::settings();
+        bool idle;
+        { std::lock_guard<std::mutex> lk(g_sbMx); idle = !g_sbDone; }
+        if (st.notifySimbrief && !st.simbriefUser.empty() && !g_sim.plan.busy && idle && now >= next) {
+            next = now + 120;
+            simbriefFetch(st.simbriefUser, true);
+        }
+    }
     if (act.planClear) {
         if (g_sbThread.joinable()) g_sbThread.join();
         g_sim.plan = xpt::FlightPlan();
@@ -684,6 +698,17 @@ void planStep(const xpt::Actions& act) {
     if (g_sbDone) {
         g_sbDone = false;
         if (g_sbThread.joinable()) g_sbThread.join();
+        if (g_sbQuiet) {   // the 2-minute check: only a plan not seen before counts
+            if (g_sbPlan.loaded && g_sbPlan.ofpId != g_sim.plan.ofpId) {
+                g_sim.plan = g_sbPlan;
+                g_sim.plan.status = "New plan found " + g_sbPlan.importedAt;
+                ++g_sim.newPlanSeq;
+                g_sim.newPlanText = g_sbPlan.origin + " to " + g_sbPlan.dest + (g_sbPlan.callsign.empty() ? std::string() : " (" + g_sbPlan.callsign + ")") + ". Tap for the Flight Plan.";
+                planToRoute();
+                logMsg("SimBrief: new plan %s", g_sbPlan.ofpId.c_str());
+            }
+            return;
+        }
         if (g_sbPlan.loaded) g_sim.plan = g_sbPlan;
         else { g_sim.plan.busy = false; g_sim.plan.status = g_sbPlan.status; }   // a failed import keeps the plan there was
         g_sim.plan.busy = false;
@@ -1029,6 +1054,65 @@ void saveNotes() {
 }
 
 // One UI frame per sim frame, built by whichever of the two surfaces is drawn first and shared by the other.
+// ---- media: what plays on the computer, its cover, and the radio's effect on it (Windows, Linux; not macOS) ------------------------------
+int g_artTex = 0;
+void mediaStep(const xpt::Actions& act) {
+#if defined(__APPLE__)
+    g_sim.mac = true;
+    g_sim.media = xpt::MediaState();
+    (void)act;
+    return;
+#else
+    const xpt::Settings& st = xpt::settings();
+    if (!st.mediaEnabled) { xpt::media::stop(); g_sim.media = xpt::MediaState(); g_sim.media.supported = true; return; }
+    xpt::media::start();
+    if (act.media) xpt::media::command(act.media);
+    // the radios: xPilot says when COM1 or COM2 is receiving (looked for now and then: it may load after us)
+    static XPLMDataRef com1 = nullptr, com2 = nullptr, rxOld = nullptr;
+    if ((XPLMGetCycleNumber() & 255) == 1 && !com1 && !rxOld) {
+        com1 = XPLMFindDataRef("xpilot/audio/com1_rx");
+        com2 = XPLMFindDataRef("xpilot/audio/com2_rx");
+        rxOld = XPLMFindDataRef("xpilot/audio/rx");
+    }
+    auto on = [](XPLMDataRef r) {
+        if (!r) return false;
+        return (XPLMGetDataRefTypes(r) & xplmType_Int) ? XPLMGetDatai(r) != 0 : XPLMGetDataf(r) > 0.5f;
+    };
+    const bool rx = on(com1) || on(com2) || on(rxOld);
+    xpt::media::setDuck(st.mediaDuck, rx, rx ? "xPilot" : "");
+    const xpt::media::Now n = xpt::media::now();
+    xpt::MediaState& m = g_sim.media;
+    m.supported = n.supported; m.active = n.active; m.app = n.app; m.title = n.title; m.artist = n.artist; m.album = n.album;
+    m.playing = n.playing; m.canPrev = n.canPrev; m.canNext = n.canNext;
+    m.radioRx = rx || n.radioApp;
+    m.radioSource = rx ? "xPilot" : n.radioApp ? n.radioAppName : "";
+    m.ducked = n.ducked;
+    // the cover, into a texture of its own (mipmapped: it is shown small and large)
+    static int version = 0;
+    std::vector<uint8_t> px;
+    int w = 0, h = 0;
+    if (xpt::media::takeArt(version, px, w, h)) {
+        if (w > 0 && h > 0 && loadGl()) {
+            if (!g_artTex) XPLMGenerateTextureNumbers(&g_artTex, 1);
+            XPLMBindTexture2d(g_artTex, 0);
+            gl.TexParameteri(GL_TEXTURE_2D, 0x8191 /* GL_GENERATE_MIPMAP */, 1);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, 0x2703 /* GL_LINEAR_MIPMAP_LINEAR */);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_CLAMP_TO_EDGE);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_CLAMP_TO_EDGE);
+            gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+            gl.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            gl.TexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+            XPLMBindTexture2d(0, 0);
+            m.artW = w; m.artH = h;
+        } else {
+            m.artW = m.artH = 0;
+        }
+    }
+    m.art = (n.active && g_artTex && m.artW > 0) ? (ImTextureID)(intptr_t)g_artTex : 0;
+#endif
+}
+
 void ensureFrame() {
     const int cycle = XPLMGetCycleNumber();
     if (cycle == g_frameCycle) return;
@@ -1085,6 +1169,7 @@ void ensureFrame() {
     browserStep(act);
     mapStep(act);
     planStep(act);
+    mediaStep(act);
     {   // the Map's traffic card: its aircraft on VATSIM
         xpt::vatsim::want(act.mapShown && !act.trafficSelected.empty());
         if (act.mapShown && !act.trafficSelected.empty()) {
@@ -1584,6 +1669,18 @@ void probeToLiss() {
 }
 
 // The built-in Weather page's numbers and the Ground page's state. A few times a second is plenty.
+// Jetways docked some other way (openSAM's own window, its automatic mode) count as connected at their doors
+void adoptDocked(const xpt::GroundState& g, const int docked[3]) {
+    SimRefs& r = g_refs;
+    if (!g.openSam) return;
+    bool any = false;
+    for (bool w : r.wantDoor) any = any || w;
+    bool anyDocked = false;
+    for (int k = 0; k < 3; ++k) anyDocked = anyDocked || docked[k] != 0;
+    if (!any && anyDocked) for (int k = 0; k < 3; ++k) r.wantDoor[k] = docked[k] != 0;
+    if (!anyDocked && g.jetway != 2 && g.jetway != -1) { static int quiet = 0; if (any && ++quiet > 600) { for (bool& w : r.wantDoor) w = false; quiet = 0; } }
+}
+
 void readSimState() {
     SimRefs& r = g_refs;
     const float mToFt = 3.28084f;
@@ -1631,7 +1728,7 @@ void readSimState() {
     g.chocks = false;
     if (r.isChocked) { int ch[10] = {}; const int n = std::min(10, XPLMGetDatavi(r.isChocked, nullptr, 0, 0)); XPLMGetDatavi(r.isChocked, ch, 0, n); for (int i = 0; i < n; ++i) if (ch[i]) g.chocks = true; }
     // X-Plane's own jetways leave when the plane moves off or flies; what was pressed is forgotten then
-    if (!g.onGround || g.groundSpeedKt > 3.0f) r.xpJetway = false;
+    if (!g.onGround || g.groundSpeedKt > 3.0f) { r.xpJetway = false; for (bool& w : r.wantDoor) w = false; }
     if (!g.openSam) g.jetway = r.xpJetway ? 2 : 1;
     // the doors a jetway serves on other aircraft: as many as openSAM drives (X-Plane's own: one bubble, every boarding door)
     if (!g.toliss) {
@@ -1639,7 +1736,8 @@ void readSimState() {
         if (g.openSam && r.jwNumber) g.jwDoors = std::max(1, std::min(3, XPLMGetDatai(r.jwNumber)));
         int docked[3] = {0, 0, 0};
         if (g.openSam && r.jwDoorStatus) XPLMGetDatavi(r.jwDoorStatus, docked, 0, 3);
-        for (int k = 0; k < 3; ++k) { g.jwDoorPax[k] = 2 * k; g.jwDocked[k] = k < g.jwDoors && (g.openSam ? docked[k] != 0 : r.xpJetway); }
+        adoptDocked(g, docked);
+        for (int k = 0; k < 3; ++k) { g.jwDoorPax[k] = 2 * k; g.jwDocked[k] = k < g.jwDoors && r.wantDoor[k] && (g.openSam ? docked[k] != 0 : r.xpJetway); }
         g.paxDoors = 2 * (g.jwDoors + 1);
     }
     if (g.toliss) {
@@ -1661,8 +1759,9 @@ void readSimState() {
         if (g_sim.acfIcao == "A321" && r.exitConfig && readNum(r.exitConfig) == 0 && g.paxDoors > 2) { g.jwDoors = 2; g.jwDoorPax[1] = 2; }
         int docked[3] = {0, 0, 0};
         if (r.jwDoorStatus) XPLMGetDatavi(r.jwDoorStatus, docked, 0, 3);
-        // X-Plane's own jetways (without openSAM) connect at every boarding door at once, so each door is docked together
-        for (int k = 0; k < 3; ++k) g.jwDocked[k] = k < g.jwDoors && (g.openSam ? docked[k] != 0 : r.xpJetway);
+        adoptDocked(g, docked);
+        // a door counts as connected once the user connected it and a jetway is there (X-Plane's own: the stand's jetways came)
+        for (int k = 0; k < 3; ++k) g.jwDocked[k] = k < g.jwDoors && r.wantDoor[k] && (g.openSam ? docked[k] != 0 : r.xpJetway);
         // slides: armed if any door's is
         g.slides = -1;
         if (r.slides) {
@@ -1705,23 +1804,47 @@ void once(const char* cmd) {
 void toggleInt(XPLMDataRef ref) { if (ref) XPLMSetDatai(ref, XPLMGetDatai(ref) ? 0 : 1); }
 
 // What was pressed on the Ground page.
+// The slides' Auto: as ToLiss does it, armed once the beacon is on with every cabin door shut, disarmed parked with the beacon and
+// engines off. Sends ToLiss's own arm / disarm commands, at most once every few seconds.
+bool g_slidesAuto = false;
+void slidesAutoStep() {
+    const xpt::GroundState& g = g_sim.ground;
+    if (!g_slidesAuto || !g.toliss || g.slides < 0) return;
+    static double last = -10;
+    const double now = XPLMGetElapsedTime();
+    if (now - last < 4) return;
+    bool doorsShut = true;
+    for (int i = 0; i < g.paxDoors && i < 8; ++i) if (g.paxDoor[i] == 2) doorsShut = false;
+    if (g.slides == 0 && g.beacon && doorsShut) { trigger("toliss_airbus/door_commands/arm_slides"); last = now; logMsg("slides: auto armed (beacon on, doors shut)"); }
+    else if (g.slides == 1 && g.onGround && !g.beacon && !g.enginesRunning) { trigger("toliss_airbus/door_commands/disarm_slides"); last = now; logMsg("slides: auto disarmed (parked, beacon and engines off)"); }
+}
+
 void doGround(const xpt::Actions& act) {
     const SimRefs& r = g_refs;
     const xpt::GroundState& g = g_sim.ground;
     switch (act.ground) {
     case xpt::GA_JETWAY: once(g.openSam ? "openSAM/toggle_jwy" : "sim/ground_ops/jetway"); break;
-    case xpt::GA_JETWAY_DOOR: {   // a door's Connect / Disconnect: openSAM docks (or undocks) every jetway at the stand
+    case xpt::GA_JETWAY_DOOR: {   // a door's Connect / Disconnect: that door only
+        // openSAM or X-Plane's own jetways, whichever the stand has: openSAM's commands when it is installed (it also hands X-Plane's
+        // own jetways to X-Plane), else X-Plane's. Neither takes a door: the stand's jetways move together. So they are called for the
+        // first door connected and sent away with the last one disconnected; each door opens and closes on its own.
+        SimRefs& rr = g_refs;
         const int k = std::max(0, std::min(2, act.groundIndex));
-        if (g.openSam) {
-            once(g.jwDocked[k] ? "openSAM/undock_jwy" : "openSAM/dock_jwy");
-        } else {   // X-Plane's own jetways: a toggle with no state to read, so what was pressed is kept (followJetways opens the doors)
-            once("sim/ground_ops/jetway");
-            g_refs.xpJetway = !g_refs.xpJetway;
+        bool before = false, after = false;
+        for (bool w : rr.wantDoor) before = before || w;
+        rr.wantDoor[k] = !rr.wantDoor[k];
+        for (bool w : rr.wantDoor) after = after || w;
+        if (!before && after) {
+            if (g.openSam) once("openSAM/dock_jwy"); else { once("sim/ground_ops/jetway"); rr.xpJetway = true; }
+        } else if (before && !after) {
+            if (g.openSam) once("openSAM/undock_jwy"); else { once("sim/ground_ops/jetway"); rr.xpJetway = false; }
         }
+        logMsg("jetway: door %d %s (%s jetways)", k + 1, rr.wantDoor[k] ? "connected" : "disconnected", g.openSam ? "openSAM" : "X-Plane's");
         break;
     }
-    case xpt::GA_SLIDES_ARM: if (g.toliss) trigger("toliss_airbus/door_commands/arm_slides"); break;
-    case xpt::GA_SLIDES_DISARM: if (g.toliss) trigger("toliss_airbus/door_commands/disarm_slides"); break;
+    case xpt::GA_SLIDES_ARM: g_slidesAuto = false; if (g.toliss) trigger("toliss_airbus/door_commands/arm_slides"); break;
+    case xpt::GA_SLIDES_DISARM: g_slidesAuto = false; if (g.toliss) trigger("toliss_airbus/door_commands/disarm_slides"); break;
+    case xpt::GA_SLIDES_AUTO: g_slidesAuto = true; break;
     case xpt::GA_CABIN_LIGHT: {   // the level, 0-100 % in steps of 10; ToLiss's 0 / 1 / 2 switch when there is no percentage
         const int pct = std::max(0, std::min(100, act.groundIndex));
         if (r.cabinPerc && XPLMCanWriteDataRef(r.cabinPerc)) writeNum(r.cabinPerc, (float)pct);
@@ -1759,7 +1882,7 @@ void doGround(const xpt::Actions& act) {
 
 float flightLoop(float dt, float, int, void*) {
     findSimRefs();
-    if ((XPLMGetCycleNumber() & 7) == 0) { readSimState(); followJetways(); readMapState(); }
+    if ((XPLMGetCycleNumber() & 7) == 0) { readSimState(); g_sim.ground.slidesAuto = g_slidesAuto; followJetways(); slidesAutoStep(); readMapState(); }
     {   // the METAR search's answer
         xpt::MetarAnswer a;
         if (xpt::metarPoll(a)) { g_sim.metar.busy = false; g_sim.metar.icao = a.icao; g_sim.metar.raw = a.raw; g_sim.metar.error = a.error; }
@@ -1859,6 +1982,7 @@ PLUGIN_API void XPluginDisable(void) {
     if (g_capture) { XPLMDestroyWindow(g_capture); g_capture = nullptr; }
     g_captureDown = false;
     xpt::metarStop();
+    xpt::media::stop();
     browserStop();
     mapStop();
     wx::httpGlobalCleanup();

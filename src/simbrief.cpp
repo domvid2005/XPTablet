@@ -71,6 +71,7 @@ FlightPlan parseSimbrief(const std::string& body) {
         if (wind != 0) { char b[24]; std::snprintf(b, sizeof b, "%s%.0f kt", wind > 0 ? "tail " : "head ", std::fabs(wind)); p.avgWind = b; }
         p.blockFuel = str(fuel, "plan_ramp"); p.tripFuel = str(fuel, "enroute_burn"); p.reserveFuel = str(fuel, "reserve");
         p.altnFuel = str(fuel, "alternate_burn"); p.taxiFuel = str(fuel, "taxi"); p.extraFuel = str(fuel, "extra");
+        p.ofpId = str(prm, "request_id") + "/" + str(prm, "time_generated");
         p.zfw = str(wts, "est_zfw"); p.tow = str(wts, "est_tow"); p.ldw = str(wts, "est_ldw");
         {   // the briefing: SimBrief's PDF of the OFP
             const wx::Json* pdf = files ? files->get("pdf") : nullptr;

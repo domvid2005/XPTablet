@@ -8,6 +8,7 @@
 #include <cstdint>
 
 namespace xptb {
+constexpr const char* kStartPage = "https://duckduckgo.com/";   // a new tab, and the one left when the last is closed
 
 constexpr uint32_t kMagic = 0x58505442;   // "XPTB"
 constexpr uint32_t kVersion = 2;         // 2: tabs
@@ -26,7 +27,7 @@ enum CmdType : int32_t {
     CMD_KEY,          // c: Windows key code (VK_BACK 8, VK_RETURN 13, VK_TAB 9, arrows 37-40, VK_DELETE 46); d: 1 down, 0 up
     CMD_FOCUS,        // a: 1 the page has the keyboard, 0 not
     CMD_QUIT,
-    CMD_TAB_NEW,      // text: the address (empty: a blank page); the new tab is shown
+    CMD_TAB_NEW,      // text: the address (empty: the search page, kStartPage); the new tab is shown
     CMD_TAB_CLOSE,    // a: the tab's id
     CMD_TAB_SELECT    // a: the tab's id
 };

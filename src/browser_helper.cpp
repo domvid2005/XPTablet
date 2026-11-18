@@ -379,7 +379,7 @@ bool openTab(const std::string& url) {
     bs.windowless_frame_rate = 30;
     bs.background_color = 0xFFFFFFFF;
     cef_string_t u = {};
-    setStr(&u, url.empty() ? std::string("about:blank") : url);
+    setStr(&u, url.empty() ? std::string(xptb::kStartPage) : url);
     cef_browser_t* b = cef.create_browser_sync(&wi, &g_client, &u, &bs, nullptr, nullptr);
     cef.utf16_clear(&u);
     if (!b) return false;
@@ -398,7 +398,7 @@ void closeTab(int id) {
         hostDo(b, [](cef_browser_host_t* h) { h->close_browser(h, 1); });
         unref(b);
         g_tabs.erase(g_tabs.begin() + (long)i);
-        if (g_tabs.empty()) { g_active = -1; openTab(""); return; }   // always one page
+        if (g_tabs.empty()) { g_active = -1; openTab(""); return; }   // never no tabs: the last one closed comes back as a fresh search page
         int next = g_active;
         if ((int)i < g_active) --next;
         else if ((int)i == g_active) next = std::min((int)i, (int)g_tabs.size() - 1);

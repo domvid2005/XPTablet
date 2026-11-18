@@ -93,9 +93,18 @@ add_library(xpt_ui STATIC src/tabletui.cpp src/tabrender.cpp src/metar.cpp src/a
 target_include_directories(xpt_ui PUBLIC src)
 target_link_libraries(xpt_ui PUBLIC xpt_imgui)
 
+# media controls: Windows' media transport controls, Linux's MPRIS (D-Bus, loaded at run time); none on macOS
+if(WIN32)
+  set(XPT_MEDIA_SRC src/media_win.cpp)
+elseif(APPLE)
+  set(XPT_MEDIA_SRC src/media_none.cpp)
+else()
+  set(XPT_MEDIA_SRC src/media_linux.cpp)
+endif()
+
 # --- The plugin: <build>/package/XPTablet/<lin_x64|mac_x64|win_x64>/XPTablet.xpl ------------------------------------------
 if(XPT_BUILD_PLUGIN)
-  add_library(XPTablet MODULE src/plugin.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp src/tiles.cpp src/aptdat.cpp src/ourairports.cpp src/navdata.cpp src/vatsim.cpp src/vatsim_parse.cpp src/simbrief.cpp)
+  add_library(XPTablet MODULE src/plugin.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp src/tiles.cpp src/aptdat.cpp src/ourairports.cpp src/navdata.cpp src/vatsim.cpp src/vatsim_parse.cpp src/simbrief.cpp src/media.cpp ${XPT_MEDIA_SRC})
   target_include_directories(XPTablet PRIVATE "${XPLANE_SDK}/CHeaders/XPLM" third_party/stb)
   target_compile_definitions(XPTablet PRIVATE XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM303=1)
   target_link_libraries(XPTablet PRIVATE xpt_ui ${XPT_CURL} Threads::Threads ${CMAKE_DL_LIBS})
@@ -165,7 +174,7 @@ if((XPT_BUILD_EMULATOR OR XPT_BUILD_EMULATOR_HEADLESS) AND XPLANE_SDK)
   # the plugin's own sources, built into the emulator, with the XPLM functions coming from the emulator instead of X-Plane
   add_library(xpt_emu_core STATIC
     src/plugin.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp src/tiles.cpp src/aptdat.cpp src/ourairports.cpp
-    src/navdata.cpp src/vatsim.cpp src/vatsim_parse.cpp src/simbrief.cpp
+    src/navdata.cpp src/vatsim.cpp src/vatsim_parse.cpp src/simbrief.cpp src/media.cpp ${XPT_MEDIA_SRC}
     emulator/xplm_emu.cpp emulator/emu_sim.cpp emulator/emu_panel.cpp emulator/emu_script.cpp emulator/emu_paths.cpp emulator/emu_png.cpp)
   target_include_directories(xpt_emu_core PUBLIC "${XPLANE_SDK}/CHeaders/XPLM" src emulator third_party/stb)
   target_compile_definitions(xpt_emu_core PUBLIC XPLM=1 XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM303=1

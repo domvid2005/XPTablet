@@ -1,0 +1,228 @@
+// Windows: the system's media transport controls (what Spotify, browsers and other players tell Windows: title, artist, cover,
+// play / pause / skip), and the audio mixer's sessions: the player's own volume (lowered to 50 % for the radio) and whether a VATSIM
+// voice app is making sound (its level meter).
+#include "media_platform.h"
+
+#include <windows.h>
+#include <audiopolicy.h>
+#include <endpointvolume.h>
+#include <mmdeviceapi.h>
+
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Media.Control.h>
+#include <winrt/Windows.Storage.Streams.h>
+
+#include <algorithm>
+#include <cwctype>
+#include <map>
+#include <string>
+#include <vector>
+
+#pragma comment(lib, "windowsapp")
+#pragma comment(lib, "ole32")
+
+namespace xpt {
+namespace media {
+namespace platform {
+namespace {
+
+using namespace winrt;
+using namespace winrt::Windows::Media::Control;
+using namespace winrt::Windows::Storage::Streams;
+
+GlobalSystemMediaTransportControlsSessionManager g_mgr{nullptr};
+std::wstring g_sessionApp;          // the shown session's app (its AppUserModelId: "Spotify.exe", "MSEdge", ...)
+std::wstring g_lastTrack;           // title + artist the cover was read for
+std::map<DWORD, float> g_baseVol;   // a lowered process's own volume before
+
+std::string narrow(const std::wstring& w) {
+    if (w.empty()) return std::string();
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+    std::string s(n, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), &s[0], n, nullptr, nullptr);
+    return s;
+}
+std::wstring lower(std::wstring s) { for (wchar_t& c : s) c = (wchar_t)std::towlower(c); return s; }
+
+GlobalSystemMediaTransportControlsSession current() {
+    if (!g_mgr) return nullptr;
+    try { return g_mgr.GetCurrentSession(); } catch (...) { return nullptr; }
+}
+
+// the processes with audio sessions on the default speakers: their exe name, volume control and level meter
+struct Session { DWORD pid = 0; std::wstring exe; ISimpleAudioVolume* vol = nullptr; IAudioMeterInformation* meter = nullptr; };
+std::vector<Session> sessions() {
+    std::vector<Session> out;
+    IMMDeviceEnumerator* en = nullptr;
+    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&en)) || !en) return out;
+    IMMDevice* dev = nullptr;
+    if (SUCCEEDED(en->GetDefaultAudioEndpoint(eRender, eMultimedia, &dev)) && dev) {
+        IAudioSessionManager2* mgr = nullptr;
+        if (SUCCEEDED(dev->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, (void**)&mgr)) && mgr) {
+            IAudioSessionEnumerator* list = nullptr;
+            if (SUCCEEDED(mgr->GetSessionEnumerator(&list)) && list) {
+                int n = 0;
+                list->GetCount(&n);
+                for (int i = 0; i < n; ++i) {
+                    IAudioSessionControl* c = nullptr;
+                    if (FAILED(list->GetSession(i, &c)) || !c) continue;
+                    IAudioSessionControl2* c2 = nullptr;
+                    if (SUCCEEDED(c->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&c2)) && c2) {
+                        Session s;
+                        c2->GetProcessId(&s.pid);
+                        if (s.pid) {
+                            HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, s.pid);
+                            if (h) {
+                                wchar_t path[MAX_PATH];
+                                DWORD len = MAX_PATH;
+                                if (QueryFullProcessImageNameW(h, 0, path, &len)) {
+                                    std::wstring p(path, len);
+                                    const size_t sl = p.find_last_of(L"\\/");
+                                    s.exe = lower(sl == std::wstring::npos ? p : p.substr(sl + 1));
+                                    if (s.exe.size() > 4 && s.exe.compare(s.exe.size() - 4, 4, L".exe") == 0) s.exe.resize(s.exe.size() - 4);
+                                }
+                                CloseHandle(h);
+                            }
+                            c->QueryInterface(__uuidof(ISimpleAudioVolume), (void**)&s.vol);
+                            c->QueryInterface(__uuidof(IAudioMeterInformation), (void**)&s.meter);
+                            out.push_back(s);
+                        }
+                        c2->Release();
+                    }
+                    c->Release();
+                }
+                list->Release();
+            }
+            mgr->Release();
+        }
+        dev->Release();
+    }
+    en->Release();
+    return out;
+}
+void release(std::vector<Session>& v) {
+    for (Session& s : v) { if (s.vol) s.vol->Release(); if (s.meter) s.meter->Release(); }
+    v.clear();
+}
+// does this process play the shown media? ("Spotify.exe" / "SpotifyAB.SpotifyMusic_...!Spotify" -> spotify, "MSEdge" -> msedge)
+bool isPlayer(const Session& s) {
+    if (s.exe.empty() || g_sessionApp.empty()) return false;
+    const std::wstring app = lower(g_sessionApp);
+    return app.find(s.exe) != std::wstring::npos;
+}
+// VATSIM (and other) radio voice apps
+bool isRadioApp(const std::wstring& exe, std::string& name) {
+    static const std::pair<const wchar_t*, const char*> kApps[] = {
+        {L"trackaudio", "TrackAudio"}, {L"xpilot", "xPilot"}, {L"swiftguistd", "swift"}, {L"swiftcore", "swift"}, {L"swiftdata", "swift"},
+        {L"afv", "Audio for VATSIM"}, {L"audioforvatsim", "Audio for VATSIM"}, {L"vpilot", "vPilot"}, {L"pilot2atc", "Pilot2ATC"},
+        {L"sayintentions", "SayIntentions"}, {L"beyondatc", "BeyondATC"}};
+    for (const auto& a : kApps) if (exe.find(a.first) != std::wstring::npos) { name = a.second; return true; }
+    return false;
+}
+
+} // namespace
+
+bool init() {
+    try {
+        init_apartment(apartment_type::multi_threaded);
+    } catch (...) {}
+    try {
+        g_mgr = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
+    } catch (...) { g_mgr = nullptr; }
+    return g_mgr != nullptr;
+}
+void shutdown() {
+    g_mgr = nullptr;
+    try { uninit_apartment(); } catch (...) {}
+}
+
+bool poll(Info& info, std::string& artBytes) {
+    artBytes.clear();
+    auto s = current();
+    if (!s) { g_sessionApp.clear(); return false; }
+    try {
+        g_sessionApp = std::wstring(s.SourceAppUserModelId());
+        info.app = narrow(g_sessionApp);
+        const auto pb = s.GetPlaybackInfo();
+        info.playing = pb.PlaybackStatus() == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
+        const auto c = pb.Controls();
+        info.canPrev = c.IsPreviousEnabled();
+        info.canNext = c.IsNextEnabled();
+        const auto props = s.TryGetMediaPropertiesAsync().get();
+        info.title = narrow(std::wstring(props.Title()));
+        info.artist = narrow(std::wstring(props.Artist()));
+        info.album = narrow(std::wstring(props.AlbumTitle()));
+        // the cover: read once per track (it is given as a stream)
+        const std::wstring track = std::wstring(props.Title()) + L"\x01" + std::wstring(props.Artist());
+        if (track != g_lastTrack) {
+            g_lastTrack = track;
+            const auto thumb = props.Thumbnail();
+            if (thumb) {
+                const auto stream = thumb.OpenReadAsync().get();
+                const uint32_t size = (uint32_t)std::min<uint64_t>(stream.Size(), 16u << 20);
+                if (size > 0) {
+                    Buffer buf(size);
+                    const auto got = stream.ReadAsync(buf, size, InputStreamOptions::None).get();
+                    artBytes.assign((const char*)got.data(), got.Length());
+                }
+            }
+        }
+    } catch (...) {
+        return !info.title.empty();
+    }
+    return true;
+}
+
+void send(int what) {
+    auto s = current();
+    if (!s) return;
+    try {
+        if (what == 1) s.TryTogglePlayPauseAsync().get();
+        else if (what == 2) s.TrySkipPreviousAsync().get();
+        else if (what == 3) s.TrySkipNextAsync().get();
+        else if (what == 4) s.TryPlayAsync().get();
+        else if (what == 5) s.TryPauseAsync().get();
+    } catch (...) {}
+}
+
+bool setVolume(float factor) {
+    std::vector<Session> list = sessions();
+    bool any = false;
+    for (Session& s : list) {
+        if (!s.vol) continue;
+        if (factor >= 0.999f) {   // back to what each was
+            auto it = g_baseVol.find(s.pid);
+            if (it == g_baseVol.end()) continue;
+            s.vol->SetMasterVolume(it->second, nullptr);
+            g_baseVol.erase(it);
+            any = true;
+        } else if (isPlayer(s)) {
+            float v = 1.0f;
+            s.vol->GetMasterVolume(&v);
+            const float base = g_baseVol.count(s.pid) ? g_baseVol[s.pid] : v;
+            g_baseVol[s.pid] = base;
+            s.vol->SetMasterVolume(base * factor, nullptr);
+            any = true;
+        }
+    }
+    if (factor >= 0.999f) g_baseVol.clear();
+    release(list);
+    return any || factor >= 0.999f;
+}
+
+bool radioApps(std::string& who) {
+    std::vector<Session> list = sessions();
+    bool heard = false;
+    for (Session& s : list) {
+        std::string name;
+        if (!s.meter || !isRadioApp(s.exe, name)) continue;
+        float peak = 0;
+        if (SUCCEEDED(s.meter->GetPeakValue(&peak)) && peak > 0.01f) { heard = true; who = name; break; }
+    }
+    release(list);
+    return heard;
+}
+
+} // namespace platform
+} // namespace media
+} // namespace xpt
