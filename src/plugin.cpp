@@ -1067,24 +1067,28 @@ void mediaStep(const xpt::Actions& act) {
     if (!st.mediaEnabled) { xpt::media::stop(); g_sim.media = xpt::MediaState(); g_sim.media.supported = true; return; }
     xpt::media::start();
     if (act.media) xpt::media::command(act.media);
+    if (act.mediaSeek >= 0) xpt::media::seek(act.mediaSeek);
     // the radios: xPilot says when COM1 or COM2 is receiving (looked for now and then: it may load after us)
-    static XPLMDataRef com1 = nullptr, com2 = nullptr, rxOld = nullptr;
-    if ((XPLMGetCycleNumber() & 255) == 1 && !com1 && !rxOld) {
+    static XPLMDataRef com1 = nullptr, com2 = nullptr, rxOld = nullptr, ptt = nullptr;
+    if ((XPLMGetCycleNumber() & 255) == 1 && ((!com1 && !rxOld) || !ptt)) {
         com1 = XPLMFindDataRef("xpilot/audio/com1_rx");
         com2 = XPLMFindDataRef("xpilot/audio/com2_rx");
         rxOld = XPLMFindDataRef("xpilot/audio/rx");
+        ptt = XPLMFindDataRef("xpilot/ptt");   // 1 while push-to-talk is held
     }
     auto on = [](XPLMDataRef r) {
         if (!r) return false;
         return (XPLMGetDataRefTypes(r) & xplmType_Int) ? XPLMGetDatai(r) != 0 : XPLMGetDataf(r) > 0.5f;
     };
-    const bool rx = on(com1) || on(com2) || on(rxOld);
-    xpt::media::setDuck(st.mediaDuck, rx, rx ? "xPilot" : "");
+    const bool rx = on(com1) || on(com2) || on(rxOld), tx = on(ptt);
+    xpt::media::setDuck(st.mediaDuck, rx || tx, rx || tx ? "xPilot" : "");
     const xpt::media::Now n = xpt::media::now();
     xpt::MediaState& m = g_sim.media;
     m.supported = n.supported; m.active = n.active; m.app = n.app; m.title = n.title; m.artist = n.artist; m.album = n.album;
     m.playing = n.playing; m.canPrev = n.canPrev; m.canNext = n.canNext;
+    m.posSec = n.posSec; m.lenSec = n.lenSec; m.canSeek = n.canSeek;
     m.radioRx = rx || n.radioApp;
+    m.radioTx = tx;
     m.radioSource = rx ? "xPilot" : n.radioApp ? n.radioAppName : "";
     m.ducked = n.ducked;
     // the cover, into a texture of its own (mipmapped: it is shown small and large)

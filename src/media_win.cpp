@@ -3,6 +3,7 @@
 // voice app is making sound (its level meter).
 #include "media_platform.h"
 
+#include <chrono>
 #include <windows.h>
 #include <audiopolicy.h>
 #include <endpointvolume.h>
@@ -148,6 +149,19 @@ bool poll(Info& info, std::string& artBytes) {
         const auto c = pb.Controls();
         info.canPrev = c.IsPreviousEnabled();
         info.canNext = c.IsNextEnabled();
+        info.canSeek = c.IsPlaybackPositionEnabled();
+        {   // where the track is: the position as of its last update, carried on to now while it plays
+            const auto tl = s.GetTimelineProperties();
+            const double len = std::chrono::duration<double>(tl.EndTime() - tl.StartTime()).count();
+            double pos = std::chrono::duration<double>(tl.Position() - tl.StartTime()).count();
+            if (info.playing) {
+                const auto since = winrt::clock::now() - tl.LastUpdatedTime();
+                const double s2 = std::chrono::duration<double>(since).count();
+                if (s2 > 0 && s2 < 3600) pos += s2;
+            }
+            info.lenSec = len > 0 ? len : -1;
+            info.posSec = len > 0 ? std::min(std::max(0.0, pos), len) : -1;
+        }
         const auto props = s.TryGetMediaPropertiesAsync().get();
         info.title = narrow(std::wstring(props.Title()));
         info.artist = narrow(std::wstring(props.Artist()));
@@ -173,6 +187,15 @@ bool poll(Info& info, std::string& artBytes) {
     return true;
 }
 
+void seek(double sec) {
+    auto s = current();
+    if (!s) return;
+    try {
+        const auto tl = s.GetTimelineProperties();
+        const int64_t ticks = tl.StartTime().count() + (int64_t)(sec * 1e7);   // 100 ns ticks
+        s.TryChangePlaybackPositionAsync(ticks).get();
+    } catch (...) {}
+}
 void send(int what) {
     auto s = current();
     if (!s) return;

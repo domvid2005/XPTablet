@@ -95,6 +95,8 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-tr
       <label class="check"><input type="checkbox" id="bcn"> Beacon</label>
       <label class="check"><input type="checkbox" id="pbk" checked> Park brake</label>
       <label class="check"><input type="checkbox" id="eng"> Engines</label>
+      <label class="check" title="Stands for xPilot receiving on COM1/COM2: the Media setting lowers or pauses the music"><input type="checkbox" id="radio"> Radio receiving</label>
+      <label class="check" title="Stands for xPilot push-to-talk"><input type="checkbox" id="ptt"> Transmitting</label>
     </div>
     <h2>Tablet</h2>
     <div class="row">
@@ -174,7 +176,7 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-tr
     $('newtfc').onclick = () => M._emu_new_traffic();
     $('ra').onclick = () => M._emu_intruder();
     const chk = (id, what) => { $(id).onchange = () => M._emu_set(what, $(id).checked ? 1 : 0); };
-    chk('wxp', 9); chk('sam', 10); chk('bat', 11); chk('bcn', 12); chk('pbk', 13); chk('eng', 14);
+    chk('wxp', 9); chk('sam', 10); chk('bat', 11); chk('bcn', 12); chk('pbk', 13); chk('eng', 14); chk('radio', 15); chk('ptt', 16);
     $('shape').onchange = () => { const a = +$('shape').value; M._emu_shape(a); logW = M._emu_width(); sizeCanvas(); };
     let armed = 0;
     $('reset').onclick = () => {   // a second click within 4 s resets (no dialog: pages in an app may not show one)

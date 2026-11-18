@@ -8,6 +8,7 @@ bool init() { return false; }
 void shutdown() {}
 bool poll(Info&, std::string&) { return false; }
 void send(int) {}
+void seek(double) {}
 bool setVolume(float) { return false; }
 bool radioApps(std::string&) { return false; }
 } // namespace platform

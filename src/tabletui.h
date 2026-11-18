@@ -34,6 +34,7 @@ struct Settings {
     std::vector<std::pair<std::string, std::string>> bookmarks;   // the browser's own bookmarks: title, address
     // the Map page
     int mapSource = 0;            // 0 OpenStreetMap, 1 satellite imagery
+    bool mapDark = false;         // Display: the street map in night colours (light labels)
     bool mapAirports = true;      // X-Plane's airport layouts (apt.dat) over the map
     bool mapTimeZones = false;    // the time zone boundaries
     bool mapHeadingUp = false;    // Heading Lock (else North Lock)
@@ -140,6 +141,9 @@ struct MediaState {
     ImTextureID art = 0;          // the cover, artW x artH pixels; 0: none
     int artW = 0, artH = 0;
     bool radioRx = false;         // the radios are receiving (xPilot's COM1/COM2, VATSIM voice apps)
+    double posSec = -1, lenSec = -1;   // the track's point and length, in seconds (-1: the player does not say)
+    bool canSeek = false;         // the player can be moved to another point
+    bool radioTx = false;         // push-to-talk is held (xPilot's xpilot/ptt): the music is lowered or paused for it too
     bool ducked = false;          // the music is lowered or paused for the radio now
     std::string radioSource;      // what the radio is heard through ("xPilot", "TrackAudio"...), "" none
 };
@@ -292,7 +296,8 @@ struct Actions {
     bool planClear = false;       // forget it
     bool clearTileCache = false;  // delete the map tiles kept on disk
     std::string docOpen;
-    int media = 0;                // the music: 1 play / pause, 2 previous, 3 next
+    int media = 0;                // the media player: 1 play / pause, 2 previous, 3 next
+    double mediaSeek = -1;        // move the track to this point (seconds); -1: no
     double mapLat = 0, mapLon = 0, mapLayoutNm = 0, mapPointNm = 0;
     double mapNavNm = 0, mapFixNm = 0;   // navaids and fixes to have ready around the centre (0: none)
 };

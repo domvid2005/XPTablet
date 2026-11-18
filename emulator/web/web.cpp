@@ -78,6 +78,22 @@ MapState::Traffic makeTraffic(bool ground) {
 int g_jetway = 1;          // openSAM: 1 ready, 2 docked, -1 moving
 double g_jetwayUntil = 0;
 int g_jetwayTo = 1;
+bool g_wantDoor[2] = {false, false};   // the doors asked for: each connects on its own, the jetways leave with the last one
+bool g_slidesAuto = false;             // ToLiss's own rule: armed with the beacon on and the doors shut, disarmed parked
+// a pretend music player (the sim reads Windows' or Linux's own); the radio switch on the page stands for xPilot receiving
+struct Song { const char* title; const char* artist; const char* album; unsigned char c0[3], c1[3]; };
+const Song kSongs[] = {{"Flying Home", "The Pilots", "Cleared for Takeoff", {250, 70, 110}, {80, 40, 200}},
+                       {"Clear Skies", "Holding Pattern", "FL350", {40, 180, 230}, {20, 60, 140}},
+                       {"Night Approach", "ILS 27", "Glideslope", {255, 170, 60}, {120, 30, 60}},
+                       {"Cruise Control", "Mach .78", "Long Haul", {60, 210, 140}, {20, 70, 90}}};
+int g_song = 0;
+const double kSongLen[4] = {214, 187, 251, 166};
+double g_songPos = 0;   // seconds into the song
+bool g_playing = true, g_radioRx = false, g_radioTx = false, g_pausedByRadio = false;
+double g_radioLast = -10;
+GLuint g_artTex[4] = {0, 0, 0, 0};
+double g_sbNext = 30;   // the 2-minute SimBrief check
+bool g_sbQuiet = false;
 
 // ---- what the browser downloads (JavaScript does the fetching) ----
 EM_JS(void, js_fetch_text, (int kind, const char* url), {
@@ -86,13 +102,26 @@ EM_JS(void, js_fetch_text, (int kind, const char* url), {
         const p = stringToNewUTF8(t); Module._emu_text(kind, st, p); Module._free(p);
     }).catch(e => { const p = stringToNewUTF8(""); Module._emu_text(kind, -1, p); Module._free(p); });
 });
-EM_JS(void, js_load_tile, (int key, const char* url), {
+EM_JS(void, js_load_tile, (int key, const char* url, int dark), {
     const img = new Image(); img.crossOrigin = "anonymous";
     img.onload = () => {
+        let src = img;
+        if (dark) {   // the same night colours as the plugin's (xpt::tiles::darken)
+            const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+            const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+            const d = x.getImageData(0, 0, c.width, c.height), p = d.data;
+            for (let i = 0; i < p.length; i += 4) {
+                const m = Math.floor((p[i] + p[i + 1] + p[i + 2]) / 3);
+                if (m >= 249) { p[i] = 66; p[i + 1] = 74; p[i + 2] = 90; continue; }
+                const k = 255 - 2 * m, add = [8, 12, 22];
+                for (let j = 0; j < 3; ++j) p[i + j] = Math.min(255, Math.floor(Math.max(0, Math.min(255, p[i + j] + k)) * 82 / 100) + add[j]);
+            }
+            x.putImageData(d, 0, 0); src = c;
+        }
         const gl = GLctx, t = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, t);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
         gl.generateMipmap(gl.TEXTURE_2D);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -117,7 +146,7 @@ std::vector<TileSlot> g_tileSlots;                 // by request number (what Ja
 std::map<unsigned long long, int> g_tileIndex;      // a tile -> its request number
 int g_tilesInFlight = 0;
 ImTextureID tile(int src, int z, int x, int y, bool request) {
-    const unsigned long long key = ((unsigned long long)(src & 1) << 62) | ((unsigned long long)(z & 31) << 56) | ((unsigned long long)(x & 0x0FFFFFFF) << 28) | (unsigned long long)(y & 0x0FFFFFFF);
+    const unsigned long long key = ((unsigned long long)(src & 3) << 62) | ((unsigned long long)(z & 31) << 56) | ((unsigned long long)(x & 0x0FFFFFFF) << 28) | (unsigned long long)(y & 0x0FFFFFFF);
     auto it = g_tileIndex.find(key);
     if (it != g_tileIndex.end()) return (ImTextureID)(intptr_t)g_tileSlots[it->second].tex;
     if (request) {
@@ -129,7 +158,7 @@ ImTextureID tile(int src, int z, int x, int y, bool request) {
         char url[160];
         if (src == 1) std::snprintf(url, sizeof url, "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/%d/%d/%d", z, y, x);
         else std::snprintf(url, sizeof url, "https://tile.openstreetmap.org/%d/%d/%d.png", z, x, y);
-        js_load_tile(k, url);
+        js_load_tile(k, url, src == 2);
     }
     return 0;
 }
@@ -316,7 +345,48 @@ void step(double dt, double now) {
         if (gr.cabinLight < 0) gr.cabinLight = 0.7f;
     } else { gr.paxDoors = gr.cargoDoors = 0; gr.deice = false; gr.slides = -1; gr.cabinLight = -1; }
     gr.jwDoors = g_openSam ? 2 : 0;
-    gr.jwDocked[0] = gr.jwDocked[1] = g_openSam && g_jetway == 2;
+    for (int k = 0; k < 2; ++k) gr.jwDocked[k] = g_openSam && g_jetway == 2 && g_wantDoor[k];
+    // the slides, by themselves
+    gr.slidesAuto = g_slidesAuto;
+    if (g_ac.toliss && g_slidesAuto) {
+        bool shut = true;
+        for (int k = 0; k < gr.paxDoors; ++k) if (gr.paxDoor[k] == 2) shut = false;
+        if (g_beacon && shut) gr.slides = 1;
+        else if (g_onGround && !g_beacon && !g_engines) gr.slides = 0;
+    }
+    // the music, and the radio's effect on it (Settings, Media)
+    MediaState& md = g_s.media;
+    md.supported = true;
+    if (!settings().mediaEnabled) md = MediaState();
+    else {
+        const Song& so = kSongs[g_song];
+        md.active = true; md.app = "Emulator Player"; md.title = so.title; md.artist = so.artist; md.album = so.album;
+        md.canPrev = md.canNext = true;
+        if (g_playing) { g_songPos += dt; if (g_songPos >= kSongLen[g_song]) { g_song = (g_song + 1) % 4; g_songPos = 0; } }
+        md.posSec = g_songPos; md.lenSec = kSongLen[g_song]; md.canSeek = true;
+        if (g_song == 3) { md.art = 0; md.artW = md.artH = 0; }   // a song without a cover: the disc is shown
+        else if (!g_artTex[g_song]) {   // the cover: the song's two colours, corner to corner, with a ring
+            std::vector<unsigned char> px(256 * 256 * 4);
+            for (int y = 0; y < 256; ++y) for (int x = 0; x < 256; ++x) {
+                const float t = (x + y) / 510.0f, r = std::hypot(x - 128.0f, y - 128.0f);
+                const float ring = (r > 60 && r < 70) || r < 14 ? 0.35f : 0.0f;
+                for (int c = 0; c < 3; ++c) px[(y * 256 + x) * 4 + c] = (unsigned char)std::min(255.0f, so.c0[c] + (so.c1[c] - so.c0[c]) * t + 255 * ring);
+                px[(y * 256 + x) * 4 + 3] = 255;
+            }
+            g_artTex[g_song] = uploadLevels(px.data(), 256, 256, 1);
+        }
+        if (g_song != 3) { md.art = (ImTextureID)(intptr_t)g_artTex[g_song]; md.artW = md.artH = 256; }
+        const bool heard = g_radioRx || g_radioTx || now - g_radioLast < 1.2;
+        if (g_radioRx || g_radioTx) g_radioLast = now;
+        md.radioTx = g_radioTx;
+        const int mode = settings().mediaDuck;
+        if (mode == 2 && heard && g_playing) { g_playing = false; g_pausedByRadio = true; }
+        if (mode == 2 && !heard && g_pausedByRadio) { g_playing = true; g_pausedByRadio = false; }
+        if (mode != 2) g_pausedByRadio = false;
+        md.playing = g_playing;
+        md.radioRx = heard; md.radioSource = heard ? "xPilot" : "";
+        md.ducked = (mode == 1 && heard && g_playing) || (mode == 2 && g_pausedByRadio);
+    }
     // Settings, Data
     g_s.dataInfo = {{"Running in", "the browser emulator (no X-Plane)"}, {"Map tiles", "OpenStreetMap / Esri, loaded by this page"},
                     {"Airports and navaids", "need X-Plane's data: use the desktop emulator with your X-Plane folder"},
@@ -334,18 +404,35 @@ void groundAction(const Actions& a, double now) {
     case GA_GPU: gr.extPower = !gr.extPower; break;
     case GA_HP_AIR: gr.hpAir = !gr.hpAir; break;
     case GA_LP_AIR: gr.lpAir = !gr.lpAir; break;
-    case GA_SLIDES_ARM: gr.slides = 1; break;
-    case GA_SLIDES_DISARM: gr.slides = 0; break;
+    case GA_SLIDES_ARM: gr.slides = 1; g_slidesAuto = false; break;
+    case GA_SLIDES_DISARM: gr.slides = 0; g_slidesAuto = false; break;
+    case GA_SLIDES_AUTO: g_slidesAuto = true; break;
     case GA_CABIN_LIGHT: gr.cabinLight = std::max(0, std::min(100, a.groundIndex)) / 100.0f; break;
-    case GA_JETWAY: case GA_JETWAY_DOOR:
-        if (g_openSam && g_jetway != -1) { g_jetwayTo = g_jetway == 2 ? 1 : 2; g_jetway = -1; g_jetwayUntil = now + 6; }
+    case GA_JETWAY: case GA_JETWAY_DOOR: {
+        if (!g_openSam || g_jetway == -1) break;
+        const bool any0 = g_wantDoor[0] || g_wantDoor[1];
+        if (a.ground == GA_JETWAY_DOOR && a.groundIndex >= 0 && a.groundIndex < 2) g_wantDoor[a.groundIndex] = !g_wantDoor[a.groundIndex];
+        else { const bool on = !(g_jetway == 2); g_wantDoor[0] = g_wantDoor[1] = on; }
+        const bool any1 = g_wantDoor[0] || g_wantDoor[1];
+        if (!any0 && any1 && g_jetway != 2) { g_jetwayTo = 2; g_jetway = -1; g_jetwayUntil = now + 6; }   // the first door: the jetways come
+        else if (any0 && !any1 && g_jetway == 2) { g_jetwayTo = 1; g_jetway = -1; g_jetwayUntil = now + 6; }   // the last door: they go
         break;
+    }
     default: break;
     }
 }
 
 void handle(const Actions& a, double now) {
     if (a.ground != GA_NONE) groundAction(a, now);
+    if (a.media == 1) { g_playing = !g_playing; g_pausedByRadio = false; }
+    if (a.media == 2) { if (g_songPos > 3) g_songPos = 0; else { g_song = (g_song + 3) % 4; g_songPos = 0; } }   // as players do: back to the start, then the song before
+    if (a.media == 3) { g_song = (g_song + 1) % 4; g_songPos = 0; }
+    if (a.mediaSeek >= 0) g_songPos = std::min(a.mediaSeek, kSongLen[g_song] - 0.5);
+    // every 2 minutes with a SimBrief ID: a new plan is loaded and announced
+    if (settings().notifySimbrief && !settings().simbriefUser.empty() && !g_s.plan.busy && now >= g_sbNext) {
+        g_sbNext = now + 120; g_sbQuiet = true;
+        js_fetch_text(K_SIMBRIEF, simbriefUrl(settings().simbriefUser).c_str());
+    }
     // the Weather page's METAR search
     if (!a.metarSearch.empty() && !g_s.metar.busy) {
         g_s.metar = MetarLookup(); g_s.metar.icao = a.metarSearch; g_s.metar.busy = true;
@@ -357,7 +444,7 @@ void handle(const Actions& a, double now) {
     g_s.browser.message = "Web pages open in X-Plane's own Chromium, which the browser emulator doesn't have. Use the desktop emulator with your X-Plane folder, or the sim.";
     // SimBrief
     if (a.planImport && !settings().simbriefUser.empty() && !g_s.plan.busy) {
-        g_s.plan.busy = true; g_s.plan.status = "Asking SimBrief...";
+        g_s.plan.busy = true; g_s.plan.status = "Asking SimBrief..."; g_sbQuiet = false;
         js_fetch_text(K_SIMBRIEF, simbriefUrl(settings().simbriefUser).c_str());
     }
     if (a.planClear) { g_s.plan = FlightPlan(); g_s.plan.status = "Cleared"; planToRoute(g_s.plan, g_s.map); }
@@ -421,6 +508,15 @@ EMSCRIPTEN_KEEPALIVE void emu_text(int kind, int status, const char* text) {
         else if (status == 400) p.status = "SimBrief has no plan for that ID";
         else if (status != 200) p.status = "SimBrief answered " + std::to_string(status);
         else p = parseSimbrief(body);
+        if (g_sbQuiet) {   // the 2-minute check: only a plan not seen before counts
+            g_sbQuiet = false;
+            if (!p.loaded || p.ofpId == g_s.plan.ofpId) return;
+            g_s.plan = p; g_s.plan.status = "New plan found " + p.importedAt;
+            ++g_s.newPlanSeq;
+            g_s.newPlanText = p.origin + " to " + p.dest + (p.callsign.empty() ? std::string() : " (" + p.callsign + ")") + ". Tap for the Flight Plan.";
+            planToRoute(g_s.plan, g_s.map);
+            return;
+        }
         if (p.loaded) g_s.plan = p; else g_s.plan.status = p.status;
         g_s.plan.busy = false;
         planToRoute(g_s.plan, g_s.map);
@@ -456,6 +552,8 @@ EMSCRIPTEN_KEEPALIVE void emu_set(int what, double v) {
     case 12: g_beacon = v != 0; break;
     case 13: g_parkBrake = v != 0; break;
     case 14: g_engines = v != 0; break;
+    case 15: g_radioRx = v != 0; break;
+    case 16: g_radioTx = v != 0; break;
     case 20: g_wx.windDir = (float)v; break;
     case 21: g_wx.windKt = (float)v; break;
     case 22: g_wx.visSm = (float)v; break;

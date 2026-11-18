@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <map>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -59,7 +60,7 @@ const AppDef kApps[APP_COUNT] = {
     {"navigraph", "Navigraph", IM_COL32(28, 52, 92, 255), "https://charts.navigraph.com"},
     {"vatsim", "VATSIM Radar", IM_COL32(18, 28, 52, 255), "https://vatsim-radar.com"},
     {"skyvector", "SkyVector", IM_COL32(32, 132, 108, 255), "https://skyvector.com"},
-    {"music", "Music", IM_COL32(250, 45, 85, 255), nullptr},
+    {"music", "Media", IM_COL32(250, 45, 85, 255), nullptr},   // (its id stays "music": saved home screens keep it)
 };
 enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM, ICON_SKYVECTOR };   // pictures of their own (the other web apps borrow one)
 
@@ -1852,7 +1853,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         p.y = g_mapCenter.y + (x * sr + y * cr) / scale;
         return p;
     };
-    const bool sat = g_settings.mapSource == 1;
+    const bool satImg = g_settings.mapSource == 1;
+    const bool sat = satImg || g_settings.mapDark;   // a dark map under everything: light ink, as on the imagery
     dl->PushClipRect(r0, r1, true);
     dl->AddRectFilled(r0, r1, sat ? IM_COL32(18, 24, 30, 255) : IM_COL32(232, 228, 220, 255));
 
@@ -1876,7 +1878,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     latLonOf(g_mapCenter, cLat, cLon);
 
     // ---- the tiles: the zoom level that gives about one tile pixel per screen pixel, nearest the middle first
-    const int src = sat ? 1 : 0;
+    const int src = satImg ? 1 : g_settings.mapDark ? 2 : 0;
     const double pxPer = std::max(1.0f, s.pixelScale);
     const int tz = std::max(1, std::min(19, (int)std::floor(g_mapZoom + std::log2(pxPer) + 0.3)));
     const int nT = 1 << tz;
@@ -2273,9 +2275,9 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         x += rw + 4;
         if (mapBubble(dl, f, "##mzin", ImVec2(x, y), nullptr, "+", false, 34)) g_mapRange = std::max(0, g_mapRange - 1);
         x += 34 + 12;
-        if (mapBubble(dl, f, "##mosm", ImVec2(x, y), nullptr, "Map", !sat)) { g_settings.mapSource = 0; g_settingsChanged = true; }
+        if (mapBubble(dl, f, "##mosm", ImVec2(x, y), nullptr, "Map", !satImg)) { g_settings.mapSource = 0; g_settingsChanged = true; }
         x += bubbleW(f, nullptr, "Map") + 4;
-        if (mapBubble(dl, f, "##msat", ImVec2(x, y), nullptr, "Satellite", sat)) { g_settings.mapSource = 1; g_settingsChanged = true; }
+        if (mapBubble(dl, f, "##msat", ImVec2(x, y), nullptr, "Satellite", satImg)) { g_settings.mapSource = 1; g_settingsChanged = true; }
         // the layers, down the left under the time
         struct Layer { const char* id; const char* name; bool* v; };
         const Layer layers[7] = {{"##mapt", "Airports", &g_settings.mapAirports}, {"##mnav", "Navaids", &g_settings.mapNavaids},
@@ -2291,7 +2293,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 *layers[i].v = !*layers[i].v; g_settingsChanged = true;
             }
         // where the map comes from, and whether the airports are still being found
-        const char* attr = sat ? "Imagery: Esri, Maxar, Earthstar Geographics" : "\xC2\xA9 OpenStreetMap contributors";
+        const char* attr = satImg ? "Imagery: Esri, Maxar, Earthstar Geographics" : "\xC2\xA9 OpenStreetMap contributors";
         const ImVec2 as = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, attr);
         dl->AddRectFilled(ImVec2(r1.x - as.x - 12, r1.y - as.y - 6), r1, IM_COL32(255, 255, 255, 190), 4.0f, ImDrawFlags_RoundCornersTopLeft);
         dl->AddText(f.small, fontPx(f.small), ImVec2(r1.x - as.x - 6, r1.y - as.y - 3), IM_COL32(30, 36, 48, 255), attr);
@@ -3486,7 +3488,8 @@ std::string agoText(double t) {
 // glass, as iOS draws it: a light veil over what is behind, a hairline edge, a faint sheen at the top
 void glass(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha = 1.0f) {
     const int A = (int)(255 * alpha);
-    dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, 30 * A / 255), r);
+    dl->AddRectFilled(a, b, IM_COL32(18, 28, 50, 215 * A / 255), r);   // a dark frosted base: what is behind barely shows
+    dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, 24 * A / 255), r);
     dl->AddRectFilledMultiColor(ImVec2(a.x + r * 0.3f, a.y + 1), ImVec2(b.x - r * 0.3f, a.y + std::min(24.0f, (b.y - a.y) * 0.4f)),
                                 IM_COL32(255, 255, 255, 16 * A / 255), IM_COL32(255, 255, 255, 16 * A / 255), IM_COL32(255, 255, 255, 0), IM_COL32(255, 255, 255, 0));
     dl->AddRect(a, b, IM_COL32(255, 255, 255, 46 * A / 255), r, 0, 1.0f);
@@ -3501,7 +3504,54 @@ void cover(ImDrawList* dl, const MediaState& m, ImVec2 a, float size, float r) {
     } else {
         dl->AddRectFilledMultiColor(a, b, IM_COL32(250, 45, 85, 255), IM_COL32(255, 120, 90, 255), IM_COL32(170, 40, 140, 255), IM_COL32(90, 40, 160, 255));
         dl->AddRect(a, b, IM_COL32(0, 0, 0, 0), r);
-        icon(dl, APP_MUSIC, ImVec2(a.x + size * 0.5f, a.y + size * 0.5f), size * 0.26f, IM_COL32(255, 255, 255, 230));
+        // no cover: a disc (the user's disc icon, drawn as shapes so it is sharp at any size), its hole showing the colours behind
+        const ImVec2 c(a.x + size * 0.5f, a.y + size * 0.5f);
+        dl->AddCircleFilled(c, size * 0.30f, IM_COL32(255, 255, 255, 235), 64);
+        dl->AddCircleFilled(c, size * 0.055f, IM_COL32(205, 55, 120, 255), 24);
+    }
+}
+// the track's progress: a bar with a dot to drag (when the player allows), the times beside it (inline) or under it
+std::string clockText(double sec) {
+    if (sec < 0) return "--:--";
+    const int t = (int)sec;
+    char b[16];
+    if (t >= 3600) std::snprintf(b, sizeof b, "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60);
+    else std::snprintf(b, sizeof b, "%d:%02d", t / 60, t % 60);
+    return b;
+}
+void progressBar(ImDrawList* dl, const Fonts& f, const MediaState& m, ImVec2 a, float x1, const char* id, bool inlineTimes, Actions& act) {
+    ImGuiStorage* st = ImGui::GetStateStorage();
+    const ImGuiID key = ImGui::GetID(id);
+    const bool known = m.active && m.lenSec > 0 && m.posSec >= 0;
+    const float tw = inlineTimes ? 40.0f : 0.0f;
+    const float bx0 = a.x + tw, bx1 = x1 - tw, cy = a.y + 8;
+    float frac = known ? (float)std::min(1.0, m.posSec / m.lenSec) : 0.0f;
+    // dragging: the dot follows the finger; let go, the track goes there
+    ImGui::SetCursorScreenPos(ImVec2(bx0 - 8, a.y - 4));
+    ImGui::InvisibleButton(id, ImVec2(bx1 - bx0 + 16, 24));
+    const bool can = known && m.canSeek;
+    const bool active = can && ImGui::IsItemActive();
+    const float drag = std::max(0.0f, std::min(1.0f, (ImGui::GetIO().MousePos.x - bx0) / std::max(1.0f, bx1 - bx0)));
+    if (active) { frac = drag; st->SetFloat(key, drag); }
+    if (can && ImGui::IsItemDeactivated()) { act.mediaSeek = st->GetFloat(key, frac) * m.lenSec; st->SetFloat(key + 1, (float)ImGui::GetTime()); st->SetFloat(key + 2, st->GetFloat(key, frac)); }
+    // just after a seek the player may not have caught up: the dot stays where it was let go for a moment
+    if (!active && ImGui::GetTime() - st->GetFloat(key + 1, -10.0f) < 0.8) frac = st->GetFloat(key + 2, frac);
+    const float hot = eased(id, active, can && ImGui::IsItemHovered(), active).hot;
+    const float th = 4 + 2 * hot;
+    dl->AddRectFilled(ImVec2(bx0, cy - th * 0.5f), ImVec2(bx1, cy + th * 0.5f), IM_COL32(255, 255, 255, 50), th);
+    if (known) {
+        const float fx = bx0 + (bx1 - bx0) * frac;
+        dl->AddRectFilled(ImVec2(bx0, cy - th * 0.5f), ImVec2(fx, cy + th * 0.5f), IM_COL32(255, 255, 255, 220), th);
+        dl->AddCircleFilled(ImVec2(fx, cy), 6.0f + 2.5f * hot, IM_COL32(255, 255, 255, 255), 24);
+    }
+    const double shownPos = known ? frac * m.lenSec : -1;
+    const std::string l = clockText(shownPos), r = clockText(known ? m.lenSec : -1);
+    if (inlineTimes) {
+        textAt(dl, f.small, a.x, std::floor(cy - fontPx(f.small) * 0.5f), kMuted, l.c_str());
+        textRight(dl, f.small, x1, std::floor(cy - fontPx(f.small) * 0.5f), kMuted, r.c_str());
+    } else {
+        textAt(dl, f.small, bx0, cy + 10, kMuted, l.c_str());
+        textRight(dl, f.small, bx1, cy + 10, kMuted, r.c_str());
     }
 }
 // previous, play / pause, next: true when one was pressed (act.media says which)
@@ -3536,10 +3586,10 @@ void playerButtons(ImDrawList* dl, const MediaState& m, ImVec2 c, float r, const
         }
     }
 }
-const char* duckName(int m) { return m == 1 ? "lowers the music to 50 %" : m == 2 ? "pauses the music" : "leaves the music alone"; }
+const char* duckName(int m) { return m == 1 ? "lowers the media to 50 %" : m == 2 ? "pauses the media" : "leaves the media alone"; }
 std::string radioLine(const MediaState& m) {
-    std::string r = m.radioRx ? "Radio: receiving" + (m.radioSource.empty() ? std::string() : " (" + m.radioSource + ")") : std::string("Radio: quiet");
-    if (m.ducked) r += g_settings.mediaDuck == 2 ? ", music paused" : ", music lowered";
+    std::string r = m.radioTx ? std::string("Radio: transmitting") : m.radioRx ? "Radio: receiving" + (m.radioSource.empty() ? std::string() : " (" + m.radioSource + ")") : std::string("Radio: quiet");
+    if (m.ducked) r += g_settings.mediaDuck == 2 ? ", media paused" : ", media lowered";
     return r;
 }
 std::string fitText(ImFont* fnt, const std::string& t, float width) {
@@ -3560,13 +3610,13 @@ void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
     const float x = a.x + art + 36, x1 = w - 30;
     float y = a.y + 6;
     if (!m.supported) {
-        textAt(dl, f.title, x, y, kInk, "Music");
+        textAt(dl, f.title, x, y, kInk, "Media");
         dl->AddText(f.body, fontPx(f.body), ImVec2(x, y + 36), kMuted, "This computer's media controls could not be reached.", nullptr, x1 - x);
         return;
     }
     if (!m.active) {
         textAt(dl, f.title, x, y, kInk, "Nothing playing");
-        dl->AddText(f.body, fontPx(f.body), ImVec2(x, y + 36), kMuted, "Start music in Spotify, Apple Music, a browser or any player: it shows here and in the pull-down from the logo.", nullptr, x1 - x);
+        dl->AddText(f.body, fontPx(f.body), ImVec2(x, y + 36), kMuted, "Play something in Spotify, Apple Music, a browser or any player: it shows here and in the pull-down from the logo.", nullptr, x1 - x);
         y += 110;
     } else {
         textAt(dl, f.small, x, y, IM_COL32(255, 120, 150, 255), fitText(f.small, m.app.empty() ? std::string("Now playing") : m.app, x1 - x).c_str());
@@ -3576,13 +3626,15 @@ void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
         textAt(dl, f.body, x, y, kMuted, fitText(f.body, m.artist, x1 - x).c_str());
         y += 22;
         if (!m.album.empty()) textAt(dl, f.small, x, y, kMuted, fitText(f.small, m.album, x1 - x).c_str());
-        y += 46;
+        y += 30;
+        progressBar(dl, f, m, ImVec2(x, y), x1, "##mpprog", false, act);
+        y += 40;
     }
     playerButtons(dl, m, ImVec2(std::floor((x + x1) * 0.5f), y + 20), 22.0f, "##mp", act);
     y += 78;
     dl->AddLine(ImVec2(x, y), ImVec2(x1, y), IM_COL32(255, 255, 255, 24));
     textAt(dl, f.small, x, y + 12, m.radioRx ? kWarn : kMuted, radioLine(m).c_str());
-    const std::string rule = std::string("When the radios receive, XPTablet ") + duckName(g_settings.mediaDuck) + " (Settings, Media).";
+    const std::string rule = std::string("When the radios receive or transmit, XPTablet ") + duckName(g_settings.mediaDuck) + " (Settings, Media).";
     dl->AddText(f.small, fontPx(f.small), ImVec2(x, y + 34), kMuted, rule.c_str(), nullptr, x1 - x);
 }
 
@@ -3676,38 +3728,54 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     const float k = g_ccT, H = h - kStatusH, oy = -(1 - k) * H;
     dl->PushClipRect(ImVec2(0, kStatusH), ImVec2(w, h), true);   // never over the status bar
     // the veil: what is behind, dimmed and softened (a frosted look)
-    dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(6, 12, 26, (int)(150 * k)));
-    dl->AddRectFilled(ImVec2(0, kStatusH + oy), ImVec2(w, h + oy), IM_COL32(18, 30, 56, 205));
+    dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(6, 12, 26, (int)(130 * k)));
+    dl->AddRectFilled(ImVec2(0, kStatusH + oy), ImVec2(w, h + oy), IM_COL32(14, 24, 46, 205));   // frosted: the page only just shows through   // light: the page shows through
     dl->AddRectFilledMultiColor(ImVec2(0, kStatusH + oy), ImVec2(w, kStatusH + oy + H * 0.5f), IM_COL32(120, 160, 255, 26), IM_COL32(255, 120, 200, 18), IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 0));
     ImGui::SetCursorScreenPos(ImVec2(0, kStatusH + oy));
     ImGui::InvisibleButton("##ccback", ImVec2(w, H));   // the pull-down takes the presses on it
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_ccScroll -= ImGui::GetIO().MouseWheel * 40;
     const bool music = !g_mac && g_settings.mediaEnabled;
     const float m = 16, top = kStatusH + oy + 14;
-    const float colL = music ? std::min(300.0f, std::floor(w * 0.38f)) : 0;
+    const float colL = std::min(300.0f, std::floor(w * 0.38f));   // media (when on), then the screen's brightness
     // the music
     if (music) {
         const MediaState& md = s.media;
-        const ImVec2 a(m, top), b(m + colL, top + 214);
+        textAt(dl, f.title, m + 4, top + 2, kInk, "Media");   // as Notifications beside it; the box level with Clear All
+        const ImVec2 a(m, top + 34), b(m + colL, top + 34 + 214);
         glass(dl, a, b, 24.0f);
         const float art = 74;
         cover(dl, md, ImVec2(a.x + 16, a.y + 16), art, 12.0f);
         const float tx = a.x + 16 + art + 12, tw = b.x - tx - 14;
         if (!md.supported) dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 20), kMuted, "Media controls are not available on this computer.", nullptr, tw);
-        else if (!md.active) { textAt(dl, f.bold, tx, a.y + 22, kInk, "Not playing"); dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 44), kMuted, "Start music in any player.", nullptr, tw); }
+        else if (!md.active) { textAt(dl, f.bold, tx, a.y + 22, kInk, "Not playing"); dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 44), kMuted, "Play something in any player.", nullptr, tw); }
         else {
             textAt(dl, f.small, tx, a.y + 18, IM_COL32(255, 140, 165, 255), fitText(f.small, md.app.empty() ? std::string("Now playing") : md.app, tw).c_str());
             textAt(dl, f.bold, tx, a.y + 36, kInk, fitText(f.bold, md.title, tw).c_str());
             textAt(dl, f.small, tx, a.y + 58, kMuted, fitText(f.small, md.artist, tw).c_str());
         }
-        playerButtons(dl, md, ImVec2(std::floor((a.x + b.x) * 0.5f), a.y + 136), 18.0f, "##ccmp", act);
-        textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y - 30, md.radioRx ? kWarn : kMuted, fitText(f.small, radioLine(md), colL - 24).c_str());
+        if (md.active) progressBar(dl, f, md, ImVec2(a.x + 16, a.y + 104), b.x - 16, "##ccprog", true, act);
+        playerButtons(dl, md, ImVec2(std::floor((a.x + b.x) * 0.5f), a.y + 146), 18.0f, "##ccmp", act);
+        textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y - 26, md.radioRx || md.radioTx ? kWarn : kMuted, fitText(f.small, radioLine(md), colL - 24).c_str());
         // the Music app
         ImGui::SetCursorScreenPos(ImVec2(a.x + 16, a.y + 16));
         if (ImGui::InvisibleButton("##ccart", ImVec2(art, art))) { g_ccTarget = 0; openApp(APP_MUSIC); }
     }
+    {   // the screen's brightness: the slider, and auto dim (as in Settings, Display)
+        const float by = music ? top + 34 + 214 + 12 : top + 34;
+        const ImVec2 a(m, by), b(m + colL, by + 92);
+        glass(dl, a, b, 24.0f);
+        textAt(dl, f.bold, a.x + 16, a.y + 12, kInk, "Brightness");
+        float br = g_settings.autoDim ? s.autoDimLevel : std::max(0.1f, std::min(1.0f, g_settings.brightness));
+        char txt[16];
+        std::snprintf(txt, sizeof txt, "%d%%", (int)std::lround(br * 100));
+        if (smoothSlider(dl, f, "##ccbright", ImVec2(a.x + 4, a.y + 44), ImVec2(b.x - 12 - 96 - 8, a.y + 76), br, 0.1f, 1.0f, 0, !g_settings.autoDim, txt) && !g_settings.autoDim) {
+            g_settings.brightness = br; g_settingsChanged = true;
+        }
+        // auto dim, right of the slider as in Settings, Display
+        if (pill(dl, f, "##ccautodim", "Auto dim", ImVec2(b.x - 12 - 96, a.y + 45), ImVec2(b.x - 12, a.y + 75), g_settings.autoDim, true)) { g_settings.autoDim = !g_settings.autoDim; g_settingsChanged = true; }
+    }
     // the notifications
-    const float nx0 = music ? m + colL + 14 : m, nx1 = w - m;
+    const float nx0 = m + colL + 14, nx1 = w - m;
     textAt(dl, f.title, nx0 + 4, top + 2, kInk, "Notifications");
     float y = top + 34;
     {
@@ -3915,18 +3983,18 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         float y = top;
         toggle("##medon", lx, y, colW, g_settings.mediaEnabled ? "Media controls: on" : "Media controls: off", g_settings.mediaEnabled, true);
         y += 42;
-        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "The Music app and the player in the pull-down: what is playing on this computer (Spotify, a browser, any player), with its cover.", nullptr, colW);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "The Media app and the player in the pull-down: what is playing on this computer (Spotify, a browser, any player), with its cover.", nullptr, colW);
         y += 56;
-        textAt(dl, f.bold, lx, y, g_settings.mediaEnabled ? kInk : kMuted, "When the radios receive");
+        textAt(dl, f.bold, lx, y, g_settings.mediaEnabled ? kInk : kMuted, "When the radios receive or transmit");
         y += 24;
-        const char* modes[3] = {"No change", "Lower music to 50 %", "Pause music"};
+        const char* modes[3] = {"No change", "Lower media to 50 %", "Pause media"};
         for (int i = 0; i < 3; ++i) {
             char id[16];
             std::snprintf(id, sizeof id, "##duck%d", i);
             if (pill(dl, f, id, modes[i], ImVec2(lx, y), ImVec2(lx + colW, y + 30), g_settings.mediaDuck == i, g_settings.mediaEnabled) && g_settings.mediaEnabled) { g_settings.mediaDuck = i; g_settingsChanged = true; }
             y += 36;
         }
-        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y + 2), kMuted, "Paused music plays again when the radio is quiet. The radios: xPilot's COM1 and COM2; on Windows also VATSIM voice apps (TrackAudio, swift...). X-Plane's own ATC voice cannot be told apart.", nullptr, colW);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y + 2), kMuted, "Paused media plays again when the radio is quiet. Receiving: xPilot's COM1 and COM2; on Windows also VATSIM voice apps (TrackAudio, swift...). Transmitting: xPilot's push-to-talk. X-Plane's own ATC voice cannot be told apart.", nullptr, colW);
         // the right: what is going on now
         float ry = top;
         const MediaState& md = s.media;
@@ -3938,9 +4006,9 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             textAt(dl, f.small, rx, ry, kMuted, "Player"); textRight(dl, f.bold, w - 18, ry - 1, kInk, fitText(f.bold, md.active ? (md.app.empty() ? std::string("playing") : md.app) : std::string("none"), rw - 80).c_str());
             ry += 22;
             if (md.active) { textAt(dl, f.small, rx, ry, kMuted, "Track"); textRight(dl, f.bold, w - 18, ry - 1, kInk, fitText(f.bold, md.title, rw - 80).c_str()); ry += 22; }
-            textAt(dl, f.small, rx, ry, kMuted, "Radio"); textRight(dl, f.bold, w - 18, ry - 1, md.radioRx ? kWarn : kInk, md.radioRx ? (md.radioSource.empty() ? "receiving" : ("receiving (" + md.radioSource + ")").c_str()) : "quiet");
+            textAt(dl, f.small, rx, ry, kMuted, "Radio"); textRight(dl, f.bold, w - 18, ry - 1, md.radioRx || md.radioTx ? kWarn : kInk, md.radioTx ? "transmitting" : md.radioRx ? (md.radioSource.empty() ? "receiving" : ("receiving (" + md.radioSource + ")").c_str()) : "quiet");
             ry += 22;
-            textAt(dl, f.small, rx, ry, kMuted, "Music"); textRight(dl, f.bold, w - 18, ry - 1, md.ducked ? kWarn : kInk, md.ducked ? (g_settings.mediaDuck == 2 ? "paused for the radio" : "lowered for the radio") : (md.playing ? "playing" : "not playing"));
+            textAt(dl, f.small, rx, ry, kMuted, "Media"); textRight(dl, f.bold, w - 18, ry - 1, md.ducked ? kWarn : kInk, md.ducked ? (g_settings.mediaDuck == 2 ? "paused for the radio" : "lowered for the radio") : (md.playing ? "playing" : "not playing"));
         }
         return;
     }
@@ -3973,6 +4041,10 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         y += 46;   // under the favorites bar
         choice("##chclk", lx, y, colW, "Clock zone (tap the clock in the status bar too)", clockNames, clk, true);
         if (clk != (g_settings.statusLocalTime ? 1 : 0)) g_settings.statusLocalTime = clk == 1;
+        const char* mapNames[2] = {"Light", "Dark"};
+        int md = g_settings.mapDark ? 1 : 0;
+        choice("##chmapd", lx, y, colW, "Map display (the street map; Satellite is set on the map)", mapNames, md, true);
+        g_settings.mapDark = md == 1;
         return;
     }
 
@@ -4410,9 +4482,9 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
-    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\n",
+    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\n",
                   g_settings.mapSource == 1 ? 1 : 0, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
-                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0);
+                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0);
     out += buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
         out += key; out += "=";
@@ -4466,6 +4538,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_airports") g_settings.mapAirports = v != 0;
         else if (key == "map_timezones") g_settings.mapTimeZones = v != 0;
         else if (key == "map_heading_up") g_settings.mapHeadingUp = v != 0;
+        else if (key == "map_dark") g_settings.mapDark = v != 0;
         else if (key == "map_local_time") g_settings.mapLocalTime = v != 0;
         else if (key == "map_traffic") g_settings.mapTraffic = v != 0;
         else if (key == "map_outlines") g_settings.mapOutlines = v != 0;

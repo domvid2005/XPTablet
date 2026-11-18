@@ -49,7 +49,8 @@ std::string urlOf(const Key& k) {
 }
 std::string fileOf(const Key& k) {
     char b[128];
-    std::snprintf(b, sizeof b, "/%s/%d/%d/%d.%s", k.src == SATELLITE ? "satellite" : "osm", k.z, k.x, k.y, k.src == SATELLITE ? "jpg" : "png");
+    std::snprintf(b, sizeof b, "/%s/%d/%d/%d.%s", k.src == SATELLITE ? "satellite" : "osm",   // the dark map shares OSM's files
+                  k.z, k.x, k.y, k.src == SATELLITE ? "jpg" : "png");
     return g_dir + b;
 }
 void makeDirs(const std::string& path) {
@@ -83,6 +84,7 @@ bool decode(const std::string& bytes, Tile& t) {
     t.w = w; t.h = h;
     t.rgba.assign(px, px + (size_t)w * h * 4);
     stbi_image_free(px);
+    if (t.key.src == DARK) darken(t.rgba.data(), (size_t)w * h);
     return true;
 }
 

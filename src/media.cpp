@@ -23,6 +23,8 @@ Now g_now;
 std::vector<uint8_t> g_art;
 int g_artW = 0, g_artH = 0;
 std::vector<int> g_cmds;
+double g_seekTo = -1;   // a seek waiting (seconds)
+std::chrono::steady_clock::time_point g_posAt;   // when g_now.posSec was read
 int g_duckMode = 0;
 bool g_radioRx = false;
 std::string g_radioName;
@@ -108,15 +110,18 @@ void run() {
         std::string who;
         const bool apps = platform::radioApps(who);
         std::vector<int> cmds;
+        double seekTo = -1;
         int mode;
         bool rx;
         std::string rxName;
         {
             std::lock_guard<std::mutex> lk(g_mx);
             cmds.swap(g_cmds);
+            seekTo = g_seekTo; g_seekTo = -1;
             mode = g_duckMode; rx = g_radioRx; rxName = g_radioName;
         }
         for (int c : cmds) platform::send(c);
+        if (seekTo >= 0) { platform::seek(seekTo); info.posSec = seekTo; }
         // the cover: when the track (or its picture) changes
         const std::string artKey = info.title + "\x01" + info.artist + "\x01" + (artBytes.empty() ? info.artUrl : std::to_string(artBytes.size()));
         if (active && artKey != lastArtKey) {
@@ -155,6 +160,8 @@ void run() {
             g_now.app = friendlyApp(info.app);
             g_now.title = info.title; g_now.artist = info.artist; g_now.album = info.album;
             g_now.playing = info.playing; g_now.canPrev = info.canPrev; g_now.canNext = info.canNext;
+            g_now.posSec = info.posSec; g_now.lenSec = info.lenSec; g_now.canSeek = info.canSeek && info.lenSec > 0;
+            g_posAt = std::chrono::steady_clock::now();
             g_now.radioApp = apps; g_now.radioAppName = apps ? who : rxName;
             g_now.ducked = ducked;
         }
@@ -183,7 +190,16 @@ void stop() {
     g_now = Now();
     g_art.clear();
 }
-Now now() { std::lock_guard<std::mutex> lk(g_mx); return g_now; }
+Now now() {
+    std::lock_guard<std::mutex> lk(g_mx);
+    Now n = g_now;
+    if (n.playing && n.posSec >= 0) {   // carried on from when it was read, so the bar moves smoothly
+        n.posSec += std::chrono::duration<double>(std::chrono::steady_clock::now() - g_posAt).count();
+        if (n.lenSec > 0) n.posSec = std::min(n.posSec, n.lenSec);
+    }
+    return n;
+}
+void seek(double sec) { std::lock_guard<std::mutex> lk(g_mx); g_seekTo = std::max(0.0, sec); }
 bool takeArt(int& version, std::vector<uint8_t>& rgba, int& w, int& h) {
     std::lock_guard<std::mutex> lk(g_mx);
     if (g_now.artVersion == version) return false;

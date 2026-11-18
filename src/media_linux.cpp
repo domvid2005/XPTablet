@@ -45,6 +45,7 @@ Api d;
 void* g_lib = nullptr;
 DBusConnection* g_bus = nullptr;
 std::string g_player;                 // the bus name of the player shown ("org.mpris.MediaPlayer2.spotify")
+std::string g_trackId;                // its track's object path (SetPosition needs it)
 std::map<std::string, double> g_baseVolume;   // a player's own volume before it was lowered
 
 template <class F> bool sym(F& f, const char* n) { f = (F)dlsym(g_lib, n); return f != nullptr; }
@@ -210,8 +211,34 @@ bool poll(Info& info, std::string& artBytes) {
     info.playing = props["PlaybackStatus"].s == "Playing";
     info.canPrev = props.count("CanGoPrevious") ? props["CanGoPrevious"].b : true;
     info.canNext = props.count("CanGoNext") ? props["CanGoNext"].b : true;
+    // where the track is (microseconds): Position, and mpris:length in the metadata
+    info.lenSec = props["mpris:length"].isNum ? props["mpris:length"].num / 1e6 : -1;
+    info.posSec = props["Position"].isNum ? props["Position"].num / 1e6 : -1;
+    info.canSeek = props.count("CanSeek") ? props["CanSeek"].b : false;
+    g_trackId = props["mpris:trackid"].s;
     if (props.count("Volume") && props["Volume"].isNum && !g_baseVolume.count(pick)) {}   // (taken when lowering)
     return true;
+}
+void seek(double sec) {
+    if (g_player.empty()) return;
+    DBusMessage* m = d.new_method_call(g_player.c_str(), "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player", g_trackId.empty() ? "Seek" : "SetPosition");
+    if (!m) return;
+    const int64_t us = (int64_t)(sec * 1e6);
+    if (g_trackId.empty()) {   // no track id: a relative seek from where it is
+        std::map<std::string, Val> p;
+        getAll(g_player, "org.mpris.MediaPlayer2.Player", p);
+        const int64_t off = us - (int64_t)(p["Position"].isNum ? p["Position"].num : 0);
+        d.append_args(m, T_INT64, &off, T_INVALID);
+    } else {
+        const char* tid = g_trackId.c_str();
+        d.append_args(m, T_OBJECT_PATH, &tid, T_INT64, &us, T_INVALID);
+    }
+    DBusError e;
+    d.error_init(&e);
+    DBusMessage* r = d.send_block(g_bus, m, 400, &e);
+    d.unref(m);
+    if (d.error_is_set(&e)) d.error_free(&e);
+    if (r) d.unref(r);
 }
 void send(int what) {
     playerCall(what == 1 ? "PlayPause" : what == 2 ? "Previous" : what == 3 ? "Next" : what == 4 ? "Play" : "Pause");
