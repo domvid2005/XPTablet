@@ -460,8 +460,12 @@ int captureWheel(XPLMWindowID, int, int, int wheel, int clicks, void*) {
 }
 void noKey(XPLMWindowID, char, XPLMKeyFlags, char, void*, int) {}
 
+// The click-catching window covers the whole screen, so it is only there while the mouse points at the cockpit tablet (or a press
+// that began on it is still held). Left up all the time it sat over X-Plane's own pop-up messages, whose buttons then could not
+// be pressed (2026-11-17: the "Understood" button of a scenery warning).
 void updateCaptureWindow() {
-    const bool want = panelActive() && g_captureClicks;
+    float px = 0, py = 0;
+    const bool want = panelActive() && g_captureClicks && (g_captureDown || panelPointer(px, py));
     if (want && !g_capture) {
         XPLMCreateWindow_t p;
         std::memset(&p, 0, sizeof p);
