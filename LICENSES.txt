@@ -554,3 +554,12 @@ App icons (provided through creatorsrepo.com)
   * Service logos (assets/brands): ForeFlight (ForeFlight LLC), Navigraph (Navigraph), SkyVector (SkyVector / Seattle Avionics) and
     Volanta (Orbx), ChartFox (chartfox.org), SimBrief (Navigraph) and VATSIM Radar (vatsim-radar.com) are trademarks of their owners, used only on the icons that open their web apps. XPTablet is not made by or
     affiliated with any of them.
+
+------------------------------------------------------------------------------
+Airbus checklists (checklists/airbus.txt)
+------------------------------------------------------------------------------
+From the FlightGear A320-family by Josh Davidson (Octal450), Jonathan Redpath, merspieler, Matthew Maring, Thorsten Herrmann,
+Semir Gebran, Sven Seipp, Jarno de Wit and contributors: https://github.com/legoboyvdlp/A320-family
+Licensed under the GNU General Public License version 2; the full text is in checklists/LICENSE-GPL-2.0.txt. XPTablet converted
+it to its checklist format and added lines for the aircraft type and engine. The source of the changed file is the file itself
+(plain text), and tools/make_airbus_checklists.py in XPTablet's source.
