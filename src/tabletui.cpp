@@ -165,27 +165,50 @@ const Backdrop kBackdrops[5] = {
     {"Amber", IM_COL32(20, 16, 30, 255), IM_COL32(146, 96, 42, 255), IM_COL32(104, 66, 38, 255), IM_COL32(64, 40, 30, 255)},
 };
 struct Accent { const char* name; int r, g, b; };
-const Accent kAccents[5] = {{"Violet", 150, 100, 235}, {"Magenta", 205, 80, 170}, {"Coral", 240, 96, 96}, {"Orange", 240, 140, 70}, {"Gold", 236, 176, 56}};
-ImU32 accentCol(int a) { const Accent& c = kAccents[std::max(0, std::min(4, g_settings.accent))]; return IM_COL32(c.r, c.g, c.b, std::max(0, std::min(255, a))); }
+// each background has its accent: Navy the blue XPTablet always had, the others the logo colour their sky is made of
+const Accent kAccents[5] = {{"Blue", 70, 140, 255}, {"Violet", 150, 100, 235}, {"Magenta", 205, 80, 170}, {"Coral", 240, 96, 96}, {"Gold", 236, 176, 56}};
+ImU32 accentCol(int a) { const Accent& c = kAccents[std::max(0, std::min(4, g_settings.wallpaper))]; return IM_COL32(c.r, c.g, c.b, std::max(0, std::min(255, a))); }
 ImU32 accentLite(int a) {   // the lighter one: rings, lines, focus
-    const Accent& c = kAccents[std::max(0, std::min(4, g_settings.accent))];
+    const Accent& c = kAccents[std::max(0, std::min(4, g_settings.wallpaper))];
     return IM_COL32(c.r + (255 - c.r) * 2 / 5, c.g + (255 - c.g) * 2 / 5, c.b + (255 - c.b) * 2 / 5, std::max(0, std::min(255, a)));
 }
-void wallpaper(ImDrawList* dl, float w, float h) {
-    const Backdrop& bd = kBackdrops[std::max(0, std::min(4, g_settings.wallpaper))];
+// one background drawn into a box (the screen; or a little picture of it in Settings, the same drawing made small)
+ImU32 mixCol(ImU32 a, ImU32 b, float t);
+void wallpaperIn(ImDrawList* dl, ImVec2 o, float w, float h, int which, float round = 0) {
+    const Backdrop& bd = kBackdrops[std::max(0, std::min(4, which))];
     const ImU32 top = bd.top, bot = bd.bot;
-    dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(w, h), top, top, bot, bot);
+    if (round <= 0) dl->AddRectFilledMultiColor(o, ImVec2(o.x + w, o.y + h), top, top, bot, bot);
+    else {   // rounded (the little pictures in Settings): a rounded box shaded top to bottom
+        const int v0 = dl->VtxBuffer.Size;
+        dl->AddRectFilled(o, ImVec2(o.x + w, o.y + h), IM_COL32(255, 255, 255, 255), round);
+        for (int i = v0; i < dl->VtxBuffer.Size; ++i) {   // each point's colour by its height, top to bottom
+            ImDrawVert& v = dl->VtxBuffer[i];
+            const ImU32 c = mixCol(top, bot, std::max(0.0f, std::min(1.0f, (v.pos.y - o.y) / std::max(1.0f, h))));
+            v.col = (c & 0x00FFFFFF) | (v.col & 0xFF000000);
+        }
+    }
+    const int vMount = dl->VtxBuffer.Size;
     const float back[][2] = {{0.00f, 0.80f}, {0.12f, 0.62f}, {0.22f, 0.74f}, {0.36f, 0.50f}, {0.50f, 0.72f}, {0.62f, 0.56f}, {0.76f, 0.76f}, {0.88f, 0.60f}, {1.00f, 0.78f}};
     const float front[][2] = {{0.00f, 0.92f}, {0.10f, 0.80f}, {0.24f, 0.90f}, {0.42f, 0.70f}, {0.56f, 0.88f}, {0.70f, 0.76f}, {0.84f, 0.90f}, {1.00f, 0.80f}};
     auto range = [&](const float (*p)[2], int n, ImU32 col) {
         for (int i = 0; i + 1 < n; ++i) {
-            const ImVec2 a(p[i][0] * w, p[i][1] * h), b(p[i + 1][0] * w, p[i + 1][1] * h);
-            dl->AddQuadFilled(a, b, ImVec2(b.x, h), ImVec2(a.x, h), col);
+            const ImVec2 a(o.x + p[i][0] * w, o.y + p[i][1] * h), b(o.x + p[i + 1][0] * w, o.y + p[i + 1][1] * h);
+            dl->AddQuadFilled(a, b, ImVec2(b.x, o.y + h), ImVec2(a.x, o.y + h), col);
         }
     };
     range(back, 9, bd.back);
     range(front, 8, bd.front);
+    if (round > 0)   // the mountains kept inside the rounded corners: a point past a corner's curve goes onto it
+        for (int i = vMount; i < dl->VtxBuffer.Size; ++i) {
+            ImVec2& q = dl->VtxBuffer[i].pos;
+            const float cx = q.x < o.x + round ? o.x + round : q.x > o.x + w - round ? o.x + w - round : q.x;
+            const float cy = q.y < o.y + round ? o.y + round : q.y > o.y + h - round ? o.y + h - round : q.y;
+            const float dx = q.x - cx, dy = q.y - cy, d = std::sqrt(dx * dx + dy * dy);
+            if ((cx != q.x || cy != q.y) && d > round && (q.x < o.x + round || q.x > o.x + w - round) && (q.y < o.y + round || q.y > o.y + h - round))
+                q = ImVec2(cx + dx * round / d, cy + dy * round / d);
+        }
 }
+void wallpaper(ImDrawList* dl, float w, float h) { wallpaperIn(dl, ImVec2(0, 0), w, h, g_settings.wallpaper); }
 
 // A small white pictogram for each app, drawn from lines and circles inside a circle of radius r around c.
 void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
@@ -408,7 +431,7 @@ void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
         ImGui::SetCursorScreenPos(ImVec2(cx - 6, 0));
         if (ImGui::InvisibleButton("##clock", ImVec2(tw + 12, kStatusH))) { g_settings.statusLocalTime = !g_settings.statusLocalTime; g_settingsChanged = true; }
         if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(cx - 6, 3), ImVec2(cx + tw + 6, kStatusH - 3), IM_COL32(255, 255, 255, 26), 6.0f);
-        dl->AddText(f.small, fontPx(f.small), ImVec2(cx, y), g_settings.statusLocalTime ? IM_COL32(150, 196, 255, 255) : col, buf);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(cx, y), g_settings.statusLocalTime ? accentLite(255) : col, buf);   // local time: the theme's colour
     }
     // middle: the logo
     {   // the logo: tap it, or pull down from it, for the pull-down (music and notifications); tap again to close it
@@ -721,12 +744,14 @@ void placePage(ImDrawList* dl, int vtx0, int cmd0, float w, float h, float e, fl
 float easeOut(float t) { t = std::max(0.0f, std::min(1.0f, t)); const float u = 1 - t; return 1 - u * u * u; }
 
 
+ImU32 mixCol(ImU32 a, ImU32 b, float t);
 bool pageHeader(ImDrawList* dl, const Fonts& f, float w, const char* title) {
-    dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, kStatusH + kHeaderH), IM_COL32(10, 24, 48, 235));
-    dl->AddLine(ImVec2(0, kStatusH + kHeaderH), ImVec2(w, kStatusH + kHeaderH), IM_COL32(255, 255, 255, 28));
+    // the bar under the status bar: dark, tinted with the theme's accent (the status bar itself never changes)
+    dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, kStatusH + kHeaderH), mixCol(IM_COL32(10, 24, 48, 235), accentCol(235), 0.16f));
+    dl->AddLine(ImVec2(0, kStatusH + kHeaderH), ImVec2(w, kStatusH + kHeaderH), accentCol(60));
     ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
     const bool back = ImGui::InvisibleButton("##home", ImVec2(96, kHeaderH));
-    const ImU32 col = ImGui::IsItemHovered() ? IM_COL32(255, 255, 255, 255) : IM_COL32(150, 190, 255, 255);
+    const ImU32 col = ImGui::IsItemHovered() ? IM_COL32(255, 255, 255, 255) : accentLite(255);
     const float my = kStatusH + kHeaderH * 0.5f;
     { const ImVec2 pts[3] = {ImVec2(22, my - 8), ImVec2(14, my), ImVec2(22, my + 8)}; dl->AddPolyline(pts, 3, col, 0, 2.0f); }
     dl->AddText(f.body, fontPx(f.body), ImVec2(30, std::floor(my - fontPx(f.body) * 0.5f)), col, "Home");
@@ -1027,7 +1052,7 @@ float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y) {
     const float yb = y + (5 * 34 + 4 * 5 + 16) - kKbdBarH;   // at the bottom, where the keyboard would end
     dl->AddRectFilled(ImVec2(0, yb), ImVec2(w, yb + kKbdBarH), IM_COL32(20, 26, 38, 250));
     dl->AddLine(ImVec2(0, yb), ImVec2(w, yb), IM_COL32(255, 255, 255, 40));
-    keyboardIcon(dl, ImVec2(26, yb + kKbdBarH * 0.5f), IM_COL32(150, 196, 255, 255));
+    keyboardIcon(dl, ImVec2(26, yb + kKbdBarH * 0.5f), accentLite(255));
     textAt(dl, f.small, 48, std::floor(yb + (kKbdBarH - fontPx(f.small)) * 0.5f), kInk, "Typing with your keyboard  \xC2\xB7  Enter to finish");
     return kKbdBarH;
 }
@@ -1704,12 +1729,12 @@ bool mapBubble(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, const c
     const float inset = e.down * 1.2f;
     const ImVec2 a2(a.x + inset, a.y + inset), b2(b.x - inset, b.y - inset);
     ImU32 bg = mixCol(IM_COL32(12, 22, 40, 225), IM_COL32(26, 40, 64, 238), e.hot);
-    bg = mixCol(bg, IM_COL32(24, 52, 98, 240), e.on * 0.8f);
+    bg = mixCol(bg, mixCol(IM_COL32(12, 22, 40, 240), accentCol(240), 0.38f), e.on * 0.85f);   // lit: the theme's accent, darkened
     dl->AddRectFilled(a2, b2, bg, 9.0f);
     dl->AddRect(a2, b2, mixCol(IM_COL32(255, 255, 255, 46), accentLite(255), e.on), 9.0f, 0, 1.0f + 0.6f * e.on);
     const float tx = a.x + (b.x - a.x - lw - tw) * 0.5f;
     if (label) textAt(dl, f.small, tx, std::floor(a.y + (30 - fontPx(f.small)) * 0.5f + 1), kMuted, label);
-    textAt(dl, f.body, tx + lw, std::floor(a.y + (30 - fontPx(f.body)) * 0.5f), enabled ? mixCol(kInk, IM_COL32(150, 196, 255, 255), e.on) : IM_COL32(236, 241, 250, 80), text);
+    textAt(dl, f.body, tx + lw, std::floor(a.y + (30 - fontPx(f.body)) * 0.5f), enabled ? mixCol(kInk, accentLite(255), e.on) : IM_COL32(236, 241, 250, 80), text);
     return hit;
 }
 float bubbleW(const Fonts& f, const char* label, const char* text) {
@@ -1921,7 +1946,7 @@ bool drawCard(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L, Im
         case 4:
             y += 6;
             dl->AddLine(ImVec2(x0, y), ImVec2(x1, y), IM_COL32(255, 255, 255, 24));
-            textAt(dl, f.small, x0, y + 6, IM_COL32(150, 196, 255, 255), l.a.c_str());
+            textAt(dl, f.small, x0, y + 6, accentLite(255), l.a.c_str());
             y += 22;
             break;
         case 5:
@@ -3391,8 +3416,14 @@ void progressStrip(ImDrawList* dl, const Fonts& f, const SimState& s, const Prog
     dl->AddRectFilled(ImVec2(x0, cy - 2.5f), ImVec2(px, cy + 2.5f), accentCol(255), 3.0f);
     dl->AddCircleFilled(ImVec2(x0, cy), 4.0f, accentCol(255), 0);
     dl->AddCircleFilled(ImVec2(x1, cy), 4.0f, IM_COL32(255, 255, 255, 120), 0);
-    // the aircraft: a small arrowhead pointing along
-    dl->AddTriangleFilled(ImVec2(px + 9, cy), ImVec2(px - 6, cy - 7), ImVec2(px - 6, cy + 7), IM_COL32(255, 255, 255, 255));
+    // the aircraft: its own outline (the drawing the map uses), small, nose along the bar; an arrowhead if there is no drawing
+    float sl = 0, ss = 0;
+    if (const Shape* sh = findShape(s.acfIcao, sl, ss)) {
+        const float L = 24.0f, k = L / std::max(1.0f, std::max(sl, ss));   // fits 24 px whichever is longer, length or span
+        const int v0 = dl->VtxBuffer.Size;
+        drawShape(dl, *sh, ImVec2(px, cy - sl * k * 0.5f), k * ss / std::max(1.0f, sh->span), k * sl / std::max(1.0f, sh->len), IM_COL32(255, 255, 255, 255), IM_COL32(150, 162, 186, 255));
+        turnSince(dl, v0, ImVec2(px, cy), 1.5707963f);   // nose up -> nose right
+    } else dl->AddTriangleFilled(ImVec2(px + 9, cy), ImVec2(px - 6, cy - 7), ImVec2(px - 6, cy + 7), IM_COL32(255, 255, 255, 255));
     char t[96];
     if (pr.etaMin >= 0) std::snprintf(t, sizeof t, "%.0f nm flown  \xC2\xB7  %.0f nm to go  \xC2\xB7  %d:%02d left", pr.flownNm, pr.leftNm, pr.etaMin / 60, pr.etaMin % 60);
     else std::snprintf(t, sizeof t, "%.0f nm flown  \xC2\xB7  %.0f nm to go", pr.flownNm, pr.leftNm);
@@ -3571,7 +3602,7 @@ void planPreview(ImDrawList* dl, const Fonts& f, const FlightPlan& p, float w, f
     // the chain: departure -- destination - - alternate
     const bool alt = !p.alternate.empty();
     const float nx[3] = {x0 + 40, alt ? x0 + (x1 - x0) * 0.60f : x1 - 40, x1 - 40};
-    const ImU32 nodeCol[3] = {IM_COL32(80, 160, 255, A), IM_COL32(80, 214, 124, A), IM_COL32(255, 170, 60, A)};
+    const ImU32 nodeCol[3] = {accentCol(A), IM_COL32(80, 214, 124, A), IM_COL32(255, 170, 60, A)};
     const float cy = y + 12;
     {   // the flight: a solid line with the aircraft on it, the distance and time over it
         dl->AddLine(ImVec2(nx[0] + 12, cy), ImVec2(nx[1] - 12, cy), IM_COL32(200, 214, 240, (int)(170 * t)), 2.5f);
@@ -4570,45 +4601,29 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         int pk = g_settings.physicalKeys ? 1 : 0;
         choice("##chkeys", lx, y, colW, "Typing in a text box", keyNames, pk, true);
         if ((pk == 1) != g_settings.physicalKeys) { g_settings.physicalKeys = pk == 1; g_kbdKeysShown = false; }
-        {   // the right column: the background and the accent colour (all from the XPTablet logo's colours)
+        {   // the right column: the look, a background with its accent (all from the XPTablet logo's colours)
             float ry = top;
-            textAt(dl, f.bold, rx, ry, kInk, "Background");
+            textAt(dl, f.bold, rx, ry, kInk, "Color theme");
             ry += 24;
-            const float tw = std::floor((colW - 4 * 8) / 5), th = std::floor(tw * 0.62f);
-            for (int i = 0; i < 5; ++i) {   // a little picture of each: its sky and mountains
+            const float tw = std::floor((colW - 4 * 8) / 5), th = std::floor(tw * 480.0f / 800.0f);   // the screen's shape
+            for (int i = 0; i < 5; ++i) {   // the wallpaper itself, made small, with its accent under it
                 const Backdrop& bd = kBackdrops[i];
+                const Accent& ac = kAccents[i];
                 const ImVec2 a(rx + i * (tw + 8), ry), b(a.x + tw, ry + th);
                 char id[16];
                 std::snprintf(id, sizeof id, "##wp%d", i);
                 ImGui::SetCursorScreenPos(a);
-                if (ImGui::InvisibleButton(id, ImVec2(tw, th + 18))) { g_settings.wallpaper = i; g_settingsChanged = true; }
+                if (ImGui::InvisibleButton(id, ImVec2(tw, th + 34))) { g_settings.wallpaper = i; g_settings.accent = i; g_settingsChanged = true; }
                 const bool sel = g_settings.wallpaper == i, hot = ImGui::IsItemHovered();
                 dl->PushClipRect(a, b, true);
-                dl->AddRectFilledMultiColor(a, b, bd.top, bd.top, bd.bot, bd.bot);
-                dl->AddTriangleFilled(ImVec2(a.x - 4, b.y), ImVec2(a.x + tw * 0.35f, a.y + th * 0.45f), ImVec2(a.x + tw * 0.75f, b.y), bd.back);
-                dl->AddTriangleFilled(ImVec2(a.x + tw * 0.35f, b.y), ImVec2(a.x + tw * 0.72f, a.y + th * 0.58f), ImVec2(b.x + 6, b.y), bd.front);
+                wallpaperIn(dl, a, tw, th, i, 8.0f);
                 dl->PopClipRect();
-                dl->AddRect(ImVec2(a.x - 2, a.y - 2), ImVec2(b.x + 2, b.y + 2), sel ? accentLite(255) : hot ? IM_COL32(255, 255, 255, 90) : IM_COL32(255, 255, 255, 30), 8.0f, 0, sel ? 2.5f : 1.0f);
-                textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y + 4, sel ? kInk : kMuted, bd.name);
+                // the frame on the picture's own rounded edge; the chosen one ringed in the theme's accent
+                if (sel) dl->AddRect(ImVec2(a.x - 3, a.y - 3), ImVec2(b.x + 3, b.y + 3), accentLite(255), 11.0f, 0, 2.0f);
+                else dl->AddRect(a, b, hot ? IM_COL32(255, 255, 255, 110) : IM_COL32(255, 255, 255, 40), 8.0f, 0, 1.0f);
+                dl->AddCircleFilled(ImVec2((a.x + b.x) * 0.5f, b.y + 10), 5.0f, IM_COL32(ac.r, ac.g, ac.b, 255), 0);
+                textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y + 18, sel ? kInk : kMuted, bd.name);
             }
-            ry += th + 34;
-            textAt(dl, f.bold, rx, ry, kInk, "Accent colour");
-            ry += 26;
-            for (int i = 0; i < 5; ++i) {   // its dot, ringed when chosen
-                const Accent& ac = kAccents[i];
-                const ImVec2 c(rx + tw * 0.5f + i * (tw + 8), ry + 16);
-                char id[16];
-                std::snprintf(id, sizeof id, "##ac%d", i);
-                ImGui::SetCursorScreenPos(ImVec2(c.x - tw * 0.5f, ry));
-                if (ImGui::InvisibleButton(id, ImVec2(tw, 52))) { g_settings.accent = i; g_settingsChanged = true; }
-                const bool sel = g_settings.accent == i, hot = ImGui::IsItemHovered();
-                dl->AddCircleFilled(c, 13.0f, IM_COL32(ac.r, ac.g, ac.b, 255), 0);
-                if (sel) dl->AddCircle(c, 18.0f, IM_COL32(255, 255, 255, 230), 0, 2.0f);
-                else if (hot) dl->AddCircle(c, 18.0f, IM_COL32(255, 255, 255, 90), 0, 1.5f);
-                textCentered(dl, f.small, c.x, ry + 36, sel ? kInk : kMuted, ac.name);
-            }
-            ry += 64;
-            dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "Both from the XPTablet logo's colours. The accent colours what is chosen: buttons, sliders, highlights.", nullptr, colW);
         }
         return;
     }
@@ -5270,7 +5285,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_ils") g_settings.mapIls = v != 0;
         else if (key == "map_rings") g_settings.mapRings = v != 0;
         else if (key == "physical_keys") g_settings.physicalKeys = v != 0;
-        else if (key == "wallpaper") g_settings.wallpaper = std::max(0, std::min(4, v));
+        else if (key == "wallpaper") { g_settings.wallpaper = std::max(0, std::min(4, v)); g_settings.accent = g_settings.wallpaper; }
         else if (key == "accent") g_settings.accent = std::max(0, std::min(4, v));
         else if (key == "battery") g_batt = (float)std::max(0, std::min(100, v));
         else if (key == "charger") g_charger = v != 0;
