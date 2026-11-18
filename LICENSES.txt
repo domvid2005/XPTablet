@@ -547,7 +547,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-App icons
+App icons (provided through creatorsrepo.com)
   * Pictograms: Material Design Icons by Pictogrammers (https://pictogrammers.com/library/mdi/), Apache License 2.0:
     cog, check-bold, power, weather-partly-snowy-rainy, file-document, star-four-points, airplane, airport, web. Drawn from their vector paths by
     tools/make_icons_rgba.py into assets/icons.rgba.

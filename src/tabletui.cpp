@@ -3304,6 +3304,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"Route on the map", "Your flight plan from SimBrief (simbrief.com)", ""},
         {"METAR reports", "NOAA / National Weather Service, Aviation Weather Center (aviationweather.gov)", "Public domain"},
         {"Weather page with WXPlane installed", "WXPlane by Alpine Aviation", ""},
+        {"Icons and logos", "Provided through creatorsrepo.com", ""},
         {"App icons", "Material Design Icons by Pictogrammers (pictogrammers.com): cog, check-bold, file-document, star-four-points, airplane, airport, web, power, weather-partly-snowy-rainy", "Apache 2.0"},
         {"ForeFlight icon", "The ForeFlight logo is a trademark of ForeFlight LLC, used only to show their web app", "Trademark"},
         {"Navigraph icon", "The Navigraph logo is a trademark of Navigraph, used only to show their charts web app", "Trademark"},
