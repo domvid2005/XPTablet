@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <map>
 #include <array>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -310,7 +311,8 @@ void battery(ImDrawList* dl, ImVec2 p, int pct, bool charging) {
     dl->AddRect(p, ImVec2(p.x + w, p.y + h), line, 3.0f, 0, snap(1.2f));
     dl->AddRectFilled(ImVec2(p.x + w + 1, p.y + 3), ImVec2(p.x + w + 3, p.y + h - 3), line, 1.0f);
     const float k = std::max(0.0f, std::min(1.0f, pct / 100.0f));
-    const ImU32 fill = charging ? IM_COL32(80, 214, 124, 255) : pct <= 15 ? IM_COL32(240, 84, 84, 255) : line;
+    // green, yellow at 20 % and under, red under 10 % (green while charging)
+    const ImU32 fill = charging || pct > 20 ? IM_COL32(80, 214, 124, 255) : pct > 10 ? IM_COL32(250, 204, 60, 255) : IM_COL32(240, 84, 84, 255);
     if (k > 0.02f) dl->AddRectFilled(ImVec2(p.x + 2, p.y + 2), ImVec2(p.x + 2 + (w - 4) * k, p.y + h - 2), fill, 1.5f);
     if (charging) {   // a small bolt beside it
         const ImVec2 b(p.x - 9, p.y + h * 0.5f);
@@ -332,6 +334,9 @@ double g_powerT0 = 0;
 float g_batt = 100.0f;
 bool g_charger = false;
 int g_battSaved = -1;
+int g_lowAlert = 0;          // the low battery alert shown (20 or 10; 0: none)
+double g_lowAlertT0 = 0;
+bool g_lowWarned20 = false, g_lowWarned10 = false;   // given once on the way down (again after a charge above them)
 constexpr double kDeadPromptS = 5.0, kDeadChargeShowS = 5.0, kDeadChargeFadeS = 0.6, kDeadChargeWaitS = 5.0;
 float g_ccT = 0, g_ccTarget = 0;   // the pull-down: how far it is down (0..1), where it is going
 bool g_ccDrag = false;             // a finger is pulling it (from the logo, or pushing it up by its bar)
@@ -4308,6 +4313,14 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         else if (screenOn) g_batt = std::max(0.0f, g_batt - dt * 100.0f / 7200.0f);
         const int p = (int)std::ceil(g_batt - 0.001f);
         if (p != g_battSaved) { g_battSaved = p; g_settingsChanged = true; }   // kept a percent at a time
+        // low battery: an alert at 20 % and at 10 % on the way down (not while charging); charged above them, they can come again
+        if (p > 21) g_lowWarned20 = false;
+        if (p > 11) g_lowWarned10 = false;
+        if (g_charger) g_lowAlert = 0;
+        else if (g_power == POWER_ON) {
+            if (p <= 10 && !g_lowWarned10) { g_lowWarned10 = g_lowWarned20 = true; g_lowAlert = 10; g_lowAlertT0 = now; g_ccTarget = 0; }
+            else if (p <= 20 && !g_lowWarned20) { g_lowWarned20 = true; g_lowAlert = 20; g_lowAlertT0 = now; g_ccTarget = 0; }
+        }
         if (g_batt <= 0.0f && !g_charger && screenOn) {   // empty: black at once
             g_power = POWER_DEAD; g_powerT0 = now; g_ccTarget = 0; g_ccT = 0; g_ccDrag = false; g_kbd = false; g_typeInto = nullptr;
         }
@@ -4391,7 +4404,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     wallpaper(dl, w, h);
     statusBar(dl, f, s, w);
     // the pull-down or a banner on top: what is under them takes no presses (and stays as it is)
-    bool covered = g_ccT > 0.001f || g_bannerDrag >= 0;
+    bool covered = g_ccT > 0.001f || g_bannerDrag >= 0 || g_lowAlert != 0;
     {
         ImVec2 ba, bb; float bal; Note* bn;
         const ImVec2 mp = ImGui::GetIO().MousePos;
@@ -4399,6 +4412,15 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     }
     const float daCover = st.DisabledAlpha;
     if (covered) { st.DisabledAlpha = 1.0f; ImGui::BeginDisabled(); }
+    // and the pointer is hidden from what is under it: some pages read presses themselves (home's icons, the map, the scratchpad)
+    ImGuiIO& cio = ImGui::GetIO();
+    const ImVec2 heldPos = cio.MousePos, heldDelta = cio.MouseDelta;
+    const bool heldDown = cio.MouseDown[0], heldClicked = cio.MouseClicked[0], heldReleased = cio.MouseReleased[0];
+    const float heldWheel = cio.MouseWheel;
+    if (covered) {
+        cio.MousePos = ImVec2(-FLT_MAX, -FLT_MAX); cio.MouseDelta = ImVec2(0, 0);
+        cio.MouseDown[0] = false; cio.MouseClicked[0] = false; cio.MouseReleased[0] = false; cio.MouseWheel = 0;
+    }
     const double since = ImGui::GetTime() - g_animT0;
     const bool onHome = g_app < 0 || g_app >= APP_COUNT;
     const bool opening = !onHome && g_animOpening && since < kOpenS;
@@ -4427,9 +4449,42 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         }
         if (closing) { ImGui::EndDisabled(); st.DisabledAlpha = da; }
     }
-    if (covered) { ImGui::EndDisabled(); st.DisabledAlpha = daCover; }
+    if (covered) {
+        ImGui::EndDisabled(); st.DisabledAlpha = daCover;
+        cio.MousePos = heldPos; cio.MouseDelta = heldDelta;   // the pointer back, for what is on top
+        cio.MouseDown[0] = heldDown; cio.MouseClicked[0] = heldClicked; cio.MouseReleased[0] = heldReleased; cio.MouseWheel = heldWheel;
+    }
     if (g_ccT > 0.001f) g_embed = EmbedArea();   // web pages and WXPlane stay under the pull-down
     if (!powerAnim) { drawPullDown(dl, f, s, w, h, act); drawBanner(dl, f, w); }
+    if (!powerAnim && g_lowAlert) {   // the low battery alert, as an iPhone's: over everything, Close or Plug In
+        const float t = (float)(ImGui::GetTime() - g_lowAlertT0), e = smooth01(t / 0.25f);
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(110 * e)));
+        ImGui::SetCursorScreenPos(ImVec2(0, 0));
+        ImGui::SetNextItemAllowOverlap();
+        ImGui::InvisibleButton("##lowback", ImVec2(w, h));   // nothing under it takes a press
+        const float aw = 300, ah = 150, sc = 0.92f + 0.08f * e;
+        const ImVec2 c(w * 0.5f, h * 0.5f);
+        const ImVec2 a(c.x - aw * 0.5f * sc, c.y - ah * 0.5f * sc), b(c.x + aw * 0.5f * sc, c.y + ah * 0.5f * sc);
+        glass(dl, a, b, 18.0f, e);
+        char t1[48], t2[64];
+        std::snprintf(t1, sizeof t1, "Low Battery");
+        std::snprintf(t2, sizeof t2, "%d%% of battery remaining", g_lowAlert);
+        const int A = (int)(255 * e);
+        textCentered(dl, f.bold, c.x, a.y + 22, IM_COL32(240, 244, 250, A), t1);
+        textCentered(dl, f.small, c.x, a.y + 48, IM_COL32(190, 198, 214, A), t2);
+        const float by = b.y - 46;
+        dl->AddLine(ImVec2(a.x, by), ImVec2(b.x, by), IM_COL32(255, 255, 255, (int)(40 * e)));
+        dl->AddLine(ImVec2(c.x, by), ImVec2(c.x, b.y), IM_COL32(255, 255, 255, (int)(40 * e)));
+        auto button = [&](const char* id, const char* label, ImVec2 p0, ImVec2 p1, bool bold) {
+            ImGui::SetCursorScreenPos(p0);
+            const bool hit = ImGui::InvisibleButton(id, ImVec2(p1.x - p0.x, p1.y - p0.y));
+            if (ImGui::IsItemHovered()) dl->AddRectFilled(p0, p1, IM_COL32(255, 255, 255, 18), 0.0f);
+            textCentered(dl, bold ? f.bold : f.body, (p0.x + p1.x) * 0.5f, std::floor((p0.y + p1.y) * 0.5f - fontPx(f.body) * 0.5f), IM_COL32(110, 170, 255, A), label);
+            return hit;
+        };
+        if (button("##lowclose", "Close", ImVec2(a.x, by), ImVec2(c.x, b.y), false)) g_lowAlert = 0;
+        if (button("##lowplug", "Plug In", ImVec2(c.x, by), ImVec2(b.x, b.y), true)) { g_lowAlert = 0; g_charger = true; g_settingsChanged = true; }
+    }
     if (powerAnim) {
         ImGui::EndDisabled();
         g_embed = EmbedArea();   // web pages and WXPlane stay hidden while the screen fades
