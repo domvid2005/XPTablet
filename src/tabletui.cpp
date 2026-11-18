@@ -51,7 +51,7 @@ const AppDef kApps[APP_COUNT] = {
     {"map", "Map", IM_COL32(52, 168, 110, 255), nullptr},                  {"airports", "Airports", IM_COL32(64, 132, 230, 255), nullptr},
     {"charts", "ChartFox", IM_COL32(236, 152, 50, 255), "https://chartfox.org"},            {"documents", "Documents", IM_COL32(120, 132, 156, 255), nullptr},
     {"routes", "Flight Plan", IM_COL32(150, 96, 250, 255), nullptr},            {"weather", "Weather", IM_COL32(40, 180, 214, 255), nullptr},
-    {"ground", "Aircraft", IM_COL32(246, 190, 48, 255), nullptr},            {"checklists", "Checklists", IM_COL32(60, 190, 130, 255), nullptr},
+    {"ground", "Aircraft", IM_COL32(246, 190, 48, 255), nullptr},            {"checklists", "Checklists", IM_COL32(214, 64, 160, 255), nullptr},
     {"performance", "Performance", IM_COL32(236, 92, 104, 255), nullptr},  {"traffic", "Traffic", IM_COL32(40, 190, 170, 255), nullptr},
     {"notes", "Notes", IM_COL32(255, 138, 40, 255), nullptr},   // orange (Cabin keeps the yellow)
     {"simbrief", "SimBrief", IM_COL32(196, 58, 66, 255), "https://dispatch.simbrief.com"},
@@ -177,6 +177,10 @@ ImU32 themeText(int r, int g, int b, float share) {
 #define kInk themeText(236, 241, 250, 0.05f)     // the main text: white with the faintest tint
 #define kMuted themeText(150, 168, 198, 0.32f)   // the quieter text: labels, hints, card titles
 ImU32 accentCol(int a) { const Accent& c = kAccents[std::max(0, std::min(4, g_settings.wallpaper))]; return IM_COL32(c.r, c.g, c.b, std::max(0, std::min(255, a))); }
+ImU32 accentLite(int a);
+ImU32 mixCol(ImU32 a, ImU32 b, float t);
+// the route on the map: the theme's accent, a little lighter so it shows on the street map and the imagery
+ImU32 routeCol(int a) { const ImU32 c = mixCol(accentCol(255), IM_COL32(255, 255, 255, 255), 0.12f); return (c & 0x00FFFFFF) | ((ImU32)std::max(0, std::min(255, a)) << 24); }
 ImU32 accentLite(int a) {   // the lighter one: rings, lines, focus
     const Accent& c = kAccents[std::max(0, std::min(4, g_settings.wallpaper))];
     return IM_COL32(c.r + (255 - c.r) * 2 / 5, c.g + (255 - c.g) * 2 / 5, c.b + (255 - c.b) * 2 / 5, std::max(0, std::min(255, a)));
@@ -427,7 +431,9 @@ void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
     {   // a touch of the theme: its sky's darkest tone and a faint glow of its accent (the logo and layout are unchanged)
         const Backdrop& bd = kBackdrops[std::max(0, std::min(4, g_settings.wallpaper))];
         dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, kStatusH), (bd.top & 0x00FFFFFF) | (70u << 24));
-        dl->AddRectFilledMultiColor(ImVec2(0, kStatusH - 6), ImVec2(w, kStatusH), accentCol(0), accentCol(0), accentCol(22), accentCol(22));
+        // a clear edge under it: a dark line, then a hairline of the accent's light tone (no gradient)
+        dl->AddRectFilled(ImVec2(0, kStatusH - 2), ImVec2(w, kStatusH - 1), IM_COL32(0, 0, 0, 110));
+        dl->AddRectFilled(ImVec2(0, kStatusH - 1), ImVec2(w, kStatusH), accentLite(70));
     }
     const float y = std::floor((kStatusH - fontPx(f.small)) * 0.5f);
     const ImU32 col = IM_COL32(232, 238, 248, 255);
@@ -1736,7 +1742,11 @@ double localOffsetAt(const MapState& m, double lat, double lon, bool& estimate) 
         if (std::sqrt(dLat * dLat + dLon * dLon) < 250.0) {
             int qa = 0;
             const bool acOnMap = tzStdQuarterHours(m.lat, m.lon, qa);
-            if (!onMap || !acOnMap || q * 900.0 + wx::dstShiftS(lat, lon, q, now) == qa * 900.0 + wx::dstShiftS(m.lat, m.lon, qa, now)) return m.localOffsetS;
+            const double acMap = qa * 900.0 + wx::dstShiftS(m.lat, m.lon, qa, now);
+            // X-Plane's clock is used only where it agrees with the zone map at the aircraft (its own guess can be off by an hour,
+            // e.g. South Bend on Central time by its longitude): then the time changes as the pointer crosses a zone's border
+            const bool simAgrees = !acOnMap || std::fabs(m.localOffsetS - acMap) < 60.0;
+            if (simAgrees && (!onMap || !acOnMap || q * 900.0 + wx::dstShiftS(lat, lon, q, now) == acMap)) return m.localOffsetS;
         }
     }
     if (onMap) return q * 900.0 + wx::dstShiftS(lat, lon, q, now);
@@ -2376,19 +2386,19 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             if (g_mapZoom >= 10.5) g_labels.push_back({0, q, 6, fx.ident, "", ink, 0, 0});
         }
     }
-    // ---- the SimBrief flight plan: a magenta line through its fixes
+    // ---- the SimBrief flight plan: a line in the theme's accent through its fixes
     if (g_settings.mapRoute && m.route.size() >= 2) {
         std::vector<ImVec2> pts;
         for (const MapState::RoutePoint& rp : m.route) pts.push_back(toS(mercOf(rp.lat, rp.lon)));
         dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(20, 10, 30, 120), 0, 5.0f);
-        dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(236, 60, 220, 255), 0, 2.6f);
+        dl->AddPolyline(pts.data(), (int)pts.size(), routeCol(255), 0, 2.6f);
         for (size_t i = 0; i < pts.size(); ++i) {
             const ImVec2 q = pts[i];
             if (q.x < r0.x - 20 || q.x > r1.x + 20 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
             dl->AddCircleFilled(q, 3.2f, IM_COL32(255, 255, 255, 255), 0);
-            dl->AddCircle(q, 3.2f, IM_COL32(236, 60, 220, 255), 0, 1.5f);
+            dl->AddCircle(q, 3.2f, routeCol(255), 0, 1.5f);
             if (g_mapZoom >= 6.5 && (g_mapZoom >= 8.5 || i == 0 || i + 1 == pts.size())) {
-                g_labels.push_back({4, q, 6, m.route[i].ident, "", IM_COL32(255, 255, 255, 255), 0, IM_COL32(236, 60, 220, 230)});
+                g_labels.push_back({4, q, 6, m.route[i].ident, "", IM_COL32(255, 255, 255, 255), 0, routeCol(230)});
             }
             symbolAt(q, 4.0f);
         }
@@ -2478,17 +2488,20 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     pts[i] = ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca);
                 }
             };
-            for (const auto& p : sh->fills) { place(p); if (pts.size() >= 3) { dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(20, 24, 32, 230), ImDrawFlags_Closed, 2.4f); } }   // a dark rim
-            for (const auto& p : sh->fills) { place(p); fillConcave(dl, pts, IM_COL32(255, 214, 60, 255)); }
-            for (const auto& p : sh->lines) { place(p); if (pts.size() >= 2) dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(120, 80, 10, 255), 0, 1.0f); }
+            // ours, in the theme's accent with a white rim over a dark one, so it never reads as one of the (yellow) traffic
+            for (const auto& p : sh->fills) { place(p); if (pts.size() >= 3) { dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(20, 24, 32, 200), ImDrawFlags_Closed, 4.0f); } }   // a dark rim
+            for (const auto& p : sh->fills) { place(p); if (pts.size() >= 3) { dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(255, 255, 255, 255), ImDrawFlags_Closed, 2.0f); } }   // a white one
+            for (const auto& p : sh->fills) { place(p); fillConcave(dl, pts, accentCol(255)); }
+            for (const auto& p : sh->lines) { place(p); if (pts.size() >= 2) dl->AddPolyline(pts.data(), (int)pts.size(), mixCol(accentCol(255), IM_COL32(0, 0, 0, 255), 0.45f), 0, 1.0f); }
         } else {
             const float k = symLen / 26.0f;   // the stand-in is 26 units long
             auto P = [&](float x, float y) { x *= k; y *= k; return ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca); };   // y: forward is -y
             const ImVec2 body[] = {P(0, -13), P(2.2f, -9), P(2.2f, -3), P(12, 3), P(12, 5.5f), P(2.2f, 2.5f), P(1.8f, 9), P(5, 11.5f), P(5, 13),
                                    P(0, 11.5f), P(-5, 13), P(-5, 11.5f), P(-1.8f, 9), P(-2.2f, 2.5f), P(-12, 5.5f), P(-12, 3), P(-2.2f, -3), P(-2.2f, -9)};
             const std::vector<ImVec2> v(body, body + 18);
-            fillConcave(dl, v, IM_COL32(255, 214, 60, 255));
-            dl->AddPolyline(v.data(), (int)v.size(), IM_COL32(20, 24, 32, 255), ImDrawFlags_Closed, 1.3f);
+            dl->AddPolyline(v.data(), (int)v.size(), IM_COL32(20, 24, 32, 200), ImDrawFlags_Closed, 3.6f);
+            dl->AddPolyline(v.data(), (int)v.size(), IM_COL32(255, 255, 255, 255), ImDrawFlags_Closed, 1.8f);
+            fillConcave(dl, v, accentCol(255));   // ours: the theme's accent, white-rimmed (never like the yellow traffic)
         }
     }
 
@@ -3319,20 +3332,7 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     if (!d.listed) act.docsList = true;
     const float top = kStatusH + kHeaderH + 8, lw = 290;
     if (pill(dl, f, "##docref", "Refresh", ImVec2(12, top), ImVec2(92, top + 30), false, true)) act.docsList = true;
-    {   // the folders, to see one at a time
-        std::vector<std::string> labels = {""};
-        for (const DocEntry& e : d.files) if (std::find(labels.begin(), labels.end(), e.folder) == labels.end()) labels.push_back(e.folder);
-        if (std::find(labels.begin(), labels.end(), g_docFilter) == labels.end() && !g_docFilter.empty() && d.listed) labels.push_back(g_docFilter);
-        float x = 98;
-        for (size_t i = 0; i < labels.size() && x < 12 + lw; ++i) {
-            const char* nm = labels[i].empty() ? "All" : labels[i] == "This aircraft" ? "Aircraft" : labels[i] == "XPTablet's Documents" ? "Mine" : labels[i] == "AviTab charts" ? "AviTab" : labels[i].c_str();
-            const float bw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, nm).x + 22;
-            char id[32];
-            std::snprintf(id, sizeof id, "##docf%zu", i);
-            if (pill(dl, f, id, nm, ImVec2(x, top), ImVec2(x + bw, top + 30), g_docFilter == labels[i], true)) { g_docFilter = labels[i]; g_docListScroll = 0; }
-            x += bw + 4;
-        }
-    }
+    g_docFilter.clear();   // (no folder filter: the list shows every folder, each under its own heading)
     const ImVec2 la(12, top + 40), lb(12 + lw, h - 12);
     card(dl, la, lb, f, nullptr);
     if (d.files.empty()) {
@@ -3377,7 +3377,7 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     dl->PopClipRect();
     // the picture: fitted, then the wheel or + / - to zoom and a drag to move
     const ImVec2 va(24 + lw, top), vb(w - 12, h - 12);
-    dl->AddRectFilled(va, vb, IM_COL32(8, 14, 26, 240), 10.0f);
+    dl->AddRectFilled(va, vb, themeTone(8, 14, 26, 240), 10.0f);
     if (d.shownPath != g_docLast) { g_docLast = d.shownPath; g_docZoom = g_docZoomShown = 1.0f; g_docPan = g_docPanShown = ImVec2(0, 0); }
     if (d.busy) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kMuted, "Opening..."); return; }
     if (!d.error.empty()) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kWarn, d.error.c_str()); return; }
@@ -3432,8 +3432,8 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     dl->PopClipRect();
     // the tools, as the notes' scratchpad has them, in one dark bar along the top: the pens and the highlighter, Eraser; Undo and Clear
     // together at the right, then Markup (which turns drawing on and off: off, a drag moves the page)
-    dl->AddRectFilled(ImVec2(g_docMarkup ? va.x + 6 : vb.x - 96, va.y + 6), ImVec2(vb.x - 6, va.y + 44), IM_COL32(10, 18, 34, 225), 12.0f);
-    dl->AddRectFilled(ImVec2(vb.x - 160, vb.y - 46), ImVec2(vb.x - 6, vb.y - 8), IM_COL32(10, 18, 34, 215), 12.0f);   // (under Fit, -, +)
+    dl->AddRectFilled(ImVec2(g_docMarkup ? va.x + 6 : vb.x - 96, va.y + 6), ImVec2(vb.x - 6, va.y + 44), themeTone(10, 18, 34, 225), 12.0f);
+    dl->AddRectFilled(ImVec2(vb.x - 160, vb.y - 46), ImVec2(vb.x - 6, vb.y - 8), themeTone(10, 18, 34, 215), 12.0f);   // (under Fit, -, +)
     if (pill(dl, f, "##docmark", "Markup", ImVec2(vb.x - 90, va.y + 10), ImVec2(vb.x - 12, va.y + 40), g_docMarkup, true)) { g_docMarkup = !g_docMarkup; g_docEraser = false; }
     if (g_docMarkup) {
         for (int i = 0; i < 4; ++i) {
@@ -3803,8 +3803,9 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     const ImVec2 nose((a.x + e.x) * 0.5f + (doors ? 30.0f : 0.0f), std::floor((boxTop + boxBot - acLen * px) * 0.5f));
     // the drawing, resized to the type's length and span (kx, ky: from the drawing's metres to the type's)
     const float kx = shape ? acSpan / shape->span : 1.0f, ky = shape ? acLen / shape->len : 1.0f;
-    if (shape) drawShape(dl, *shape, nose, px * kx, px * ky, IM_COL32(200, 211, 230, 255), IM_COL32(104, 120, 150, 255));
-    else planeTopDown(dl, nose, px, spec, IM_COL32(200, 211, 230, 255), IM_COL32(120, 136, 164, 255));
+    // white in every theme, with neutral grey lines (no blue that reads as tinted next to a warm theme)
+    if (shape) drawShape(dl, *shape, nose, px * kx, px * ky, IM_COL32(246, 247, 249, 255), IM_COL32(128, 132, 140, 255));
+    else planeTopDown(dl, nose, px, spec, IM_COL32(246, 247, 249, 255), IM_COL32(128, 132, 140, 255));
     const float hw0 = shape ? fuselageHalf(*shape, 0.25f, 0) : -1;   // the fuselage's half-width forward of the wing, drawing metres
     const float hwPx = (shape && hw0 > 0 ? hw0 * kx : spec.fus * 0.5f) * px;
     if (doors) {
