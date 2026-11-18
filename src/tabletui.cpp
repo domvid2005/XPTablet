@@ -3732,7 +3732,8 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     dl->AddRectFilled(ImVec2(0, kStatusH + oy), ImVec2(w, h + oy), IM_COL32(14, 24, 46, 205));   // frosted: the page only just shows through   // light: the page shows through
     dl->AddRectFilledMultiColor(ImVec2(0, kStatusH + oy), ImVec2(w, kStatusH + oy + H * 0.5f), IM_COL32(120, 160, 255, 26), IM_COL32(255, 120, 200, 18), IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 0));
     ImGui::SetCursorScreenPos(ImVec2(0, kStatusH + oy));
-    ImGui::InvisibleButton("##ccback", ImVec2(w, H));   // the pull-down takes the presses on it
+    ImGui::SetNextItemAllowOverlap();   // the buttons, sliders and the bar drawn over it still get their presses
+    ImGui::InvisibleButton("##ccback", ImVec2(w, H));   // the pull-down takes the presses on it (none reach the page under it)
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_ccScroll -= ImGui::GetIO().MouseWheel * 40;
     const bool music = !g_mac && g_settings.mediaEnabled;
     const float m = 16, top = kStatusH + oy + 14;

@@ -106,9 +106,15 @@ while True:
     levels.append(cur.tobytes())
     if w <= cols * 4: break
     w, h = w // 2, h // 2
-    # resample from the full-size atlas in premultiplied alpha (no dark fringes)
+    # resample from the full-size atlas in premultiplied alpha (no dark fringes), each cell on its own with a box filter: nothing of
+    # a neighbour (the brand tiles are solid squares) or of a filter's ringing reaches past an icon's own cell (a faint square)
     R, G, B, A = atlas.split()
-    pm = Image.merge("RGBA", (ImageChops.multiply(R, A), ImageChops.multiply(G, A), ImageChops.multiply(B, A), A)).resize((w, h), Image.LANCZOS)
+    full = Image.merge("RGBA", (ImageChops.multiply(R, A), ImageChops.multiply(G, A), ImageChops.multiply(B, A), A))
+    cs = CELL * w // atlas.size[0]
+    pm = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    for cy in range(rows):
+        for cx in range(cols):
+            pm.paste(full.crop((cx * CELL, cy * CELL, (cx + 1) * CELL, (cy + 1) * CELL)).resize((cs, cs), Image.BOX), (cx * cs, cy * cs))
     p = np.asarray(pm).astype(float)
     al = p[..., 3:4]
     rgb = np.where(al > 0, p[..., :3] * 255 / np.maximum(al, 1), 0)

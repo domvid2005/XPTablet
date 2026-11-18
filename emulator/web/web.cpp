@@ -157,7 +157,9 @@ ImTextureID tile(int src, int z, int x, int y, bool request) {
         ++g_tilesInFlight;
         char url[160];
         if (src == 1) std::snprintf(url, sizeof url, "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/%d/%d/%d", z, y, x);
-        else std::snprintf(url, sizeof url, "https://tile.openstreetmap.org/%d/%d/%d.png", z, x, y);
+        // OpenStreetMap's own servers refuse a page opened from disk (it sends them no address of a site), so the emulator takes
+        // CARTO's tiles of the same OpenStreetMap data (they allow it, with the credit); the plugin itself uses tile.openstreetmap.org
+        else std::snprintf(url, sizeof url, "https://%c.basemaps.cartocdn.com/rastertiles/voyager/%d/%d/%d.png", "abcd"[(x + y) & 3], z, x, y);
         js_load_tile(k, url, src == 2);
     }
     return 0;
@@ -388,7 +390,7 @@ void step(double dt, double now) {
         md.ducked = (mode == 1 && heard && g_playing) || (mode == 2 && g_pausedByRadio);
     }
     // Settings, Data
-    g_s.dataInfo = {{"Running in", "the browser emulator (no X-Plane)"}, {"Map tiles", "OpenStreetMap / Esri, loaded by this page"},
+    g_s.dataInfo = {{"Running in", "the browser emulator (no X-Plane)"}, {"Map tiles", "CARTO (OpenStreetMap data) / Esri, loaded by this page"},
                     {"Airports and navaids", "need X-Plane's data: use the desktop emulator with your X-Plane folder"},
                     {"Flight plan", "SimBrief, fetched by this page"}};
 }
