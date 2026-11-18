@@ -372,20 +372,30 @@ void mouseWheel(float x, float y, int clicks) {
     Win* w = windowAt(x, y, false);
     if (w && w->p.handleMouseWheelFunc) w->p.handleMouseWheelFunc((XPLMWindowID)w, (int)x, (int)y, 0, clicks, w->p.refcon);
 }
+// key sniffers (XPLMRegisterKeySniffer, before the windows): each sees a key first, and one answering 0 keeps it
+struct Sniffer { XPLMKeySniffer_f fn; int before; void* refcon; };
+std::vector<Sniffer> g_sniffers;
+bool sniffed(char ch, XPLMKeyFlags flags, char vk) {
+    for (const Sniffer& sn : std::vector<Sniffer>(g_sniffers)) if (sn.fn && sn.fn(ch, flags, vk, sn.refcon) == 0) return true;
+    return false;
+}
 void keyChar(unsigned int c) {
-    if (!g_focus || !g_focus->p.handleKeyFunc || c >= 128) return;
+    if (c >= 128) return;
     const char ch = (char)c;
     int vk = (unsigned char)ch;
     if (ch >= 'a' && ch <= 'z') vk = ch - 'a' + XPLM_VK_A;
     const int shift = (ch >= 'A' && ch <= 'Z') ? xplm_ShiftFlag : 0;
+    if (sniffed(ch, (XPLMKeyFlags)(xplm_DownFlag | shift), (char)vk)) { sniffed(ch, (XPLMKeyFlags)(xplm_UpFlag | shift), (char)vk); return; }
+    if (!g_focus || !g_focus->p.handleKeyFunc) return;
     g_focus->p.handleKeyFunc((XPLMWindowID)g_focus, ch, (XPLMKeyFlags)(xplm_DownFlag | shift), (char)vk, g_focus->p.refcon, 0);
     if (g_focus) g_focus->p.handleKeyFunc((XPLMWindowID)g_focus, ch, (XPLMKeyFlags)(xplm_UpFlag | shift), (char)vk, g_focus->p.refcon, 0);
 }
 void keySpecial(int vk, bool down, int flags) {
-    if (!g_focus || !g_focus->p.handleKeyFunc) return;
     char ch = 0;
     if (vk == XPLM_VK_BACK) ch = 8; else if (vk == XPLM_VK_RETURN) ch = 13; else if (vk == XPLM_VK_ESCAPE) ch = 27; else if (vk == XPLM_VK_TAB) ch = 9;
     else if (vk == XPLM_VK_DELETE) ch = 127;
+    if (sniffed(ch, (XPLMKeyFlags)((down ? xplm_DownFlag : xplm_UpFlag) | flags), (char)vk)) return;
+    if (!g_focus || !g_focus->p.handleKeyFunc) return;
     g_focus->p.handleKeyFunc((XPLMWindowID)g_focus, ch, (XPLMKeyFlags)((down ? xplm_DownFlag : xplm_UpFlag) | flags), (char)vk, g_focus->p.refcon, 0);
 }
 bool tabletWindowRect(int& l, int& t, int& r, int& b) {
@@ -712,6 +722,12 @@ XPLM_API void XPLMSetWindowIsVisible(XPLMWindowID id, int v) {
     if (!w) return;
     w->visible = v != 0;
     if (!w->visible && g_focus == w) g_focus = nullptr;
+}
+XPLM_API int XPLMRegisterKeySniffer(XPLMKeySniffer_f fn, int before, void* refcon) { g_sniffers.push_back({fn, before, refcon}); return 1; }
+XPLM_API int XPLMUnregisterKeySniffer(XPLMKeySniffer_f fn, int before, void* refcon) {
+    const size_t n = g_sniffers.size();
+    g_sniffers.erase(std::remove_if(g_sniffers.begin(), g_sniffers.end(), [&](const Sniffer& sn) { return sn.fn == fn && sn.before == before && sn.refcon == refcon; }), g_sniffers.end());
+    return n != g_sniffers.size() ? 1 : 0;
 }
 XPLM_API void XPLMTakeKeyboardFocus(XPLMWindowID id) {
     Win* w = id ? winOf(id) : nullptr;

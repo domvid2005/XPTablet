@@ -825,6 +825,9 @@ bool g_navForce = false;             // send it even when the page is already on
 bool g_kbd = false;                  // the on-screen keyboard is up
 int g_kbdTarget = 0;                 // what it types into: 0 the page, 1 the address
 bool g_kbdShift = false, g_kbdSymbols = false;
+bool g_kbdCaps = false;      // shift locked (a quick double tap on Shift): capitals until Shift is tapped again
+double g_kbdShiftT = -10;    // when Shift was last tapped
+bool g_kbdKeysShown = false; // with the physical keyboard set: the on-screen keys asked for anyway
 bool g_wantedKbd = false;            // the page's own wish for a keyboard, last frame
 std::string g_addrEdit;
 bool g_webHover = false;
@@ -941,7 +944,9 @@ void tabletKey(int code, bool isChar) { Actions none; typeKey(none, code, isChar
 namespace {
 
 // The on-screen keyboard across the bottom of the page, top at y. Returns its height.
+float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y);
 float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
+    if (g_settings.physicalKeys && !g_kbdKeysShown) return keyboardBar(dl, f, w, y);
     const float pad = 8, gap = 5, kh = 34, H = 5 * kh + 4 * gap + 2 * pad;
     dl->AddRectFilled(ImVec2(0, y), ImVec2(w, y + H), IM_COL32(20, 26, 38, 250));
     dl->AddLine(ImVec2(0, y), ImVec2(w, y), IM_COL32(255, 255, 255, 40));
@@ -964,11 +969,19 @@ float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
         const float yy = y + pad + r * (kh + gap);
         float x = x00 + (r == 2 ? (kw + gap) * 0.5f : r == 3 ? (kw + gap) * 1.5f : 0.0f);
         if (r == 3) {   // shift, at the left of the last letter row
-            if (key("##kshift", g_kbdSymbols ? "" : "Shift", x00, yy, kw * 1.5f + gap * 0.5f, g_kbdShift) && !g_kbdSymbols) g_kbdShift = !g_kbdShift;
+            // Shift: once for one capital; tapped twice quickly, locked (Caps) until tapped again
+            if (key("##kshift", g_kbdSymbols ? "" : g_kbdCaps ? "Caps" : "Shift", x00, yy, kw * 1.5f + gap * 0.5f, g_kbdShift || g_kbdCaps) && !g_kbdSymbols) {
+                const double now = ImGui::GetTime();
+                if (g_kbdCaps) { g_kbdCaps = false; g_kbdShift = false; }
+                else if (g_kbdShift && now - g_kbdShiftT < 0.5) { g_kbdCaps = true; g_kbdShift = false; }
+                else g_kbdShift = !g_kbdShift;
+                g_kbdShiftT = now;
+            }
+            if (g_kbdCaps && !g_kbdSymbols) dl->AddLine(ImVec2(x00 + kw * 0.75f - 8, yy + kh - 7), ImVec2(x00 + kw * 0.75f + 8, yy + kh - 7), kInk, 2.0f);   // the lock's bar
         }
         for (int k = 0; k < n; ++k, x += kw + gap) {
             char c = rows[r][k];
-            if (g_kbdShift && c >= 'a' && c <= 'z') c = (char)(c - 32);
+            if ((g_kbdShift || g_kbdCaps) && c >= 'a' && c <= 'z') c = (char)(c - 32);
             char id[16], lbl[2] = {c, 0};
             std::snprintf(id, sizeof id, "##k%d_%d", r, k);
             if (key(id, lbl, x, yy, kw, false)) { typeKey(act, (unsigned char)c, true); g_kbdShift = false; }
@@ -980,6 +993,7 @@ float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
     float x = x00;
     const float w15 = kw * 1.5f + gap * 0.5f;
     if (key("##klayer", g_kbdSymbols ? "ABC" : "?123", x, yy, w15, false)) { g_kbdSymbols = !g_kbdSymbols; g_kbdShift = false; }
+    if (g_settings.physicalKeys && key("##khide", "Hide", w - x00 - kw * 1.2f, y - kh - 4, kw * 1.2f, false)) g_kbdKeysShown = false;   // back to the bar
     x += w15 + gap;
     if (key("##kat", "@", x, yy, kw, false)) typeKey(act, '@', true);
     x += kw + gap;
@@ -993,6 +1007,19 @@ float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
     if (key("##kenter", g_kbdTarget == 1 ? "Go" : (g_kbdTarget == 2 && !g_typeMultiline) ? "Done" : "Enter", x, yy, w15, true)) typeKey(act, 13, false);
     return H;
 }
+// With the physical keyboard set: a thin bar in the keyboard's place (type on the computer's keys), and the on-screen keys if wanted
+constexpr float kKbdBarH = 40;
+float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y) {
+    const float yb = y + (5 * 34 + 4 * 5 + 16) - kKbdBarH;   // at the bottom, where the keyboard would end
+    dl->AddRectFilled(ImVec2(0, yb), ImVec2(w, yb + kKbdBarH), IM_COL32(20, 26, 38, 250));
+    dl->AddLine(ImVec2(0, yb), ImVec2(w, yb), IM_COL32(255, 255, 255, 40));
+    keyboardIcon(dl, ImVec2(26, yb + kKbdBarH * 0.5f), IM_COL32(150, 196, 255, 255));
+    textAt(dl, f.small, 48, std::floor(yb + (kKbdBarH - fontPx(f.small)) * 0.5f), kInk, "Typing with your keyboard  \xC2\xB7  Enter to finish");
+    if (pill(dl, f, "##kshowkeys", "Keys", ImVec2(w - 90, yb + 6), ImVec2(w - 12, yb + kKbdBarH - 6), false, true)) g_kbdKeysShown = true;
+    return kKbdBarH;
+}
+// how tall the keyboard is now (the full keys, or the physical keyboard's bar)
+float keyboardHeight() { return g_settings.physicalKeys && !g_kbdKeysShown ? kKbdBarH : 5 * 34 + 4 * 5 + 16; }
 
 // The page: the browser's picture in the rectangle, with the pointer and the wheel going to it.
 void webView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float y0, float w, float h, Actions& act) {
@@ -1174,9 +1201,9 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         dl->AddRectFilled(ImVec2(w * t - w * 0.25f, pageTop - 2), ImVec2(w * t, pageTop + 1), IM_COL32(90, 160, 255, 255));
     }
     float kbH = 0;
-    if (g_kbd) kbH = 5 * 34 + 4 * 5 + 16;
+    if (g_kbd) kbH = keyboardHeight();
     webView(dl, f, s, 0, pageTop + 1, w, h - pageTop - 1 - kbH, act);
-    if (g_kbd) keyboard(dl, f, w, h - kbH, act);
+    if (g_kbd) keyboard(dl, f, w, h - (5 * 34 + 4 * 5 + 16), act);   // (the bar puts itself at the bottom)
 }
 
 // ---- Weather without WXPlane: X-Plane's own weather where the aircraft is ---------------------------------------------------------------
@@ -2622,11 +2649,12 @@ bool textField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, I
     dl->PopClipRect();
     return hit;
 }
-constexpr float kKbdH = 5 * 34 + 4 * 5 + 16;   // the on-screen keyboard's height
+constexpr float kKbdFullH = 5 * 34 + 4 * 5 + 16;   // the on-screen keyboard's height
+#define kKbdH keyboardHeight()                      // (the physical keyboard's bar is shorter)
 // the keyboard at the bottom of a page while one of its fields is typed in; the page is drawn kbShift higher so the field shows
 float pageKeyboard(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
     if (!(g_kbd && g_kbdTarget == 2 && g_typeInto)) return 0;
-    keyboard(dl, f, w, h - kKbdH, act);
+    keyboard(dl, f, w, h - kKbdFullH, act);
     return kKbdH;
 }
 
@@ -3598,7 +3626,8 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
 }
 
 // ---- notifications, the pull-down (music and the notification list) and the Music app --------------------------------------------------
-struct Note { int id; std::string title, body; int app; double t; bool banner = true; float dx = 0; bool dying = false; double dieT = 0; };
+struct Note { int id; std::string title, body; int app; double t; bool banner = true; float dx = 0; bool dying = false; double dieT = 0;
+              double awayT = -1; float awayFrom = 0; };   // swiped up: sliding away since awayT (from awayFrom above its place)
 std::vector<Note> g_notes;         // newest first
 int g_noteId = 0;
 double g_bannerDrag = -1;          // the banner being pushed up: where the press was (y)
@@ -3812,12 +3841,18 @@ bool bannerRect(float w, ImVec2& a, ImVec2& b, float& alpha, Note*& note) {
     for (Note& n : g_notes) if (n.banner) { note = &n; break; }
     if (!note || g_ccT > 0.02f) return false;
     const double age = ImGui::GetTime() - note->t;
-    if (age > 3.0 && g_bannerDrag < 0) { note->banner = false; note = nullptr; return false; }
+    if (age > 3.0 && g_bannerDrag < 0 && note->awayT < 0) { note->banner = false; note = nullptr; return false; }
     const float bw = std::min(440.0f, w - 40), bh = 62;
     const float in = std::min(1.0f, (float)age / 0.28f), e = 1 - (1 - in) * (1 - in) * (1 - in);
     alpha = age < 2.4 ? 1.0f : std::max(0.0f, 1.0f - (float)(age - 2.4) / 0.6f);   // gone by 3 s
     if (g_bannerDrag >= 0) alpha = 1.0f;
-    const float y = kStatusH + 8 - (1 - e) * (bh + 16) + std::min(0.0f, g_bannerDy);
+    float y = kStatusH + 8 - (1 - e) * (bh + 16) + std::min(0.0f, g_bannerDy);
+    if (note->awayT >= 0) {   // swiped up: it slides on up and out, into the list
+        const float p = std::min(1.0f, (float)(ImGui::GetTime() - note->awayT) / 0.22f);
+        if (p >= 1.0f) { note->banner = false; note->awayT = -1; note = nullptr; return false; }
+        y = kStatusH + 8 + note->awayFrom - p * p * (bh + 40);
+        alpha = 1.0f - p;
+    }
     a = ImVec2(std::floor((w - bw) * 0.5f), y);
     b = ImVec2(a.x + bw, y + bh);
     return true;
@@ -3846,14 +3881,19 @@ void drawBanner(ImDrawList* dl, const Fonts& f, float w) {
     dl->AddRectFilled(ImVec2(a.x + 2, a.y + 6), ImVec2(bb.x + 2, bb.y + 8), IM_COL32(0, 0, 0, (int)(70 * alpha)), 18.0f);
     dl->AddRectFilled(a, bb, IM_COL32(16, 26, 46, (int)(200 * alpha)), 16.0f);
     noteCard(dl, f, *n, a, bb, alpha);
+    if (n->awayT >= 0) return;   // on its way out: no more presses
     ImGui::SetCursorScreenPos(a);
     ImGui::InvisibleButton("##banner", ImVec2(bb.x - a.x, bb.y - a.y));
     const ImGuiIO& io = ImGui::GetIO();
-    if (ImGui::IsItemActivated()) { g_bannerDrag = io.MousePos.y; g_bannerDy = 0; }
-    if (ImGui::IsItemActive()) g_bannerDy = io.MousePos.y - (float)g_bannerDrag;
+    static float pressX = 0, moved = 0;
+    if (ImGui::IsItemActivated()) { g_bannerDrag = io.MousePos.y; g_bannerDy = 0; pressX = io.MousePos.x; moved = 0; }
+    if (ImGui::IsItemActive()) {
+        g_bannerDy = io.MousePos.y - (float)g_bannerDrag;
+        moved = std::max(moved, std::fabs(g_bannerDy) + std::fabs(io.MousePos.x - pressX));   // the most it moved: a swipe, not a tap
+    }
     if (ImGui::IsItemDeactivated()) {
-        if (g_bannerDy < -18) n->banner = false;   // pushed up: away (still in the list)
-        else if (std::fabs(g_bannerDy) < 6) { const Note copy = *n; g_notes.erase(std::remove_if(g_notes.begin(), g_notes.end(), [&](const Note& x) { return x.id == copy.id; }), g_notes.end()); openFromNote(copy); }
+        if (g_bannerDy < -10 || (moved >= 6 && g_bannerDy < 0)) { n->awayT = ImGui::GetTime(); n->awayFrom = std::min(0.0f, g_bannerDy); }   // swiped up: into the list
+        else if (moved < 6) { const Note copy = *n; g_notes.erase(std::remove_if(g_notes.begin(), g_notes.end(), [&](const Note& x) { return x.id == copy.id; }), g_notes.end()); openFromNote(copy); }   // a tap: its page
         g_bannerDrag = -1; g_bannerDy = 0;
     }
 }
@@ -4196,6 +4236,10 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         int md = g_settings.mapDark ? 1 : 0;
         choice("##chmapd", lx, y, colW, "Map display (the street map; Satellite is set on the map)", mapNames, md, true);
         g_settings.mapDark = md == 1;
+        const char* keyNames[2] = {"On-screen keys", "Physical keyboard"};
+        int pk = g_settings.physicalKeys ? 1 : 0;
+        choice("##chkeys", lx, y, colW, "Typing in a text box", keyNames, pk, true);
+        if ((pk == 1) != g_settings.physicalKeys) { g_settings.physicalKeys = pk == 1; g_kbdKeysShown = false; }
         return;
     }
 
@@ -4748,9 +4792,9 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
-    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\nmap_rings=%d\nbattery=%d\ncharger=%d\n",
+    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\nmap_rings=%d\nphysical_keys=%d\nbattery=%d\ncharger=%d\n",
                   g_settings.mapSource == 1 ? 1 : 0, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
-                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0, (int)std::ceil(g_batt - 0.001f), g_charger ? 1 : 0);
+                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0, g_settings.physicalKeys ? 1 : 0, (int)std::ceil(g_batt - 0.001f), g_charger ? 1 : 0);
     out += buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
         out += key; out += "=";
@@ -4811,6 +4855,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_navaids") g_settings.mapNavaids = v != 0;
         else if (key == "map_ils") g_settings.mapIls = v != 0;
         else if (key == "map_rings") g_settings.mapRings = v != 0;
+        else if (key == "physical_keys") g_settings.physicalKeys = v != 0;
         else if (key == "battery") g_batt = (float)std::max(0, std::min(100, v));
         else if (key == "charger") g_charger = v != 0;
         else if (key == "media_enabled") g_settings.mediaEnabled = v != 0;

@@ -1333,6 +1333,16 @@ void noKey(XPLMWindowID, char, XPLMKeyFlags, char, void*, int) {}
 // The floating window's keyboard, while a web page is shown: into the address bar while it is being typed in, else to the page.
 // XPLM's virtual key codes for the editing keys are Windows' (back 8, tab 9, enter 13, escape 27, page/home/end/arrows 33-40,
 // delete 46).
+// Settings, Display, "Physical keyboard": while a text box takes typing, the computer's keys go to it wherever X-Plane's focus is
+// (the cockpit tablet too); everything else (Escape, the arrows, X-Plane's own keys when nothing is typed in) goes on as usual
+int keySniffer(char key, XPLMKeyFlags flags, char vkey, void*) {
+    if (!xpt::settings().physicalKeys || !xpt::tabletTyping()) return 1;
+    const unsigned char vk = (unsigned char)vkey, ch = (unsigned char)key;
+    const bool down = (flags & xplm_DownFlag) != 0;
+    if (vk == 8 || vk == 13) { if (down) xpt::tabletKey(vk, false); return 0; }
+    if (ch >= 32 && ch < 127 && !(flags & (xplm_ControlFlag | xplm_OptionAltFlag))) { if (down) xpt::tabletKey(ch, true); return 0; }
+    return 1;
+}
 void winKey(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey, void*, int losingFocus) {
     if (losingFocus) return;
     const unsigned char vk = (unsigned char)vkey, ch = (unsigned char)key;
@@ -1964,6 +1974,7 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
 }
 
 PLUGIN_API int XPluginEnable(void) {
+    XPLMRegisterKeySniffer(keySniffer, 1, nullptr);   // (before X-Plane's windows: typed keys go to a text box first)
     XPLMRegisterDrawCallback(drawPanel, xplm_Phase_Gauges, 0, nullptr);
     XPLMCreateFlightLoop_t fl;
     fl.structSize = sizeof fl;
@@ -1981,6 +1992,7 @@ PLUGIN_API int XPluginEnable(void) {
 }
 
 PLUGIN_API void XPluginDisable(void) {
+    XPLMUnregisterKeySniffer(keySniffer, 1, nullptr);
     XPLMUnregisterDrawCallback(drawPanel, xplm_Phase_Gauges, 0, nullptr);
     if (g_loop) { XPLMDestroyFlightLoop(g_loop); g_loop = nullptr; }
     if (g_capture) { XPLMDestroyWindow(g_capture); g_capture = nullptr; }
