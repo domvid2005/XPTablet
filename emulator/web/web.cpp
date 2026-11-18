@@ -586,6 +586,7 @@ EMSCRIPTEN_KEEPALIVE void emu_intruder() {
     g_tfc.push_back(t);
 }
 EMSCRIPTEN_KEEPALIVE void emu_new_traffic() { resetTraffic(); }
+EMSCRIPTEN_KEEPALIVE void emu_battery(float pct) { setBattery(pct); }
 EMSCRIPTEN_KEEPALIVE void emu_reset_settings() { settingsFromText(""); settings() = Settings(); js_store("xptablet.settings", ""); openApp(APP_HOME); }
 EMSCRIPTEN_KEEPALIVE float emu_alt() { return g_alt; }
 EMSCRIPTEN_KEEPALIVE float emu_gs() { return g_gs; }

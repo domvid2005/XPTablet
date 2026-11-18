@@ -321,9 +321,18 @@ void battery(ImDrawList* dl, ImVec2 p, int pct, bool charging) {
 
 // ---- power: off (fading to black, then black until tapped), then starting (the logo and a loading bar), then home fading in as the
 // logo rises into the status bar
-enum { POWER_ON, POWER_FADING, POWER_OFF, POWER_BOOT, POWER_REVEAL };
+enum { POWER_ON, POWER_FADING, POWER_OFF, POWER_BOOT, POWER_REVEAL,
+       POWER_DEAD,          // the battery ran out: black at once, until tapped
+       POWER_DEAD_PROMPT,   // tapped: an empty battery and a cable, as an iPhone shows; gone within 5 s unless the battery is tapped
+       POWER_DEAD_CHARGE }; // the battery tapped: the charger is in, charging is shown 5 s, fades, and 5 s later the tablet starts
 int g_power = POWER_ON;
 double g_powerT0 = 0;
+// the tablet's own battery (kept with the settings): 2 hours from full with the screen on (it rests while the screen is off),
+// 30 minutes from empty to full on the charger, which is plugged in and out by tapping the battery in the status bar
+float g_batt = 100.0f;
+bool g_charger = false;
+int g_battSaved = -1;
+constexpr double kDeadPromptS = 5.0, kDeadChargeShowS = 5.0, kDeadChargeFadeS = 0.6, kDeadChargeWaitS = 5.0;
 float g_ccT = 0, g_ccTarget = 0;   // the pull-down: how far it is down (0..1), where it is going
 bool g_ccDrag = false;             // a finger is pulling it (from the logo, or pushing it up by its bar)
 float g_ccDragY0 = 0, g_ccDragT0 = 0;
@@ -405,10 +414,17 @@ void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
     }
     // right: aircraft type, charge, battery
     float x = w - 12 - 25;
-    battery(dl, ImVec2(x, std::floor((kStatusH - 11) * 0.5f)), s.batteryPct, s.charging);
-    std::snprintf(buf, sizeof buf, "%d%%", std::max(0, std::min(100, s.batteryPct)));
+    const int pct = (int)std::ceil(g_batt - 0.001f);
+    std::snprintf(buf, sizeof buf, "%d%%", std::max(0, std::min(100, pct)));
     ImVec2 sz = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, buf);
-    x -= sz.x + (s.charging ? 20 : 8);
+    {   // tap the battery (or its figure): the charger goes in, or comes out; highlighted on hover as the clock is
+        const float bx0 = x - sz.x - (g_charger ? 20 : 8) - 6, bx1 = x + 25 + 6;
+        ImGui::SetCursorScreenPos(ImVec2(bx0, 0));
+        if (ImGui::InvisibleButton("##battery", ImVec2(bx1 - bx0, kStatusH))) { g_charger = !g_charger; g_settingsChanged = true; }
+        if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(bx0, 3), ImVec2(bx1, kStatusH - 3), IM_COL32(255, 255, 255, 26), 6.0f);
+    }
+    battery(dl, ImVec2(x, std::floor((kStatusH - 11) * 0.5f)), pct, g_charger);
+    x -= sz.x + (g_charger ? 20 : 8);
     dl->AddText(f.small, fontPx(f.small), ImVec2(x, y), col, buf);
     if (!s.acfIcao.empty()) {
         sz = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, s.acfIcao.c_str());
@@ -4052,7 +4068,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         if (s.panel[2] > 0 && s.panel[3] > 0) { std::snprintf(b, sizeof b, "%d,%d  %dx%d", s.panel[0], s.panel[1], s.panel[2], s.panel[3]); line("Panel area", b); }
         else line("Panel area", "none (no AviTab slot)");
         line("WXPlane", s.wxPlane ? "found" : "not installed");
-        std::snprintf(b, sizeof b, "%d%%%s", s.batteryPct, s.charging ? ", charging" : "");
+        std::snprintf(b, sizeof b, "%d%%%s", (int)std::ceil(g_batt - 0.001f), g_charger ? ", charging" : "");
         line("Battery", b);
         if (s.aviTabRunning) { dl->AddText(f.small, fontPx(f.small), ImVec2(rx, sy + 2), kWarn, "AviTab is installed and keeps the cockpit tablet. Remove it to let XPTablet take its place.", nullptr, w - 18 - rx); sy += 34; }
         // the touch test: press anywhere in the box, a mark must appear exactly under the pointer
@@ -4285,6 +4301,66 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     if (g_power == POWER_FADING && now - g_powerT0 >= kOffS) g_power = POWER_OFF;
     if (g_power == POWER_BOOT && now - g_powerT0 >= kBootS + kHoldS) { g_power = POWER_REVEAL; g_powerT0 = now; }   // (the wake starts now)
     if (g_power == POWER_REVEAL && now - g_powerT0 >= kRevealS) g_power = POWER_ON;
+    {   // the battery: down while the screen is on and the charger out, up on the charger (screen on or not)
+        const float dt = std::max(0.0f, std::min(1.0f, ImGui::GetIO().DeltaTime));
+        const bool screenOn = g_power == POWER_ON || g_power == POWER_FADING || g_power == POWER_REVEAL || g_power == POWER_BOOT;
+        if (g_charger) g_batt = std::min(100.0f, g_batt + dt * 100.0f / 1800.0f);
+        else if (screenOn) g_batt = std::max(0.0f, g_batt - dt * 100.0f / 7200.0f);
+        const int p = (int)std::ceil(g_batt - 0.001f);
+        if (p != g_battSaved) { g_battSaved = p; g_settingsChanged = true; }   // kept a percent at a time
+        if (g_batt <= 0.0f && !g_charger && screenOn) {   // empty: black at once
+            g_power = POWER_DEAD; g_powerT0 = now; g_ccTarget = 0; g_ccT = 0; g_ccDrag = false; g_kbd = false; g_typeInto = nullptr;
+        }
+    }
+    if (g_power == POWER_DEAD_PROMPT && now - g_powerT0 >= kDeadPromptS) g_power = POWER_DEAD;   // not tapped: it went away
+    if (g_power == POWER_DEAD_CHARGE && now - g_powerT0 >= kDeadChargeShowS + kDeadChargeFadeS + kDeadChargeWaitS) {   // it starts by itself
+        g_power = POWER_BOOT; g_powerT0 = now;
+        g_app = APP_HOME; g_animPage = -1; g_editMode = false;
+    }
+    if (g_power == POWER_DEAD || g_power == POWER_DEAD_PROMPT || g_power == POWER_DEAD_CHARGE) {
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, h), IM_COL32(0, 0, 0, 255));
+        const float t = (float)(now - g_powerT0);
+        // the large battery in the middle, as an iPhone's
+        const float bw = 150, bh = 66, cx = w * 0.5f, cy = h * 0.44f;
+        const ImVec2 ba(cx - bw * 0.5f, cy - bh * 0.5f), bb(cx + bw * 0.5f, cy + bh * 0.5f);
+        ImGui::SetCursorScreenPos(ImVec2(0, 0));
+        const bool tapped = ImGui::InvisibleButton("##deadtap", ImVec2(w, h));
+        const ImVec2 mp = ImGui::GetIO().MousePos;
+        const bool onBattery = mp.x >= ba.x - 24 && mp.x <= bb.x + 30 && mp.y >= ba.y - 24 && mp.y <= bb.y + 24;
+        if (tapped && g_power == POWER_DEAD) { g_power = POWER_DEAD_PROMPT; g_powerT0 = now; }
+        else if (tapped && g_power == POWER_DEAD_PROMPT && onBattery) { g_power = POWER_DEAD_CHARGE; g_powerT0 = now; g_charger = true; g_settingsChanged = true; }
+        float al = 0;
+        if (g_power == POWER_DEAD_PROMPT) al = smooth01(t / 0.3f) * (1.0f - smooth01((t - (float)kDeadPromptS + 0.8f) / 0.8f));
+        if (g_power == POWER_DEAD_CHARGE) al = smooth01(t / 0.3f) * (1.0f - smooth01((t - (float)kDeadChargeShowS) / (float)kDeadChargeFadeS));
+        if (al > 0.002f) {
+            const int A = (int)(255 * al);
+            const bool charging = g_power == POWER_DEAD_CHARGE;
+            const ImU32 rim = IM_COL32(120, 124, 132, A);
+            dl->AddRect(ba, bb, rim, 14.0f, 0, 3.0f);
+            dl->AddRectFilled(ImVec2(bb.x + 4, cy - 12), ImVec2(bb.x + 10, cy + 12), rim, 3.0f);   // the cap
+            const float lvl = std::max(0.06f, g_batt / 100.0f);
+            const ImU32 fill = charging ? IM_COL32(76, 217, 100, A) : IM_COL32(255, 59, 48, A);
+            dl->AddRectFilled(ImVec2(ba.x + 6, ba.y + 6), ImVec2(ba.x + 6 + (bw - 12) * lvl, bb.y - 6), fill, 9.0f);
+            if (charging) {   // a bolt across it, the level under it
+                const ImU32 bolt = IM_COL32(255, 255, 255, A);
+                dl->AddTriangleFilled(ImVec2(cx + 9, cy - 28), ImVec2(cx - 14, cy + 4), ImVec2(cx + 2, cy + 4), bolt);
+                dl->AddTriangleFilled(ImVec2(cx - 9, cy + 28), ImVec2(cx + 14, cy - 4), ImVec2(cx - 2, cy - 4), bolt);
+                char pb[16];
+                std::snprintf(pb, sizeof pb, "%d%%", (int)std::ceil(g_batt - 0.001f));
+                textCentered(dl, f.bold, cx, bb.y + 26, IM_COL32(220, 224, 232, A), pb);
+            } else {   // the cable to plug in, up towards it
+                const ImU32 c2 = IM_COL32(150, 154, 162, A);
+                const float ty = bb.y + 34;
+                dl->AddRectFilled(ImVec2(cx - 9, ty), ImVec2(cx + 9, ty + 26), c2, 4.0f);     // the plug
+                dl->AddRectFilled(ImVec2(cx - 5, ty - 12), ImVec2(cx + 5, ty), c2, 2.0f);     // its tip
+                dl->AddRectFilled(ImVec2(cx - 3, ty + 26), ImVec2(cx + 3, h), c2);              // the cable, down off the screen
+                textCentered(dl, f.small, cx, ba.y - 34, IM_COL32(180, 184, 192, A), "Tap the battery to plug in the charger");
+            }
+        }
+        ImGui::End();
+        ImGui::PopStyleVar();
+        return;
+    }
     if (g_power == POWER_OFF || g_power == POWER_BOOT) {   // a black screen: nothing else runs; a tap anywhere starts it
         dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, h), IM_COL32(0, 0, 0, 255));
         ImGui::SetCursorScreenPos(ImVec2(0, 0));
@@ -4468,6 +4544,7 @@ int loadShapes(const std::string& text) {
     return (int)g_shapes.size();
 }
 
+void setBattery(float pct) { g_batt = std::max(0.0f, std::min(100.0f, pct)); }
 bool hasShape(const std::string& icao) { float l, sp; return exactShape(icao, l, sp) != nullptr; }   // a drawing of its own
 const unsigned char* wxLogoPixels(unsigned int& bytes) { bytes = xpt_asset_wxlogo_size; return xpt_asset_wxlogo; }
 const unsigned char* logoPixels(int& w, int& h, int& levels) {   // "XPTL", width, height, levels (u32), then the pixels
@@ -4616,9 +4693,9 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
-    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\nmap_rings=%d\n",
+    std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\nmap_rings=%d\nbattery=%d\ncharger=%d\n",
                   g_settings.mapSource == 1 ? 1 : 0, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
-                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0);
+                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0, (int)std::ceil(g_batt - 0.001f), g_charger ? 1 : 0);
     out += buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
         out += key; out += "=";
@@ -4679,6 +4756,8 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_navaids") g_settings.mapNavaids = v != 0;
         else if (key == "map_ils") g_settings.mapIls = v != 0;
         else if (key == "map_rings") g_settings.mapRings = v != 0;
+        else if (key == "battery") g_batt = (float)std::max(0, std::min(100, v));
+        else if (key == "charger") g_charger = v != 0;
         else if (key == "media_enabled") g_settings.mediaEnabled = v != 0;
         else if (key == "media_duck") g_settings.mediaDuck = std::max(0, std::min(2, v));
         else if (key == "notify_enabled") g_settings.notifyEnabled = v != 0;

@@ -321,7 +321,8 @@ const EmbedArea& embedArea();   // as of the last build()
 // The aircraft top views (the plugin's shapes/aircraft_shapes.txt, from AircraftShapesSVG): the file's text. Returns how many
 // shapes were read; types without one are drawn from their measurements instead.
 int loadShapes(const std::string& text);
-bool hasShape(const std::string& icao);   // a drawing for this type (its own, or its family's)
+bool hasShape(const std::string& icao);
+void setBattery(float pct);   // the tablet's battery level (the emulators' test controls)   // a drawing for this type (its own, or its family's)
 
 int currentApp();
 // The browser's address bar is taking typed keys (the floating window's keyboard goes there instead of to the page).
