@@ -259,6 +259,24 @@ int main(int argc, char** argv) {
         { Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_settings_off.png"); }
         settings() = Settings();
     }
+    // Weather: with WXPlane the page hands its area (below the title bar) to the host; without it, or with one too old, it does not
+    {
+        auto run = [&](SimState t) { openApp(APP_WEATHER); for (int i = 0; i < 2; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(400, 300); io.AddMouseButtonEvent(0, false);
+            ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); } };
+        SimState t = s; t.wxPlane = true; t.wxEmbed = 1;
+        run(t);
+        const EmbedArea e = embedArea();
+        { std::vector<Batch> b; clipDrawData(ImGui::GetDrawData(), b); Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_weather.png"); }
+        if (!e.active || e.x != 0 || e.y < 60 || e.w != 800 || std::fabs(e.y + e.h - kLogicalH) > 0.01f) { std::printf("FAIL: weather embed area\n"); ++failures; }
+        if (std::fabs(e.mx - 400) > 0.01f || std::fabs(e.my - (300 - e.y)) > 0.01f || e.down) { std::printf("FAIL: weather embed pointer\n"); ++failures; }
+        t.wxEmbed = -1; run(t);
+        if (embedArea().active) { std::printf("FAIL: an old WXPlane gets no area\n"); ++failures; }
+        t.wxPlane = false; t.wxEmbed = 0; run(t);
+        if (embedArea().active) { std::printf("FAIL: no WXPlane, no area\n"); ++failures; }
+        openApp(APP_HOME); run(s); openApp(APP_HOME);
+        io.DisplaySize = ImVec2(800, kLogicalH); ImGui::NewFrame(); { Actions act; build(fonts, s, 800, kLogicalH, act); } ImGui::Render();
+        if (embedArea().active) { std::printf("FAIL: the area is only for the Weather page\n"); ++failures; }
+    }
     ImGui::DestroyContext();
     std::printf(failures ? "ui_shot: %d failure(s)\n" : "ui_shot: ok\n", failures);
     return failures ? 1 : 0;

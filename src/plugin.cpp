@@ -30,6 +30,7 @@
 #include "tabletui.h"
 #include "tabrender.h"
 #include "version.h"
+#include "wxplane_embed.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -121,7 +122,7 @@ bool loadGl() {
 
 // ---- state ---------------------------------------------------------------------------------------------------------------------
 const char* kAviTabSignature = "org.solhost.folko.avitab";
-const char* kWxPlaneSignature = "com.wxplane.xp12.noaa";
+const char* kWxPlaneSignature = WXPLANE_SIGNATURE;
 
 // The cockpit tablet's area on the panel texture, and its switches. These are what the avitab/panel_* datarefs read and write.
 int g_panelLeft = 0, g_panelBottom = 0, g_panelWidth = 0, g_panelHeight = 0;
@@ -366,6 +367,35 @@ void drawBatches(const std::vector<xpt::Batch>& batches, float left, float top, 
     if (cull) gl.Enable(GL_CULL_FACE);
 }
 
+// The Weather page with WXPlane installed: WXPlane draws its own screen into the page's area. It is asked from inside our drawing,
+// with the matrix set so the area's top-left corner is the origin, y runs down and one unit is one pixel of this surface
+// (wxplane_embed.h). left/top: where the tablet's own top-left corner is; sx/sy: surface units per layout unit.
+void drawEmbedded(float left, float top, float sx, float sy, float pixelsPerUnit, float brightness) {
+    const xpt::EmbedArea& e = xpt::embedArea();
+    if (!e.active) return;
+    const XPLMPluginID wx = XPLMFindPluginBySignature(kWxPlaneSignature);
+    if (wx == XPLM_NO_PLUGIN_ID || !XPLMIsPluginEnabled(wx)) { g_sim.wxPlane = false; return; }
+    WxEmbedRequest rq;
+    std::memset(&rq, 0, sizeof rq);
+    rq.structSize = (int)sizeof rq;
+    rq.version = 1;
+    rq.widthPx = e.w * sx; rq.heightPx = e.h * sy;
+    rq.pixelsPerUnit = pixelsPerUnit;
+    rq.mouseX = e.mx < -1e8f ? -1e9f : e.mx * sx;
+    rq.mouseY = e.my < -1e8f ? -1e9f : e.my * sy;
+    rq.mouseDown = e.down ? 1 : 0;
+    rq.wheel = e.wheel;
+    rq.brightness = brightness;
+    rq.frame = XPLMGetCycleNumber();
+    gl.MatrixMode(GL_MODELVIEW);
+    gl.PushMatrix();
+    gl.Translatef(left + e.x * sx, top - e.y * sy, 0.0f);
+    gl.Scalef(1.0f, -1.0f, 1.0f);
+    XPLMSendMessageToPlugin(wx, WXPLANE_MSG_EMBED, &rq);
+    gl.PopMatrix();
+    g_sim.wxEmbed = rq.handled ? 1 : -1;   // an older WXPlane does not know the message
+}
+
 void fillRect(float l, float b, float r, float t, float red, float green, float blue) {
     XPLMSetGraphicsState(0, 0, 0, 0, 0, 0, 0);
     const float v[12] = {l, b, r, b, r, t, l, b, r, t, l, t};
@@ -392,6 +422,7 @@ int drawPanel(XPLMDrawingPhase, int, void*) {
     } else {
         drawBatches(g_batches, l, b + h, w / g_logW, h / xpt::kLogicalH);
     }
+    drawEmbedded(l, b + h, w / g_logW, h / xpt::kLogicalH, 1.0f, g_brightness);
     return 1;
 }
 
@@ -471,6 +502,7 @@ void winDraw(XPLMWindowID w, void*) {
     XPLMGetWindowGeometry(w, &l, &t, &r, &b);
     fillRect((float)l, (float)b, (float)r, (float)t, 0, 0, 0);
     drawBatches(g_batches, (float)l + g_winOx, (float)t - g_winOy, g_winScale, g_winScale);
+    drawEmbedded((float)l + g_winOx, (float)t - g_winOy, g_winScale, g_winScale, g_drUiScale ? std::max(1.0f, XPLMGetDataf(g_drUiScale)) : 1.0f, 1.0f);
 }
 int winClick(XPLMWindowID, int x, int y, XPLMMouseStatus status, void*) {
     if (!g_ctx) return 1;

@@ -47,6 +47,7 @@ struct SimState {
     bool panelEnabled = false, panelPowered = false;
     bool aviTabRunning = false;   // AviTab is installed and active: the cockpit tablet stays AviTab's
     bool wxPlane = false;         // WXPlane is installed
+    int wxEmbed = 0;              // WXPlane drew itself on the Weather page: 1 yes, -1 it is too old to, 0 not asked yet
     bool toliss = false;          // a ToLiss aircraft: its own tablet does the performance calculations, so ours is left out
     float brightness = 1.0f;
     float pixelScale = 1.0f;      // screen pixels per layout unit
@@ -62,6 +63,16 @@ struct Actions {
 Fonts loadFonts(float pixelScale);   // (re)builds the font atlas for this many pixels per layout unit
 void applyStyle();
 void build(const Fonts& f, const SimState& s, float w, float h, Actions& act);   // one frame of the tablet, w x h layout units
+
+// The part of the screen another plugin draws (WXPlane on the Weather page), and the pointer in it. In layout units.
+struct EmbedArea {
+    bool active = false;
+    float x = 0, y = 0, w = 0, h = 0;
+    float mx = -1e9f, my = -1e9f;   // the pointer, from the area's top-left corner; far outside when not over it
+    bool down = false;
+    float wheel = 0;
+};
+const EmbedArea& embedArea();   // as of the last build()
 
 int currentApp();
 void openApp(int app);   // APP_HOME: the home screen

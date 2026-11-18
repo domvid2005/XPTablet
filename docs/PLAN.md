@@ -55,6 +55,14 @@ ForeFlight, Browser, Settings. No logbook.
 - The status bar shows the tablet's battery: it charges while an aircraft bus is live and runs down otherwise.
 - The arrangement and the choices are kept in Output/preferences/XPTablet.prf.
 
+## Weather page and WXPlane
+
+With WXPlane installed, the Weather page is WXPlane's own screen: XPTablet draws the title bar and hands the rest of the page to
+WXPlane, which draws itself there (no Pop out tab on the tablet). The two plugins talk through one message, described in
+`src/wxplane_embed.h` (the same file is `src/embed.h` in WXPlane): XPTablet sends it from inside its drawing with the page's area
+and the pointer, WXPlane draws and answers. A WXPlane too old to know the message leaves it unanswered and the page says so.
+Without WXPlane the page will be a built-in radar and METAR map (not built yet).
+
 ## Browser engine
 
 X-Plane 12 ships Chromium Embedded Framework itself (Resources/dlls/64/cef; 12.4.4 has CEF 117.1.4+ga26f38b, Chromium 117.0.5938.92).

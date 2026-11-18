@@ -78,6 +78,7 @@ void normalizeLayout() {
 }
 
 int g_app = APP_HOME;
+EmbedArea g_embed;
 float g_px = 1.0f;   // screen pixels per layout unit this frame
 
 // ImGui anti-aliases with an edge one layout unit wide. The tablet is drawn at several pixels per unit, where that edge would be a
@@ -444,6 +445,33 @@ void browserPage(ImDrawList* dl, const Fonts& f, float w, float h) {
     webContent(dl, f, w, h, top + barH + bmH);
 }
 
+// Weather: WXPlane's own screen when WXPlane is installed (it draws itself into the page: the host passes the area on), otherwise
+// a note until the built-in weather map exists.
+void weatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h) {
+    const float top = kStatusH + kHeaderH;
+    const ImVec2 c(w * 0.5f, top + (h - top) * 0.42f);
+    if (!s.wxPlane || s.wxEmbed < 0) {
+        dl->AddRectFilled(ImVec2(c.x - 48, c.y - 48), ImVec2(c.x + 48, c.y + 48), appColor(APP_WEATHER), 22.0f);
+        icon(dl, APP_WEATHER, c, 30, IM_COL32(255, 255, 255, 255));
+        textCentered(dl, f.body, c.x, c.y + 64, IM_COL32(210, 220, 236, 255),
+                     s.wxPlane ? "This WXPlane is too old to show here. Update WXPlane to see it on the tablet."
+                               : "The built-in weather map arrives in a later build. With WXPlane installed, WXPlane shows here.");
+        return;
+    }
+    dl->AddRectFilled(ImVec2(0, top), ImVec2(w, h), IM_COL32(18, 20, 26, 255));
+    if (s.wxEmbed == 0) textCentered(dl, f.body, c.x, c.y, IM_COL32(190, 200, 220, 255), "Opening WXPlane...");
+    ImGui::SetCursorScreenPos(ImVec2(0, top));
+    ImGui::InvisibleButton("##wxplane", ImVec2(w, h - top));   // the pointer here belongs to WXPlane
+    const ImGuiIO& io = ImGui::GetIO();
+    g_embed.active = true;
+    g_embed.x = 0; g_embed.y = top; g_embed.w = w; g_embed.h = h - top;
+    const bool over = ImGui::IsItemHovered() || ImGui::IsItemActive();
+    g_embed.mx = over ? io.MousePos.x : -1e9f;
+    g_embed.my = over ? io.MousePos.y - top : -1e9f;
+    g_embed.down = ImGui::IsItemActive();
+    g_embed.wheel = ImGui::IsItemHovered() ? io.MouseWheel : 0.0f;
+}
+
 void sectionTitle(const Fonts& f, const char* t) { ImGui::PushFont(f.bold); ImGui::TextUnformatted(t); ImGui::PopFont(); }
 
 void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
@@ -589,6 +617,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     g_ownPerformance = s.toliss;
     if (g_app == APP_PERFORMANCE && g_ownPerformance) g_app = APP_HOME;
     g_px = std::max(1.0f, s.pixelScale);
+    g_embed = EmbedArea();
     ImGuiStyle& st = ImGui::GetStyle();
     st.CircleTessellationMaxError = 0.30f / g_px;   // curves are as smooth on a dense screen as on a plain one
     st.CurveTessellationTol = 1.25f / g_px;
@@ -604,6 +633,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         if (pageHeader(dl, f, w, app == APP_BROWSER ? g_site.c_str() : appName(app))) g_app = APP_HOME;
         if (app == APP_SETTINGS) settingsPage(dl, f, s, w, h, act);
         else if (app == APP_BROWSER) browserPage(dl, f, w, h);
+        else if (app == APP_WEATHER) weatherPage(dl, f, s, w, h);
         else placeholderPage(dl, f, app, w, h);
     }
     ImGui::End();
@@ -611,6 +641,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
 }
 
 int currentApp() { return g_app; }
+const EmbedArea& embedArea() { return g_embed; }
 const char* browserUrl() { return g_url.c_str(); }
 bool browserChrome() { return g_chrome; }
 
