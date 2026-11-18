@@ -172,6 +172,7 @@ float g_winOx = 0, g_winOy = 0;
 XPLMDataRef g_drClickX = nullptr, g_drClickY = nullptr, g_drZulu = nullptr, g_drIcao = nullptr, g_drVr = nullptr, g_drUiScale = nullptr, g_drBus = nullptr;
 float g_battery = 100.0f;            // the tablet's own battery, percent
 int g_wxLogoTex = 0;                 // the WXPlane icon's picture
+int g_iconsTex = 0;
 int g_logoTex = 0;                   // XPTablet's logo
 xpt::Actions g_pendingGround;        // a press on the Ground page, waiting for the flight loop
 
@@ -376,6 +377,30 @@ void buildFonts(float scale) {
             XPLMBindTexture2d(0, 0);
         }
     }
+    if (!g_iconsTex) {   // the app icons' atlas, the same way
+        int lw = 0, lh = 0, lv = 0;
+        const unsigned char* px = xpt::iconsPixels(lw, lh, lv);
+        if (px && lw > 0 && lh > 0) {
+            XPLMGenerateTextureNumbers(&g_iconsTex, 1);
+            XPLMBindTexture2d(g_iconsTex, 0);
+            gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+            gl.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            size_t off = 0;
+            int w = lw, h = lh;
+            for (int level = 0; level < lv; ++level) {
+                gl.TexImage2D(GL_TEXTURE_2D, level, (GLint)GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px + off);
+                off += (size_t)w * h * 4;
+                w = std::max(1, w / 2); h = std::max(1, h / 2);
+            }
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, 0x2703 /* GL_LINEAR_MIPMAP_LINEAR */);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_CLAMP_TO_EDGE);
+            gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_CLAMP_TO_EDGE);
+            gl.TexParameteri(GL_TEXTURE_2D, 0x813D /* GL_TEXTURE_MAX_LEVEL */, lv - 1);
+            XPLMBindTexture2d(0, 0);
+        }
+    }
+    g_fonts.icons = (ImTextureID)(intptr_t)g_iconsTex;
     g_fonts.logo = (ImTextureID)(intptr_t)g_logoTex;
     g_fontScale = scale;
 }

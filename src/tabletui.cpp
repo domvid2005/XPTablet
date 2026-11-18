@@ -27,6 +27,8 @@ extern const unsigned char xpt_asset_wxlogo[];
 extern const unsigned int xpt_asset_wxlogo_size;
 extern const unsigned char xpt_asset_logo[];
 extern const unsigned int xpt_asset_logo_size;
+extern const unsigned char xpt_asset_icons[];
+extern const unsigned int xpt_asset_icons_size;
 }
 
 namespace xpt {
@@ -73,6 +75,36 @@ double localOffsetAt(const MapState& m, double lat, double lon, bool& estimate);
 void fillConcave(ImDrawList* dl, std::vector<ImVec2> v, ImU32 col);
 std::string zoneOf(double lat, double lon, double offS, long long utc);
 ImTextureID g_logo = 0;   // XPTablet's logo texture (from the host)
+ImTextureID g_icons = 0;  // the icons' atlas (tools/make_icons_rgba.py): 4 x 3 cells; pictograms (white, tinted) then the services' tiles
+// the atlas cell of an app's pictogram (Material Design Icons), or -1: drawn from lines instead
+int glyphCell(int app) {
+    switch (app) {
+    case APP_SETTINGS: return 0;     // cog
+    case APP_ROUTES: return 1;       // list-status
+    case APP_CHECKLISTS: return 2;   // check-bold
+    case APP_DOCUMENTS: return 3;    // file-document
+    case APP_MAP: return 4;          // star-four-points
+    case APP_GROUND: return 5;       // airplane
+    case APP_AIRPORTS: return 6;     // airport
+    case APP_BROWSER: return 7;      // web
+    default: return -1;
+    }
+}
+// the atlas cell of a service's own tile, made from its logo, or -1
+int brandCell(int app) {
+    switch (app) {
+    case APP_FOREFLIGHT: return 8;
+    case APP_NAVIGRAPH: return 9;
+    case APP_SKYVECTOR: return 10;
+    case APP_LIVEMAP: return 11;     // Volanta
+    default: return -1;
+    }
+}
+void cellUv(int cell, ImVec2& uv0, ImVec2& uv1) {
+    const float in = 1.5f / 256.0f;   // a little inside the cell, so its neighbours never bleed in
+    uv0 = ImVec2((cell % 4 + in) / 4.0f, (cell / 4 + in) / 3.0f);
+    uv1 = ImVec2((cell % 4 + 1 - in) / 4.0f, (cell / 4 + 1 - in) / 3.0f);
+}
 
 ImU32 appColor(int app) { return (app == APP_WEATHER && g_wx) ? IM_COL32(22, 24, 29, 255) : kApps[app].color; }
 int appIcon(int app) {
@@ -128,6 +160,13 @@ void wallpaper(ImDrawList* dl, float w, float h) {
 // A small white pictogram for each app, drawn from lines and circles inside a circle of radius r around c.
 void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
     c = ImVec2(snap(c.x), snap(c.y));
+    if (g_icons && app >= 0 && app < APP_COUNT && glyphCell(app) >= 0) {   // its pictogram (24 design units, ~20 of them drawn)
+        ImVec2 uv0, uv1;
+        cellUv(glyphCell(app), uv0, uv1);
+        const float hs = r * 1.14f;
+        dl->AddImage(g_icons, ImVec2(c.x - hs, c.y - hs), ImVec2(c.x + hs, c.y + hs), uv0, uv1, col);
+        return;
+    }
     const float t = snap(std::max(2.0f, r * 0.15f));   // a whole number of screen pixels: no half-covered edges
     auto P = [&](float x, float y) { return ImVec2(c.x + x * r, c.y + y * r); };
     switch (app) {
@@ -325,6 +364,14 @@ float g_iconSize[APP_COUNT] = {};
 
 void drawTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, bool label, float scale, float shadeK) {
     const ImVec2 a(c.x - tile * 0.5f * scale, c.y - tile * 0.5f * scale), b(c.x + tile * 0.5f * scale, c.y + tile * 0.5f * scale);
+    if (g_icons && brandCell(app) >= 0) {   // the service's own tile, from its logo
+        ImVec2 uv0, uv1;
+        cellUv(brandCell(app), uv0, uv1);
+        const int k = (int)std::min(255.0f, 255.0f * shadeK);
+        dl->AddImageRounded(g_icons, a, b, uv0, uv1, IM_COL32(k, k, k, 255), tile * 0.24f * scale);
+        if (label) textCentered(dl, f.small, c.x, c.y + tile * 0.5f + 6, IM_COL32(236, 241, 250, 255), appName(app));
+        return;
+    }
     dl->AddRectFilled(a, b, shade(appColor(app), shadeK), tile * 0.24f * scale);
     if (app == APP_WEATHER && g_wx && g_wxLogo) {   // WXPlane's own logo, WX above PLANE, on its dark tile
         const float r = tile * 0.46f * scale;
@@ -572,8 +619,7 @@ bool pageHeader(ImDrawList* dl, const Fonts& f, float w, const char* title) {
 
 void placeholderPage(ImDrawList* dl, const Fonts& f, int app, float w, float h) {
     const ImVec2 c(w * 0.5f, kStatusH + kHeaderH + (h - kStatusH - kHeaderH) * 0.42f);
-    dl->AddRectFilled(ImVec2(c.x - 48, c.y - 48), ImVec2(c.x + 48, c.y + 48), appColor(app), 22.0f);
-    icon(dl, appIcon(app), c, 30, IM_COL32(255, 255, 255, 255));
+    drawTile(dl, f, app, c, 96, false, 1.0f, 1.0f);
     textCentered(dl, f.body, c.x, c.y + 64, IM_COL32(210, 220, 236, 255), "This app arrives in a later test build.");
 }
 
@@ -1446,6 +1492,7 @@ void dashed(ImDrawList* dl, const std::vector<ImVec2>& p, ImU32 col, float thick
 int g_selKind = 0;        // 0 none, 1 traffic, 2 navaid, 3 fix, 4 airport, 5 route point
 std::string g_selKey;     // which: call sign, ident|type, ident, ICAO, index
 ImVec2 g_mapPressPos;
+ImVec2 g_mapFree0, g_mapFree1;   // the map's area clear of its buttons (cards stay inside it)
 float g_cardScroll = 0;   // a card taller than the map scrolls
 std::string g_cardFor;    // the card it is for (a new card starts at its top)
 struct CardLine { int style; std::string a, b; };   // 0 title (a) and subtitle (b), 1 label and value, 2 text (b: its label), 3 Morse, 4 heading, 5 a button
@@ -1480,11 +1527,12 @@ bool drawCard(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L, Im
     }
     H += pad - 4;
     const float full = H;
-    H = std::min(H, r1.y - r0.y - 16);
+    r0 = g_mapFree0; r1 = g_mapFree1;   // never over the map's buttons
+    H = std::min(H, r1.y - r0.y);
     ImVec2 a(at.x + 18, at.y - 30);
     if (a.x + W > r1.x - 8) a.x = at.x - 18 - W;
-    a.x = std::max(r0.x + 8, std::min(a.x, r1.x - 8 - W));
-    a.y = std::max(r0.y + 8, std::min(a.y, r1.y - 8 - H));
+    a.x = std::max(r0.x, std::min(a.x, r1.x - W));
+    a.y = std::max(r0.y, std::min(a.y, r1.y - H));
     const ImVec2 e(a.x + W, a.y + H);
     // the card takes its own presses (so they do not reach the map under it)
     ImGui::SetCursorScreenPos(a);
@@ -1498,16 +1546,8 @@ bool drawCard(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L, Im
     dl->AddRectFilled(ImVec2(a.x + 2, a.y + 4), ImVec2(e.x + 2, e.y + 4), IM_COL32(0, 0, 0, 70), 14.0f);
     dl->AddRectFilled(a, e, IM_COL32(14, 26, 48, 246), 14.0f);
     dl->AddRect(a, e, IM_COL32(255, 255, 255, 40), 14.0f);
-    // close
-    const ImVec2 xc(e.x - 20, a.y + 20);
-    ImGui::SetCursorScreenPos(ImVec2(xc.x - 14, xc.y - 14));
-    if (ImGui::InvisibleButton("##cardclose", ImVec2(28, 28))) g_selKind = 0;
-    const bool xh = ImGui::IsItemHovered();
-    if (xh) dl->AddCircleFilled(xc, 13.0f, IM_COL32(255, 255, 255, 30), 0);
-    dl->AddLine(ImVec2(xc.x - 5, xc.y - 5), ImVec2(xc.x + 5, xc.y + 5), kInk, 1.6f);
-    dl->AddLine(ImVec2(xc.x - 5, xc.y + 5), ImVec2(xc.x + 5, xc.y - 5), kInk, 1.6f);
     bool pressed = false;
-    dl->PushClipRect(ImVec2(a.x, a.y + 2), ImVec2(e.x - 34, e.y - 2), true);   // (the close button stays clear)
+    dl->PushClipRect(ImVec2(a.x, a.y + 2), ImVec2(e.x, e.y - 2), true);
     float y = a.y + pad - g_cardScroll;
     const float x0 = a.x + pad, x1 = e.x - pad;
     for (const CardLine& l : L) {
@@ -1565,6 +1605,15 @@ bool drawCard(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L, Im
         }
     }
     dl->PopClipRect();
+    // close
+    const ImVec2 xc(e.x - 20, a.y + 20);
+    ImGui::SetCursorScreenPos(ImVec2(xc.x - 14, xc.y - 14));
+    if (ImGui::InvisibleButton("##cardclose", ImVec2(28, 28))) g_selKind = 0;
+    const bool xh = ImGui::IsItemHovered();
+    dl->AddCircleFilled(xc, 13.0f, IM_COL32(14, 26, 48, 255), 0);   // over whatever scrolls under it
+    if (xh) dl->AddCircleFilled(xc, 13.0f, IM_COL32(255, 255, 255, 30), 0);
+    dl->AddLine(ImVec2(xc.x - 5, xc.y - 5), ImVec2(xc.x + 5, xc.y + 5), kInk, 1.6f);
+    dl->AddLine(ImVec2(xc.x - 5, xc.y + 5), ImVec2(xc.x + 5, xc.y - 5), kInk, 1.6f);
     if (full > H) {   // a thin bar shows there is more
         const float bh = H * H / full, by = a.y + (H - bh) * (g_cardScroll / std::max(1.0f, full - H));
         dl->AddRectFilled(ImVec2(e.x - 6, by + 4), ImVec2(e.x - 3, by + bh - 4), IM_COL32(255, 255, 255, 70), 2.0f);
@@ -2047,6 +2096,9 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         dl->AddText(f.small, fontPx(f.small), ImVec2(r1.x - as.x - 6, r1.y - as.y - 3), IM_COL32(30, 36, 48, 255), attr);
         if (g_settings.mapAirports && m.aptIndexing) textAt(dl, f.small, r0.x + 12, y - 22, sat ? kInk : IM_COL32(30, 36, 48, 255), "Finding X-Plane's airports...");
         (void)missing;
+        // what is clear of the buttons: right of the layers, below the top row, above the bottom row
+        g_mapFree0 = ImVec2(r0.x + 10 + lwMax + 10, r0.y + 10 + 30 + 8);
+        g_mapFree1 = ImVec2(r1.x - 8, y - 8);
     }
     // ---- what was tapped: the nearest traffic, navaid, fix, route point or airport (as WXPlane's map), one card at a time
     if (mapClick) {
@@ -3135,6 +3187,12 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"Route on the map", "Your flight plan from SimBrief (simbrief.com)", ""},
         {"METAR reports", "NOAA / National Weather Service, Aviation Weather Center (aviationweather.gov)", "Public domain"},
         {"Weather page with WXPlane installed", "WXPlane by Alpine Aviation", ""},
+        {"App icons", "Material Design Icons by Pictogrammers (pictogrammers.com): cog, list-status, check-bold, file-document, star-four-points, airplane, airport, web", "Apache 2.0"},
+        {"ForeFlight icon", "The ForeFlight logo is a trademark of ForeFlight LLC, used only to show their web app", "Trademark"},
+        {"Navigraph icon", "The Navigraph logo is a trademark of Navigraph, used only to show their charts web app", "Trademark"},
+        {"SkyVector icon", "The SkyVector logo is a trademark of SkyVector (Seattle Avionics), used only to show their web app", "Trademark"},
+        {"Volanta icon", "The Volanta logo is a trademark of Orbx, used only to show their web map", "Trademark"},
+        {"", "XPTablet is not made by or affiliated with ForeFlight, Navigraph, SkyVector, Volanta / Orbx, ChartFox, SimBrief or VATSIM.", ""},
     };
     float y = top + 38 - g_creditsScroll;
     const float x0 = left + 18, xLic = w - 30, wrap = w - 30 - x0 - 150;
@@ -3256,7 +3314,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         return;
     }
 
-    if (g_settingsTab == 1) {   // ---- Display: brightness (or auto dim), the favorites bar, the clock; the map's look
+    if (g_settingsTab == 1) {   // ---- Display: brightness (or auto dim), the favorites bar, the clock (the map's options are on the map)
         float y = top;
         textAt(dl, f.bold, lx, y, kInk, "Brightness");
         y += 22;
@@ -3280,27 +3338,11 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         if (smoothSlider(dl, f, "##favorites", ImVec2(lx, y - 2), ImVec2(lx + colW, y + 30), slots, 0, (float)kMaxFavorites, kMaxFavorites, true, st2)) {
             g_settings.favoriteSlots = (int)std::lround(slots); g_settingsChanged = true;
         }
-        y += 46;
         const char* clockNames[2] = {"Zulu", "Local"};
         int clk = g_settings.statusLocalTime ? 1 : 0;
-        choice("##chclk", lx, y, colW, "Clock (tap it in the status bar too)", clockNames, clk, true);
+        float cy = top;
+        choice("##chclk", rx, cy, w - 18 - rx, "Clock (tap it in the status bar too)", clockNames, clk, true);
         if (clk != (g_settings.statusLocalTime ? 1 : 0)) g_settings.statusLocalTime = clk == 1;
-        // the map
-        float my = top;
-        const char* srcNames[2] = {"Map", "Satellite"};
-        choice("##chsrc", rx, my, w - 18 - rx, "Map", srcNames, g_settings.mapSource, true);
-        const char* lockNames[2] = {"North up", "Heading up"};
-        int lk = g_settings.mapHeadingUp ? 1 : 0;
-        choice("##chlk", rx, my, w - 18 - rx, "Map orientation", lockNames, lk, true);
-        if (lk != (g_settings.mapHeadingUp ? 1 : 0)) g_settings.mapHeadingUp = lk == 1;
-        textAt(dl, f.bold, rx, my, kInk, "Map layers");
-        my += 22;
-        struct L { const char* id; const char* n; bool* v; };
-        const L layers[7] = {{"##lyA", "Airports", &g_settings.mapAirports}, {"##lyN", "Navaids", &g_settings.mapNavaids}, {"##lyW", "Waypoints", &g_settings.mapWaypoints},
-                             {"##lyR", "Route", &g_settings.mapRoute}, {"##lyT", "Traffic", &g_settings.mapTraffic}, {"##lyO", "Outlines", &g_settings.mapOutlines},
-                             {"##lyZ", "Time Zones", &g_settings.mapTimeZones}};
-        const float lw = std::floor((w - 18 - rx - 16) / 3.0f);
-        for (int i = 0; i < 7; ++i) toggle(layers[i].id, rx + (i % 3) * (lw + 8), my + (i / 3) * 36, lw, layers[i].n, *layers[i].v, true);
         return;
     }
 
@@ -3394,6 +3436,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     g_wx = s.wxPlane;
     g_wxLogo = f.wxLogo;
     g_logo = f.logo;
+    g_icons = f.icons;
     ImGuiStyle& st = ImGui::GetStyle();
     st.CircleTessellationMaxError = 0.30f / g_px;   // curves are as smooth on a dense screen as on a plain one
     st.CurveTessellationTol = 1.25f / g_px;
@@ -3515,6 +3558,13 @@ const unsigned char* logoPixels(int& w, int& h, int& levels) {   // "XPTL", widt
     const unsigned char* b = xpt_asset_logo;
     auto u32 = [&](int at) { return (int)((unsigned)b[at] | ((unsigned)b[at + 1] << 8) | ((unsigned)b[at + 2] << 16) | ((unsigned)b[at + 3] << 24)); };
     if (xpt_asset_logo_size < 16 || std::memcmp(b, "XPTL", 4) != 0) { w = h = levels = 0; return nullptr; }
+    w = u32(4); h = u32(8); levels = u32(12);
+    return b + 16;
+}
+const unsigned char* iconsPixels(int& w, int& h, int& levels) {
+    const unsigned char* b = xpt_asset_icons;
+    auto u32 = [&](int at) { return (int)((unsigned)b[at] | ((unsigned)b[at + 1] << 8) | ((unsigned)b[at + 2] << 16) | ((unsigned)b[at + 3] << 24)); };
+    if (xpt_asset_icons_size < 16 || std::memcmp(b, "XPTL", 4) != 0) { w = h = levels = 0; return nullptr; }
     w = u32(4); h = u32(8); levels = u32(12);
     return b + 16;
 }

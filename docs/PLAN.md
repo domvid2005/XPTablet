@@ -166,3 +166,10 @@ of their own and come back to it as they were left. The planning icon switches b
   navaids (frequency, Morse), fixes, route points and airports (elevation, CTAF, frequencies, runways) for one card at a time; traffic
   cards show the VATSIM data (pilot, server, squawk, flight plan, route, remarks) from the public feed, read every 30 s while a card is open.
 - AviTab commands: app_routes opens Flight Plan, app_navigraph opens Navigraph Charts.
+
+## 0.9.1
+- New icons: Material Design Icons pictograms (Settings cog, Flight Plan list-status, Checklists check, Documents file, Map four-point
+  star, Ground airplane, Airports airport, Browser globe) drawn sharp from their vector paths; ForeFlight, Navigraph, SkyVector and
+  Volanta tiles from their own logos. One mipmapped atlas (assets/icons.rgba, tools/make_icons_rgba.py). Credited in Credits.
+- Map cards stay clear of the map's buttons (layers, time, locks, zoom bar); one at a time, with its ×.
+- Settings Display no longer repeats the map's options (they are on the map).

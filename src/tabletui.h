@@ -60,10 +60,12 @@ struct Fonts {
     ImFont* mono = nullptr;
     ImTextureID wxLogo = 0;       // the WXPlane icon's picture (wxLogoPixels), uploaded by the host; 0: the icon is drawn without it
     ImTextureID logo = 0;         // XPTablet's logo (logoPixels), uploaded by the host; 0: the name is written instead
+    ImTextureID icons = 0;        // the app icons' atlas (iconsPixels), uploaded by the host like the logo; 0: drawn icons instead
 };
 
 // XPTablet's logo (XP in white, TABLET in the gradient): w x h RGBA, followed by its halved copies down to 1 pixel high.
 const unsigned char* logoPixels(int& w, int& h, int& levels);
+const unsigned char* iconsPixels(int& w, int& h, int& levels);   // the same layout as the logo's
 
 // The WXPlane icon's picture: 256 x 256 RGBA (WXPlane's logo, WX above PLANE), followed by its mip levels down to 1 x 1.
 const unsigned char* wxLogoPixels(unsigned int& bytes);

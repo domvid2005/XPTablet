@@ -82,7 +82,7 @@ target_compile_definitions(xpt_imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS IMG
 set(XPT_ASSET_FILES
   ${CMAKE_SOURCE_DIR}/third_party/fonts/IBMPlexSans-Regular.ttf ${CMAKE_SOURCE_DIR}/third_party/fonts/IBMPlexSans-SemiBold.ttf
   ${CMAKE_SOURCE_DIR}/third_party/fonts/IBMPlexSans-Bold.ttf ${CMAKE_SOURCE_DIR}/third_party/fonts/JetBrainsMono-Regular.ttf
-  ${CMAKE_SOURCE_DIR}/assets/wxplane_stacked.rgba ${CMAKE_SOURCE_DIR}/third_party/naturalearth/tzones.bin ${CMAKE_SOURCE_DIR}/third_party/naturalearth/basemap.bin ${CMAKE_SOURCE_DIR}/assets/xptablet_logo.rgba)
+  ${CMAKE_SOURCE_DIR}/assets/wxplane_stacked.rgba ${CMAKE_SOURCE_DIR}/third_party/naturalearth/tzones.bin ${CMAKE_SOURCE_DIR}/third_party/naturalearth/basemap.bin ${CMAKE_SOURCE_DIR}/assets/xptablet_logo.rgba ${CMAKE_SOURCE_DIR}/assets/icons.rgba)
 add_custom_command(
   OUTPUT ${CMAKE_BINARY_DIR}/xpt_assets.c
   COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${CMAKE_BINARY_DIR}/xpt_assets.c -P ${CMAKE_SOURCE_DIR}/cmake/embed_assets.cmake

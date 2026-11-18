@@ -66,9 +66,9 @@ void raster(Canvas& cv, const std::vector<Batch>& batches, const unsigned char* 
                         for (int k = 0; k < 3; ++k) tc[k] = q[k] / 255.0f;
                         a = col[3] * q[3] / 255.0f;
                     }
-                    if ((intptr_t)bt.tex == 3) {   // XPTablet's logo, its first level, bilinear
+                    if ((intptr_t)bt.tex == 3 || (intptr_t)bt.tex == 4) {   // XPTablet's logo or the icons' atlas, its first level, bilinear
                         int lw = 0, lh = 0, lv = 0;
-                        const unsigned char* px = logoPixels(lw, lh, lv);
+                        const unsigned char* px = (intptr_t)bt.tex == 3 ? logoPixels(lw, lh, lv) : iconsPixels(lw, lh, lv);
                         const float fx2 = u * lw - 0.5f, fy2 = w * lh - 0.5f;
                         const int jx = (int)std::floor(fx2), jy = (int)std::floor(fy2);
                         const float bx = fx2 - jx, by = fy2 - jy;
@@ -137,6 +137,7 @@ int main(int argc, char** argv) {
     Fonts fonts = loadFonts(scale);
     fonts.wxLogo = (ImTextureID)(intptr_t)2;
     fonts.logo = (ImTextureID)(intptr_t)3;
+    fonts.icons = (ImTextureID)(intptr_t)4;
     unsigned char* tex = nullptr;
     int tw = 0, th = 0;
     io.Fonts->GetTexDataAsAlpha8(&tex, &tw, &th);
@@ -480,6 +481,12 @@ int main(int argc, char** argv) {
             shot(mp, APP_MAP, "map_card_vor");
             tap(mp, 700, 300);   // an empty place: the card closes
             settings().mapAirports = true;
+        }
+        {   // every provider on the home screen: the services' own icons
+            Settings keep = settings();
+            settings().showNavigraph = settings().showVatsim = settings().showSkyvector = settings().showForeflight = settings().showLive = true;
+            shot(t, APP_HOME, "home_all_apps");
+            settings() = keep;
         }
         {   // the Flight Plan page with a plan
             SimState fp = t;
