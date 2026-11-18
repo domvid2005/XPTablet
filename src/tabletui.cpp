@@ -75,7 +75,7 @@ double localOffsetAt(const MapState& m, double lat, double lon, bool& estimate);
 void fillConcave(ImDrawList* dl, std::vector<ImVec2> v, ImU32 col);
 std::string zoneOf(double lat, double lon, double offS, long long utc);
 ImTextureID g_logo = 0;   // XPTablet's logo texture (from the host)
-ImTextureID g_icons = 0;  // the icons' atlas (tools/make_icons_rgba.py): 4 x 4 cells; pictograms (white, tinted) then the services' tiles
+ImTextureID g_icons = 0;  // the icons' atlas (tools/make_icons_rgba.py): 4 cells across; pictograms (white, tinted) then the services' tiles
 // the atlas cell of an app's pictogram (Material Design Icons), or -1: drawn from lines instead
 int glyphCell(int app) {
     switch (app) {
@@ -86,6 +86,7 @@ int glyphCell(int app) {
     case APP_GROUND: return 5;       // airplane
     case APP_AIRPORTS: return 6;     // airport
     case APP_BROWSER: return 7;      // web
+    case APP_WEATHER: return 15;     // weather-partly-snowy-rainy (the Weather page without WXPlane)
     default: return -1;
     }
 }
@@ -98,13 +99,16 @@ int brandCell(int app) {
     case APP_LIVEMAP: return 11;     // Volanta
     case APP_VATSIM: return 12;      // VATSIM Radar
     case APP_SIMBRIEF: return 13;
+    case APP_CHARTS: return 16;      // ChartFox
     default: return -1;
     }
 }
 void cellUv(int cell, ImVec2& uv0, ImVec2& uv1) {
     const float in = 1.5f / 256.0f;   // a little inside the cell, so its neighbours never bleed in
-    uv0 = ImVec2((cell % 4 + in) / 4.0f, (cell / 4 + in) / 4.0f);   // 4 x 4 cells
-    uv1 = ImVec2((cell % 4 + 1 - in) / 4.0f, (cell / 4 + 1 - in) / 4.0f);
+    static int rows = 0;   // the atlas's rows of cells (4 across, 256 x 256 each)
+    if (!rows) { int w = 0, h = 0, l = 0; iconsPixels(w, h, l); rows = std::max(1, h / 256); }
+    uv0 = ImVec2((cell % 4 + in) / 4.0f, (cell / 4 + in) / (float)rows);
+    uv1 = ImVec2((cell % 4 + 1 - in) / 4.0f, (cell / 4 + 1 - in) / (float)rows);
 }
 
 ImU32 appColor(int app) { return (app == APP_WEATHER && g_wx) ? IM_COL32(22, 24, 29, 255) : kApps[app].color; }
@@ -161,9 +165,10 @@ void wallpaper(ImDrawList* dl, float w, float h) {
 // A small white pictogram for each app, drawn from lines and circles inside a circle of radius r around c.
 void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
     c = ImVec2(snap(c.x), snap(c.y));
-    if (g_icons && app >= 0 && app < APP_COUNT && glyphCell(app) >= 0) {   // its pictogram (24 design units, ~20 of them drawn)
+    const int cellNo = app == APP_COUNT + 100 ? 14 : (app >= 0 && app < APP_COUNT) ? glyphCell(app) : -1;   // APP_COUNT + 100: power
+    if (g_icons && cellNo >= 0) {   // its pictogram (24 design units, ~20 of them drawn)
         ImVec2 uv0, uv1;
-        cellUv(glyphCell(app), uv0, uv1);
+        cellUv(cellNo, uv0, uv1);
         const float hs = r * 1.14f;
         dl->AddImage(g_icons, ImVec2(c.x - hs, c.y - hs), ImVec2(c.x + hs, c.y + hs), uv0, uv1, col);
         return;
@@ -304,6 +309,32 @@ void battery(ImDrawList* dl, ImVec2 p, int pct, bool charging) {
     }
 }
 
+// ---- power: off (fading to black, then black until tapped), then starting (the logo and a loading bar), then home fading in as the
+// logo rises into the status bar
+enum { POWER_ON, POWER_FADING, POWER_OFF, POWER_BOOT, POWER_REVEAL };
+int g_power = POWER_ON;
+double g_powerT0 = 0;
+constexpr double kOffS = 0.7, kBootS = 2.2, kHoldS = 0.25, kRevealS = 0.8;
+void powerOff() { g_power = POWER_FADING; g_powerT0 = ImGui::GetTime(); }
+float smooth01(float t) { t = std::max(0.0f, std::min(1.0f, t)); return t * t * (3 - 2 * t); }
+// the loading bar's (made up) progress at t seconds: a start, a few pauses, a quick finish
+float bootProgress(float t) {
+    static const float k[][2] = {{0, 0}, {0.35f, 0}, {0.70f, 0.18f}, {0.90f, 0.22f}, {1.30f, 0.55f}, {1.45f, 0.58f}, {1.90f, 0.92f}, {2.20f, 1.0f}};
+    const int n = (int)(sizeof k / sizeof k[0]);
+    if (t >= k[n - 1][0]) return 1.0f;
+    for (int i = 1; i < n; ++i)
+        if (t < k[i][0]) return k[i - 1][1] + (k[i][1] - k[i - 1][1]) * smooth01((t - k[i - 1][0]) / (k[i][0] - k[i - 1][0]));
+    return 1.0f;
+}
+// the status bar's logo: where it sits (a: top left, size)
+void statusLogoRect(float w, ImVec2& a, ImVec2& size) {
+    int lw = 0, lh = 0, lv = 0;
+    logoPixels(lw, lh, lv);
+    const float hh = 15.0f, ww = hh * (float)lw / (float)std::max(1, lh);
+    a = ImVec2(std::floor(w * 0.5f - ww * 0.5f), std::floor((kStatusH - hh) * 0.5f));
+    size = ImVec2(ww, hh);
+}
+
 void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
     dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, kStatusH), IM_COL32(0, 0, 0, 90));
     const float y = std::floor((kStatusH - fontPx(f.small)) * 0.5f);
@@ -321,19 +352,23 @@ void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
         } else if (s.zuluSec >= 0) {
             std::snprintf(buf, sizeof buf, "%02d:%02dZ", (s.zuluSec / 3600) % 24, (s.zuluSec / 60) % 60);
         }
-        const float tw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, buf).x;
+        // the power button, in the corner
         ImGui::SetCursorScreenPos(ImVec2(0, 0));
-        if (ImGui::InvisibleButton("##clock", ImVec2(tw + 24, kStatusH))) { g_settings.statusLocalTime = !g_settings.statusLocalTime; g_settingsChanged = true; }
-        if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(6, 3), ImVec2(tw + 18, kStatusH - 3), IM_COL32(255, 255, 255, 26), 6.0f);
-        dl->AddText(f.small, fontPx(f.small), ImVec2(12, y), g_settings.statusLocalTime ? IM_COL32(150, 196, 255, 255) : col, buf);
+        if (ImGui::InvisibleButton("##power", ImVec2(30, kStatusH)) && g_power == POWER_ON) powerOff();
+        const ImVec2 pc(16, kStatusH * 0.5f);
+        if (ImGui::IsItemHovered()) dl->AddCircleFilled(pc, 11.0f, IM_COL32(255, 255, 255, 30), 0);
+        icon(dl, APP_COUNT + 100, pc, 7.6f, col);   // (the power pictogram)
+        const float cx = 32, tw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, buf).x;
+        ImGui::SetCursorScreenPos(ImVec2(cx - 6, 0));
+        if (ImGui::InvisibleButton("##clock", ImVec2(tw + 12, kStatusH))) { g_settings.statusLocalTime = !g_settings.statusLocalTime; g_settingsChanged = true; }
+        if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(cx - 6, 3), ImVec2(cx + tw + 6, kStatusH - 3), IM_COL32(255, 255, 255, 26), 6.0f);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(cx, y), g_settings.statusLocalTime ? IM_COL32(150, 196, 255, 255) : col, buf);
     }
     // middle: the logo
     if (g_logo) {
-        int lw = 0, lh = 0, lv = 0;
-        logoPixels(lw, lh, lv);
-        const float hh = 15.0f, ww = hh * (float)lw / (float)std::max(1, lh);
-        const ImVec2 a(std::floor(w * 0.5f - ww * 0.5f), std::floor((kStatusH - hh) * 0.5f));
-        dl->AddImage(g_logo, a, ImVec2(a.x + ww, a.y + hh));
+        ImVec2 a, sz;
+        statusLogoRect(w, a, sz);
+        if (g_power != POWER_REVEAL) dl->AddImage(g_logo, a, ImVec2(a.x + sz.x, a.y + sz.y));   // (while waking, it is on its way up)
     } else {
         textCentered(dl, f.bold, w * 0.5f, y, col, "XPTablet");
     }
@@ -3269,11 +3304,12 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"Route on the map", "Your flight plan from SimBrief (simbrief.com)", ""},
         {"METAR reports", "NOAA / National Weather Service, Aviation Weather Center (aviationweather.gov)", "Public domain"},
         {"Weather page with WXPlane installed", "WXPlane by Alpine Aviation", ""},
-        {"App icons", "Material Design Icons by Pictogrammers (pictogrammers.com): cog, check-bold, file-document, star-four-points, airplane, airport, web", "Apache 2.0"},
+        {"App icons", "Material Design Icons by Pictogrammers (pictogrammers.com): cog, check-bold, file-document, star-four-points, airplane, airport, web, power, weather-partly-snowy-rainy", "Apache 2.0"},
         {"ForeFlight icon", "The ForeFlight logo is a trademark of ForeFlight LLC, used only to show their web app", "Trademark"},
         {"Navigraph icon", "The Navigraph logo is a trademark of Navigraph, used only to show their charts web app", "Trademark"},
         {"SkyVector icon", "The SkyVector logo is a trademark of SkyVector (Seattle Avionics), used only to show their web app", "Trademark"},
         {"Volanta icon", "The Volanta logo is a trademark of Orbx, used only to show their web map", "Trademark"},
+        {"ChartFox icon", "The ChartFox logo is a trademark of ChartFox (chartfox.org), used only to show their charts web app", "Trademark"},
         {"SimBrief icon", "The SimBrief logo is a trademark of SimBrief (Navigraph), used only to show their web app", "Trademark"},
         {"VATSIM Radar icon", "The VATSIM Radar logo belongs to VATSIM Radar (vatsim-radar.com), used only to show their web map", "Trademark"},
         {"", "XPTablet is not made by or affiliated with ForeFlight, Navigraph, SkyVector, Volanta / Orbx, VATSIM Radar, ChartFox, SimBrief or VATSIM.", ""},
@@ -3465,6 +3501,7 @@ void openWeb(const char* site, const char* url, bool chrome) {
 
 } // namespace
 bool trafficInRA(const MapState& m, const MapState::Traffic& t) { return tcasRA(m, t); }
+int powerState() { return g_power; }   // 0 on, 1 fading off, 2 off, 3 starting, 4 waking
 
 Fonts loadFonts(float pixelScale) {
     ImGuiIO& io = ImGui::GetIO();
@@ -3527,6 +3564,37 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     st.CurveTessellationTol = 1.25f / g_px;
     ImDrawList* dl = ImGui::GetWindowDrawList();
     sharp(dl);
+    const double now = ImGui::GetTime();
+    if (g_power == POWER_FADING && now - g_powerT0 >= kOffS) g_power = POWER_OFF;
+    if (g_power == POWER_BOOT && now - g_powerT0 >= kBootS + kHoldS) { g_power = POWER_REVEAL; g_powerT0 = now; }   // (the wake starts now)
+    if (g_power == POWER_REVEAL && now - g_powerT0 >= kRevealS) g_power = POWER_ON;
+    if (g_power == POWER_OFF || g_power == POWER_BOOT) {   // a black screen: nothing else runs; a tap anywhere starts it
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, h), IM_COL32(0, 0, 0, 255));
+        ImGui::SetCursorScreenPos(ImVec2(0, 0));
+        if (ImGui::InvisibleButton("##wake", ImVec2(w, h)) && g_power == POWER_OFF) {
+            g_power = POWER_BOOT; g_powerT0 = ImGui::GetTime();
+            g_app = APP_HOME; g_animPage = -1; g_editMode = false; g_kbd = false; g_typeInto = nullptr;
+        }
+        if (g_power == POWER_BOOT) {   // the logo, and the bar filling under it
+            const float t = (float)(ImGui::GetTime() - g_powerT0), al = smooth01(t / 0.35f);
+            const int A = (int)(255 * al);
+            if (g_logo) {
+                int lw = 0, lh = 0, lv = 0;
+                logoPixels(lw, lh, lv);
+                const float hh = 44.0f, ww = hh * (float)lw / (float)std::max(1, lh);
+                dl->AddImage(g_logo, ImVec2(w * 0.5f - ww * 0.5f, h * 0.42f - hh * 0.5f), ImVec2(w * 0.5f + ww * 0.5f, h * 0.42f + hh * 0.5f), ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, A));
+            }
+            const float bw = 180, by = h * 0.42f + 50;
+            dl->AddRectFilled(ImVec2(w * 0.5f - bw * 0.5f, by), ImVec2(w * 0.5f + bw * 0.5f, by + 4), IM_COL32(255, 255, 255, (int)(46 * al)), 2.0f);
+            const float p = bootProgress(t);
+            if (p > 0.01f) dl->AddRectFilled(ImVec2(w * 0.5f - bw * 0.5f, by), ImVec2(w * 0.5f - bw * 0.5f + bw * p, by + 4), IM_COL32(255, 255, 255, A), 2.0f);
+        }
+        ImGui::End();
+        ImGui::PopStyleVar();
+        return;
+    }
+    const bool powerAnim = g_power != POWER_ON;
+    if (powerAnim) ImGui::BeginDisabled();   // fading out, or fading in: no taps yet
     wallpaper(dl, w, h);
     statusBar(dl, f, s, w);
     const double since = ImGui::GetTime() - g_animT0;
@@ -3551,6 +3619,27 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         if (opening) placePage(dl, vtx0, cmd0, w, h, easeOut((float)(since / kOpenS)), std::min(1.0f, 0.35f + (float)(since / kOpenS) * 1.6f));
         if (closing) placePage(dl, vtx0, cmd0, w, h, 1.0f - easeOut((float)(since / kCloseS)), 1.0f - (float)(since / kCloseS));
         if (closing) { ImGui::EndDisabled(); st.DisabledAlpha = da; }
+    }
+    if (powerAnim) {
+        ImGui::EndDisabled();
+        g_embed = EmbedArea();   // web pages and WXPlane stay hidden while the screen fades
+        const float t = (float)(ImGui::GetTime() - g_powerT0);
+        if (g_power == POWER_FADING) {   // powering off: a fade to black
+            const float k = t / (float)kOffS;
+            dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(255 * std::min(1.0f, k * k * (3 - 2 * k)))));
+        } else {   // waking: the black lifts off home while the logo rises and shrinks into the status bar
+            const float e = smooth01(t / (float)kRevealS);
+            dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(255 * (1 - e))));
+            const float bar = 1.0f - smooth01(t / 0.25f);   // the loading bar fades first
+            if (bar > 0) dl->AddRectFilled(ImVec2(w * 0.5f - 90, h * 0.42f + 50), ImVec2(w * 0.5f + 90, h * 0.42f + 54), IM_COL32(255, 255, 255, (int)(255 * bar)), 2.0f);
+            if (g_logo) {
+                ImVec2 a1, s1;
+                statusLogoRect(w, a1, s1);
+                const float hh = 44.0f + (s1.y - 44.0f) * e, ww = hh * s1.x / s1.y;
+                const float cy = h * 0.42f + (a1.y + s1.y * 0.5f - h * 0.42f) * e;
+                dl->AddImage(g_logo, ImVec2(w * 0.5f - ww * 0.5f, cy - hh * 0.5f), ImVec2(w * 0.5f + ww * 0.5f, cy + hh * 0.5f));
+            }
+        }
     }
     ImGui::End();
     ImGui::PopStyleVar();

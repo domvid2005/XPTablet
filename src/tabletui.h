@@ -316,6 +316,7 @@ int touchTestCount();                     // marks in the Settings touch test (f
 const char* browserUrl();                 // the address the web page shows
 bool browserChrome();                     // the full browser (address bar, bookmarks) rather than a web app's own page
 
-bool trafficInRA(const MapState& m, const MapState::Traffic& t);   // TCAS RA range (or about to collide): drawn pulsing red
+bool trafficInRA(const MapState& m, const MapState::Traffic& t);
+int powerState();   // 0 on, 1 fading off, 2 off, 3 starting, 4 waking   // TCAS RA range (or about to collide): drawn pulsing red
 
 } // namespace xpt

@@ -179,3 +179,5 @@ of their own and come back to it as they were left. The planning icon switches b
 - TCAS: traffic in resolution-advisory range (TCAS II v7.1 tau / DMOD / ZTHR for our height; none below 1000 ft AGL) or about to
   collide (0.15 nm, 300 ft) pulses red with a spreading ring and a red label.
 - Settings Display: the clock zone (Zulu / Local) under the favourites bar.
+- Power button left of the clock: fades to black; a tap wakes it (logo, a loading bar, then home fades in as the logo rises).
+- ChartFox's fox and the weather-partly-snowy-rainy pictogram (Weather without WXPlane); icon paths now taken from the MDI repository.

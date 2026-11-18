@@ -11,7 +11,7 @@ from svgpath import raster
 
 CELL = 256
 ORDER = ["cog", "list-status", "check-bold", "file-document", "star-four-points", "airplane", "airport", "web",   # pictograms
-         "foreflight", "navigraph", "skyvector", "volanta", "vatsimradar", "simbrief"]                                                       # tiles
+         "foreflight", "navigraph", "skyvector", "volanta", "vatsimradar", "simbrief", "power", "weather-partly-snowy-rainy", "chartfox"]                                                       # tiles
 root = os.path.join(os.path.dirname(__file__), "..", "assets", "brands")
 
 def gradient(c0, c1, radial=False):
@@ -35,6 +35,11 @@ def place(bg, rgb, alpha, box, size):
     return out
 
 def tile(name):
+    if name == "chartfox":   # the orange fox, lifted off its white icon, on white
+        c = np.asarray(Image.open(os.path.join(root, "chartfox.png")).convert("RGB")).astype(float)
+        a = np.clip((250 - c[..., 2]) / (250 - 31), 0, 1)
+        orange = np.zeros_like(c); orange[...] = (229, 115, 31)
+        return place(gradient((255, 255, 255), (238, 240, 244)), orange, a, (50, 39, 175, 167), 150)
     if name == "simbrief":   # its own square: the papers on dark grey
         return np.asarray(Image.open(os.path.join(root, "simbrief.png")).convert("RGB").crop((348, 63, 852, 567)).resize((CELL, CELL), Image.LANCZOS)).astype(float)
     if name == "volanta":   # its own app icon

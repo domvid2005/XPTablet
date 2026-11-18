@@ -496,6 +496,22 @@ int main(int argc, char** argv) {
             }
             settings().mapAirports = true;
         }
+        {   // power: the button by the clock fades the tablet to black; a tap anywhere starts it again (logo, loading bar, then home)
+            auto tap = [&](float x, float y) {
+                const bool downs[4] = {false, true, false, false};
+                for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, d);
+                    ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); }
+            };
+            openApp(APP_HOME);
+            tap(16, 14);   // the power button
+            shot(t, APP_HOME, "power_off");
+            tap(400, 300);   // anywhere: it starts
+            shot(t, APP_HOME, "power_boot");
+            shot(t, APP_HOME, "power_wake");
+            if (powerState() != 4) { std::printf("FAIL: waking (%d)\n", powerState()); ++failures; }
+            shot(t, APP_HOME, "power_on");
+            if (powerState() != 0) { std::printf("FAIL: on again (%d)\n", powerState()); ++failures; }
+        }
         {   // every provider on the home screen: the services' own icons
             Settings keep = settings();
             settings().showNavigraph = settings().showVatsim = settings().showSkyvector = settings().showForeflight = settings().showLive = true;
