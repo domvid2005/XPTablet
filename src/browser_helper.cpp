@@ -41,6 +41,7 @@
 #include "include/capi/cef_browser_capi.h"
 #include "include/capi/cef_client_capi.h"
 #include "include/capi/cef_command_line_capi.h"
+#include "include/capi/cef_request_handler_capi.h"
 #include "include/capi/cef_display_handler_capi.h"
 #include "include/capi/cef_frame_capi.h"
 #include "include/capi/cef_life_span_handler_capi.h"
@@ -157,9 +158,11 @@ float g_scale = 1.0f;                // screen pixels per one of them
 
 struct Tab {
     int id = 0;                      // ours, given to the plugin
+    int group = 0;                   // 0 the Browser's, else a web app's (the plugin keeps them apart; a pop-up joins its opener's)
     cef_browser_t* br = nullptr;
     std::string url, title;
     bool loading = false, back = false, fwd = false;
+    bool fullscreen = false;         // the page asked for full screen (a video)
     std::vector<uint8_t> view;       // the newest picture of the page
     int vw = 0, vh = 0;
     std::vector<uint8_t> popup;      // a drop-down list open on the page, drawn over it
@@ -171,7 +174,8 @@ std::vector<Tab> g_tabs;
 int g_active = -1;                   // index into g_tabs
 int g_nextId = 1;
 bool g_dirty = false;                // the shown tab has a picture the plugin has not had
-std::vector<std::string> g_openQueue;   // pages asked for in a new window: opened as tabs by the loop
+struct OpenReq { std::string url; int group; };
+std::vector<OpenReq> g_openQueue;   // pages asked for in a new window: opened as tabs (in the opener's group) by the loop
 
 Tab* tabOf(cef_browser_t* b) {
     if (!b) return nullptr;
@@ -189,6 +193,7 @@ void publishInfo() {
         const Tab& t = g_tabs[i];
         g_shm->tabs[i].id = t.id;
         g_shm->tabs[i].loading = t.loading;
+        g_shm->tabs[i].group = t.group;
         copyTo(g_shm->tabs[i].title, sizeof g_shm->tabs[i].title, t.title);
         copyTo(g_shm->tabs[i].url, sizeof g_shm->tabs[i].url, t.url);
     }
@@ -198,6 +203,7 @@ void publishInfo() {
         copyTo(g_shm->url, sizeof g_shm->url, t.url);
         copyTo(g_shm->title, sizeof g_shm->title, t.title);
         g_shm->loading = t.loading; g_shm->canBack = t.back; g_shm->canForward = t.fwd;
+        g_shm->fullscreen = t.fullscreen;
     }
     g_shm->infoSeq.fetch_add(1);
 }
@@ -284,8 +290,11 @@ void CEF_CALLBACK onVirtualKeyboard(cef_render_handler_t*, cef_browser_t* b, cef
 int CEF_CALLBACK onBeforePopup(cef_life_span_handler_t*, cef_browser_t* browser, cef_frame_t*, const cef_string_t* url, const cef_string_t*,
                                 cef_window_open_disposition_t, int, const cef_popup_features_t*, cef_window_info_t*, cef_client_t**,
                                 cef_browser_settings_t*, cef_dictionary_value_t**, int*) {
-    if (url && url->length) {
-        if (g_tabs.size() < (size_t)xptb::kMaxTabs) g_openQueue.push_back(toUtf8(url));
+    const std::string u = url ? toUtf8(url) : std::string();
+    // a blank window a page fills in itself (about:blank) cannot be shown as a tab of its own: it would only be a white page
+    if (!u.empty() && u.compare(0, 11, "about:blank") != 0) {
+        const Tab* opener = tabOf(browser);
+        if (g_tabs.size() < (size_t)xptb::kMaxTabs) g_openQueue.push_back({u, opener ? opener->group : 0});
         else {   // no room for another tab: the page itself goes there
             cef_frame_t* f = browser->get_main_frame(browser);
             if (f) { f->load_url(f, url); unref(f); }
@@ -305,12 +314,25 @@ void CEF_CALLBACK onTitleChange(cef_display_handler_t*, cef_browser_t* b, const 
     t->title = toUtf8(title);
     publishInfo();
 }
+void CEF_CALLBACK onFullscreen(cef_display_handler_t*, cef_browser_t* b, int fullscreen) {   // a video's full-screen button
+    Tab* t = tabOf(b);
+    if (!t) return;
+    t->fullscreen = fullscreen != 0;
+    publishInfo();
+}
 void CEF_CALLBACK onLoadingState(cef_load_handler_t*, cef_browser_t* b, int loading, int back, int fwd) {
     Tab* t = tabOf(b);
     if (!t) return;
     t->loading = loading != 0; t->back = back != 0; t->fwd = fwd != 0;
     publishInfo();
 }
+// A page's process that stopped (a crash, or out of memory on a heavy map) leaves a white page: it is loaded again
+cef_request_handler_t g_request;
+void CEF_CALLBACK onRenderGone(cef_request_handler_t*, cef_browser_t* b, cef_termination_status_t status) {
+    std::fprintf(stderr, "xptbrowser: a page's process stopped (%d): reloading it\n", (int)status);
+    if (b) b->reload(b);
+}
+cef_request_handler_t* CEF_CALLBACK getRequest(cef_client_t*) { return &g_request; }
 cef_render_handler_t* CEF_CALLBACK getRender(cef_client_t*) { return &g_render; }
 cef_life_span_handler_t* CEF_CALLBACK getLife(cef_client_t*) { return &g_life; }
 cef_display_handler_t* CEF_CALLBACK getDisplay(cef_client_t*) { return &g_display; }
@@ -327,6 +349,12 @@ void CEF_CALLBACK onBeforeCommandLine(cef_app_t*, const cef_string_t* processTyp
         cl->append_switch(cl, &s);
         cef.utf16_clear(&s);
     }
+    // no WebGPU for the pages: without the GPU it cannot start ("Failed to query ID3D11Device from ANGLE"), and a site that picks
+    // it when offered (Volanta's map) then draws nothing; without it, they take WebGL, which works in software
+    cef_string_t k = {}, v = {};
+    setStr(&k, "disable-blink-features"); setStr(&v, "WebGPU");
+    cl->append_switch_with_value(cl, &k, &v);
+    cef.utf16_clear(&k); cef.utf16_clear(&v);
 }
 
 void initHandlers() {
@@ -342,9 +370,13 @@ void initHandlers() {
     initBase(g_display);
     g_display.on_address_change = onAddressChange;
     g_display.on_title_change = onTitleChange;
+    g_display.on_fullscreen_mode_change = onFullscreen;
     initBase(g_load);
     g_load.on_loading_state_change = onLoadingState;
+    initBase(g_request);
+    g_request.on_render_process_terminated = onRenderGone;
     initBase(g_client);
+    g_client.get_request_handler = getRequest;
     g_client.get_render_handler = getRender;
     g_client.get_life_span_handler = getLife;
     g_client.get_display_handler = getDisplay;
@@ -368,7 +400,7 @@ void showTab(int index) {
     if (g_shm) g_shm->wantsKeyboard = 0;
     publishInfo();
 }
-bool openTab(const std::string& url) {
+bool openTab(const std::string& url, int group) {
     if (g_tabs.size() >= (size_t)xptb::kMaxTabs) return false;
     cef_window_info_t wi;
     std::memset(&wi, 0, sizeof wi);
@@ -387,6 +419,7 @@ bool openTab(const std::string& url) {
     t.id = g_nextId++;
     t.br = b;
     t.url = url;
+    t.group = group;
     g_tabs.push_back(std::move(t));
     showTab((int)g_tabs.size() - 1);
     return true;
@@ -397,11 +430,22 @@ void closeTab(int id) {
         cef_browser_t* b = g_tabs[i].br;
         hostDo(b, [](cef_browser_host_t* h) { h->close_browser(h, 1); });
         unref(b);
+        const int group = g_tabs[i].group;
+        const bool wasShown = (int)i == g_active;
         g_tabs.erase(g_tabs.begin() + (long)i);
-        if (g_tabs.empty()) { g_active = -1; openTab(""); return; }   // never no tabs: the last one closed comes back as a fresh search page
+        bool groupLeft = false;
+        for (const Tab& t : g_tabs) if (t.group == group) groupLeft = true;
+        // the Browser never has no tabs: its last one closed comes back as a fresh search page (a web app's group the plugin refills)
+        if (!groupLeft && group == 0) { g_active = -1; openTab("", 0); return; }
+        if (g_tabs.empty()) { g_active = -1; publishInfo(); return; }
         int next = g_active;
         if ((int)i < g_active) --next;
-        else if ((int)i == g_active) next = std::min((int)i, (int)g_tabs.size() - 1);
+        else if (wasShown) {   // the shown one closed: its neighbour in the same group, else whatever is next
+            next = -1;
+            for (int k = std::min((int)i, (int)g_tabs.size() - 1); k >= 0 && next < 0; --k) if (g_tabs[k].group == group) next = k;
+            for (int k = (int)i; k < (int)g_tabs.size() && next < 0; ++k) if (g_tabs[k].group == group) next = k;
+            if (next < 0) next = std::min((int)i, (int)g_tabs.size() - 1);
+        }
         g_active = -1;
         showTab(next);
         return;
@@ -432,7 +476,26 @@ void runCommand(const xptb::Cmd& c) {
     case xptb::CMD_FORWARD: if (br) br->go_forward(br); break;
     case xptb::CMD_RELOAD: if (br) br->reload(br); break;
     case xptb::CMD_STOP: if (br) br->stop_load(br); break;
-    case xptb::CMD_TAB_NEW: openTab(c.text); break;
+    case xptb::CMD_TAB_NEW: openTab(c.text, c.b); break;
+    case xptb::CMD_EXIT_FULLSCREEN:   // (this Chromium has no call for it: the page is asked, as its own Esc would)
+        if (br) {
+            cef_frame_t* f = br->get_main_frame(br);
+            if (f) {
+                cef_string_t js = {}, u = {};
+                setStr(&js, "if (document.fullscreenElement) document.exitFullscreen();");
+                f->execute_java_script(f, &js, &u, 0);
+                cef.utf16_clear(&js);
+                unref(f);
+            }
+        }
+        break;
+    case xptb::CMD_ZOOM:   // Chromium's zoom levels: 1.2 to the power of the level (0.5 a step: about 10 %)
+        withHost([](cef_browser_host_t* h, const xptb::Cmd& c) {
+            const double z = c.a == 0 ? 0.0 : std::max(-4.0, std::min(4.0, h->get_zoom_level(h) + 0.5 * c.a));
+            h->set_zoom_level(h, z);
+            if (g_shm) { g_shm->zoomPct = (int32_t)std::lround(100.0 * std::pow(1.2, z)); g_shm->infoSeq.fetch_add(1); }
+        }, c);
+        break;
     case xptb::CMD_TAB_CLOSE: closeTab(c.a); break;
     case xptb::CMD_TAB_SELECT:
         for (size_t i = 0; i < g_tabs.size(); ++i) if (g_tabs[i].id == c.a) showTab((int)i);
@@ -566,7 +629,7 @@ int main(int argc, char** argv) {
     setStr(&st.locale, "en-US");
     if (!cef.initialize(&args, &st, &g_app, nullptr)) { fail("Chromium did not start (see xptbrowser.log in the browser profile)"); return 6; }
 
-    if (!openTab("")) { fail("Chromium could not open a page"); cef.shutdown(); return 7; }
+    if (!openTab("", 0)) { fail("Chromium could not open a page"); cef.shutdown(); return 7; }
     g_shm->state.store(1);
 
     // the loop: the plugin's commands, Chromium's work, the newest picture; until told to stop or the plugin is gone
@@ -581,9 +644,9 @@ int main(int argc, char** argv) {
         }
         cef.do_message_loop_work();
         if (!g_openQueue.empty()) {   // pages a page asked to open in a new window
-            const std::vector<std::string> q = std::move(g_openQueue);
+            const std::vector<OpenReq> q = std::move(g_openQueue);
             g_openQueue.clear();
-            for (const std::string& u : q) openTab(u);
+            for (const OpenReq& r : q) openTab(r.url, r.group);
         }
         publish();
         const uint32_t beat = g_shm->heartbeat.load();

@@ -757,7 +757,7 @@ int main(int argc, char** argv) {
         // the browser before its program is up, and with the on-screen keyboard (pressed from the address bar)
         { SimState wb = s; wb.browser.status = 0; shot(wb, APP_BROWSER, "browser_starting");
           wb.browser.status = 1; wb.browser.url = "https://chartfox.org/";
-          wb.browser.tabs = {{1, "ChartFox - Free Flight Simulation Charts", "https://chartfox.org/", false}, {2, "SimBrief Dispatch", "https://dispatch.simbrief.com/", true}, {3, "", "https://fly.volanta.app/", false}};
+          wb.browser.tabs = {{1, "ChartFox - Free Flight Simulation Charts", "https://chartfox.org/", false, 0}, {2, "SimBrief Dispatch", "https://dispatch.simbrief.com/", true, 100 + APP_SIMBRIEF}, {3, "", "https://fly.volanta.app/", false, 100 + APP_LIVEMAP}};   // the Browser's, SimBrief's and Volanta's
           wb.browser.activeTab = 1;
           press(wb, 300, 28 + 46 + 32 + 20); shot(wb, APP_BROWSER, "browser_keyboard");
           // a web app already open in a tab is shown again (its tab selected), not loaded over the shown page
@@ -769,7 +769,11 @@ int main(int argc, char** argv) {
           { openApp(APP_SIMBRIEF); SimState w2 = wb; w2.browser.tabs.erase(w2.browser.tabs.begin() + 1);
             Actions got;
             for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, w2, 800, kLogicalH, act); ImGui::Render(); if (act.webTabSelect || act.webTabNew || !act.webNavigate.empty()) got = act; }
-            if (!got.webTabNew || got.webTabUrl.find("simbrief") == std::string::npos) { std::printf("FAIL: SimBrief opens in a new tab\n"); ++failures; } }
+            if (!got.webTabNew || got.webTabUrl.find("simbrief") == std::string::npos || got.webTabGroup != 100 + APP_SIMBRIEF) { std::printf("FAIL: SimBrief opens in a new tab of its own group\n"); ++failures; } }
+          // the Browser's page never shows a web app's tabs: its strip has the Browser's one tab only
+          { openApp(APP_BROWSER); Actions got;
+            for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, wb, 800, kLogicalH, act); ImGui::Render(); if (act.webTabSelect || act.webTabNew) got = act; }
+            if (got.webTabNew || (got.webTabSelect && got.webTabSelect != 1)) { std::printf("FAIL: the Browser keeps to its own tab (select %d, new %d)\n", got.webTabSelect, got.webTabNew ? 1 : 0); ++failures; } }
           openApp(APP_BROWSER); shot(wb, APP_BROWSER, "browser_tabs");
           SimState wa = s; wa.browser.status = -3; wa.browser.message = "On macOS the web pages are not available yet."; shot(wa, APP_CHARTS, "browser_unavailable"); openApp(APP_GROUND); }
         {   // the plan window: Import and Dismiss take presses; the page's own buttons under it do not

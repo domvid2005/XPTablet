@@ -600,16 +600,20 @@ void browserStep(const xpt::Actions& act) {
     case 4: br::push(xptb::CMD_STOP); break;
     default: break;
     }
-    if (act.webTabNew) br::push(xptb::CMD_TAB_NEW, 0, 0, 0, 0, 0, act.webTabUrl);
+    if (act.webTabNew) br::push(xptb::CMD_TAB_NEW, 0, act.webTabGroup, 0, 0, 0, act.webTabUrl);
+    if (act.webZoom) br::push(xptb::CMD_ZOOM, act.webZoom == 2 ? 0 : act.webZoom);
+    if (act.webExitFullscreen) br::push(xptb::CMD_EXIT_FULLSCREEN);
     if (act.webTabSelect) br::push(xptb::CMD_TAB_SELECT, act.webTabSelect);
     if (act.webTabClose) br::push(xptb::CMD_TAB_CLOSE, act.webTabClose);
     bool loading = false, back = false, fwd = false, kbd = false;
     std::vector<br::TabInfo> tabs;
-    int active = 0;
-    if (br::info(b.url, b.title, loading, back, fwd, kbd, tabs, active)) {
+    int active = 0, zoom = 100;
+    bool full = false;
+    if (br::info(b.url, b.title, loading, back, fwd, kbd, tabs, active, zoom, full)) {
+        b.zoomPct = zoom; b.fullscreen = full;
         b.loading = loading; b.canBack = back; b.canForward = fwd; b.wantsKeyboard = kbd;
         b.tabs.clear();
-        for (const br::TabInfo& t : tabs) b.tabs.push_back({t.id, t.title, t.url, t.loading});
+        for (const br::TabInfo& t : tabs) b.tabs.push_back({t.id, t.title, t.url, t.loading, t.group});
         b.activeTab = active;
     }
     const uint8_t* px = nullptr;
@@ -1442,7 +1446,23 @@ void noKey(XPLMWindowID, char, XPLMKeyFlags, char, void*, int) {}
 // Settings, Display, "Physical keyboard": while a text box takes typing, the computer's keys go to it wherever X-Plane's focus is
 // (the cockpit tablet too); everything else (Escape, the arrows, X-Plane's own keys when nothing is typed in) goes on as usual
 int keySniffer(char key, XPLMKeyFlags flags, char vkey, void*) {
-    if (!xpt::settings().physicalKeys || !xpt::tabletTyping()) return 1;
+    if (!xpt::settings().physicalKeys) return 1;
+    // a web page's text field (a site's search box) with the computer's keyboard: the keys go to the page, not to X-Plane
+    if (xpt::webTyping() && g_webShown && xpt::browser::started() && !xpt::tabletTyping()) {
+        namespace br = xpt::browser;
+        const unsigned char vk = (unsigned char)vkey, ch = (unsigned char)key;
+        const bool down = (flags & xplm_DownFlag) != 0, up = (flags & xplm_UpFlag) != 0;
+        if (flags & (xplm_ControlFlag | xplm_OptionAltFlag)) return 1;   // (X-Plane's own shortcuts stay X-Plane's)
+        const bool editKey = vk == 8 || vk == 9 || vk == 13 || vk == 27 || (vk >= 33 && vk <= 40) || vk == 46;
+        if (editKey) {
+            if (down || up) br::push(xptb::CMD_KEY, 0, 0, vk, down ? 1 : 0);
+            if (down && vk == 13) br::push(xptb::CMD_CHAR, 0, 0, 13);
+            return 0;
+        }
+        if (ch >= 32 && ch < 127) { if (down) br::push(xptb::CMD_CHAR, 0, 0, ch); return 0; }
+        return 1;
+    }
+    if (!xpt::tabletTyping()) return 1;
     const unsigned char vk = (unsigned char)vkey, ch = (unsigned char)key;
     const bool down = (flags & xplm_DownFlag) != 0;
     if (vk == 8 || vk == 13) { if (down) xpt::tabletKey(vk, false); return 0; }

@@ -74,8 +74,10 @@ int favSlots() { return std::max(0, std::min(kMaxFavorites, g_settings.favoriteS
 bool g_mac = false;              // macOS (told by the host): no media controls
 bool g_ownPerformance = false;   // the aircraft brings its own performance calculator (ToLiss): no Performance app
 bool g_chrome = true;                                             // with the browser's own controls
+int g_webGroup = 0;   // whose tabs are shown: 0 the Browser's (and documents'), else a web app's own (100 + its app)
+bool g_webHold = false;   // the shown tab is not this group's yet (one moment): no picture from another group's page
 
-void openWeb(const char* site, const char* url, bool chrome);
+void openWeb(const char* site, const char* url, bool chrome, int group = 0);
 double localOffsetAt(const MapState& m, double lat, double lon, bool& estimate);
 void fillConcave(ImDrawList* dl, std::vector<ImVec2> v, ImU32 col);
 std::string zoneOf(double lat, double lon, double offS, long long utc);
@@ -132,6 +134,8 @@ int appIcon(int app) {
 // the home screen's places (below)
 
 int g_app = APP_HOME;
+// a web page full screen (a video's button): it takes the whole tablet, status bar and title bar too
+bool videoFull(const SimState& s) { return g_app == APP_BROWSER && s.browser.status == 1 && s.browser.fullscreen && !g_webHold; }
 EmbedArea g_embed;
 float g_px = 1.0f;   // screen pixels per layout unit this frame
 
@@ -1118,7 +1122,7 @@ void webView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float 
     const BrowserState& b = s.browser;
     dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + w, y0 + h), IM_COL32(244, 246, 250, 255));
     const ImVec2 c(x0 + w * 0.5f, y0 + h * 0.42f);
-    if (b.status != 1 || !b.tex) {
+    if (b.status != 1 || !b.tex || g_webHold) {
         const bool bad = b.status == -1 || b.status == -3;
         textCentered(dl, f.bold, c.x, c.y - 10, IM_COL32(30, 40, 60, 255), b.status == -3 ? "The browser is not available here" : b.status == -1 ? "The browser stopped" : b.status == 1 ? "Loading..." : "Starting the browser...");
         if (!b.message.empty()) dl->AddText(f.small, fontPx(f.small), ImVec2(x0 + 30, c.y + 16), IM_COL32(90, 100, 120, 255), b.message.c_str(), nullptr, w - 60);
@@ -1145,26 +1149,124 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
     const BrowserState& b = s.browser;
     // the page's own wish for a keyboard: up when a text field takes the focus, down when it lets go
     if (b.wantsKeyboard != g_wantedKbd) { g_wantedKbd = b.wantsKeyboard; if (b.wantsKeyboard) { g_kbd = true; g_kbdTarget = 0; } else if (g_kbdTarget == 0) g_kbd = false; }
-    // an address waiting. Typed or a bookmark: into the shown tab. A web app (Charts, Live Map...): its own tab, shown again as
-    // it was left if it is open; else a blank tab takes it, else a new tab.
+    // this page's own tabs: the Browser's, or this web app's (each keeps its pages apart: a chart PDF ForeFlight opens stays with it)
+    std::vector<BrowserState::Tab> tabs;
+    for (const BrowserState::Tab& t : b.tabs) if (t.group == g_webGroup) tabs.push_back(t);
+    bool activeHere = false;
+    for (const BrowserState::Tab& t : tabs) if (t.id == b.activeTab) activeHere = true;
+    const bool room = (int)b.tabs.size() < 16;   // (all groups together)
+    static std::map<int, int> lastShown;          // each group's tab shown last
+    static int openingFor = -1; static double openingAt = -10;   // a tab asked for this group, not here yet
+    if (!tabs.empty() || ImGui::GetTime() - openingAt > 3) openingFor = -1;
+    auto openTabHere = [&](const std::string& url) {
+        if (openingFor == g_webGroup || !room) return;
+        act.webTabNew = true; act.webTabGroup = g_webGroup; act.webTabUrl = url;
+        openingFor = g_webGroup; openingAt = ImGui::GetTime();
+    };
+    // an address waiting. Typed or a bookmark: into the shown tab. A web app: its own tab, shown again as it was left if it is open
+    // (in the Browser: the tab with that site, else a blank tab takes it, else a new tab).
     if (!g_navPending.empty() && b.status == 1) {
-        if (g_navForce || b.tabs.empty()) {
-            act.webNavigate = g_navPending;
+        auto key = [](const std::string& u) { return u.compare(0, 5, "file:") == 0 ? u : hostOf(u); };
+        if (tabs.empty()) openTabHere(g_navPending);
+        else if (g_navForce) act.webNavigate = g_navPending;
+        else if (g_webGroup != 0) {   // a web app: its tab shown last (it was left as it was)
+            int want = lastShown.count(g_webGroup) ? lastShown[g_webGroup] : 0;
+            bool ok = false;
+            for (const BrowserState::Tab& t : tabs) if (t.id == want) ok = true;
+            if (!ok) want = tabs.front().id;
+            if (want != b.activeTab) act.webTabSelect = want;
         } else {
-            // a site is matched by its host; a file (a document) by its whole address
-            auto key = [](const std::string& u) { return u.compare(0, 5, "file:") == 0 ? u : hostOf(u); };
             const std::string want = key(g_navPending);
             int found = 0;
-            for (const BrowserState::Tab& t : b.tabs) if (!t.url.empty() && key(t.url) == want) { found = t.id; break; }
-            const bool blank = isStartPage(b.url);
+            for (const BrowserState::Tab& t : tabs) if (!t.url.empty() && key(t.url) == want) { found = t.id; break; }
+            const bool blank = activeHere && isStartPage(b.url);
             if (found && found != b.activeTab) act.webTabSelect = found;
             else if (found) { /* already shown */ }
             else if (blank) act.webNavigate = g_navPending;
-            else if ((int)b.tabs.size() < 8) { act.webTabNew = true; act.webTabUrl = g_navPending; }
+            else if (room) openTabHere(g_navPending);
             else act.webNavigate = g_navPending;
         }
         g_navPending.clear(); g_navForce = false;
+    } else if (b.status == 1 && !act.webTabSelect && !act.webTabNew) {   // the shown tab always this page's own
+        if (activeHere) lastShown[g_webGroup] = b.activeTab;
+        else if (!tabs.empty()) {
+            int want = lastShown.count(g_webGroup) ? lastShown[g_webGroup] : 0;
+            bool ok = false;
+            for (const BrowserState::Tab& t : tabs) if (t.id == want) ok = true;
+            act.webTabSelect = ok ? want : tabs.front().id;
+        } else openTabHere(g_webGroup == 0 ? std::string() : g_url);   // none left: the Browser's search page, or the app's site
     }
+    g_webHold = !activeHere;
+    if (videoFull(s)) {   // full screen: the page on the whole tablet; "Exit full screen" shows for a while when the pointer moves
+        webView(dl, f, s, 0, 0, w, h, act);
+        static double movedAt = -10;
+        static ImVec2 lastMouse(-1, -1);
+        const ImVec2 mp = ImGui::GetIO().MousePos;
+        if (mp.x != lastMouse.x || mp.y != lastMouse.y) { movedAt = ImGui::GetTime(); lastMouse = mp; }
+        const float k = 1.0f - smooth01((float)(ImGui::GetTime() - movedAt - 2.5) / 0.4f);
+        if (k > 0.01f) {
+            const ImVec2 a(w - 150, 10), e(w - 10, 40);
+            dl->AddRectFilled(a, e, IM_COL32(0, 0, 0, (int)(150 * k)), 15.0f);
+            if (pill(dl, f, "##webfullx", "Exit full screen", a, e, false, true)) act.webExitFullscreen = true;
+        }
+        return;
+    }
+    // the tab strip: each tab with its page's title and a close button; + (the Browser's) opens a blank one and the address bar
+    auto tabStrip = [&](float top, float tabsH, bool plus) {
+        dl->AddRectFilled(ImVec2(0, top), ImVec2(w, top + tabsH), IM_COL32(6, 16, 34, 245));
+        const int n = std::max(1, (int)tabs.size());
+        const float plusW = plus ? 34.0f : 0.0f, tw = std::min(190.0f, std::floor((w - 16 - plusW - 6) / n));
+        float x = 8;
+        int idx = 0;
+        for (const BrowserState::Tab& t : tabs) {
+            const bool on = t.id == b.activeTab;
+            const ImVec2 a(x, top + 4), e(x + tw - 4, top + tabsH);
+            char id[24];
+            std::snprintf(id, sizeof id, "##tab%d", idx);
+            ImGui::SetCursorScreenPos(a);
+            ImGui::SetNextItemAllowOverlap();
+            if (ImGui::InvisibleButton(id, ImVec2(e.x - a.x - 22, e.y - a.y)) && !on) act.webTabSelect = t.id;
+            const bool hot = ImGui::IsItemHovered();
+            dl->AddRectFilled(a, e, on ? themeTone(10, 24, 48, 255) : hot ? IM_COL32(255, 255, 255, 22) : IM_COL32(255, 255, 255, 10), 8.0f, ImDrawFlags_RoundCornersTop);
+            // the Browser's last tab's x clears it (a fresh search page takes its place): there is always one
+            std::string title = isStartPage(t.url) ? std::string("New tab") : !t.title.empty() ? t.title : hostOf(t.url);
+            const float roomW = e.x - a.x - 34;
+            while (title.size() > 3 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, title.c_str()).x > roomW) { title.resize(title.size() - 3); title += ".."; }
+            dl->PushClipRect(a, ImVec2(e.x - 22, e.y), true);
+            textAt(dl, f.small, a.x + 10, std::floor(a.y + (e.y - a.y - fontPx(f.small)) * 0.5f), on ? kInk : kMuted, title.c_str());
+            dl->PopClipRect();
+            if (t.loading) dl->AddCircleFilled(ImVec2(a.x + 4, a.y + (e.y - a.y) * 0.5f), 2.0f, IM_COL32(90, 160, 255, 255), 0);
+            const ImVec2 cc(e.x - 12, a.y + (e.y - a.y) * 0.5f);
+            std::snprintf(id, sizeof id, "##tabx%d", idx);
+            ImGui::SetCursorScreenPos(ImVec2(e.x - 22, a.y));
+            if (ImGui::InvisibleButton(id, ImVec2(22, e.y - a.y))) act.webTabClose = t.id;
+            const bool xh = ImGui::IsItemHovered();
+            if (xh) dl->AddCircleFilled(cc, 8.0f, IM_COL32(255, 255, 255, 28), 0);
+            const ImU32 xc = xh ? kInk : kMuted;
+            dl->AddLine(ImVec2(cc.x - 4, cc.y - 4), ImVec2(cc.x + 4, cc.y + 4), xc, 1.5f);
+            dl->AddLine(ImVec2(cc.x - 4, cc.y + 4), ImVec2(cc.x + 4, cc.y - 4), xc, 1.5f);
+            x += tw;
+            ++idx;
+        }
+        if (plus) {
+            const ImVec2 pa(x + 2, top + 5), pe(x + 2 + plusW - 4, top + tabsH - 3);
+            if (iconButton("##tabnew", pa, pe, room && b.status == 1)) { act.webTabNew = true; act.webTabGroup = 0; act.webTabUrl.clear(); g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear(); }
+            const ImVec2 pc((pa.x + pe.x) * 0.5f, (pa.y + pe.y) * 0.5f);
+            const ImU32 pcol = room ? kInk : kMuted;
+            dl->AddLine(ImVec2(pc.x - 6, pc.y), ImVec2(pc.x + 6, pc.y), pcol, 1.8f);
+            dl->AddLine(ImVec2(pc.x, pc.y - 6), ImVec2(pc.x, pc.y + 6), pcol, 1.8f);
+        }
+    };
+    // zoom: a magnifier with - or +; the page's zoom shows beside them when it is not 100 %
+    auto zoomButton = [&](const char* id, ImVec2 a, ImVec2 e, int dir) {
+        if (iconButton(id, a, e, b.status == 1 && !g_webHold)) act.webZoom = dir;
+        const ImVec2 c((a.x + e.x) * 0.5f - 1, (a.y + e.y) * 0.5f - 1);
+        const ImU32 col = IM_COL32(210, 222, 242, 255);
+        dl->AddCircle(c, 6.5f, col, 0, 1.6f);
+        dl->AddLine(ImVec2(c.x + 4.8f, c.y + 4.8f), ImVec2(c.x + 9, c.y + 9), col, 2.2f);
+        dl->AddLine(ImVec2(c.x - 3, c.y), ImVec2(c.x + 3, c.y), col, 1.5f);
+        if (dir > 0) dl->AddLine(ImVec2(c.x, c.y - 3), ImVec2(c.x, c.y + 3), col, 1.5f);
+    };
     float top = kStatusH + kHeaderH;
     const ImU32 ink = IM_COL32(210, 222, 242, 255), dim = IM_COL32(100, 118, 148, 255);
     float pageTop = top;
@@ -1177,51 +1279,22 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         reloadIcon(dl, ImVec2(w - 74, my), ink);
         if (iconButton("##wkbd", ImVec2(w - 52, kStatusH + 6), ImVec2(w - 12, kStatusH + kHeaderH - 6), true)) { g_kbd = !g_kbd; g_kbdTarget = 0; }
         keyboardIcon(dl, ImVec2(w - 32, my), g_kbd ? accentLite(255) : ink);
-    } else {
-        // the tabs: each with its page's title and a close button; + opens a blank one (and the address bar, to type where)
-        const float tabsH = 32;
-        dl->AddRectFilled(ImVec2(0, top), ImVec2(w, top + tabsH), IM_COL32(6, 16, 34, 245));
-        {
-            const int n = std::max(1, (int)b.tabs.size());
-            const float plusW = 34, tw = std::min(190.0f, std::floor((w - 16 - plusW - 6) / n));
-            float x = 8;
-            int idx = 0;
-            for (const BrowserState::Tab& t : b.tabs) {
-                const bool on = t.id == b.activeTab;
-                const ImVec2 a(x, top + 4), e(x + tw - 4, top + tabsH);
-                char id[24];
-                std::snprintf(id, sizeof id, "##tab%d", idx);
-                ImGui::SetCursorScreenPos(a);
-                ImGui::SetNextItemAllowOverlap();
-                if (ImGui::InvisibleButton(id, ImVec2(e.x - a.x - 22, e.y - a.y)) && !on) act.webTabSelect = t.id;
-                const bool hot = ImGui::IsItemHovered();
-                dl->AddRectFilled(a, e, on ? themeTone(10, 24, 48, 255) : hot ? IM_COL32(255, 255, 255, 22) : IM_COL32(255, 255, 255, 10), 8.0f, ImDrawFlags_RoundCornersTop);
-                // the last tab's x clears it (the helper opens a fresh search page in its place): there is always one
-                std::string title = isStartPage(t.url) ? std::string("New tab") : !t.title.empty() ? t.title : hostOf(t.url);
-                const float room = e.x - a.x - 34;
-                while (title.size() > 3 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, title.c_str()).x > room) { title.resize(title.size() - 3); title += ".."; }
-                dl->PushClipRect(a, ImVec2(e.x - 22, e.y), true);
-                textAt(dl, f.small, a.x + 10, std::floor(a.y + (e.y - a.y - fontPx(f.small)) * 0.5f), on ? kInk : kMuted, title.c_str());
-                dl->PopClipRect();
-                if (t.loading) dl->AddCircleFilled(ImVec2(a.x + 4, a.y + (e.y - a.y) * 0.5f), 2.0f, IM_COL32(90, 160, 255, 255), 0);
-                // close
-                const ImVec2 cc(e.x - 12, a.y + (e.y - a.y) * 0.5f);
-                std::snprintf(id, sizeof id, "##tabx%d", idx);
-                ImGui::SetCursorScreenPos(ImVec2(e.x - 22, a.y));
-                if (ImGui::InvisibleButton(id, ImVec2(22, e.y - a.y))) act.webTabClose = t.id;
-                const ImU32 xc = ImGui::IsItemHovered() ? kInk : kMuted;
-                dl->AddLine(ImVec2(cc.x - 4, cc.y - 4), ImVec2(cc.x + 4, cc.y + 4), xc, 1.5f);
-                dl->AddLine(ImVec2(cc.x - 4, cc.y + 4), ImVec2(cc.x + 4, cc.y - 4), xc, 1.5f);
-                x += tw;
-                ++idx;
-            }
-            const ImVec2 pa(x + 2, top + 5), pe(x + 2 + plusW - 4, top + tabsH - 3);
-            if (iconButton("##tabnew", pa, pe, (int)b.tabs.size() < 8 && b.status == 1)) { act.webTabNew = true; act.webTabUrl.clear(); g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear(); }
-            const ImVec2 pc((pa.x + pe.x) * 0.5f, (pa.y + pe.y) * 0.5f);
-            const ImU32 pcol = (int)b.tabs.size() < 8 ? kInk : kMuted;
-            dl->AddLine(ImVec2(pc.x - 6, pc.y), ImVec2(pc.x + 6, pc.y), pcol, 1.8f);
-            dl->AddLine(ImVec2(pc.x, pc.y - 6), ImVec2(pc.x, pc.y + 6), pcol, 1.8f);
+        zoomButton("##wzout", ImVec2(w - 210, kStatusH + 6), ImVec2(w - 174, kStatusH + kHeaderH - 6), -1);
+        zoomButton("##wzin", ImVec2(w - 170, kStatusH + 6), ImVec2(w - 134, kStatusH + kHeaderH - 6), 1);
+        if (b.zoomPct != 100 && !g_webHold) {   // the zoom, tapped: back to 100 %
+            char zt[16];
+            std::snprintf(zt, sizeof zt, "%d%%", b.zoomPct);
+            const float zw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, zt).x + 14;
+            if (iconButton("##wzreset", ImVec2(w - 214 - zw, kStatusH + 8), ImVec2(w - 214, kStatusH + kHeaderH - 8), true)) act.webZoom = 2;
+            textCentered(dl, f.small, w - 214 - zw * 0.5f, std::floor(my - fontPx(f.small) * 0.5f), kMuted, zt);
         }
+        if (tabs.size() > 1) {   // the app opened more (a chart, a PDF): its tabs, to switch and close them
+            tabStrip(top, 30, false);
+            pageTop = top + 30;
+        }
+    } else {
+        const float tabsH = 32;
+        tabStrip(top, tabsH, true);
         top += tabsH;
         const float barH = 40, bmH = 34;
         dl->AddRectFilled(ImVec2(0, top), ImVec2(w, top + barH + bmH), themeTone(10, 24, 48, 235));
@@ -1233,15 +1306,27 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         if (iconButton("##breload", ImVec2(70, top + 4), ImVec2(102, top + barH - 4), true)) act.webNav = b.loading ? 4 : 3;
         reloadIcon(dl, ImVec2(84, my), ink);
         // the address: tapped, it takes what is typed on the keyboard
-        const ImVec2 a(110, top + 6), e(w - 92, top + barH - 6);
+        // zoom, between the address and the star (the percentage inside the address, when it is not 100 %)
+        zoomButton("##bzout", ImVec2(w - 164, top + 4), ImVec2(w - 128, top + barH - 4), -1);
+        zoomButton("##bzin", ImVec2(w - 126, top + 4), ImVec2(w - 90, top + barH - 4), 1);
+        float zw = 0;
+        if (b.zoomPct != 100 && !g_webHold) {   // the zoom, just left of the buttons; tapped: back to 100 %
+            char zt[16];
+            std::snprintf(zt, sizeof zt, "%d%%", b.zoomPct);
+            zw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, zt).x + 14;
+            if (iconButton("##bzreset", ImVec2(w - 168 - zw, top + 8), ImVec2(w - 168, top + barH - 8), true)) act.webZoom = 2;
+            textCentered(dl, f.small, w - 168 - zw * 0.5f, std::floor(my - fontPx(f.small) * 0.5f), kMuted, zt);
+        }
+        const ImVec2 a(110, top + 6), e(w - 170 - zw, top + barH - 6);
         const bool editing = g_kbd && g_kbdTarget == 1;
         if (iconButton("##baddr", a, e, true)) { g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear(); }
         dl->AddRectFilled(a, e, IM_COL32(255, 255, 255, editing ? 44 : 26), 14.0f);
         if (editing) dl->AddRect(a, e, accentLite(200), 14.0f, 0, 1.5f);
         dl->PushClipRect(a, e, true);
-        const std::string shown = editing ? g_addrEdit : (b.url.empty() ? g_url : b.url);
+        // the shown tab's own address (a blank tab: none, and the hint; never another page's)
+        const std::string shown = editing ? g_addrEdit : (g_webHold || isStartPage(b.url) ? std::string() : b.url);
         const float ty = std::floor(my - fontPx(f.body) * 0.5f);
-        if (editing && g_addrEdit.empty()) dl->AddText(f.body, fontPx(f.body), ImVec2(a.x + 19, ty), dim, "Type an address or a search");   // (clear of the caret)
+        if (shown.empty()) dl->AddText(f.body, fontPx(f.body), ImVec2(a.x + 19, ty), dim, "Type an address or a search");   // (clear of the caret)
         else dl->AddText(f.body, fontPx(f.body), ImVec2(a.x + 14, ty), ink, shown.c_str());
         if (editing) {   // the caret
             const float cx = a.x + 14 + f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, g_addrEdit.c_str()).x + 1;
@@ -2163,9 +2248,6 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     ImGui::SetCursorScreenPos(r0);
     ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##map", ImVec2(r1.x - r0.x, r1.y - r0.y));
-    // the pointer is over the map itself, not one of its bubbles or buttons (drawn over it)
-    // (it allows overlap, so it is not hovered while one of the bubbles or buttons over it is)
-    const bool pointerOnMap = ImGui::IsItemHovered();
     const ImGuiIO& io = ImGui::GetIO();
     if (ImGui::IsItemActivated()) g_mapPressPos = io.MousePos;
     const bool mapClick = ImGui::IsItemDeactivated() && std::fabs(io.MousePos.x - g_mapPressPos.x) + std::fabs(io.MousePos.y - g_mapPressPos.y) < 6;
@@ -2618,14 +2700,9 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         std::string t;
         if (g_settings.mapLocalTime) {
             bool est = false;
-            // the place: under the pointer while it is over the map; else the aircraft (centred on it), else the + in the middle
-            double tLat = movedOff ? cLat : m.lat, tLon = movedOff ? cLon : m.lon;
-            const ImVec2 mp = ImGui::GetIO().MousePos;
-            if (pointerOnMap) {   // (anywhere on the map, right up to its edges; not while it is over a bubble or button)
-                double la = 0, lo = 0;
-                latLonOf(fromS(mp), la, lo);
-                tLat = la; tLon = lo;
-            }
+            // the place, as WXPlane's map: the aircraft while the map is on it, else the + in the middle (the time changes as the +
+            // crosses a zone's line)
+            const double tLat = movedOff ? cLat : m.lat, tLon = movedOff ? cLon : m.lon;
             const double off = localOffsetAt(m, tLat, tLon, est);
             t = clockOf(utc + (long long)off) + " " + (est ? "~" : "") + zoneOf(tLat, tLon, off, utc);
         } else {
@@ -2697,6 +2774,20 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         if (g_settings.mapTraffic) for (const MapState::Traffic& t : m.traffic) consider(toS(mercOf(t.lat, t.lon)), 1, t.callsign, 18);
         if ((g_settings.mapNavaids || g_settings.mapIls) && g_mapZoom >= 6.0)
             for (const MapState::Navaid& n : m.navaids) if ((n.type != 4 && n.type != 5) ? g_settings.mapNavaids : (g_settings.mapIls && g_mapZoom >= 9.5)) consider(toS(mercOf(n.lat, n.lon)), 2, n.ident + "|" + std::to_string(n.type), 16);
+        if (g_settings.mapIls && g_mapZoom >= 9.5 && kind != 1) {   // a localizer's course: anywhere inside its triangle (as drawn)
+            const double mPerMercT = kEarthM * std::cos(cLat * kPi / 180.0), nmPxT = scale / (mPerMercT / 1852.0);
+            for (const MapState::Navaid& n : m.navaids) {
+                if (n.type != 4 && n.type != 5) continue;
+                const ImVec2 q = toS(mercOf(n.lat, n.lon));
+                const double a = (n.bearing + 180.0) * kPi / 180.0 - rot;
+                const float Lp = (float)(10.0 * nmPxT), half = (float)(std::tan(2.5 * kPi / 180.0) * 10.0 * nmPxT);
+                const ImVec2 d((float)std::sin(a), (float)-std::cos(a)), nn(-d.y, d.x);
+                // along the course and across it, from the antenna
+                const float along = (p.x - q.x) * d.x + (p.y - q.y) * d.y, across = (p.x - q.x) * nn.x + (p.y - q.y) * nn.y;
+                const float halfAt = along / std::max(1.0f, Lp) * half + 6.0f;   // (the triangle widens away from the antenna; a little slack)
+                if (along > 0 && along < Lp && std::fabs(across) < halfAt && best > 1.0f) { best = 1.0f; kind = 2; key = n.ident + "|" + std::to_string(n.type); }
+            }
+        }
         if (g_settings.mapWaypoints && g_mapZoom >= 9.0) for (const MapState::Fix& fx : m.fixes) if (fx.enroute || g_mapZoom >= 11) consider(toS(mercOf(fx.lat, fx.lon)), 3, fx.ident, 12);
         if (g_settings.mapRoute) for (size_t i = 0; i < m.route.size(); ++i) consider(toS(mercOf(m.route[i].lat, m.route[i].lon)), 5, std::to_string(i), 12);
         if (g_settings.mapAirports) {
@@ -2760,7 +2851,16 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 if (n.type == 2) std::snprintf(b, sizeof b, "%.0f kHz", n.freq); else std::snprintf(b, sizeof b, "%.2f MHz", n.freq);
                 L.push_back({1, "Frequency", b});
                 L.push_back({3, n.ident, morseOf(n.ident)});
-                if (n.type == 4 || n.type == 5) { std::snprintf(b, sizeof b, "%03.0f\xC2\xB0T", std::fmod(n.bearing + 360.0, 360.0)); L.push_back({1, "Course", b}); }
+                if (n.type == 4 || n.type == 5) {   // the approach: its runway, course (true and magnetic), glide slope and DME
+                    if (!n.runway.empty()) L.push_back({1, "Runway", n.airport + " " + n.runway});
+                    if (!n.name.empty()) L.push_back({1, "Approach", n.name});
+                    if (n.magCourse >= 0) std::snprintf(b, sizeof b, "%03.0f\xC2\xB0T  /  %03.0f\xC2\xB0M", std::fmod(n.bearing + 360.0, 360.0), std::fmod(n.magCourse + 360.0, 360.0));
+                    else std::snprintf(b, sizeof b, "%03.0f\xC2\xB0T", std::fmod(n.bearing + 360.0, 360.0));
+                    L.push_back({1, "Course", b});
+                    if (n.gsAngle > 0) { std::snprintf(b, sizeof b, "%.2f\xC2\xB0", n.gsAngle); L.push_back({1, "Glide slope", b}); }
+                    else L.push_back({1, "Glide slope", "none (localizer only)"});
+                    L.push_back({1, "DME", n.dme ? "yes" : "no"});
+                }
                 if (n.type == 3 && n.bearing != 0) { std::snprintf(b, sizeof b, "%.0f\xC2\xB0%s", std::fabs(n.bearing), n.bearing < 0 ? "W" : "E"); L.push_back({1, "Variation", b}); }
                 if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, n.lat, n.lon, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0T", d, brg); L.push_back({1, "From you", b}); }
                 L.push_back({1, "Position", posText(n.lat, n.lon)});
@@ -4938,8 +5038,8 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     if (pill(dl, f, "##clrtiles", "Clear map cache", ImVec2(w - 12 - 150, top + 150), ImVec2(w - 12, top + 182), false, true)) act.clearTileCache = true;
 }
 
-void openWeb(const char* site, const char* url, bool chrome) {
-    g_site = site; g_url = url; g_chrome = chrome;
+void openWeb(const char* site, const char* url, bool chrome, int group) {
+    g_site = site; g_url = url; g_chrome = chrome; g_webGroup = group;
     g_navPending = url; g_navForce = false;
     if (g_kbdTarget == 1 || g_kbdTarget == 2) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; }
     g_app = APP_BROWSER;
@@ -5119,7 +5219,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const bool powerAnim = g_power != POWER_ON;
     if (powerAnim) ImGui::BeginDisabled();   // fading out, or fading in: no taps yet
     wallpaper(dl, w, h);
-    statusBar(dl, f, s, w);
+    if (!videoFull(s)) statusBar(dl, f, s, w);   // (a full-screen video covers it, and its buttons are not there to be hit)
     // the pull-down or a banner on top: what is under them takes no presses (and stays as it is)
     bool covered = g_ccT > 0.001f || g_bannerDrag >= 0 || g_lowAlert != 0;
     {
@@ -5236,7 +5336,7 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
         wallpaper(dl, w, h);
         dl->PopClipRect();
         dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), themeTone(8, 18, 36, 170));   // the veil, in the theme's tone
-        if (pageHeader(dl, f, w, app == APP_BROWSER ? g_site.c_str() : appName(app))) openApp(APP_HOME);
+        if (!(app == APP_BROWSER && videoFull(s)) && pageHeader(dl, f, w, app == APP_BROWSER ? g_site.c_str() : appName(app))) openApp(APP_HOME);
         if (app == APP_SETTINGS) settingsPage(dl, f, s, w, h, act);
         else if (app == APP_BROWSER) browserPage(dl, f, s, w, h, act);
         else if (app == APP_MAP) mapPage(dl, f, s, w, h, act);
@@ -5358,6 +5458,7 @@ int touchTestCount() { return (int)g_touches.size(); }
 const EmbedArea& embedArea() { return g_embed; }
 const char* browserUrl() { return g_url.c_str(); }
 bool browserChrome() { return g_chrome; }
+bool webTyping() { return g_app == APP_BROWSER && g_kbd && g_kbdTarget == 0; }   // a web page's text field has the keyboard
 
 const char* appName(int app) {
     if (app == APP_WEATHER && g_wx) return "WXPlane";
@@ -5391,8 +5492,8 @@ void openApp(int app) {
         return;
     }
     if (fromHome) { g_editMode = false; startPageAnim(true, app); }   // it grows out of its icon
-    if (kApps[app].url) { openWeb(kApps[app].name, kApps[app].url, false); return; }
-    if (app == APP_BROWSER) { g_site = "Browser"; g_chrome = true; }
+    if (kApps[app].url) { openWeb(kApps[app].name, kApps[app].url, false, 100 + app); return; }   // its own tabs
+    if (app == APP_BROWSER) { g_site = "Browser"; g_chrome = true; g_webGroup = 0; }
     g_app = app;
 }
 

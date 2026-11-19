@@ -1,4 +1,6 @@
 #include "navdata.h"
+#include <set>
+#include <map>
 
 #include <algorithm>
 #include <atomic>
@@ -62,6 +64,8 @@ int words(char* s, char** w, int max) {
 }
 
 void load() {
+    std::map<std::string, float> gsOf;   // airport|ident -> the glide slope's angle
+    std::set<std::string> dmeOf;         // airport|ident of the DMEs
     // earth_nav.dat (11.50): code lat lon elevation frequency range [variation|bearing] ident [airport|ENRT] region name...
     eachLine(pick("earth_nav.dat"), [&](char* line) {
         char* w[16];
@@ -70,6 +74,12 @@ void load() {
         const int n = words(line, w, 16);
         if (n < 9) return;
         const int code = std::atoi(w[0]);
+        if (code == 6 && n >= 9) {   // a glide slope: its angle x 100000 plus the course ("300087.373": 3.00 degrees); kept for its localizer
+            const double gb = std::atof(w[6]);
+            gsOf[std::string(w[8]) + "|" + w[7]] = (float)(std::floor(gb / 1000.0) / 100.0);
+            return;
+        }
+        if (code == 12 && n >= 9) dmeOf.insert(std::string(w[8]) + "|" + w[7]);   // (an ILS's DME: same ident and airport)
         if (code != 2 && code != 3 && code != 4 && code != 5 && code != 12 && code != 13) return;
         MapState::Navaid v;
         v.type = code;
@@ -81,6 +91,10 @@ void load() {
         // Navigraph's 1200 data; checked on all 4117 localizers): the remainder after 360 is the true course. VORs: the variation.
         v.bearing = (float)((code == 4 || code == 5) ? std::fmod(std::fmod(b, 360.0) + 360.0, 360.0) : b);
         v.ident = w[7];
+        if (code == 4 || code == 5) {   // its airport and runway, and the magnetic course (the rest of the packed field)
+            v.magCourse = (float)std::floor((b - v.bearing) / 360.0 + 0.5);
+            if (n >= 11) { v.airport = w[8]; v.runway = w[10]; }
+        }
         // the name: the rest of the original line after the region
         if (n >= 10) {
             const char* at = std::strstr(copy, w[9]);
@@ -92,6 +106,12 @@ void load() {
         }
         g_navs.push_back(v);
     });
+    for (MapState::Navaid& v : g_navs) if ((v.type == 4 || v.type == 5) && !v.airport.empty()) {
+        const std::string k = v.airport + "|" + v.ident;
+        const auto g = gsOf.find(k);
+        if (g != gsOf.end()) v.gsAngle = g->second;
+        v.dme = dmeOf.count(k) > 0;
+    }
     // earth_fix.dat (11.01): lat lon ident [airport|ENRT] region [type]
     eachLine(pick("earth_fix.dat"), [&](char* line) {
         char* w[8];

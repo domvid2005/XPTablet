@@ -199,7 +199,7 @@ bool frame(const uint8_t*& px, int& w, int& h) {
 
 void done() { if (g_shm) g_shm->ackSeq.store(g_frameTaken, std::memory_order_release); }
 
-bool info(std::string& url, std::string& title, bool& loading, bool& canBack, bool& canForward, bool& wantsKeyboard, std::vector<TabInfo>& tabsOut, int& activeTab) {
+bool info(std::string& url, std::string& title, bool& loading, bool& canBack, bool& canForward, bool& wantsKeyboard, std::vector<TabInfo>& tabsOut, int& activeTab, int& zoomPct, bool& fullscreen) {
     if (!g_shm) return false;
     const uint32_t s = g_shm->infoSeq.load(std::memory_order_acquire);
     if (s == g_infoSeen) return false;
@@ -215,11 +215,14 @@ bool info(std::string& url, std::string& title, bool& loading, bool& canBack, bo
         TabInfo ti;
         ti.id = t.id;
         ti.loading = t.loading != 0;
+        ti.group = t.group;
         ti.title.assign(t.title, strnlen(t.title, sizeof t.title));
         ti.url.assign(t.url, strnlen(t.url, sizeof t.url));
         tabsOut.push_back(ti);
     }
     activeTab = g_shm->activeTab;
+    zoomPct = g_shm->zoomPct > 0 ? g_shm->zoomPct : 100;
+    fullscreen = g_shm->fullscreen != 0;
     return true;
 }
 

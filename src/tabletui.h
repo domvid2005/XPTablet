@@ -134,9 +134,11 @@ struct BrowserState {
     std::string url, title;
     bool loading = false, canBack = false, canForward = false;
     bool wantsKeyboard = false;   // a text field on the page has the focus
-    struct Tab { int id = 0; std::string title, url; bool loading = false; };
+    struct Tab { int id = 0; std::string title, url; bool loading = false; int group = 0; };   // group: 0 the Browser's, else a web app's
     std::vector<Tab> tabs;        // the open pages, in order
     int activeTab = 0;            // the shown one's id
+    int zoomPct = 100;            // the shown page's zoom
+    bool fullscreen = false;      // the shown page is full screen (a video): it takes the whole tablet
 };
 
 // A pilot on VATSIM (the Map's traffic card): who, where, and the filed flight plan.
@@ -184,7 +186,9 @@ struct MapState {
     struct Traffic { double lat = 0, lon = 0; float altFt = 0, hdg = 0, gsKt = 0, vsFpm = 0; bool onGround = false; std::string callsign, type; };
     std::vector<Traffic> traffic;
     // radio navaids and fixes around the view (X-Plane's nav data: Custom Data first, else its own)
-    struct Navaid { int type = 3; double lat = 0, lon = 0; float freq = 0, bearing = 0; std::string ident, name; };   // type: 2 NDB, 3 VOR, 4/5 localizer, 12/13 DME
+    struct Navaid { int type = 3; double lat = 0, lon = 0; float freq = 0, bearing = 0; std::string ident, name;
+                    float magCourse = -1, gsAngle = 0; std::string airport, runway; bool dme = false; };   // type: 2 NDB, 3 VOR, 4/5 localizer, 12/13 DME
+                    // (localizers: magCourse, the glide slope's angle (0: none), their airport and runway, a DME with them)
     std::vector<Navaid> navaids;
     struct Fix { double lat = 0, lon = 0; std::string ident; bool enroute = true; };
     std::vector<Fix> fixes;
@@ -293,7 +297,10 @@ struct Actions {
     std::vector<WebEvent> web;
     std::string webNavigate;
     int webNav = 0;               // 1 back, 2 forward, 3 reload, 4 stop
-    bool webTabNew = false;       // open a tab (at webTabUrl, or blank) and show it
+    bool webTabNew = false;       // open a tab (at webTabUrl, or blank) in group webTabGroup, and show it
+    int webTabGroup = 0;
+    int webZoom = 0;              // the shown page: +1 closer, -1 farther, 2 back to 100 %
+    bool webExitFullscreen = false;
     std::string webTabUrl;
     int webTabSelect = 0, webTabClose = 0;   // a tab's id: show it, close it (0: none)
     // the Map page: shown this frame, its centre, and the airports to have ready around it
@@ -343,6 +350,7 @@ std::string checklistFor(const std::string& text, const std::string& icao, const
 int currentApp();
 // The browser's address bar is taking typed keys (the floating window's keyboard goes there instead of to the page).
 bool webTypingAddress();
+bool webTyping();            // a web page's text field has the keyboard (its keys go to the page)
 // Something on the tablet is taking typed keys (the address bar, a note, a search): the floating window's keyboard goes there.
 bool tabletTyping();
 void tabletKey(int code, bool isChar);   // code: a character, or 8 (back) / 13 (enter)
