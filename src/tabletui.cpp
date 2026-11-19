@@ -137,7 +137,7 @@ int appIcon(int app) {
 // the home screen's places (below)
 
 int g_app = APP_HOME;
-int g_chimeSeq = 0;   // counted up for each notification's chime (and Test); the host plays it at Settings, Media's volume
+int g_chimeSeq = 0;   // counted up for each notification's chime (and Test); the host plays it at the volume set in Settings, Notifications
 // a web page full screen (a video's button): it takes the whole tablet, status bar and title bar too
 bool videoFull(const SimState& s) { return g_app == APP_BROWSER && s.browser.status == 1 && s.browser.fullscreen && !g_webHold; }
 EmbedArea g_embed;
@@ -5122,6 +5122,18 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         char b[64];
         std::snprintf(b, sizeof b, "%d in the list", (int)g_notes.size());
         textAt(dl, f.small, rx, ry, kMuted, b);
+        ry += 40;
+        textAt(dl, f.bold, rx, ry, kInk, "Sound");
+        ry += 26;
+        {   // the chime's volume (0: silent), and a test
+            char txt[16];
+            std::snprintf(txt, sizeof txt, "%d%%", (int)std::lround(g_settings.notifyVolume * 100));
+            float v = g_settings.notifyVolume;
+            if (smoothSlider(dl, f, "##notifyvol", ImVec2(rx - 4, ry), ImVec2(w - 18 - 76, ry + 30), v, 0.0f, 1.0f, 20, true, txt)) { g_settings.notifyVolume = v; g_settingsChanged = true; }
+            if (pill(dl, f, "##notifytest", "Test", ImVec2(w - 18 - 68, ry + 1), ImVec2(w - 18, ry + 29), false, g_settings.notifyVolume > 0)) ++g_chimeSeq;
+            ry += 40;
+        }
+        dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "The chime with each notification, played through X-Plane's sound. At 0% it is silent.", nullptr, w - 18 - rx);
         return;
     }
     if (g_settingsTab == 5 && !g_mac) {   // ---- Media: the Music app and the pull-down's player; what the radio does to the music
@@ -5168,16 +5180,6 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             ry += 22;
         }
         ry += 16;
-        textAt(dl, f.bold, rx, ry, kInk, "Notification sound");
-        ry += 26;
-        {   // the chime's volume (0: silent), and a test
-            char txt[16];
-            std::snprintf(txt, sizeof txt, "%d%%", (int)std::lround(g_settings.notifyVolume * 100));
-            float v = g_settings.notifyVolume;
-            if (smoothSlider(dl, f, "##notifyvol", ImVec2(rx - 4, ry), ImVec2(w - 18 - 76, ry + 30), v, 0.0f, 1.0f, 20, true, txt)) { g_settings.notifyVolume = v; g_settingsChanged = true; }
-            if (pill(dl, f, "##notifytest", "Test", ImVec2(w - 18 - 68, ry + 1), ImVec2(w - 18, ry + 29), false, g_settings.notifyVolume > 0)) ++g_chimeSeq;
-            ry += 44;
-        }
         dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "Paused media plays again when the radio is quiet. Receiving: X-Plane's own ATC and ATIS, xPilot's COM1 and COM2, and on Windows VATSIM voice apps (TrackAudio, swift...). Transmitting: X-Plane's and xPilot's push-to-talk.", nullptr, w - 18 - rx);
         return;
     }

@@ -625,6 +625,8 @@ int main(int argc, char** argv) {
             settings().mediaDuck = 1; settings().duckRx = 0.35f; settings().duckTx = 0.15f;
             shot(st, APP_SETTINGS, "settings_media");
             settings().mediaDuck = 0;
+            tap(st, 80, 238);   // Notifications
+            shot(st, APP_SETTINGS, "settings_notifications");
             tap(st, 80, 112);   // back to General
         }
         {   // the status bar's clock: a tap switches Zulu and local time where the aircraft is (EST here)
