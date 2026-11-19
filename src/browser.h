@@ -24,7 +24,7 @@ bool frame(const uint8_t*& px, int& w, int& h);
 void done();
 // The shown page's address, title and state, and the tabs (the shown one's id in activeTab), when they changed since the last call.
 struct TabInfo { int id = 0; std::string title, url; bool loading = false; int group = 0; };
-bool info(std::string& url, std::string& title, bool& loading, bool& canBack, bool& canForward, bool& wantsKeyboard, std::vector<TabInfo>& tabs, int& activeTab, int& zoomPct, bool& fullscreen);
+bool info(std::string& url, std::string& title, bool& loading, bool& canBack, bool& canForward, bool& wantsKeyboard, std::vector<TabInfo>& tabs, int& activeTab, int& zoomPct, bool& fullscreen, bool* zoomAuto = nullptr);
 
 } // namespace browser
 } // namespace xpt

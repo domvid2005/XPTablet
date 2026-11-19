@@ -67,6 +67,7 @@ bool makeShared(std::string& err) {
     g_shm = new (p) xptb::Shared;   // atomics constructed in place; the pixel buffers are left as they are
     g_shm->magic = xptb::kMagic;
     g_shm->version = xptb::kVersion;
+    g_shm->zoomAuto = 1;
     g_shm->cmdWrite.store(0); g_shm->cmdRead.store(0); g_shm->heartbeat.store(0); g_shm->ackSeq.store(0);
     g_shm->state.store(0); g_shm->error[0] = 0;
     g_shm->frameSeq.store(0); g_shm->infoSeq.store(0);
@@ -199,7 +200,7 @@ bool frame(const uint8_t*& px, int& w, int& h) {
 
 void done() { if (g_shm) g_shm->ackSeq.store(g_frameTaken, std::memory_order_release); }
 
-bool info(std::string& url, std::string& title, bool& loading, bool& canBack, bool& canForward, bool& wantsKeyboard, std::vector<TabInfo>& tabsOut, int& activeTab, int& zoomPct, bool& fullscreen) {
+bool info(std::string& url, std::string& title, bool& loading, bool& canBack, bool& canForward, bool& wantsKeyboard, std::vector<TabInfo>& tabsOut, int& activeTab, int& zoomPct, bool& fullscreen, bool* zoomAuto) {
     if (!g_shm) return false;
     const uint32_t s = g_shm->infoSeq.load(std::memory_order_acquire);
     if (s == g_infoSeen) return false;
@@ -222,6 +223,7 @@ bool info(std::string& url, std::string& title, bool& loading, bool& canBack, bo
     }
     activeTab = g_shm->activeTab;
     zoomPct = g_shm->zoomPct > 0 ? g_shm->zoomPct : 100;
+    if (zoomAuto) *zoomAuto = g_shm->zoomAuto != 0;
     fullscreen = g_shm->fullscreen != 0;
     return true;
 }

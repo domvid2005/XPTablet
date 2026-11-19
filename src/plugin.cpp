@@ -606,7 +606,7 @@ void browserStep(const xpt::Actions& act) {
     for (const xpt::Actions::WebEvent& e : act.web) {
         if (e.type == xptb::CMD_KEY) br::push(e.type, 0, 0, e.code, (int)e.x);
         else if (e.type == xptb::CMD_CHAR) br::push(e.type, 0, 0, e.code);
-        else br::push(e.type, (int)e.x, (int)e.y, e.code);
+        else br::push(e.type, (int)e.x, (int)e.y, e.code, e.code2);
     }
     if (!act.webNavigate.empty()) br::push(xptb::CMD_NAVIGATE, 0, 0, 0, 0, 0, act.webNavigate);
     switch (act.webNav) {
@@ -625,8 +625,9 @@ void browserStep(const xpt::Actions& act) {
     std::vector<br::TabInfo> tabs;
     int active = 0, zoom = 100;
     bool full = false;
-    if (br::info(b.url, b.title, loading, back, fwd, kbd, tabs, active, zoom, full)) {
-        b.zoomPct = zoom; b.fullscreen = full;
+    bool zAuto = true;
+    if (br::info(b.url, b.title, loading, back, fwd, kbd, tabs, active, zoom, full, &zAuto)) {
+        b.zoomPct = zoom; b.fullscreen = full; b.zoomAuto = zAuto;
         b.loading = loading; b.canBack = back; b.canForward = fwd; b.wantsKeyboard = kbd;
         b.tabs.clear();
         for (const br::TabInfo& t : tabs) b.tabs.push_back({t.id, t.title, t.url, t.loading, t.group});

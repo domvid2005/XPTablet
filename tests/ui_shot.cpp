@@ -588,6 +588,8 @@ int main(int argc, char** argv) {
             settings().simbriefUser = "alpineaviation";
             for (auto& l : fp.plan.legs) if (l.ident == "WATSN") l.cross = "between 10000 and 12000, 250 kt";   // (a made-up one: how it shows)
             shot(fp, APP_ROUTES, "flightplan");
+            openDispatchFromPlan(); shot(fp, APP_DISPATCH, "dispatch");
+            { SimState np = t; shot(np, APP_DISPATCH, "dispatch_empty"); }
             {   // a newer plan from SimBrief, in its window before Import (the plan in use stays under it)
                 SimState pv = fp;
                 pv.planPreview = fp.plan; pv.planPreviewOpen = true; pv.planPreview.alternateName = "Chicago Midway Intl"; pv.planPreview.callsign = "AAL1235"; pv.planPreview.ofpId = "2/1";
@@ -705,6 +707,13 @@ int main(int argc, char** argv) {
             d.docs.files = {{"A320 FCOM.pdf", "/x/A320 FCOM.pdf", "This aircraft", true, 31457280}, {"Normal checklist.pdf", "/x/n.pdf", "This aircraft", true, 204800},
                             {"KSBN airport diagram.png", "/x/ksbn.png", "XPTablet's Documents", false, 880000}, {"KORD 10-9.jpg", "/x/kord.jpg", "AviTab charts", false, 1200000}};
             shot(d, APP_DOCUMENTS, "documents");
+            // a PDF opens in the page itself (its own browser tab, in the Documents' group), not in the Browser
+            d.browser.status = 1;
+            { Actions a2; for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(100, 170); io.AddMouseButtonEvent(0, k == 1); ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); if (act.webTabNew) a2 = act; }
+              for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); if (act.webTabNew) a2 = act; }
+              if (!a2.webTabNew || a2.webTabGroup != 300 || a2.webTabUrl.find("FCOM.pdf#toolbar=0") == std::string::npos || currentApp() != APP_DOCUMENTS) {
+                  std::printf("FAIL: a PDF in Documents opens in its own tab there (%d, group %d, %s, app %d)\n", a2.webTabNew ? 1 : 0, a2.webTabGroup, a2.webTabUrl.c_str(), currentApp()); ++failures; } }
+            shot(d, APP_DOCUMENTS, "documents_pdf");
         }
         SimState g = s; g.toliss = true; g.acfIcao = "A20N";
         g.ground.toliss = true; g.ground.openSam = true; g.ground.jetway = 1; g.ground.paxDoors = 4; g.ground.cargoDoors = 2; g.ground.cargoDoors = 3; g.ground.deice = true; g.ground.jwDoors = 1; g.ground.slides = 1; g.ground.cabinLight = 0.4f; g.ground.cabinAuto = 0; g.ground.paxDoor[0] = 2; g.ground.paxDoor[1] = 1; g.ground.cargoDoor[0] = 2; g.ground.chocks = true; g.ground.extPower = true;

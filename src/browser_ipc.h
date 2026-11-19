@@ -11,7 +11,7 @@ namespace xptb {
 constexpr const char* kStartPage = "https://duckduckgo.com/";   // a new tab, and the one left when the last is closed
 
 constexpr uint32_t kMagic = 0x58505442;   // "XPTB"
-constexpr uint32_t kVersion = 3;         // 2: tabs; 3: tab groups (the Browser's, and each web app's), zoom
+constexpr uint32_t kVersion = 4;         // 2: tabs; 3: tab groups (the Browser's, and each web app's), zoom; 4: zoom to fit, wheel across
 constexpr int kMaxW = 2048, kMaxH = 1536;  // the largest page picture, pixels
 constexpr int kCmds = 64;                  // commands the ring holds
 constexpr int kTextLen = 2048;             // a URL, or a few typed characters
@@ -22,7 +22,7 @@ enum CmdType : int32_t {
     CMD_RESIZE,       // a: width, b: height (the view, in device-independent pixels); f: screen pixels per one of them
     CMD_MOUSE_MOVE,   // a, b: where, in the view
     CMD_MOUSE_DOWN, CMD_MOUSE_UP, CMD_MOUSE_LEAVE,
-    CMD_WHEEL,        // a, b: where; c: how far down (negative) or up, in pixels
+    CMD_WHEEL,        // a, b: where; c: how far down (negative) or up, in pixels; d: left (negative) or right
     CMD_CHAR,         // c: the character (UTF-16)
     CMD_KEY,          // c: Windows key code (VK_BACK 8, VK_RETURN 13, VK_TAB 9, arrows 37-40, VK_DELETE 46); d: 1 down, 0 up
     CMD_FOCUS,        // a: 1 the page has the keyboard, 0 not
@@ -30,7 +30,7 @@ enum CmdType : int32_t {
     CMD_TAB_NEW,      // text: the address (empty: the search page, kStartPage); b: its group (0 the Browser, else a web app's); shown
     CMD_TAB_CLOSE,    // a: the tab's id
     CMD_TAB_SELECT,   // a: the tab's id
-    CMD_ZOOM,         // a: +1 closer, -1 farther, 0 back to 100 % (the shown tab)
+    CMD_ZOOM,         // a: +1 closer, -1 farther (the shown tab's own zoom, kept), 0 back to fitting the page to the view
     CMD_EXIT_FULLSCREEN   // the shown page leaves full screen (a video's)
 };
 // Navigation, pointer and keys always go to the tab shown.
@@ -63,6 +63,7 @@ struct Shared {
     int32_t tabCount, activeTab;       // activeTab: the shown tab's id
     struct Tab { int32_t id, loading, group; char title[96]; char url[256]; } tabs[kMaxTabs];   // group: as CMD_TAB_NEW's
     int32_t zoomPct;                   // the shown tab's zoom, percent
+    int32_t zoomAuto;                  // 1: it is the zoom that fits the page's width (no zoom chosen for the tab)
     int32_t fullscreen;                // the shown tab is full screen (a video): the tablet gives it the whole screen
     uint8_t pixels[2][kMaxW * kMaxH * 4];   // BGRA, rows top to bottom
 };

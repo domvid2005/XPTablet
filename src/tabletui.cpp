@@ -63,6 +63,7 @@ const AppDef kApps[APP_COUNT] = {
     {"vatsim", "VATSIM Radar", IM_COL32(18, 28, 52, 255), "https://vatsim-radar.com"},
     {"skyvector", "SkyVector", IM_COL32(32, 132, 108, 255), "https://skyvector.com"},
     {"music", "Media", IM_COL32(250, 45, 85, 255), nullptr},   // (its id stays "music": saved home screens keep it)
+    {"dispatch", "Dispatch", IM_COL32(58, 110, 200, 255), nullptr},   // the SimBrief briefing (its PDF)
 };
 enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM, ICON_SKYVECTOR };   // pictures of their own (the other web apps borrow one)
 
@@ -97,6 +98,7 @@ int glyphCell(int app) {
     case APP_WEATHER: return 15;     // weather-partly-snowy-rainy (the Weather page without WXPlane)
     case APP_MUSIC: return 17;       // music
     case APP_MAP: return 18;         // map (the folded map)
+    case APP_NOTES: return 19;       // file-document-edit
     default: return -1;
     }
 }
@@ -314,7 +316,7 @@ void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
         dl->AddCircleFilled(P(-0.34f, -0.48f), r * 0.11f, col, 0);
         dl->AddCircleFilled(P(0.30f, 0.52f), r * 0.11f, col, 0);
         break;
-    case APP_NOTES:   // a page with lines
+    case APP_DISPATCH:   // a page with lines (the briefing)
         dl->AddRect(P(-0.62f, -0.80f), P(0.62f, 0.80f), col, r * 0.10f, 0, t);
         for (int i = 0; i < 3; ++i) dl->AddLine(P(-0.36f, -0.40f + i * 0.40f), P(0.36f, -0.40f + i * 0.40f), col, t);
         break;
@@ -1118,7 +1120,8 @@ float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y) {
 float keyboardHeight() { return g_settings.physicalKeys && !g_kbdKeysShown ? kKbdBarH : 5 * 34 + 4 * 5 + 16; }
 
 // The page: the browser's picture in the rectangle, with the pointer and the wheel going to it.
-void webView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float y0, float w, float h, Actions& act) {
+// dragScrolls (a document): a drag moves the page as a finger would (sent as the wheel), a tap clicks; else the pointer as a mouse
+void webView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float y0, float w, float h, Actions& act, bool dragScrolls = false) {
     act.webShown = true;
     act.webX = x0; act.webY = y0; act.webW = w; act.webH = h;
     const BrowserState& b = s.browser;
@@ -1139,12 +1142,48 @@ void webView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float 
     const ImGuiIO& io = ImGui::GetIO();
     const bool hovered = ImGui::IsItemHovered(), active = ImGui::IsItemActive();
     const ImVec2 p(std::floor(io.MousePos.x - x0), std::floor(io.MousePos.y - y0));
-    if ((hovered || active) && (p.x != g_webLast.x || p.y != g_webLast.y)) { act.web.push_back({7 /*MOUSE_MOVE*/, p.x, p.y, 0}); g_webLast = p; }
-    if (ImGui::IsItemActivated()) act.web.push_back({8 /*MOUSE_DOWN*/, p.x, p.y, 0});
-    if (ImGui::IsItemDeactivated()) act.web.push_back({9 /*MOUSE_UP*/, p.x, p.y, 0});
+    static bool dragging = false;
+    if (dragScrolls) {
+        if (ImGui::IsItemActivated()) dragging = false;
+        if (active && !dragging && ImGui::IsMouseDragging(0, 5.0f)) dragging = true;
+        if (active && dragging && (io.MouseDelta.x != 0 || io.MouseDelta.y != 0))
+            act.web.push_back({11 /*WHEEL*/, p.x, p.y, (int)std::lround(io.MouseDelta.y), (int)std::lround(io.MouseDelta.x)});
+    }
+    if ((hovered || active) && !(dragScrolls && dragging) && (p.x != g_webLast.x || p.y != g_webLast.y)) { act.web.push_back({7 /*MOUSE_MOVE*/, p.x, p.y, 0}); g_webLast = p; }
+    if (!dragScrolls) {
+        if (ImGui::IsItemActivated()) act.web.push_back({8 /*MOUSE_DOWN*/, p.x, p.y, 0});
+        if (ImGui::IsItemDeactivated()) act.web.push_back({9 /*MOUSE_UP*/, p.x, p.y, 0});
+    } else if (ImGui::IsItemDeactivated() && !dragging) {   // a tap: a click where it was
+        act.web.push_back({8 /*MOUSE_DOWN*/, p.x, p.y, 0});
+        act.web.push_back({9 /*MOUSE_UP*/, p.x, p.y, 0});
+    }
     if (hovered && io.MouseWheel != 0) act.web.push_back({11 /*WHEEL*/, p.x, p.y, (int)std::lround(io.MouseWheel * 100)});
     if (g_webHover && !hovered && !active) { act.web.push_back({10 /*MOUSE_LEAVE*/, g_webLast.x, g_webLast.y, 0}); g_webLast = ImVec2(-1, -1); }
     g_webHover = hovered || active;
+}
+
+// The page's zoom: - , the zoom (muted while it is the one fitting the page to the view; tapped when chosen: back to fitting), +.
+// The zoom chosen stays with that tab; a new tab fits its page.
+void webZoomControls(ImDrawList* dl, const Fonts& f, const BrowserState& b, Actions& act, const char* tag, float x0, float y0, float y1, bool enabled) {
+    auto zoomButton = [&](const char* id, ImVec2 a, ImVec2 e, int dir) {   // a magnifier with - or +
+        if (iconButton(id, a, e, enabled)) act.webZoom = dir;
+        const ImVec2 c((a.x + e.x) * 0.5f - 1, (a.y + e.y) * 0.5f - 1);
+        const ImU32 col = enabled ? IM_COL32(210, 222, 242, 255) : IM_COL32(100, 118, 148, 255);
+        dl->AddCircle(c, 6.5f, col, 0, 1.6f);
+        dl->AddLine(ImVec2(c.x + 4.8f, c.y + 4.8f), ImVec2(c.x + 9, c.y + 9), col, 2.2f);
+        dl->AddLine(ImVec2(c.x - 3, c.y), ImVec2(c.x + 3, c.y), col, 1.5f);
+        if (dir > 0) dl->AddLine(ImVec2(c.x, c.y - 3), ImVec2(c.x, c.y + 3), col, 1.5f);
+    };
+    char id[24];
+    std::snprintf(id, sizeof id, "##%szout", tag); zoomButton(id, ImVec2(x0, y0), ImVec2(x0 + 36, y1), -1);
+    char zt[16];
+    std::snprintf(zt, sizeof zt, "%d%%", enabled ? b.zoomPct : 100);
+    std::snprintf(id, sizeof id, "##%szreset", tag);
+    const ImVec2 za(x0 + 38, y0 + 2), ze(x0 + 88, y1 - 2);
+    const bool chosen = enabled && !b.zoomAuto;
+    if (iconButton(id, za, ze, chosen)) act.webZoom = 2;
+    textCentered(dl, f.small, (za.x + ze.x) * 0.5f, std::floor((y0 + y1) * 0.5f - fontPx(f.small) * 0.5f), chosen ? kInk : kMuted, zt);
+    std::snprintf(id, sizeof id, "##%szin", tag); zoomButton(id, ImVec2(x0 + 90, y0), ImVec2(x0 + 126, y1), 1);
 }
 
 void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
@@ -1259,28 +1298,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
             dl->AddLine(ImVec2(pc.x, pc.y - 6), ImVec2(pc.x, pc.y + 6), pcol, 1.8f);
         }
     };
-    // zoom: a magnifier with - or +; the page's zoom shows beside them when it is not 100 %
-    auto zoomButton = [&](const char* id, ImVec2 a, ImVec2 e, int dir) {
-        if (iconButton(id, a, e, b.status == 1 && !g_webHold)) act.webZoom = dir;
-        const ImVec2 c((a.x + e.x) * 0.5f - 1, (a.y + e.y) * 0.5f - 1);
-        const ImU32 col = IM_COL32(210, 222, 242, 255);
-        dl->AddCircle(c, 6.5f, col, 0, 1.6f);
-        dl->AddLine(ImVec2(c.x + 4.8f, c.y + 4.8f), ImVec2(c.x + 9, c.y + 9), col, 2.2f);
-        dl->AddLine(ImVec2(c.x - 3, c.y), ImVec2(c.x + 3, c.y), col, 1.5f);
-        if (dir > 0) dl->AddLine(ImVec2(c.x, c.y - 3), ImVec2(c.x, c.y + 3), col, 1.5f);
-    };
-    // the zoom group: - , the page's zoom (tapped: back to 100 %), +
-    auto zoomGroup = [&](const char* tag, float x0, float y0, float y1) {
-        char id[24];
-        std::snprintf(id, sizeof id, "##%szout", tag); zoomButton(id, ImVec2(x0, y0), ImVec2(x0 + 36, y1), -1);
-        char zt[16];
-        std::snprintf(zt, sizeof zt, "%d%%", g_webHold ? 100 : b.zoomPct);
-        std::snprintf(id, sizeof id, "##%szreset", tag);
-        const ImVec2 za(x0 + 38, y0 + 2), ze(x0 + 88, y1 - 2);
-        if (iconButton(id, za, ze, b.status == 1 && !g_webHold && b.zoomPct != 100)) act.webZoom = 2;
-        textCentered(dl, f.small, (za.x + ze.x) * 0.5f, std::floor((y0 + y1) * 0.5f - fontPx(f.small) * 0.5f), b.zoomPct != 100 && !g_webHold ? kInk : kMuted, zt);
-        std::snprintf(id, sizeof id, "##%szin", tag); zoomButton(id, ImVec2(x0 + 90, y0), ImVec2(x0 + 126, y1), 1);
-    };
+    auto zoomGroup = [&](const char* tag, float x0, float y0, float y1) { webZoomControls(dl, f, b, act, tag, x0, y0, y1, b.status == 1 && !g_webHold); };
     float top = kStatusH + kHeaderH;
     const ImU32 ink = IM_COL32(210, 222, 242, 255), dim = IM_COL32(100, 118, 148, 255);
     float pageTop = top;
@@ -3623,6 +3641,32 @@ std::string sizeText(long long b) {
 }
 float scrollBar(ImDrawList* dl, const char* id, float x, float y0, float y1, float scroll, float content, float shown);   // (below)
 float g_docListScroll = 0;
+std::string g_docPdf;      // the PDF shown in the Documents page ("" : a picture, or none)
+
+// ---- PDFs: one way for every page that shows one (Documents, Dispatch) -----------------------------------------------------------------
+// Each page has a browser tab of its own (a group no other page shows) with Chromium's PDF viewer, its toolbar hidden and the pages
+// fitted to the width; the page is shown in the page's own rectangle, a drag scrolls it and the page's zoom is + / -.
+constexpr int kGroupDocuments = 300, kGroupDispatch = 301;
+std::string pdfAddress(const std::string& url) { return url.find('#') == std::string::npos ? url + "#toolbar=0&navpanes=0&view=FitH" : url; }
+void pdfView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float y0, float w, float h, Actions& act, int group, const std::string& url) {
+    const BrowserState& b = s.browser;
+    static std::map<int, std::string> asked;   // the address each group's tab was last given
+    static std::map<int, double> openedAt;
+    const std::string want = pdfAddress(url);
+    int tab = 0;
+    for (const BrowserState::Tab& t : b.tabs) if (t.group == group) { tab = t.id; break; }
+    if (b.status == 1) {
+        if (!tab) {
+            if ((!openedAt.count(group) || ImGui::GetTime() - openedAt[group] > 3) && b.tabs.size() < 16) {   // (once in 3 s: it takes a moment to come)
+                act.webTabNew = true; act.webTabGroup = group; act.webTabUrl = want;
+                asked[group] = want; openedAt[group] = ImGui::GetTime();
+            }
+        } else if (b.activeTab != tab) act.webTabSelect = tab;
+        else if (asked[group] != want) { act.webNavigate = want; asked[group] = want; }
+    }
+    g_webHold = !(tab && b.activeTab == tab && asked[group] == want);
+    webView(dl, f, s, x0, y0, w, h, act, true);
+}
 std::string g_docFilter;   // one folder ("This aircraft"...), or "" for all
 
 void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
@@ -3680,10 +3724,10 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
         std::snprintf(id, sizeof id, "##doc%zu", i);
         ImGui::SetCursorScreenPos(ImVec2(la.x + 6, y));
         if (ImGui::InvisibleButton(id, ImVec2(rowR - la.x - 6, 34)) && y > la.y - 30) {
-            if (e.pdf) { openWeb(e.name.c_str(), fileUrl(e.path).c_str(), true); return; }
-            act.docOpen = e.path; g_docZoom = 1.0f; g_docPan = ImVec2(0, 0);
+            if (e.pdf) g_docPdf = e.path;   // shown here, as a picture is
+            else { g_docPdf.clear(); act.docOpen = e.path; g_docZoom = 1.0f; g_docPan = ImVec2(0, 0); }
         }
-        if (e.path == d.shownPath) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(rowR, y + 34), accentCol(80), 8.0f);
+        if (e.path == (g_docPdf.empty() ? d.shownPath : g_docPdf)) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(rowR, y + 34), accentCol(80), 8.0f);
         else if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(rowR, y + 34), IM_COL32(255, 255, 255, 18), 8.0f);
         // a small page: red for a PDF, blue for a picture
         const ImVec2 ic(la.x + 22, y + 17);
@@ -3699,6 +3743,15 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     if (scrolls) g_docListScroll = scrollBar(dl, "##docbar", lb.x - 8, la.y + 8, lb.y - 8, g_docListScroll, contentH, shownH);
     // the picture: fitted, then the wheel or + / - to zoom and a drag to move
     const ImVec2 va(24 + lw, top), vb(w - 12, h - 12);
+    if (!g_docPdf.empty()) {   // a PDF: its name and the zoom along the top, the pages under them
+        dl->AddRectFilled(va, vb, themeTone(8, 14, 26, 240), 10.0f);
+        std::string nm = g_docPdf.substr(g_docPdf.find_last_of("/\\") + 1);
+        while (nm.size() > 3 && f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, nm.c_str()).x > vb.x - va.x - 170) { nm.resize(nm.size() - 3); nm += ".."; }
+        textAt(dl, f.bold, va.x + 14, va.y + 13, kInk, nm.c_str());
+        webZoomControls(dl, f, s.browser, act, "doc", vb.x - 136, va.y + 6, va.y + 38, s.browser.status == 1 && !g_webHold);
+        pdfView(dl, f, s, va.x, va.y + 44, vb.x - va.x, vb.y - va.y - 44, act, kGroupDocuments, fileUrl(g_docPdf));
+        return;
+    }
     dl->AddRectFilled(va, vb, themeTone(8, 14, 26, 240), 10.0f);
     if (d.shownPath != g_docLast) { g_docLast = d.shownPath; g_docZoom = g_docZoomShown = 1.0f; g_docPan = g_docPanShown = ImVec2(0, 0); }
     if (d.busy) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kMuted, "Opening..."); return; }
@@ -3774,6 +3827,34 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     if (pill(dl, f, "##docfit", "Fit", ImVec2(vb.x - 154, vb.y - 42), ImVec2(vb.x - 104, vb.y - 12), false, true)) { g_docZoom = 1.0f; g_docPan = ImVec2(0, 0); }
     if (pill(dl, f, "##docout", "-", ImVec2(vb.x - 98, vb.y - 42), ImVec2(vb.x - 58, vb.y - 12), false, true)) g_docZoom = std::max(0.5f, g_docZoom * 0.8f);
     if (pill(dl, f, "##docin", "+", ImVec2(vb.x - 52, vb.y - 42), ImVec2(vb.x - 12, vb.y - 12), false, true)) g_docZoom = std::min(8.0f, g_docZoom * 1.25f);
+}
+
+// ---- Dispatch: the SimBrief briefing (its PDF), as the Flight Plan's "Briefing PDF" opens it, with the way back -------------------------
+std::string fitText(ImFont* fnt, const std::string& t, float width);   // (below)
+bool g_dispatchFromPlan = false;   // opened from the Flight Plan page: a button goes back to it
+void openDispatch(bool fromPlan) { g_dispatchFromPlan = fromPlan; openApp(APP_DISPATCH); }
+void dispatchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const FlightPlan& p = s.plan;
+    const float top = kStatusH + kHeaderH + 8;
+    float x = 12;
+    if (g_dispatchFromPlan) {
+        if (pill(dl, f, "##dspback", "     Flight Plan", ImVec2(12, top), ImVec2(140, top + 30), false, true)) { g_dispatchFromPlan = false; openApp(APP_ROUTES); return; }
+        arrow(dl, ImVec2(32, top + 15), true, kInk);   // back
+        x = 152;
+    }
+    if (!p.loaded || p.pdfUrl.empty()) {
+        textCentered(dl, f.bold, w * 0.5f, h * 0.45f - 10, kInk, "No briefing yet");
+        textCentered(dl, f.small, w * 0.5f, h * 0.45f + 16, kMuted, p.loaded ? "SimBrief gave no PDF with this plan." : "Import your SimBrief plan on the Flight Plan page; its briefing shows here.");
+        if (pill(dl, f, "##dspplan", "Open Flight Plan", ImVec2(w * 0.5f - 80, h * 0.45f + 44), ImVec2(w * 0.5f + 80, h * 0.45f + 74), true, true)) { g_dispatchFromPlan = false; openApp(APP_ROUTES); }
+        return;
+    }
+    std::string title = p.origin + " \xE2\x86\x92 " + p.dest;
+    if (!p.callsign.empty()) title = p.callsign + "   " + title;
+    if (!p.importedAt.empty()) title += "   \xC2\xB7   imported " + p.importedAt;
+    textAt(dl, f.bold, x + 4, top + 6, kInk, fitText(f.bold, title, w - 12 - 150 - x).c_str());
+    webZoomControls(dl, f, s.browser, act, "dsp", w - 12 - 126, top - 1, top + 31, s.browser.status == 1 && !g_webHold);
+    const float y0 = top + 40;
+    pdfView(dl, f, s, 12, y0, w - 24, h - 12 - y0, act, kGroupDispatch, p.pdfUrl);
 }
 
 // ---- Flight Plan: the latest SimBrief plan (Import uses the SimBrief ID saved in Settings, Data); the briefing PDF in a tab -------------
@@ -3866,7 +3947,7 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     const bool waiting = s.planPreview.loaded && !s.planPreviewOpen;
     if (button("##fpimport", p.busy ? "Importing..." : "Import from SimBrief", true, (haveId || waiting) && !p.busy)) { act.planReview = waiting; act.planImport = haveId; }
     if (button("##fpclear", "Clear", false, p.loaded)) act.planClear = true;
-    if (button("##fppdf", "Briefing PDF", false, p.loaded && !p.pdfUrl.empty())) { openWeb("Briefing", p.pdfUrl.c_str(), true); return; }
+    if (button("##fppdf", "Briefing PDF", false, p.loaded && !p.pdfUrl.empty())) { openDispatch(true); return; }
     if (button("##fpmap", "Show on map", false, p.loaded && !p.legs.empty())) {
         double la = 0, lo = 0;
         for (const FlightPlan::Leg& l : p.legs) { la += l.lat; lo += l.lon; }
@@ -5215,6 +5296,7 @@ void openWeb(const char* site, const char* url, bool chrome, int group) {
 } // namespace
 bool trafficInRA(const MapState& m, const MapState::Traffic& t) { return tcasRA(m, t); }
 void mapSelect(int kind, const std::string& key) { g_selKind = kind; g_selKey = key; }
+void openDispatchFromPlan() { openDispatch(true); }
 int powerState() { return g_power; }   // 0 on, 1 fading off, 2 off, 3 starting, 4 waking
 
 Fonts loadFonts(float pixelScale) {
@@ -5516,6 +5598,7 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
         else if (app == APP_WEATHER) weatherPage(dl, f, s, w, h, act);
         else if (app == APP_GROUND) groundPage(dl, f, s, w, h, act);
         else if (app == APP_MUSIC) musicPage(dl, f, s, w, h, act);
+        else if (app == APP_DISPATCH) dispatchPage(dl, f, s, w, h, act);
         else placeholderPage(dl, f, app, w, h);
     }
 }

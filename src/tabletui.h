@@ -18,7 +18,7 @@ constexpr float kLogicalH = 480.0f;   // the tablet is always laid out 480 units
 // as the settings file keeps the home screen by these numbers.
 enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_ROUTES, APP_WEATHER, APP_GROUND, APP_CHECKLISTS,
            APP_PERFORMANCE, APP_TRAFFIC, APP_NOTES, APP_SIMBRIEF, APP_LIVEMAP, APP_FOREFLIGHT, APP_BROWSER, APP_SETTINGS,
-           APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_MUSIC, APP_COUNT };
+           APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_MUSIC, APP_DISPATCH, APP_COUNT };
 
 constexpr int kMaxFavorites = 5;   // the favorites bar holds up to 5 icons; its size is chosen in Settings, 0 removes it
 
@@ -142,6 +142,7 @@ struct BrowserState {
     std::vector<Tab> tabs;        // the open pages, in order
     int activeTab = 0;            // the shown one's id
     int zoomPct = 100;            // the shown page's zoom
+    bool zoomAuto = true;         // it is the zoom fitting the page to the view (none chosen for the tab)
     bool fullscreen = false;      // the shown page is full screen (a video): it takes the whole tablet
 };
 
@@ -297,7 +298,7 @@ struct Actions {
     int groundIndex = 0;          // which door (GA_PAX_DOOR, GA_CARGO_DOOR, GA_JETWAY_DOOR); GA_CABIN_LIGHT: the level, 0-100 %
     std::string metarSearch;      // look this airport's METAR up (the Weather page's search)
     // the browser: shown this frame (start it if it is not running), where the page is (layout units) and what to send it
-    struct WebEvent { int type; float x, y; int code; };   // type: an xptb::CmdType (mouse, wheel, char, key)
+    struct WebEvent { int type; float x, y; int code; int code2 = 0; };   // type: an xptb::CmdType (mouse, wheel, char, key); a wheel's code2: across
     bool webShown = false, webRetry = false;
     float webX = 0, webY = 0, webW = 0, webH = 0;
     std::vector<WebEvent> web;
@@ -378,7 +379,8 @@ void openApp(int app);   // APP_HOME: the home screen
 const char* appName(int app);                // the icon's label (Charts and Live Map carry their provider's name)
 bool appVisible(int app);                 // on the home screen (web app icons can be switched off)
 std::vector<std::pair<int, int>> wrapLines(struct ImFont* font, float px, const std::string& v, float wrapW);   // a typed text's lines (the tests)
-void mapSelect(int kind, const std::string& key);   // opens the map's card for an item (for the tests)
+void mapSelect(int kind, const std::string& key);
+void openDispatchFromPlan();   // the Dispatch page, as the Flight Plan's Briefing PDF opens it (for the tests)   // opens the map's card for an item (for the tests)
 int touchTestCount();                     // marks in the Settings touch test (for the tests)
 const char* browserUrl();                 // the address the web page shows
 bool browserChrome();                     // the full browser (address bar, bookmarks) rather than a web app's own page
