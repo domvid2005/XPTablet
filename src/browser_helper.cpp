@@ -15,6 +15,8 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdarg>
+#include <ctime>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -150,6 +152,23 @@ bool parentAlive(long pid) {
 #else
     return kill((pid_t)pid, 0) == 0;
 #endif
+}
+
+// ---- pages.log (in the browser profile, new each start): what the pages say (console warnings and errors), loads that failed,
+// pop-ups, and page processes that stopped; Chromium's own log (xptbrowser.log) does not have the pages' side
+FILE* g_pageLog = nullptr;
+void pageLog(const char* fmt, ...) {
+    if (!g_pageLog) return;
+    const std::time_t now = std::time(nullptr);
+    char ts[16];
+    std::strftime(ts, sizeof ts, "%H:%M:%S", std::localtime(&now));
+    std::fprintf(g_pageLog, "%s ", ts);
+    va_list ap;
+    va_start(ap, fmt);
+    std::vfprintf(g_pageLog, fmt, ap);
+    va_end(ap);
+    std::fputc('\n', g_pageLog);
+    std::fflush(g_pageLog);
 }
 
 // ---- the tabs and the shown tab's picture ---------------------------------------------------------------------------------------
@@ -291,6 +310,7 @@ int CEF_CALLBACK onBeforePopup(cef_life_span_handler_t*, cef_browser_t* browser,
                                 cef_window_open_disposition_t, int, const cef_popup_features_t*, cef_window_info_t*, cef_client_t**,
                                 cef_browser_settings_t*, cef_dictionary_value_t**, int*) {
     const std::string u = url ? toUtf8(url) : std::string();
+    pageLog("pop-up asked for: %s", u.empty() ? "(no address)" : u.c_str());
     // a blank window a page fills in itself (about:blank) cannot be shown as a tab of its own: it would only be a white page
     if (!u.empty() && u.compare(0, 11, "about:blank") != 0) {
         const Tab* opener = tabOf(browser);
@@ -314,6 +334,19 @@ void CEF_CALLBACK onTitleChange(cef_display_handler_t*, cef_browser_t* b, const 
     t->title = toUtf8(title);
     publishInfo();
 }
+int CEF_CALLBACK onConsole(cef_display_handler_t*, cef_browser_t* b, cef_log_severity_t level, const cef_string_t* message, const cef_string_t* source, int line) {
+    if (level >= LOGSEVERITY_WARNING) {
+        const Tab* t = tabOf(b);
+        pageLog("[%s] %s (%s:%d) on %s", level >= LOGSEVERITY_ERROR ? "error" : "warning", message ? toUtf8(message).c_str() : "",
+                source ? toUtf8(source).c_str() : "", line, t ? t->url.c_str() : "?");
+    }
+    return 0;   // (Chromium logs it as usual too)
+}
+void CEF_CALLBACK onLoadError(cef_load_handler_t*, cef_browser_t*, cef_frame_t* frame, cef_errorcode_t code, const cef_string_t* text, const cef_string_t* url) {
+    if (code == ERR_ABORTED) return;   // (a load replaced by another: normal)
+    pageLog("load failed (%d %s, %s): %s", (int)code, text ? toUtf8(text).c_str() : "", frame && frame->is_main(frame) ? "the page" : "a frame in it",
+            url ? toUtf8(url).c_str() : "");
+}
 void CEF_CALLBACK onFullscreen(cef_display_handler_t*, cef_browser_t* b, int fullscreen) {   // a video's full-screen button
     Tab* t = tabOf(b);
     if (!t) return;
@@ -329,7 +362,8 @@ void CEF_CALLBACK onLoadingState(cef_load_handler_t*, cef_browser_t* b, int load
 // A page's process that stopped (a crash, or out of memory on a heavy map) leaves a white page: it is loaded again
 cef_request_handler_t g_request;
 void CEF_CALLBACK onRenderGone(cef_request_handler_t*, cef_browser_t* b, cef_termination_status_t status) {
-    std::fprintf(stderr, "xptbrowser: a page's process stopped (%d): reloading it\n", (int)status);
+    const Tab* t = tabOf(b);
+    pageLog("a page's process stopped (status %d) on %s: reloading it", (int)status, t ? t->url.c_str() : "?");
     if (b) b->reload(b);
 }
 cef_request_handler_t* CEF_CALLBACK getRequest(cef_client_t*) { return &g_request; }
@@ -371,8 +405,10 @@ void initHandlers() {
     g_display.on_address_change = onAddressChange;
     g_display.on_title_change = onTitleChange;
     g_display.on_fullscreen_mode_change = onFullscreen;
+    g_display.on_console_message = onConsole;
     initBase(g_load);
     g_load.on_loading_state_change = onLoadingState;
+    g_load.on_load_error = onLoadError;
     initBase(g_request);
     g_request.on_render_process_terminated = onRenderGone;
     initBase(g_client);
@@ -625,6 +661,7 @@ int main(int argc, char** argv) {
     setStr(&st.browser_subprocess_path, self);
     setStr(&st.resources_dir_path, dir);
     setStr(&st.locales_dir_path, dir + sep + "locales");
+    if (!profile.empty()) g_pageLog = std::fopen((profile + sep + "pages.log").c_str(), "w");
     if (!profile.empty()) { setStr(&st.root_cache_path, profile); setStr(&st.cache_path, profile + sep + "default"); setStr(&st.log_file, profile + sep + "xptbrowser.log"); }
     setStr(&st.locale, "en-US");
     if (!cef.initialize(&args, &st, &g_app, nullptr)) { fail("Chromium did not start (see xptbrowser.log in the browser profile)"); return 6; }
