@@ -20,6 +20,7 @@
 #include "imgui.h"
 #include "imgui_internal.h"   // (the error log: ImGui's own record of unbalanced calls, which it shows on screen in the sim)
 #include "tabletui.h"
+#include "airlines.h"
 #include "tabrender.h"
 
 using namespace xpt;
@@ -161,6 +162,21 @@ int main(int argc, char** argv) {
     s.batteryPct = 86; s.charging = true;
 
     int failures = 0;
+    {   // typing, a letter at a time: the lines already written never change (only the last line's last word may move down a line)
+        const std::string text = "CLEARED TO KORD VIA THE O'HARE FOUR DEPARTURE THEN AS FILED, MAINTAIN 5000 EXPECT FL350 10 MIN AFTER DEP, 124.35, SQUAWK 4521.  RWY 27L / 9R  ...";
+        for (float wrapW : {180.0f, 333.0f, 520.0f}) {
+            std::vector<std::string> prev;
+            for (size_t k = 1; k <= text.size(); ++k) {
+                const std::string v = text.substr(0, k);
+                std::vector<std::string> cur;
+                for (const auto& se : wrapLines(fonts.body, 15.0f * scale, v, wrapW * scale)) cur.push_back(v.substr(se.first, se.second - se.first));
+                bool bad = cur.size() < prev.size();
+                for (size_t i = 0; !bad && i + 1 < prev.size(); ++i) if (cur[i] != prev[i]) bad = true;
+                if (bad) { std::printf("FAIL: typing rewrapped an earlier line at %zu chars (width %.0f): '%s'\n", k, wrapW, prev.empty() ? "" : prev[0].c_str()); ++failures; break; }
+                prev = cur;
+            }
+        }
+    }
     const float widths[] = {800, 640, 1024, 360};   // 5:3 (AviTab's shape), 4:3, wide, portrait
     for (float W : widths) {
         const float H = kLogicalH;
@@ -429,7 +445,7 @@ int main(int argc, char** argv) {
                 "120 Centreline\n111 41.70075000 -86.32480000 1\n111 41.70075000 -86.31750000 1\n115 41.70150000 -86.31750000\n"
                 "120 Hold\n111 41.70040000 -86.32100000 4\n115 41.70040000 -86.31900000\n"
                 "1201 41.70075000 -86.32480000 both 0 n0\n1201 41.70075000 -86.31750000 both 1 n1\n1202 0 1 twoway taxiway_D A\n"
-                "1300 41.70280000 -86.32400000 180 gate jets A1\n1300 41.70280000 -86.32300000 180 gate jets A2\n1300 41.70280000 -86.31800000 180 gate jets A3\n";
+                "1300 41.70280000 -86.32400000 180 gate heavy|jets A1\n1301 E airline DAL AAL zzz\n1300 41.70280000 -86.32300000 180 gate jets A2\n1300 41.70280000 -86.31800000 180 gate jets A3\n";
             AptGeo geo;
             if (!parseAirport(rows, geo) || geo.icao != "KXPT" || geo.runways.size() != 1 || geo.pavement.empty() || geo.stands.size() != 3 || geo.taxiways.size() != 1) {
                 std::printf("FAIL: the test airport (%s, %zu runways, %zu pavement points, %zu stands)\n", geo.icao.c_str(), geo.runways.size(), geo.pavement.size(), geo.stands.size());
@@ -461,6 +477,11 @@ int main(int argc, char** argv) {
                     mapCommand(0);   // one step in
                 }
                 if (worst > 40) { std::printf("FAIL: the map takes %.0f ms a frame at zoom step %d\n", worst, worstStep); ++failures; }
+                // a gate's card: the airlines that park there, decoded
+                if (geo.stands[0].airlines != "DAL AAL zzz" || geo.stands[0].size != "E" || !airlineName("dal") || airlineName("ZZZ")) { std::printf("FAIL: stand airlines (%s)\n", geo.stands[0].airlines.c_str()); ++failures; }
+                for (int i = 0; i < 6; ++i) mapCommand(1);
+                { SimState g2 = mp; g2.map.lat = 41.7026; g2.map.lon = -86.3236; mapSelect(6, "KXPT|0"); shot(g2, APP_MAP, "map_gate"); mapSelect(0, ""); }
+                for (int i = 0; i < 6; ++i) mapCommand(0);
                 settings().mapOutlines = false; settings().mapWaypoints = false;
             }
             settings().mapSource = 1; settings().mapHeadingUp = true; settings().mapLocalTime = false;
@@ -598,6 +619,10 @@ int main(int argc, char** argv) {
             st.plan.status = "Imported KSBN to KORD at 05:12Z"; st.plan.loaded = true;
             shot(st, APP_SETTINGS, "settings_data");
             settings().simbriefUser.clear();
+            tap(st, 80, 280);   // Media
+            settings().mediaDuck = 1; settings().duckRx = 0.35f; settings().duckTx = 0.15f;
+            shot(st, APP_SETTINGS, "settings_media");
+            settings().mediaDuck = 0;
             tap(st, 80, 112);   // back to General
         }
         {   // the status bar's clock: a tap switches Zulu and local time where the aircraft is (EST here)
@@ -682,7 +707,7 @@ int main(int argc, char** argv) {
             shot(d, APP_DOCUMENTS, "documents");
         }
         SimState g = s; g.toliss = true; g.acfIcao = "A20N";
-        g.ground.toliss = true; g.ground.openSam = true; g.ground.jetway = 1; g.ground.paxDoors = 4; g.ground.cargoDoors = 2; g.ground.cargoDoors = 3; g.ground.deice = true; g.ground.jwDoors = 1; g.ground.slides = 1; g.ground.cabinLight = 0.4f; g.ground.paxDoor[0] = 2; g.ground.paxDoor[1] = 1; g.ground.cargoDoor[0] = 2; g.ground.chocks = true; g.ground.extPower = true;
+        g.ground.toliss = true; g.ground.openSam = true; g.ground.jetway = 1; g.ground.paxDoors = 4; g.ground.cargoDoors = 2; g.ground.cargoDoors = 3; g.ground.deice = true; g.ground.jwDoors = 1; g.ground.slides = 1; g.ground.cabinLight = 0.4f; g.ground.cabinAuto = 0; g.ground.paxDoor[0] = 2; g.ground.paxDoor[1] = 1; g.ground.cargoDoor[0] = 2; g.ground.chocks = true; g.ground.extPower = true;
         shot(g, APP_GROUND, "ground_toliss");
         { SimState g2 = g; g2.acfIcao = "A21N"; g2.ground.paxDoors = 8; shot(g2, APP_GROUND, "ground_a321"); }
         { SimState g3 = t;
@@ -776,6 +801,13 @@ int main(int argc, char** argv) {
             for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, wb, 800, kLogicalH, act); ImGui::Render(); if (act.webTabSelect || act.webTabNew) got = act; }
             if (got.webTabNew || (got.webTabSelect && got.webTabSelect != 1)) { std::printf("FAIL: the Browser keeps to its own tab (select %d, new %d)\n", got.webTabSelect, got.webTabNew ? 1 : 0); ++failures; } }
           openApp(APP_BROWSER); shot(wb, APP_BROWSER, "browser_tabs");
+          { openApp(APP_SIMBRIEF); SimState w3 = wb; w3.browser.zoomPct = 125; shot(w3, APP_SIMBRIEF, "webapp_header"); openApp(APP_SIMBRIEF);
+            // its Home button: back to SimBrief's own start page
+            Actions got;
+            for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(800 - 154, 28.0f + 23.0f); io.AddMouseButtonEvent(0, k == 1);
+                                          ImGui::NewFrame(); Actions act; build(fonts, w3, 800, kLogicalH, act); ImGui::Render(); if (!act.webNavigate.empty()) got = act; }
+            if (got.webNavigate.find("dispatch.simbrief.com") == std::string::npos) { std::printf("FAIL: the web app Home button goes to its start page (%s)\n", got.webNavigate.c_str()); ++failures; } }
+          openApp(APP_BROWSER);
           SimState wa = s; wa.browser.status = -3; wa.browser.message = "On macOS the web pages are not available yet."; shot(wa, APP_CHARTS, "browser_unavailable"); openApp(APP_GROUND); }
         {   // the plan window: Import and Dismiss take presses; the page's own buttons under it do not
             openApp(APP_ROUTES);

@@ -30,7 +30,7 @@ bool takeArt(int& version, std::vector<uint8_t>& rgba, int& w, int& h);   // the
 void command(int what);                                                   // 1 play / pause, 2 previous, 3 next
 void seek(double sec);                                                    // to this point of the track
 // each frame: 0 leave the music, 1 lower it to 50 %, 2 pause it, while radioRx (xPilot's COM1/COM2) or a radio app is heard
-void setDuck(int mode, bool radioRx, const std::string& radioName);
+void setDuck(int mode, bool radioRx, const std::string& radioName, float level = 0.5f);   // level: the volume when lowered (mode 1)
 
 } // namespace media
 } // namespace xpt

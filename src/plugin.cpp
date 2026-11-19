@@ -32,6 +32,7 @@
 #include "XPLMPlugin.h"
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
+#include "XPLMSound.h"
 
 #include "aptdat.h"
 #include "navdata.h"
@@ -185,6 +186,7 @@ struct SimRefs {
     XPLMDataRef cBase = nullptr, cTop = nullptr, cCover = nullptr, aAlt = nullptr, aDir = nullptr, aKt = nullptr, onGround = nullptr;
     XPLMDataRef jwStatus = nullptr, jwDoorStatus = nullptr;            // openSAM: the stand's jetway, and docked by door
     XPLMDataRef slides = nullptr, cabinPerc = nullptr, cabinLevel = nullptr, exitConfig = nullptr;   // ToLiss
+    XPLMDataRef cabinAuto = nullptr;   // ToLiss's cabin light auto setting, when its plugin has one (found by name, probeToLiss)
     bool wasDocked[3] = {false, false, false};                         // for opening and closing the doors with the jetways
     bool xpJetway = false;                                             // without openSAM: X-Plane's own jetways, as last pressed
     bool wantDoor[3] = {false, false, false};                          // the doors the user connected (only those open and show docked)
@@ -344,6 +346,20 @@ void updateNotify() {
     xpt::notify("Update available", "XPTablet " + v + " is ready in the SkunkCrafts Updater (this is " XPT_VERSION ")", xpt::APP_SETTINGS);
 }
 
+extern "C" const unsigned char xpt_asset_notify[];   // the notification chime: 16-bit mono PCM at 48 kHz (assets/notify_48k_mono.pcm)
+extern "C" const unsigned int xpt_asset_notify_size;
+// The chime, through X-Plane's own sound (its interface bus), at Settings, Media's volume: once for each new notification (and Test)
+void chimeStep() {
+    static int last = -1;
+    const int seq = xpt::chimeSeq();
+    if (last < 0) { last = seq; return; }
+    if (seq == last) return;
+    last = seq;
+    const float vol = xpt::settings().notifyVolume;
+    if (vol <= 0.001f) return;
+    FMOD_CHANNEL* ch = XPLMPlayPCMOnBus((void*)xpt_asset_notify, xpt_asset_notify_size, FMOD_SOUND_FORMAT_PCM16, 48000, 1, 0, xplm_AudioUI, nullptr, nullptr);
+    if (ch) XPLMSetAudioVolume(ch, vol);
+}
 // once a second: saved whenever the settings differ from the file, whether or not the change was flagged
 void saveSettingsIfChanged(float dt) {
     static float since = 0;
@@ -823,6 +839,16 @@ void dataInfoStep() {
     d.push_back({"Documents", "Output/XPTablet/Documents, the aircraft's folder, AviTab's charts"});
 }
 
+void browserStop();
+void resetBrowserData() {   // the helper quits first (it holds the files open); the next page shown starts it on an empty profile
+    browserStop();
+    char sys[2048] = "";
+    XPLMGetSystemPath(sys);
+    std::error_code ec;
+    const auto n = std::filesystem::remove_all(std::filesystem::u8path(std::string(sys) + "Output/XPTablet/browser"), ec);
+    logMsg("browser: profile erased (%d files)%s%s", (int)n, ec ? ", " : "", ec ? ec.message().c_str() : "");
+}
+
 void clearTileCache() {
     char sys[2048] = "";
     XPLMGetSystemPath(sys);
@@ -1172,6 +1198,7 @@ void saveNotes() {
 // One UI frame per sim frame, built by whichever of the two surfaces is drawn first and shared by the other.
 // ---- media: what plays on the computer, its cover, and the radio's effect on it (Windows, Linux; not macOS) ------------------------------
 int g_artTex = 0;
+bool g_pttCmd = false;   // xPilot's push-to-talk command is held (or toggled on)
 void mediaStep(const xpt::Actions& act) {
 #if defined(__APPLE__)
     g_sim.mac = true;
@@ -1200,9 +1227,25 @@ void mediaStep(const xpt::Actions& act) {
         return (XPLMGetDataRefTypes(r) & xplmType_Int) ? XPLMGetDatai(r) != 0 : XPLMGetDataf(r) > 0.5f;
     };
     const bool pilotRx = on(com1) || on(com2) || on(rxOld), xpRx = on(xpRx1) || on(xpRx2);
-    const bool rx = pilotRx || xpRx, tx = on(ptt) || on(xpTx1) || on(xpTx2);
-    const char* who = pilotRx || on(ptt) ? "xPilot" : "X-Plane ATC";
-    xpt::media::setDuck(st.mediaDuck, rx || tx, rx || tx ? who : "");
+    // xPilot's push-to-talk: its dataref, and also its command itself (a key or button bound to it: some versions of xPilot do not
+    // set the dataref then)
+    static bool pttWatched = false;
+    if (!pttWatched && (XPLMGetCycleNumber() & 255) == 1) {
+        for (const char* name : {"xpilot/ptt", "xpilot/toggle_ptt"}) {
+            if (XPLMCommandRef c = XPLMFindCommand(name)) {
+                XPLMRegisterCommandHandler(c, [](XPLMCommandRef, XPLMCommandPhase phase, void* toggle) -> int {
+                    if (toggle) { if (phase == xplm_CommandBegin) g_pttCmd = !g_pttCmd; }
+                    else g_pttCmd = phase != xplm_CommandEnd;
+                    return 1;   // (xPilot still gets it)
+                }, 1, (void*)(intptr_t)(std::strcmp(name, "xpilot/toggle_ptt") == 0));
+                pttWatched = true;
+            }
+        }
+    }
+    const bool pilotTx = on(ptt) || g_pttCmd;
+    const bool rx = pilotRx || xpRx, tx = pilotTx || on(xpTx1) || on(xpTx2);
+    const char* who = pilotRx || pilotTx ? "xPilot" : "X-Plane ATC";
+    xpt::media::setDuck(st.mediaDuck, rx || tx, rx || tx ? who : "", tx ? st.duckTx : st.duckRx);   // transmitting: its own level
     const xpt::media::Now n = xpt::media::now();
     xpt::MediaState& m = g_sim.media;
     m.supported = n.supported; m.active = n.active; m.app = n.app; m.title = n.title; m.artist = n.artist; m.album = n.album;
@@ -1303,6 +1346,7 @@ void ensureFrame() {
         }
     }
     if (act.clearTileCache) clearTileCache();
+    if (act.resetBrowserData) resetBrowserData();
     if ((XPLMGetCycleNumber() & 15) == 0) dataInfoStep();
     airportsStep(act);
     docsStep(act);
@@ -1802,6 +1846,36 @@ bool offered(const char* name) { return XPLMFindCommand(name) != nullptr || XPLM
 
 // Once per ToLiss aircraft: what its plugin offers for the Ground page, in Log.txt, so a wrong guess shows up there.
 void probeToLiss() {
+    // every cabin light dataref the aircraft's plugin has (X-Plane 12 lists them all): in Log.txt, and an "auto" one used for the
+    // Aircraft page's Auto button. (The level is AirbusFBW/cabinLightLevel_perc; the selector's position AirbusFBW/CabinLightLevel.)
+    {
+        const int n = XPLMCountDataRefs();
+        std::vector<XPLMDataRef> all((size_t)std::max(0, n));
+        if (n > 0) XPLMGetDataRefsByIndex(0, n, all.data());
+        int shown = 0;
+        for (XPLMDataRef d : all) {
+            if (!d) continue;
+            XPLMDataRefInfo_t info;
+            std::memset(&info, 0, sizeof info);
+            info.structSize = sizeof info;
+            XPLMGetDataRefInfo(d, &info);
+            if (!info.name) continue;
+            std::string lo;
+            for (const char* c = info.name; *c; ++c) lo += (char)std::tolower((unsigned char)*c);
+            if (lo.find("cabin") == std::string::npos || (lo.find("light") == std::string::npos && lo.find("lt") == std::string::npos)) continue;
+            const int t = info.type;
+            float v = 0;
+            if (t & xplmType_Int) v = (float)XPLMGetDatai(d); else if (t & xplmType_Float) v = XPLMGetDataf(d);
+            logMsg("ToLiss: cabin light dataref %s (%s%s, %s) = %g", info.name, (t & xplmType_Int) ? "int" : (t & xplmType_Float) ? "float" : "array",
+                   (t & (xplmType_IntArray | xplmType_FloatArray)) ? " array" : "", info.writable ? "writable" : "read-only", v);
+            if (!g_refs.cabinAuto && info.writable && lo.find("auto") != std::string::npos && (t & (xplmType_Int | xplmType_Float))) {
+                g_refs.cabinAuto = d;
+                logMsg("ToLiss: %s is used for the Aircraft page's cabin light Auto", info.name);
+            }
+            if (++shown > 40) break;
+        }
+        if (!shown) logMsg("ToLiss: no cabin light datarefs listed");
+    }
     auto describe = [](const char* name) {
         const XPLMDataRef d = XPLMFindDataRef(name);
         if (XPLMFindCommand(name)) { logMsg("ToLiss: %s is a command", name); return; }
@@ -1953,6 +2027,7 @@ void readSimState() {
         // cabin lights: the level in percent, else ToLiss's 0 / 1 / 2 (off, dim, bright)
         g.cabinLight = r.cabinPerc ? readNum(r.cabinPerc) / 100.0f : r.cabinLevel ? readNum(r.cabinLevel) / 2.0f : -1.0f;
         if (g.cabinLight >= 0) g.cabinLight = std::max(0.0f, std::min(1.0f, g.cabinLight));
+        g.cabinAuto = r.cabinAuto ? (readNum(r.cabinAuto) > 0.5f ? 1 : 0) : -1;
     } else {
         g.slides = -1; g.cabinLight = -1;
     }
@@ -1985,8 +2060,15 @@ void toggleInt(XPLMDataRef ref) { if (ref) XPLMSetDatai(ref, XPLMGetDatai(ref) ?
 // The slides' Auto: as ToLiss does it, armed once the beacon is on with every cabin door shut, disarmed parked with the beacon and
 // engines off. Sends ToLiss's own arm / disarm commands, at most once every few seconds.
 bool g_slidesAuto = false;
+bool g_slidesHeldDisarmed = false;   // Disarm pressed: kept disarmed (the aircraft arming them is undone) until Arm or Auto
 void slidesAutoStep() {
     const xpt::GroundState& g = g_sim.ground;
+    if (g_slidesHeldDisarmed && g.toliss && g.slides != 0) {   // armed (all or some) though Disarm was chosen: disarmed again
+        static double lastHold = -10;
+        const double now = XPLMGetElapsedTime();
+        if (now - lastHold > 1.0) { trigger("toliss_airbus/door_commands/disarm_slides"); lastHold = now; logMsg("slides: kept disarmed (the aircraft armed them)"); }
+        return;
+    }
     if (!g_slidesAuto || !g.toliss || g.slides < 0) return;
     static double last = -10;
     const double now = XPLMGetElapsedTime();
@@ -2021,9 +2103,9 @@ void doGround(const xpt::Actions& act) {
         logMsg("jetway: door %d %s (%s jetways)", k + 1, rr.wantDoor[k] ? "connected" : "disconnected", g.openSam ? "openSAM" : "X-Plane's");
         break;
     }
-    case xpt::GA_SLIDES_ARM: g_slidesAuto = false; if (g.toliss) trigger("toliss_airbus/door_commands/arm_slides"); break;
-    case xpt::GA_SLIDES_DISARM: g_slidesAuto = false; if (g.toliss) trigger("toliss_airbus/door_commands/disarm_slides"); break;
-    case xpt::GA_SLIDES_AUTO: g_slidesAuto = true; break;
+    case xpt::GA_SLIDES_ARM: g_slidesAuto = false; g_slidesHeldDisarmed = false; if (g.toliss) trigger("toliss_airbus/door_commands/arm_slides"); break;
+    case xpt::GA_SLIDES_DISARM: g_slidesAuto = false; g_slidesHeldDisarmed = true; if (g.toliss) trigger("toliss_airbus/door_commands/disarm_slides"); break;
+    case xpt::GA_SLIDES_AUTO: g_slidesAuto = true; g_slidesHeldDisarmed = false; break;
     case xpt::GA_CABIN_READY:   // the cabin is secure: ToLiss's CABIN READY memo (as its flight attendant panel sends it)
         // pressed again: not ready (ToLiss has no command to take its memo back, so only the tablet's button goes back)
         if (g.toliss && g_refs.cabinReady) g_refs.cabinReady = false;
@@ -2031,11 +2113,18 @@ void doGround(const xpt::Actions& act) {
         break;
     case xpt::GA_CABIN_LIGHT: {   // the level, 0-100 % in steps of 10; ToLiss's 0 / 1 / 2 switch when there is no percentage
         const int pct = std::max(0, std::min(100, act.groundIndex));
-        if (r.cabinPerc && XPLMCanWriteDataRef(r.cabinPerc)) writeNum(r.cabinPerc, (float)pct);
-        else if (r.cabinLevel && XPLMCanWriteDataRef(r.cabinLevel)) writeNum(r.cabinLevel, pct == 0 ? 0.0f : pct <= 50 ? 1.0f : 2.0f);
-        else logMsg("cabin lights: no writable ToLiss dataref");
+        // the selector (off / dim / bright) moves with the level, and choosing a level leaves Auto
+        bool wrote = false;
+        if (r.cabinAuto && XPLMCanWriteDataRef(r.cabinAuto)) writeNum(r.cabinAuto, 0.0f);
+        if (r.cabinLevel && XPLMCanWriteDataRef(r.cabinLevel)) { writeNum(r.cabinLevel, pct == 0 ? 0.0f : pct <= 50 ? 1.0f : 2.0f); wrote = true; }
+        if (r.cabinPerc && XPLMCanWriteDataRef(r.cabinPerc)) { writeNum(r.cabinPerc, (float)pct); wrote = true; }
+        if (!wrote) logMsg("cabin lights: no writable ToLiss dataref");
         break;
     }
+    case xpt::GA_CABIN_AUTO:
+        if (r.cabinAuto && XPLMCanWriteDataRef(r.cabinAuto)) writeNum(r.cabinAuto, readNum(r.cabinAuto) > 0.5f ? 0.0f : 1.0f);
+        else logMsg("cabin lights: this aircraft has no cabin light auto setting");
+        break;
     case xpt::GA_GPU: if (g.toliss && r.extPower) toggleInt(r.extPower); else once("sim/ground_ops/toggle_gpu_request"); break;
     case xpt::GA_CHOCKS: if (g.toliss) toggleInt(r.chocks); break;
     case xpt::GA_HP_AIR: if (g.toliss) toggleInt(r.hpAir); break;
@@ -2086,6 +2175,7 @@ float flightLoop(float dt, float, int, void*) {
     g_sim.charging = fed;
     if (xpt::takeSettingsChanged()) saveSettings();
     saveSettingsIfChanged(sec);
+    chimeStep();
     updateNotify();
     if (xpt::takeNotesChanged()) saveNotes();
     if (g_drZulu) g_sim.zuluSec = (int)XPLMGetDataf(g_drZulu);

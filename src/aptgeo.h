@@ -44,7 +44,9 @@ struct AptGeo {
     // painted lines: 0 taxiway centreline, 1 runway hold position, 2 other hold / ILS critical area, 3 taxiway edge
     struct Line { int kind = 0; std::vector<MercPt> pts; };
     std::vector<Line> lines;
-    struct Stand { MercPt p; float hdg = 0; std::string name, type, uses; };   // type: gate, tie_down, hangar...; uses: jets|turboprops...
+    // type: gate, tie_down, hangar...; uses: jets|turboprops...; from row 1301: size (ICAO class A-F), ops (airline, cargo,
+    // general_aviation, military) and the airlines' ICAO codes (space-separated)
+    struct Stand { MercPt p; float hdg = 0; std::string name, type, uses, size, ops, airlines; };
     std::vector<Stand> stands;
     struct Label { MercPt p; std::string text; };   // a taxiway's name, once along it
     std::vector<Label> taxiways;

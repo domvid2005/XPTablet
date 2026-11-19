@@ -54,7 +54,10 @@ struct Settings {
     bool autoDim = false;         // the screen dims itself as the daylight goes (WXPlane's curve); the brightness slider rests
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
     bool mediaEnabled = true;     // the Music app and the music controls in the pull-down (not on macOS)
-    int mediaDuck = 0;            // while the radios receive: 0 leave the music alone, 1 lower it to 50 %, 2 pause it (and play it again after)
+    int mediaDuck = 0;            // while the radios receive: 0 leave the music alone, 1 lower it (duckRx / duckTx), 2 pause it (and play it again after)
+    float duckRx = 0.5f;          // lowered: the media's volume while receiving, 0..1
+    float duckTx = 0.3f;          // and while transmitting
+    float notifyVolume = 0.7f;    // the notification chime, 0 (silent) .. 1
     bool notifyEnabled = true;    // notifications: banners, and the list in the pull-down
     bool notifyTcas = true;       // a TCAS alert (traffic in resolution-advisory range)
     bool notifySimbrief = true;   // a new SimBrief flight plan (checked every 2 minutes with the SimBrief ID)
@@ -120,6 +123,7 @@ struct GroundState {
     bool beacon = false, enginesRunning = false, parkBrake = false;
     float groundSpeedKt = 0;
     float cabinLight = -1;        // ToLiss: the cabin lights, 0..1, -1 unknown
+    int cabinAuto = -1;           // ToLiss: the cabin lights' auto setting, 1 on, 0 off, -1 the aircraft has none
     bool cabinReady = false;      // ToLiss: Cabin Ready was given (AirbusFBW/CheckCabin) for this phase; again after takeoff or landing
     bool jwMoving[3] = {false, false, false};   // a jetway is still moving to or from this door (not connected until it is there)
     bool slidesAuto = false;      // ToLiss: the slides follow the aircraft's own rule (armed once the beacon is on and the doors shut, disarmed parked)
@@ -286,7 +290,7 @@ struct SimState {
 // What the user asked for on the Ground page; the host carries it out.
 enum GroundAction { GA_NONE, GA_JETWAY, GA_GPU, GA_CHOCKS, GA_HP_AIR, GA_LP_AIR, GA_TRUCKS, GA_PUSH_LEFT, GA_PUSH_STRAIGHT, GA_PUSH_RIGHT, GA_PUSH_STOP,
                     GA_PAX_DOOR, GA_CARGO_DOOR, GA_DOORS_CLOSE, GA_DOORS_AUTO, GA_DEICE, GA_DEICE_QUICK,
-                    GA_JETWAY_DOOR, GA_SLIDES_ARM, GA_SLIDES_DISARM, GA_CABIN_LIGHT, GA_SLIDES_AUTO, GA_CABIN_READY };
+                    GA_JETWAY_DOOR, GA_SLIDES_ARM, GA_SLIDES_DISARM, GA_CABIN_LIGHT, GA_SLIDES_AUTO, GA_CABIN_READY, GA_CABIN_AUTO };
 
 struct Actions {
     int ground = GA_NONE;
@@ -320,6 +324,7 @@ struct Actions {
     bool planReview = false;      // open the window again on the plan dismissed     // the preview's Dismiss: it goes, the flight plan stays as it was
     bool planClear = false;       // forget it
     bool clearTileCache = false;  // delete the map tiles kept on disk
+    bool resetBrowserData = false;   // the browser's profile (logins, cookies, history, cache): stopped, deleted, started afresh
     std::string docOpen;
     int media = 0;                // the media player: 1 play / pause, 2 previous, 3 next
     double mediaSeek = -1;        // move the track to this point (seconds); -1: no
@@ -352,7 +357,8 @@ std::string checklistFor(const std::string& text, const std::string& icao, const
 int currentApp();
 // The browser's address bar is taking typed keys (the floating window's keyboard goes there instead of to the page).
 bool webTypingAddress();
-bool webTyping();            // a web page's text field has the keyboard (its keys go to the page)
+bool webTyping();
+int chimeSeq();               // counted up for each notification chime: the host plays it (at settings().notifyVolume) when it changes            // a web page's text field has the keyboard (its keys go to the page)
 // Something on the tablet is taking typed keys (the address bar, a note, a search): the floating window's keyboard goes there.
 bool tabletTyping();
 void tabletKey(int code, bool isChar);   // code: a character, or 8 (back) / 13 (enter)
@@ -371,6 +377,8 @@ void webAddressKey(int code, bool isChar);   // code: a character, or 8 (back) /
 void openApp(int app);   // APP_HOME: the home screen
 const char* appName(int app);                // the icon's label (Charts and Live Map carry their provider's name)
 bool appVisible(int app);                 // on the home screen (web app icons can be switched off)
+std::vector<std::pair<int, int>> wrapLines(struct ImFont* font, float px, const std::string& v, float wrapW);   // a typed text's lines (the tests)
+void mapSelect(int kind, const std::string& key);   // opens the map's card for an item (for the tests)
 int touchTestCount();                     // marks in the Settings touch test (for the tests)
 const char* browserUrl();                 // the address the web page shows
 bool browserChrome();                     // the full browser (address bar, bookmarks) rather than a web app's own page

@@ -330,6 +330,14 @@ bool parseAirport(const std::string& rows, AptGeo& g) {
             g.stands.push_back(st);
             break;
         }
+        case 1301:   // the stand just above: its size, who uses it, and the airlines that park there
+            if (!g.stands.empty()) {
+                AptGeo::Stand& st = g.stands.back();
+                st.size = w.s(1);
+                st.ops = w.s(2);
+                st.airlines = w.rest(3, le);
+            }
+            break;
         case 1302: {
             const std::string k = w.s(1);
             if (k == "datum_lat" && w.n > 2) { dLat = w.d(2); haveDatumLat = true; }

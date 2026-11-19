@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <mutex>
 #include <thread>
 
@@ -26,6 +27,7 @@ std::vector<int> g_cmds;
 double g_seekTo = -1;   // a seek waiting (seconds)
 std::chrono::steady_clock::time_point g_posAt;   // when g_now.posSec was read
 int g_duckMode = 0;
+float g_duckLevel = 0.5f;   // lowered: to this volume
 bool g_radioRx = false;
 std::string g_radioName;
 
@@ -102,6 +104,7 @@ void run() {
     int artVersion = 0;
     bool ducked = false, pausedByUs = false, lowered = false;
     int duckedMode = 0;
+    float duckedLevel = 1.0f;   // the volume it was lowered to
     auto lastHeard = std::chrono::steady_clock::now() - std::chrono::hours(1);
     while (!g_quit) {
         platform::Info info;
@@ -112,13 +115,14 @@ void run() {
         std::vector<int> cmds;
         double seekTo = -1;
         int mode;
+        float level = 0.5f;
         bool rx;
         std::string rxName;
         {
             std::lock_guard<std::mutex> lk(g_mx);
             cmds.swap(g_cmds);
             seekTo = g_seekTo; g_seekTo = -1;
-            mode = g_duckMode; rx = g_radioRx; rxName = g_radioName;
+            mode = g_duckMode; rx = g_radioRx; rxName = g_radioName; level = g_duckLevel;
         }
         for (int c : cmds) platform::send(c);
         if (seekTo >= 0) { platform::seek(seekTo); info.posSec = seekTo; }
@@ -148,8 +152,11 @@ void run() {
             if (pausedByUs) platform::send(4);
             ducked = lowered = pausedByUs = false;
         }
+        if (ducked && lowered && std::fabs(level - duckedLevel) > 0.01f) {   // receiving turned to transmitting (or back): its own level
+            platform::setVolume(level); duckedLevel = level;
+        }
         if (!ducked && radio && active && mode != 0) {
-            if (mode == 1) lowered = platform::setVolume(0.5f);
+            if (mode == 1) { lowered = platform::setVolume(level); duckedLevel = level; }
             else if (mode == 2 && info.playing) { platform::send(5); pausedByUs = true; }
             ducked = lowered || pausedByUs;
             duckedMode = mode;
@@ -208,9 +215,9 @@ bool takeArt(int& version, std::vector<uint8_t>& rgba, int& w, int& h) {
     return true;
 }
 void command(int what) { std::lock_guard<std::mutex> lk(g_mx); g_cmds.push_back(what); }
-void setDuck(int mode, bool radioRx, const std::string& name) {
+void setDuck(int mode, bool radioRx, const std::string& name, float level) {
     std::lock_guard<std::mutex> lk(g_mx);
-    g_duckMode = mode; g_radioRx = radioRx; g_radioName = name;
+    g_duckMode = mode; g_radioRx = radioRx; g_radioName = name; g_duckLevel = std::max(0.0f, std::min(1.0f, level));
 }
 
 } // namespace media

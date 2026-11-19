@@ -1,4 +1,5 @@
 #include "tabletui.h"
+#include "airlines.h"
 
 #include <algorithm>
 #include <map>
@@ -134,6 +135,7 @@ int appIcon(int app) {
 // the home screen's places (below)
 
 int g_app = APP_HOME;
+int g_chimeSeq = 0;   // counted up for each notification's chime (and Test); the host plays it at Settings, Media's volume
 // a web page full screen (a video's button): it takes the whole tablet, status bar and title bar too
 bool videoFull(const SimState& s) { return g_app == APP_BROWSER && s.browser.status == 1 && s.browser.fullscreen && !g_webHold; }
 EmbedArea g_embed;
@@ -1267,6 +1269,18 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         dl->AddLine(ImVec2(c.x - 3, c.y), ImVec2(c.x + 3, c.y), col, 1.5f);
         if (dir > 0) dl->AddLine(ImVec2(c.x, c.y - 3), ImVec2(c.x, c.y + 3), col, 1.5f);
     };
+    // the zoom group: - , the page's zoom (tapped: back to 100 %), +
+    auto zoomGroup = [&](const char* tag, float x0, float y0, float y1) {
+        char id[24];
+        std::snprintf(id, sizeof id, "##%szout", tag); zoomButton(id, ImVec2(x0, y0), ImVec2(x0 + 36, y1), -1);
+        char zt[16];
+        std::snprintf(zt, sizeof zt, "%d%%", g_webHold ? 100 : b.zoomPct);
+        std::snprintf(id, sizeof id, "##%szreset", tag);
+        const ImVec2 za(x0 + 38, y0 + 2), ze(x0 + 88, y1 - 2);
+        if (iconButton(id, za, ze, b.status == 1 && !g_webHold && b.zoomPct != 100)) act.webZoom = 2;
+        textCentered(dl, f.small, (za.x + ze.x) * 0.5f, std::floor((y0 + y1) * 0.5f - fontPx(f.small) * 0.5f), b.zoomPct != 100 && !g_webHold ? kInk : kMuted, zt);
+        std::snprintf(id, sizeof id, "##%szin", tag); zoomButton(id, ImVec2(x0 + 90, y0), ImVec2(x0 + 126, y1), 1);
+    };
     float top = kStatusH + kHeaderH;
     const ImU32 ink = IM_COL32(210, 222, 242, 255), dim = IM_COL32(100, 118, 148, 255);
     float pageTop = top;
@@ -1279,15 +1293,17 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         reloadIcon(dl, ImVec2(w - 74, my), ink);
         if (iconButton("##wkbd", ImVec2(w - 52, kStatusH + 6), ImVec2(w - 12, kStatusH + kHeaderH - 6), true)) { g_kbd = !g_kbd; g_kbdTarget = 0; }
         keyboardIcon(dl, ImVec2(w - 32, my), g_kbd ? accentLite(255) : ink);
-        zoomButton("##wzout", ImVec2(w - 210, kStatusH + 6), ImVec2(w - 174, kStatusH + kHeaderH - 6), -1);
-        zoomButton("##wzin", ImVec2(w - 170, kStatusH + 6), ImVec2(w - 134, kStatusH + kHeaderH - 6), 1);
-        if (b.zoomPct != 100 && !g_webHold) {   // the zoom, tapped: back to 100 %
-            char zt[16];
-            std::snprintf(zt, sizeof zt, "%d%%", b.zoomPct);
-            const float zw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, zt).x + 14;
-            if (iconButton("##wzreset", ImVec2(w - 214 - zw, kStatusH + 8), ImVec2(w - 214, kStatusH + kHeaderH - 8), true)) act.webZoom = 2;
-            textCentered(dl, f.small, w - 214 - zw * 0.5f, std::floor(my - fontPx(f.small) * 0.5f), kMuted, zt);
+        // home: the app's own start page again
+        const char* homeUrl = (g_webGroup >= 100 && g_webGroup - 100 < APP_COUNT) ? kApps[g_webGroup - 100].url : nullptr;
+        if (iconButton("##whome", ImVec2(w - 172, kStatusH + 6), ImVec2(w - 136, kStatusH + kHeaderH - 6), homeUrl != nullptr) && homeUrl) act.webNavigate = homeUrl;
+        {   // a house
+            const ImVec2 c(w - 154, my);
+            const ImU32 col = homeUrl ? ink : dim;
+            dl->AddTriangleFilled(ImVec2(c.x - 9, c.y - 1), ImVec2(c.x, c.y - 9), ImVec2(c.x + 9, c.y - 1), col);
+            dl->AddRectFilled(ImVec2(c.x - 6, c.y - 2), ImVec2(c.x + 6, c.y + 8), col, 1.5f);
+            dl->AddRectFilled(ImVec2(c.x - 2, c.y + 2), ImVec2(c.x + 2, c.y + 8), themeTone(16, 34, 66, 255));
         }
+        zoomGroup("w", w - 306, kStatusH + 6, kStatusH + kHeaderH - 6);
         if (tabs.size() > 1) {   // the app opened more (a chart, a PDF): its tabs, to switch and close them
             tabStrip(top, 30, false);
             pageTop = top + 30;
@@ -1307,17 +1323,8 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         reloadIcon(dl, ImVec2(84, my), ink);
         // the address: tapped, it takes what is typed on the keyboard
         // zoom, between the address and the star (the percentage inside the address, when it is not 100 %)
-        zoomButton("##bzout", ImVec2(w - 164, top + 4), ImVec2(w - 128, top + barH - 4), -1);
-        zoomButton("##bzin", ImVec2(w - 126, top + 4), ImVec2(w - 90, top + barH - 4), 1);
-        float zw = 0;
-        if (b.zoomPct != 100 && !g_webHold) {   // the zoom, just left of the buttons; tapped: back to 100 %
-            char zt[16];
-            std::snprintf(zt, sizeof zt, "%d%%", b.zoomPct);
-            zw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, zt).x + 14;
-            if (iconButton("##bzreset", ImVec2(w - 168 - zw, top + 8), ImVec2(w - 168, top + barH - 8), true)) act.webZoom = 2;
-            textCentered(dl, f.small, w - 168 - zw * 0.5f, std::floor(my - fontPx(f.small) * 0.5f), kMuted, zt);
-        }
-        const ImVec2 a(110, top + 6), e(w - 170 - zw, top + barH - 6);
+        zoomGroup("b", w - 216, top + 4, top + barH - 4);
+        const ImVec2 a(110, top + 6), e(w - 222, top + barH - 6);
         const bool editing = g_kbd && g_kbdTarget == 1;
         if (iconButton("##baddr", a, e, true)) { g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear(); }
         dl->AddRectFilled(a, e, IM_COL32(255, 255, 255, editing ? 44 : 26), 14.0f);
@@ -1995,7 +2002,8 @@ bool tcasRA(const MapState& m, const MapState::Traffic& t) {
     const double ha = m.hdgTrue * kPi / 180.0, ta = t.hdg * kPi / 180.0;
     const double vx = t.gsKt * std::sin(ta) - m.gsKt * std::sin(ha), vy = t.gsKt * std::cos(ta) - m.gsKt * std::cos(ha);
     const double closing = -(ex * vx + ny * vy) / std::max(1e-6, range);   // kt, + when getting closer
-    const bool horiz = range < dmod || (closing > 0 && range / closing * 3600.0 < tauS);
+    // a resolution advisory from 2 nm in (and sooner when closing fast, by TCAS II's time to closest approach)
+    const bool horiz = range < std::max(2.0, (double)dmod) || (closing > 0 && range / closing * 3600.0 < tauS);
     const double vClose = -(dz > 0 ? 1 : -1) * (t.vsFpm - m.vsFpm);         // ft/min, + when the heights come together
     const bool vert = std::fabs(dz) < zthr || (vClose > 0 && std::fabs(dz) / vClose * 60.0 < tauS);
     return horiz && vert;
@@ -2419,10 +2427,13 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 }
                 // the stands and the taxiway names, close in
                 if (close)
-                    for (const AptGeo::Stand& st : g.stands) {
+                    for (size_t si = 0; si < g.stands.size(); ++si) {
+                        const AptGeo::Stand& st = g.stands[si];
                         const ImVec2 q = toS(st.p);
                         if (q.x < r0.x - 40 || q.x > r1.x + 40 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
-                        dl->AddCircleFilled(q, 3.0f, IM_COL32(255, 255, 255, 235), 0);
+                        const bool picked = g_selKind == 6 && g_selKey == g.icao + "|" + std::to_string(si);
+                        if (picked) dl->AddCircle(q, 8.0f, accentLite(255), 0, 2.2f);
+                        dl->AddCircleFilled(q, picked ? 4.0f : 3.0f, picked ? accentLite(255) : IM_COL32(255, 255, 255, 235), 0);
                         dl->AddCircle(q, 3.0f, IM_COL32(20, 24, 32, 200), 0, 1.0f);
                         if (closest && !st.name.empty()) textAt(dl, f.small, q.x + 5, q.y - fontPx(f.small) * 0.5f, sat ? kInk : IM_COL32(30, 36, 48, 255), st.name.c_str());
                     }
@@ -2806,9 +2817,31 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         }
         if (g_settings.mapWaypoints && g_mapZoom >= 9.0) for (const MapState::Fix& fx : m.fixes) if (fx.enroute || g_mapZoom >= 11) consider(toS(mercOf(fx.lat, fx.lon)), 3, fx.ident, 12);
         if (g_settings.mapRoute) for (size_t i = 0; i < m.route.size(); ++i) consider(toS(mercOf(m.route[i].lat, m.route[i].lon)), 5, std::to_string(i), 12);
-        if (g_settings.mapAirports) {
-            if (g_mapZoom >= 7.0) for (const AptPoint& a : m.airportPoints) consider(toS(mercOf(a.lat, a.lon)), 4, a.icao, 14);
-            if (kind == 0 && g_mapZoom >= 11.5)   // close in: anywhere on an airport's layout
+        // airports come before navaids, ILS courses, fixes and route points (only traffic is ahead of them): their dot, or close in
+        // anywhere on their layout; and on a layout, a stand (its dot) before the airport
+        if (g_settings.mapAirports && kind != 1) {
+            float aBest = 16.0f;
+            std::string aKey;
+            if (g_mapZoom >= 7.0)
+                for (const AptPoint& a : m.airportPoints) {
+                    const ImVec2 q = toS(mercOf(a.lat, a.lon));
+                    const float d = std::sqrt((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y));
+                    if (d < aBest) { aBest = d; aKey = a.icao; }
+                }
+            bool stand = false;
+            if (g_mapShownNm < 1.9)   // the stands are drawn
+                for (const auto& ap : m.airports) {
+                    float sBest = 11.0f;
+                    int si = -1;
+                    for (size_t i = 0; i < ap->stands.size(); ++i) {
+                        const ImVec2 q = toS(ap->stands[i].p);
+                        const float d = std::sqrt((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y));
+                        if (d < sBest) { sBest = d; si = (int)i; }
+                    }
+                    if (si >= 0) { kind = 6; key = ap->icao + "|" + std::to_string(si); stand = true; break; }
+                }
+            if (!stand && !aKey.empty()) { kind = 4; key = aKey; }
+            else if (!stand && g_mapZoom >= 11.5)   // close in: anywhere on an airport's layout
                 for (const auto& ap : m.airports) {
                     const ImVec2 b0 = toS(ap->lo), b1 = toS(ap->hi);
                     if (p.x >= std::min(b0.x, b1.x) - 8 && p.x <= std::max(b0.x, b1.x) + 8 && p.y >= std::min(b0.y, b1.y) - 8 && p.y <= std::max(b0.y, b1.y) + 8) { kind = 4; key = ap->icao; break; }
@@ -2907,6 +2940,40 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 }
                 L.push_back({1, "Position", posText(rp.lat, rp.lon)});
             }
+        } else if (g_selKind == 6) {   // a stand: its name, kind, size and the airlines that use it, decoded
+            const size_t bar = g_selKey.find('|');
+            const std::string icao = g_selKey.substr(0, bar);
+            const size_t si = bar == std::string::npos ? (size_t)-1 : (size_t)std::atoi(g_selKey.c_str() + bar + 1);
+            for (const auto& ap : m.airports) {
+                if (ap->icao != icao || si >= ap->stands.size()) continue;
+                const AptGeo::Stand& st = ap->stands[si];
+                at = toS(st.p);
+                std::string kindName = st.type == "gate" ? "Gate" : (st.type == "tie_down" || st.type == "tie-down") ? "Tie-down" : st.type == "hangar" ? "Hangar" : "Stand";
+                L.push_back({0, st.name.empty() ? kindName : st.name, kindName + " at " + icao});
+                if (!st.size.empty()) L.push_back({1, "Size", "ICAO class " + st.size});
+                if (!st.uses.empty()) {   // "heavy|jets|turboprops": heavy, jets, turboprops
+                    std::string u;
+                    for (char c : st.uses) { if (c == '|') u += ", "; else u += c == '_' ? ' ' : c; }
+                    L.push_back({1, "For", u});
+                }
+                if (!st.ops.empty()) { std::string o = st.ops; for (char& c : o) if (c == '_') c = ' '; if (!o.empty()) o[0] = (char)std::toupper((unsigned char)o[0]); L.push_back({1, "Use", o}); }
+                std::snprintf(b, sizeof b, "%03.0f\xC2\xB0T", std::fmod(st.hdg + 360.0, 360.0)); L.push_back({1, "Heading", b});
+                // the airlines (apt.dat: their ICAO codes), each with its name when known
+                std::vector<std::string> codes;
+                for (size_t q = 0; q < st.airlines.size();) {
+                    while (q < st.airlines.size() && (st.airlines[q] == ' ' || st.airlines[q] == ',')) ++q;
+                    size_t e = q;
+                    while (e < st.airlines.size() && st.airlines[e] != ' ' && st.airlines[e] != ',') ++e;
+                    if (e > q) codes.push_back(st.airlines.substr(q, e - q));
+                    q = e;
+                }
+                if (!codes.empty()) {
+                    L.push_back({4, "Airlines", ""});
+                    for (size_t k = 0; k < codes.size() && k < 12; ++k) { std::string c = codes[k]; for (char& ch : c) ch = (char)std::toupper((unsigned char)ch); const char* n = airlineName(c); L.push_back({1, c, n ? n : "not in XPTablet's list"}); }
+                    if (codes.size() > 12) L.push_back({2, "and " + std::to_string(codes.size() - 12) + " more", ""});
+                } else L.push_back({2, "The scenery names no airlines for this stand.", ""});
+                break;
+            }
         } else if (g_selKind == 4) {
             double la = 0, lo = 0;
             bool placed = false;
@@ -2957,6 +3024,31 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
 }
 
 // ---- a text field (the on-screen keyboard types into it; so does the floating window's keyboard) ------------------------------------
+} // namespace
+// a typed text's lines, wrapped at wrapW (each: its first and past-its-last byte). A line's words stay on it as more are typed after
+// them; the spaces a wrap falls on end the line they follow, and a space typed at the very end of a full line starts the next one
+// (the caret goes there, as on an iPad, instead of hanging past the edge)
+std::vector<std::pair<int, int>> wrapLines(ImFont* font, float px, const std::string& v, float wrapW) {
+    std::vector<std::pair<int, int>> out;
+    const char* base = v.c_str(), *end = base + v.size();
+    const char* p0 = base;
+    while (true) {
+        const char* nl = std::find(p0, end, '\n');
+        const char* s0 = p0;
+        do {
+            const char* cut = nl == s0 ? nl : font->CalcWordWrapPositionA(px / font->FontSize, s0, nl, wrapW);
+            if (cut == s0 && s0 < nl) ++cut;
+            out.push_back({(int)(s0 - base), (int)(cut - base)});
+            s0 = cut;
+            while (s0 < nl && *s0 == ' ') ++s0;
+            if (s0 == nl && cut < nl) out.push_back({(int)(s0 - base), (int)(s0 - base)});   // only spaces after the wrap: a new, empty line
+        } while (s0 < nl);
+        if (nl == end) break;
+        p0 = nl + 1;
+    }
+    return out;
+}
+namespace {
 // ruled: the pad's line spacing (the scratchpad's lines): each line of text sits on one of them (0: plain)
 bool textField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, ImVec2 a, ImVec2 b, const char* hint, bool multiline, float ruled = 0) {
     ImGui::SetCursorScreenPos(a);
@@ -2978,24 +3070,15 @@ bool textField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, I
             const float wrapW = b.x - a.x - 24, step = ruled > 0 ? ruled : px + 5;
             struct Ln { const char* s; const char* e; };
             std::vector<Ln> ls;
-            const char* base = v.c_str(), *end = base + v.size();
-            const char* p0 = base;
-            while (true) {
-                const char* nl = std::find(p0, end, '\n');
-                const char* s0 = p0;
-                do {
-                    const char* cut = nl == s0 ? nl : f.body->CalcWordWrapPositionA(px / f.body->FontSize, s0, nl, wrapW);
-                    if (cut == s0 && s0 < nl) ++cut;
-                    ls.push_back({s0, cut});
-                    s0 = cut;
-                    while (s0 < nl && *s0 == ' ') ++s0;
-                } while (s0 < nl);
-                if (nl == end) break;
-                p0 = nl + 1;
-            }
+            for (const auto& se : wrapLines(f.body, px, v, wrapW)) ls.push_back({v.c_str() + se.first, v.c_str() + se.second});
             // past the box, it moves up a whole line at a time (on the rules) so the last line shows
+            // as many lines as there are rules (as the pad draws them: every `ruled` from its top, short of its bottom), so the line
+            // being typed is never one drawn under the last rule, half cut off, until the text moved up a line
             const float y0 = ruled > 0 ? a.y + ruled - px - 6 : a.y + 8;
-            const int fits = std::max(1, (int)std::floor((b.y - y0 - 4) / step) + (ruled > 0 ? 1 : 0));
+            int fits = 0;
+            if (ruled > 0) { for (float ly = a.y + ruled; ly < b.y - 4; ly += ruled) ++fits; }
+            else fits = (int)std::floor((b.y - 4 - y0 - px) / step) + 1;
+            fits = std::max(1, fits);
             const int first = std::max(0, (int)ls.size() - fits);
             float y = y0;
             for (int k = first; k < (int)ls.size(); ++k, y += step) dl->AddText(f.body, px, ImVec2(a.x + 10, y), kInk, ls[k].s, ls[k].e);
@@ -3004,7 +3087,7 @@ bool textField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, I
         } else {   // a long line shows its end (with room kept for the caret, so it does not move as it blinks)
             const float tw = f.body->CalcTextSizeA(px, 1e9f, 0, v.c_str()).x;
             const float room = b.x - a.x - 24;
-            const float x = a.x + 10 - std::max(0.0f, tw - room);
+            const float x = std::floor(a.x + 10 - std::max(0.0f, tw - room));   // (whole pixels: the letters do not shimmer as it moves)
             textAt(dl, f.body, x, ty, kInk, v.c_str());
             caret(x + tw, ty);
         }
@@ -3538,6 +3621,7 @@ std::string sizeText(long long b) {
     else std::snprintf(t, sizeof t, "%.0f KB", std::max(1.0, b / 1024.0));
     return t;
 }
+float scrollBar(ImDrawList* dl, const char* id, float x, float y0, float y1, float scroll, float content, float shown);   // (below)
 float g_docListScroll = 0;
 std::string g_docFilter;   // one folder ("This aircraft"...), or "" for all
 
@@ -3545,8 +3629,15 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     const DocsState& d = s.docs;
     if (!d.listed) act.docsList = true;
     const float top = kStatusH + kHeaderH + 8, lw = 290;
-    if (pill(dl, f, "##docref", "Refresh", ImVec2(12, top), ImVec2(92, top + 30), false, true)) act.docsList = true;
-    g_docFilter.clear();   // (no folder filter: the list shows every folder, each under its own heading)
+    if (iconButton("##docref", ImVec2(12, top), ImVec2(48, top + 30), true)) act.docsList = true;   // look again
+    reloadIcon(dl, ImVec2(30, top + 15), kInk);
+    {   // which folders: all of them, the aircraft's own, or XPTablet's Documents folder
+        struct Flt { const char* id; const char* name; const char* folder; float x0, x1; };
+        const Flt flts[] = {{"##docall", "All", "", 54, 104}, {"##docacf", "Aircraft", "This aircraft", 108, 198}, {"##docxpt", "XPTablet", "XPTablet's Documents", 202, 302}};
+        for (const Flt& fl : flts)
+            if (pill(dl, f, fl.id, fl.name, ImVec2(fl.x0, top), ImVec2(fl.x1, top + 30), g_docFilter == fl.folder, true) && g_docFilter != fl.folder) { g_docFilter = fl.folder; g_docListScroll = 0; }
+        if (!g_docFilter.empty() && g_docFilter != "This aircraft" && g_docFilter != "XPTablet's Documents") g_docFilter.clear();
+    }
     const ImVec2 la(12, top + 40), lb(12 + lw, h - 12);
     card(dl, la, lb, f, nullptr);
     if (d.files.empty()) {
@@ -3561,6 +3652,23 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_docListScroll -= ImGui::GetIO().MouseWheel * 40;
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_docListScroll -= ImGui::GetIO().MouseDelta.y;
     g_docListScroll = std::max(0.0f, g_docListScroll);
+    // the list's height first (for the scroll bar, and the rows' width beside it)
+    float contentH = 8;
+    {
+        std::string fo;
+        int n = 0;
+        for (const DocEntry& e : d.files) {
+            if (!g_docFilter.empty() && e.folder != g_docFilter) continue;
+            if (e.folder != fo) { fo = e.folder; contentH += 24; }
+            contentH += 36; ++n;
+        }
+        contentH += 12;
+        if (n == 0 && !d.files.empty()) textAt(dl, f.small, la.x + 14, la.y + 14, kMuted, g_docFilter == "This aircraft" ? "No documents in this aircraft's folder." : "No documents in XPTablet's Documents folder.");
+    }
+    const float shownH = lb.y - la.y;
+    const bool scrolls = contentH > shownH + 1;
+    g_docListScroll = std::min(g_docListScroll, std::max(0.0f, contentH - shownH));
+    const float rowR = scrolls ? lb.x - 16 : lb.x - 6;
     dl->PushClipRect(ImVec2(la.x + 2, la.y + 2), ImVec2(lb.x - 2, lb.y - 2), true);
     float y = la.y + 8 - g_docListScroll;
     std::string folder;
@@ -3571,12 +3679,12 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
         char id[32];
         std::snprintf(id, sizeof id, "##doc%zu", i);
         ImGui::SetCursorScreenPos(ImVec2(la.x + 6, y));
-        if (ImGui::InvisibleButton(id, ImVec2(lw - 12, 34)) && y > la.y - 30) {
+        if (ImGui::InvisibleButton(id, ImVec2(rowR - la.x - 6, 34)) && y > la.y - 30) {
             if (e.pdf) { openWeb(e.name.c_str(), fileUrl(e.path).c_str(), true); return; }
             act.docOpen = e.path; g_docZoom = 1.0f; g_docPan = ImVec2(0, 0);
         }
-        if (e.path == d.shownPath) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(lb.x - 6, y + 34), accentCol(80), 8.0f);
-        else if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(lb.x - 6, y + 34), IM_COL32(255, 255, 255, 18), 8.0f);
+        if (e.path == d.shownPath) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(rowR, y + 34), accentCol(80), 8.0f);
+        else if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(rowR, y + 34), IM_COL32(255, 255, 255, 18), 8.0f);
         // a small page: red for a PDF, blue for a picture
         const ImVec2 ic(la.x + 22, y + 17);
         dl->AddRectFilled(ImVec2(ic.x - 7, ic.y - 10), ImVec2(ic.x + 7, ic.y + 10), e.pdf ? IM_COL32(220, 70, 70, 255) : IM_COL32(70, 150, 230, 255), 2.0f);
@@ -3584,11 +3692,11 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
         std::string nm = e.name;
         while (nm.size() > 3 && f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, nm.c_str()).x > lw - 110) { nm.resize(nm.size() - 3); nm += ".."; }
         textAt(dl, f.body, la.x + 38, std::floor(y + 17 - fontPx(f.body) * 0.5f), kInk, nm.c_str());
-        textRight(dl, f.small, lb.x - 12, std::floor(y + 17 - fontPx(f.small) * 0.5f), kMuted, sizeText(e.bytes).c_str());
+        textRight(dl, f.small, rowR - 6, std::floor(y + 17 - fontPx(f.small) * 0.5f), kMuted, sizeText(e.bytes).c_str());
         y += 36;
     }
-    g_docListScroll = std::min(g_docListScroll, std::max(0.0f, y + g_docListScroll - lb.y + 20));
     dl->PopClipRect();
+    if (scrolls) g_docListScroll = scrollBar(dl, "##docbar", lb.x - 8, la.y + 8, lb.y - 8, g_docListScroll, contentH, shownH);
     // the picture: fitted, then the wheel or + / - to zoom and a drag to move
     const ImVec2 va(24 + lw, top), vb(w - 12, h - 12);
     dl->AddRectFilled(va, vb, themeTone(8, 14, 26, 240), 10.0f);
@@ -4108,8 +4216,10 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         textAt(dl, f.bold, cx0 + 112, y + 4, pct > 0 ? kInk : kMuted, lv);
         if (g.cabinLight >= 0) {
             const float bw = 64;
-            if (pill(dl, f, "##clon", "On", ImVec2(cx1 - 2 * bw - 8, y), ImVec2(cx1 - bw - 8, y + 30), pct > 0, true) && pct <= 0) { act.ground = GA_CABIN_LIGHT; act.groundIndex = lastOn; }
-            if (pill(dl, f, "##cloff", "Off", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), pct == 0, true) && pct != 0) { act.ground = GA_CABIN_LIGHT; act.groundIndex = 0; }
+            const bool autoOn = g.cabinAuto == 1;
+            if (pill(dl, f, "##clon", "On", ImVec2(cx1 - 2 * bw - 8, y), ImVec2(cx1 - bw - 8, y + 30), pct > 0 && !autoOn, true) && (pct <= 0 || autoOn)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = pct > 0 ? pct : lastOn; }
+            if (pill(dl, f, "##cloff", "Off", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), pct == 0 && !autoOn, true) && (pct != 0 || autoOn)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = 0; }
+            if (g.cabinAuto >= 0 && pill(dl, f, "##clauto", "Auto", ImVec2(cx1 - 3 * bw - 16, y), ImVec2(cx1 - 2 * bw - 16, y + 30), autoOn, true)) act.ground = GA_CABIN_AUTO;
         }
         y += 36;
         if (g.cabinLight >= 0) {
@@ -4236,7 +4346,6 @@ void weatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
 int g_settingsTab = 0;   // 0 General, 1 Display, 2 Data, 3 Credits, 4 Notifications, 5 Media (not on macOS)
 
 float g_creditsScroll = 0;
-float scrollBar(ImDrawList* dl, const char* id, float x, float y0, float y1, float scroll, float content, float shown);   // (below)
 void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
     const float top = kStatusH + kHeaderH + 10;
     const ImVec2 ca(left, top), cb(w - 12, h - 12);
@@ -4314,6 +4423,7 @@ void postNote(const std::string& title, const std::string& body, int app) {
     // no pop-up while the page it leads to is already open (it is still in the list, in the pull-down)
     const bool here = app >= 0 && app < APP_COUNT && app != APP_HOME && app == g_app;
     n.banner = g_power == POWER_ON && !here;
+    if (g_power == POWER_ON) ++g_chimeSeq;   // (a dark tablet stays quiet)
     if (n.banner) for (Note& o : g_notes) o.banner = false;   // one banner at a time: the newest
     g_notes.insert(g_notes.begin(), n);
     if (g_notes.size() > 40) g_notes.resize(40);
@@ -4470,7 +4580,7 @@ void playerButtons(ImDrawList* dl, const MediaState& m, ImVec2 c, float r, const
         }
     }
 }
-const char* duckName(int m) { return m == 1 ? "lowers the media to 50 %" : m == 2 ? "pauses the media" : "leaves the media alone"; }
+const char* duckName(int m) { return m == 1 ? "lowers the media (by the levels set)" : m == 2 ? "pauses the media" : "leaves the media alone"; }
 std::string radioLine(const MediaState& m) {
     std::string r = m.radioTx ? std::string("Radio: transmitting") : m.radioRx ? "Radio: receiving" + (m.radioSource.empty() ? std::string() : " (" + m.radioSource + ")") : std::string("Radio: quiet");
     if (m.ducked) r += g_settings.mediaDuck == 2 ? ", media paused" : ", media lowered";
@@ -4941,21 +5051,32 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         y += 56;
         textAt(dl, f.bold, lx, y, g_settings.mediaEnabled ? kInk : kMuted, "When the radios receive or transmit");
         y += 24;
-        const char* modes[3] = {"No change", "Lower media to 50 %", "Pause media"};
+        const char* modes[3] = {"No change", "Lower media", "Pause media"};
         for (int i = 0; i < 3; ++i) {
             char id[16];
             std::snprintf(id, sizeof id, "##duck%d", i);
             if (pill(dl, f, id, modes[i], ImVec2(lx, y), ImVec2(lx + colW, y + 30), g_settings.mediaDuck == i, g_settings.mediaEnabled) && g_settings.mediaEnabled) { g_settings.mediaDuck = i; g_settingsChanged = true; }
             y += 36;
         }
-        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y + 2), kMuted, "Paused media plays again when the radio is quiet. Receiving: X-Plane's own ATC and ATIS, xPilot's COM1 and COM2, and on Windows VATSIM voice apps (TrackAudio, swift...). Transmitting: X-Plane's and xPilot's push-to-talk.", nullptr, colW);
+        // lowered: to how much, receiving and transmitting each (greyed unless "Lower media")
+        const bool lowering = g_settings.mediaEnabled && g_settings.mediaDuck == 1;
+        auto level = [&](const char* id, const char* name, float& v) {
+            textAt(dl, f.small, lx, y + 7, lowering ? kInk : kMuted, name);
+            char txt[16];
+            std::snprintf(txt, sizeof txt, "%d%%", (int)std::lround(v * 100));
+            float tv = v;
+            if (smoothSlider(dl, f, id, ImVec2(lx + 96, y), ImVec2(lx + colW, y + 30), tv, 0.0f, 1.0f, 20, lowering, txt) && lowering) { v = tv; g_settingsChanged = true; }
+            y += 36;
+        };
+        level("##duckrx", "Receiving", g_settings.duckRx);
+        level("##ducktx", "Transmitting", g_settings.duckTx);
         // the right: what is going on now
         float ry = top;
         const MediaState& md = s.media;
         textAt(dl, f.bold, rx, ry, kInk, "Now");
         ry += 26;
         const float rw = w - 18 - rx;
-        if (!md.supported) dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kWarn, "This computer's media controls could not be reached.", nullptr, rw);
+        if (!md.supported) { dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kWarn, "This computer's media controls could not be reached.", nullptr, rw); ry += 22; }
         else {
             textAt(dl, f.small, rx, ry, kMuted, "Player"); textRight(dl, f.bold, w - 18, ry - 1, kInk, fitText(f.bold, md.active ? (md.app.empty() ? std::string("playing") : md.app) : std::string("none"), rw - 80).c_str());
             ry += 22;
@@ -4963,7 +5084,20 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             textAt(dl, f.small, rx, ry, kMuted, "Radio"); textRight(dl, f.bold, w - 18, ry - 1, md.radioRx || md.radioTx ? kWarn : kInk, md.radioTx ? "transmitting" : md.radioRx ? (md.radioSource.empty() ? "receiving" : ("receiving (" + md.radioSource + ")").c_str()) : "quiet");
             ry += 22;
             textAt(dl, f.small, rx, ry, kMuted, "Media"); textRight(dl, f.bold, w - 18, ry - 1, md.ducked ? kWarn : kInk, md.ducked ? (g_settings.mediaDuck == 2 ? "paused for the radio" : "lowered for the radio") : (md.playing ? "playing" : "not playing"));
+            ry += 22;
         }
+        ry += 16;
+        textAt(dl, f.bold, rx, ry, kInk, "Notification sound");
+        ry += 26;
+        {   // the chime's volume (0: silent), and a test
+            char txt[16];
+            std::snprintf(txt, sizeof txt, "%d%%", (int)std::lround(g_settings.notifyVolume * 100));
+            float v = g_settings.notifyVolume;
+            if (smoothSlider(dl, f, "##notifyvol", ImVec2(rx - 4, ry), ImVec2(w - 18 - 76, ry + 30), v, 0.0f, 1.0f, 20, true, txt)) { g_settings.notifyVolume = v; g_settingsChanged = true; }
+            if (pill(dl, f, "##notifytest", "Test", ImVec2(w - 18 - 68, ry + 1), ImVec2(w - 18, ry + 29), false, g_settings.notifyVolume > 0)) ++g_chimeSeq;
+            ry += 44;
+        }
+        dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "Paused media plays again when the radio is quiet. Receiving: X-Plane's own ATC and ATIS, xPilot's COM1 and COM2, and on Windows VATSIM voice apps (TrackAudio, swift...). Transmitting: X-Plane's and xPilot's push-to-talk.", nullptr, w - 18 - rx);
         return;
     }
     if (g_settingsTab == 1) {   // ---- Display: brightness (or auto dim), the favorites bar, the clock (the map's options are on the map)
@@ -5060,6 +5194,15 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         y += 21;
     }
     if (pill(dl, f, "##clrtiles", "Clear map cache", ImVec2(w - 12 - 150, top + 150), ImVec2(w - 12, top + 182), false, true)) act.clearTileCache = true;
+    // the browser's cookies, logins, history and cache, all of it: asked twice, as it signs out of every site
+    static double askedAt = -100;
+    const double now = ImGui::GetTime();
+    const bool asking = now - askedAt < 4.0;
+    if (pill(dl, f, "##clrweb", asking ? "Tap again: erase" : "Reset browser data", ImVec2(w - 12 - 150, top + 190), ImVec2(w - 12, top + 222), asking, true)) {
+        if (asking) { act.resetBrowserData = true; askedAt = -100; postNote("Browser data erased", "Signed out of every site; cookies, history and cache cleared.", APP_SETTINGS); }
+        else askedAt = now;
+    }
+    if (asking) textRight(dl, f.small, w - 12, top + 228, kWarn, "Signs out of every site");
 }
 
 void openWeb(const char* site, const char* url, bool chrome, int group) {
@@ -5071,6 +5214,7 @@ void openWeb(const char* site, const char* url, bool chrome, int group) {
 
 } // namespace
 bool trafficInRA(const MapState& m, const MapState::Traffic& t) { return tcasRA(m, t); }
+void mapSelect(int kind, const std::string& key) { g_selKind = kind; g_selKey = key; }
 int powerState() { return g_power; }   // 0 on, 1 fading off, 2 off, 3 starting, 4 waking
 
 Fonts loadFonts(float pixelScale) {
@@ -5482,6 +5626,7 @@ int touchTestCount() { return (int)g_touches.size(); }
 const EmbedArea& embedArea() { return g_embed; }
 const char* browserUrl() { return g_url.c_str(); }
 bool browserChrome() { return g_chrome; }
+int chimeSeq() { return g_chimeSeq; }
 bool webTyping() { return g_app == APP_BROWSER && g_kbd && g_kbdTarget == 0; }   // a web page's text field has the keyboard
 
 const char* appName(int app) {
@@ -5626,6 +5771,8 @@ std::string settingsToText() {
     std::snprintf(buf, sizeof buf, "map_navaids=%d\nmap_waypoints=%d\nmap_route=%d\nstatus_local_time=%d\nauto_dim=%d\n", g_settings.mapNavaids ? 1 : 0, g_settings.mapWaypoints ? 1 : 0,
                   g_settings.mapRoute ? 1 : 0, g_settings.statusLocalTime ? 1 : 0, g_settings.autoDim ? 1 : 0);
     out += buf;
+    std::snprintf(buf, sizeof buf, "duck_rx=%.2f\nduck_tx=%.2f\nnotify_volume=%.2f\n", (double)g_settings.duckRx, (double)g_settings.duckTx, (double)g_settings.notifyVolume);
+    out += buf;
     {   // the SimBrief name, without line breaks
         std::string u = g_settings.simbriefUser;
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
@@ -5703,6 +5850,9 @@ void settingsFromText(const std::string& text) {
         else if (key == "charger") g_charger = v != 0;
         else if (key == "media_enabled") g_settings.mediaEnabled = v != 0;
         else if (key == "media_duck") g_settings.mediaDuck = std::max(0, std::min(2, v));
+        else if (key == "duck_rx") g_settings.duckRx = std::max(0.0f, std::min(1.0f, (float)std::atof(val.c_str())));
+        else if (key == "duck_tx") g_settings.duckTx = std::max(0.0f, std::min(1.0f, (float)std::atof(val.c_str())));
+        else if (key == "notify_volume") g_settings.notifyVolume = std::max(0.0f, std::min(1.0f, (float)std::atof(val.c_str())));
         else if (key == "notify_enabled") g_settings.notifyEnabled = v != 0;
         else if (key == "notify_tcas") g_settings.notifyTcas = v != 0;
         else if (key == "notify_simbrief") g_settings.notifySimbrief = v != 0;
