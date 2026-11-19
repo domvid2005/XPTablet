@@ -737,23 +737,8 @@ int main(int argc, char** argv) {
     if (!profile.empty()) g_pageLog = std::fopen((profile + sep + "pages.log").c_str(), "w");
     if (!profile.empty()) { setStr(&st.root_cache_path, profile); setStr(&st.cache_path, profile + sep + "default"); setStr(&st.log_file, profile + sep + "xptbrowser.log"); }
     setStr(&st.locale, "en-US");
-    // the user agent of the desktop Chrome of the same version (no embedded-browser marks), so sign-ins (Google's, used by
-    // Navigraph and SimBrief) take it as an ordinary browser
-    if (cef.version_info) {
-        const int major = cef.version_info(2);
-        if (major > 0) {
-#if defined(_WIN32)
-            const char* os = "Windows NT 10.0; Win64; x64";
-#elif defined(__APPLE__)
-            const char* os = "Macintosh; Intel Mac OS X 10_15_7";
-#else
-            const char* os = "X11; Linux x86_64";
-#endif
-            char ua[256];
-            std::snprintf(ua, sizeof ua, "Mozilla/5.0 (%s) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%d.0.0.0 Safari/537.36", os, major);
-            setStr(&st.user_agent, ua);
-        }
-    }
+    // (the user agent stays Chromium's own: one claiming another version made sites send code this Chromium cannot run, and
+    // refuse it as an unsupported browser)
     if (!cef.initialize(&args, &st, &g_app, nullptr)) { fail("Chromium did not start (see xptbrowser.log in the browser profile)"); return 6; }
 
     if (!openTab("", 0)) { fail("Chromium could not open a page"); cef.shutdown(); return 7; }
