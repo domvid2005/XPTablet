@@ -213,7 +213,9 @@ struct FlightPlan {
     std::string pdfUrl;           // the briefing (the OFP as SimBrief's PDF)
     std::string importedAt;       // when (Zulu)
     std::string ofpId;            // SimBrief's request id and generation time: a new plan has a new one
-    struct Leg { std::string ident, airway, alt, legNm, totalTime, type; double lat = 0, lon = 0; };
+    struct Leg { std::string ident, airway, alt, legNm, totalTime, type; double lat = 0, lon = 0;
+                 std::string cross;   // the SID's or STAR's crossing restriction there ("at or above FL220", "... 280 kt"), from X-Plane's CIFP
+    };
     std::vector<Leg> legs;
 };
 

@@ -1,4 +1,8 @@
 #include "simbrief.h"
+#include <vector>
+#include <functional>
+#include <set>
+#include <map>
 
 #include <algorithm>
 #include <cctype>
@@ -154,6 +158,70 @@ void planDecide(SimState& s, const Actions& a) {
         s.planDismissed = s.planPreview.ofpId;
         s.planPreviewOpen = false;
     } else if (a.planReview && s.planPreview.loaded) s.planPreviewOpen = true;
+}
+
+
+// ---- crossing restrictions, from X-Plane's CIFP (one file per airport: "SID:" and "STAR:" records, comma-separated, ARINC 424's
+// fields: 2 the procedure, 3 its transition, 4 the fix, 22 the altitude restriction (blank: at, + at or above, - at or below, B
+// between the two), 23 and 24 the altitudes ("12000", "FL230"), 27 the speed limit in knots)
+static std::string crossText(const std::string& desc, const std::string& a1, const std::string& a2, const std::string& spd) {
+    std::string t;
+    if (!a1.empty()) {
+        if (desc == "+") t = "at or above " + a1;
+        else if (desc == "-") t = "at or below " + a1;
+        else if (desc == "B" && !a2.empty()) t = "between " + a2 + " and " + a1;   // (the upper one first in the record)
+        else t = "at " + a1;
+    }
+    if (!spd.empty()) t += (t.empty() ? "" : ", ") + spd + " kt";
+    return t;
+}
+int addCrossings(FlightPlan& p, const std::function<std::string(const std::string&)>& cifpText) {
+    auto trim = [](std::string s) { while (!s.empty() && (s.back() == ' ' || s.back() == '\r')) s.pop_back(); size_t i = 0; while (i < s.size() && s[i] == ' ') ++i; return s.substr(i); };
+    // each fix of a procedure that has a restriction: the one on the plan's own transition first (the runway's, or one the route
+    // goes through), else the first one found
+    auto collect = [&](const std::string& icao, const char* kind, const std::string& proc, const std::string& runway) {
+        std::map<std::string, std::string> best, any;
+        if (icao.empty() || proc.empty()) return best;
+        const std::string text = cifpText(icao);
+        std::set<std::string> onRoute;
+        for (const FlightPlan::Leg& l : p.legs) onRoute.insert(l.ident);
+        const std::string head = std::string(kind) + ":";
+        size_t pos = 0;
+        while (pos < text.size()) {
+            size_t e = text.find('\n', pos);
+            if (e == std::string::npos) e = text.size();
+            const std::string line = text.substr(pos, e - pos);
+            pos = e + 1;
+            if (line.compare(0, head.size(), head) != 0) continue;
+            std::vector<std::string> f;
+            size_t a = head.size();
+            while (a <= line.size()) { size_t c = line.find(',', a); if (c == std::string::npos) c = line.size(); f.push_back(trim(line.substr(a, c - a))); a = c + 1; }
+            if (f.size() < 28 || f[2] != proc || f[4].empty()) continue;
+            const std::string t = crossText(f[22], f[23], f[24], f[27]);
+            if (t.empty()) continue;
+            const bool ours = f[3] == "RW" + runway || (f[3].size() > 2 && f[3].compare(0, 2, "RW") == 0 && runway.empty()) || onRoute.count(f[3]) || f[3] == f[4];
+            if (ours && !best.count(f[4])) best[f[4]] = t;
+            if (!any.count(f[4])) any[f[4]] = t;
+        }
+        for (const auto& kv : any) if (!best.count(kv.first)) best[kv.first] = kv.second;
+        return best;
+    };
+    const std::map<std::string, std::string> sid = collect(p.origin, "SID", p.sid, p.originRunway);
+    const std::map<std::string, std::string> star = collect(p.dest, "STAR", p.star, p.destRunway);
+    int n = 0;
+    const size_t half = p.legs.size() / 2;
+    for (size_t i = 0; i < p.legs.size(); ++i) {   // the SID's first on the first half of the route, the STAR's first on the second
+        FlightPlan::Leg& l = p.legs[i];
+        const auto& first = i < half ? sid : star;
+        const auto& second = i < half ? star : sid;
+        std::string c;
+        const auto f1 = first.find(l.ident);
+        if (f1 != first.end()) c = f1->second;
+        else { const auto f2 = second.find(l.ident); if (f2 != second.end()) c = f2->second; }
+        if (c.empty()) continue;
+        l.cross = c; ++n;
+    }
+    return n;
 }
 
 } // namespace xpt

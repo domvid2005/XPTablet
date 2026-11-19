@@ -565,6 +565,7 @@ int main(int argc, char** argv) {
             const char* ids[] = {"KSBN", "GIJ", "PMM", "OBK", "WATSN", "KORD"};
             for (int i = 0; i < 6; ++i) { FlightPlan::Leg l; l.ident = ids[i]; l.airway = i == 4 ? "WATSN4" : ""; l.alt = i == 0 || i == 5 ? "" : "FL240"; l.legNm = std::to_string(10 + i * 7); l.totalTime = "0:" + std::to_string(10 + i * 5); fp.plan.legs.push_back(l); }
             settings().simbriefUser = "alpineaviation";
+            for (auto& l : fp.plan.legs) if (l.ident == "WATSN") l.cross = "between 10000 and 12000, 250 kt";   // (a made-up one: how it shows)
             shot(fp, APP_ROUTES, "flightplan");
             {   // a newer plan from SimBrief, in its window before Import (the plan in use stays under it)
                 SimState pv = fp;

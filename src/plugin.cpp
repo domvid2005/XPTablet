@@ -786,6 +786,17 @@ void planStep(const xpt::Actions& act) {
         g_sbDone = false;
         if (g_sbThread.joinable()) g_sbThread.join();
         const int seq = g_sim.newPlanSeq;
+        if (g_sbPlan.loaded) {   // the SID's and STAR's crossing restrictions, from X-Plane's procedure files (your AIRAC's first)
+            char sys[2048] = "";
+            XPLMGetSystemPath(sys);
+            const std::string root = sys;
+            const int n = xpt::addCrossings(g_sbPlan, [&](const std::string& icao) {
+                std::string t;
+                if (!readFile(root + "Custom Data/CIFP/" + icao + ".dat", t)) readFile(root + "Resources/default data/CIFP/" + icao + ".dat", t);
+                return t;
+            });
+            logMsg("SimBrief: %d crossing restriction(s) from the %s and %s procedures", n, g_sbPlan.sid.empty() ? "-" : g_sbPlan.sid.c_str(), g_sbPlan.star.empty() ? "-" : g_sbPlan.star.c_str());
+        }
         xpt::planFetched(g_sim, g_sbPlan, g_sbQuiet);   // into the preview: the flight plan stays until its Import
         if (g_sim.newPlanSeq != seq) logMsg("SimBrief: new plan %s offered", g_sbPlan.ofpId.c_str());
         else if (!g_sbQuiet) logMsg("SimBrief: %s", g_sbPlan.loaded ? "plan fetched for review" : g_sbPlan.status.c_str());

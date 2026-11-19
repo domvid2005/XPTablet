@@ -2449,10 +2449,12 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 const ImVec2 q = toS(mercOf(p.lat, p.lon));
                 if (q.x < r0.x - 20 || q.x > r1.x + 20 || q.y < r0.y - 10 || q.y > r1.y + 10) continue;
                 const ImU32 dot = p.kind == 17 ? IM_COL32(180, 90, 220, 255) : p.kind == 16 ? IM_COL32(40, 140, 220, 255) : IM_COL32(32, 92, 200, 255);
+                const bool picked = g_selKind == 4 && g_selKey == p.icao;   // its card open: the theme's colour, a ring round it
+                if (picked) dl->AddCircle(q, 7.5f, accentLite(255), 0, 2.0f);
                 dl->AddCircleFilled(q, 4.0f, IM_COL32(255, 255, 255, 230), 0);
-                dl->AddCircleFilled(q, 2.8f, dot, 0);
+                dl->AddCircleFilled(q, 2.8f, picked ? accentCol(255) : dot, 0);
                 symbolAt(q, 4.5f);
-                if (g_mapZoom >= 8.5) g_labels.push_back({2, q, 6, p.icao, "", sat ? kInk : IM_COL32(24, 40, 80, 255), 0, 0});
+                if (g_mapZoom >= 8.5 || picked) g_labels.push_back({2, q, 6, p.icao, "", picked ? accentLite(255) : sat ? kInk : IM_COL32(24, 40, 80, 255), 0, picked ? IM_COL32(10, 16, 28, 190) : 0});
             }
         }
         act.mapLayouts = layouts;
@@ -2482,20 +2484,26 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 const ImVec2 d((float)std::sin(a), (float)-std::cos(a)), nn(-d.y, d.x);
                 const ImVec2 tip(q.x + d.x * L, q.y + d.y * L);
                 const ImVec2 l(tip.x + nn.x * half, tip.y + nn.y * half), r(tip.x - nn.x * half, tip.y - nn.y * half);
+                const bool picked = g_selKind == 2 && g_selKey == n.ident + "|" + std::to_string(n.type);   // its card open: the theme's colour
+                if (picked) {   // the triangle filled faintly, so the chosen course stands out
+                    dl->AddTriangleFilled(q, l, r, accentCol(45));
+                }
                 for (int pass = 0; pass < 2; ++pass) {   // the dark edge, then the white
-                    const ImU32 c = pass ? IM_COL32(255, 255, 255, 230) : haloInk;
+                    const ImU32 c = picked ? (pass ? accentLite(255) : accentCol(140)) : pass ? IM_COL32(255, 255, 255, 230) : haloInk;
                     const float t = pass ? 0.0f : 2.0f;
                     dl->AddLine(q, l, c, 1.2f + t);
                     dl->AddLine(q, r, c, 1.2f + t);
                     dl->AddLine(q, tip, pass ? IM_COL32(255, 255, 255, 170) : haloInk, 1.0f + t);
                 }
-                if (g_mapZoom >= 11) g_labels.push_back({1, tip, 4, n.ident, "", IM_COL32(255, 255, 255, 255), 0, chipBg});
+                if (g_mapZoom >= 11 || picked) g_labels.push_back({1, tip, 4, n.ident, "", picked ? accentLite(255) : IM_COL32(255, 255, 255, 255), 0, chipBg});
                 continue;
             }
             if (!g_settings.mapNavaids) continue;   // (ILS only)
             if (q.x < r0.x - 40 || q.x > r1.x + 40 || q.y < r0.y - 40 || q.y > r1.y + 40) continue;
+            // the one whose card is open: in the theme's colour (a wider edge of it under it)
+            const bool picked = g_selKind == 2 && g_selKey == n.ident + "|" + std::to_string(n.type);
             for (int pass = 0; pass < 2; ++pass) {   // the dark edge (wider), then the white
-            const ImU32 ink = pass ? (n.type == 2 ? ndbInk : navInk) : haloInk;
+            const ImU32 ink = picked ? (pass ? accentLite(255) : accentCol(150)) : pass ? (n.type == 2 ? ndbInk : navInk) : haloInk;
             const float tk = pass ? 0.0f : 2.0f;
             if (n.type == 3) {
                 ImVec2 hx[6];
@@ -2525,7 +2533,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 if (n.type == 2) std::snprintf(b, sizeof b, "%s %.0f", n.ident.c_str(), n.freq);
                 else if (n.type == 3) std::snprintf(b, sizeof b, "%s %.2f", n.ident.c_str(), n.freq);
                 else std::snprintf(b, sizeof b, "%s", n.ident.c_str());
-                g_labels.push_back({3, q, 10, b, "", navInk, 0, chipBg});
+                g_labels.push_back({3, q, 10, b, "", picked ? accentLite(255) : navInk, 0, chipBg});
             }
             symbolAt(q, n.type == 3 && g_mapZoom >= 9 ? 9.0f : 7.0f);
         }
@@ -2536,8 +2544,10 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             if (!fx.enroute && g_mapZoom < 11) continue;
             const ImVec2 q = toS(mercOf(fx.lat, fx.lon));
             if (q.x < r0.x - 30 || q.x > r1.x + 30 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
-            const ImU32 ink = IM_COL32(255, 255, 255, 240);   // white, with a dark edge (as the navaids)
-            dl->AddTriangle(ImVec2(q.x, q.y - 4.5f), ImVec2(q.x + 4, q.y + 3), ImVec2(q.x - 4, q.y + 3), IM_COL32(16, 20, 30, 150), 3.0f);
+            const bool picked = g_selKind == 3 && g_selKey == fx.ident;   // its card open: the theme's colour
+            const ImU32 ink = picked ? accentLite(255) : IM_COL32(255, 255, 255, 240);   // white, with a dark edge (as the navaids)
+            if (picked) dl->AddTriangleFilled(ImVec2(q.x, q.y - 4.5f), ImVec2(q.x + 4, q.y + 3), ImVec2(q.x - 4, q.y + 3), accentCol(110));
+            dl->AddTriangle(ImVec2(q.x, q.y - 4.5f), ImVec2(q.x + 4, q.y + 3), ImVec2(q.x - 4, q.y + 3), picked ? accentCol(150) : IM_COL32(16, 20, 30, 150), 3.0f);
             dl->AddTriangle(ImVec2(q.x, q.y - 4.5f), ImVec2(q.x + 4, q.y + 3), ImVec2(q.x - 4, q.y + 3), ink, 1.2f);
             symbolAt(q, 4.5f);
             if (g_mapZoom >= 10.5) g_labels.push_back({0, q, 6, fx.ident, "", ink, 0, IM_COL32(10, 16, 28, 190)});
@@ -2570,8 +2580,10 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         for (size_t i = 0; i < pts.size(); ++i) {
             const ImVec2 q = pts[i];
             if (q.x < r0.x - 20 || q.x > r1.x + 20 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
-            dl->AddCircleFilled(q, 3.2f, IM_COL32(255, 255, 255, 255), 0);
-            dl->AddCircle(q, 3.2f, routeCol(255), 0, 1.5f);
+            const bool picked = g_selKind == 5 && g_selKey == std::to_string(i);   // its card open: filled, and a ring
+            if (picked) dl->AddCircle(q, 7.0f, accentLite(255), 0, 2.0f);
+            dl->AddCircleFilled(q, picked ? 4.0f : 3.2f, picked ? accentLite(255) : IM_COL32(255, 255, 255, 255), 0);
+            dl->AddCircle(q, picked ? 4.0f : 3.2f, routeCol(255), 0, 1.5f);
             if (g_mapZoom >= 6.5 && (g_mapZoom >= 8.5 || i == 0 || i + 1 == pts.size())) {
                 g_labels.push_back({4, q, 6, m.route[i].ident, "", IM_COL32(255, 255, 255, 255), 0, routeCol(230)});
             }
@@ -2584,6 +2596,10 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         for (const MapState::Traffic& t : m.traffic) {
             const ImVec2 q = toS(mercOf(t.lat, t.lon));
             if (q.x < r0.x - 30 || q.x > r1.x + 30 || q.y < r0.y - 30 || q.y > r1.y + 30) continue;
+            if (g_selKind == 1 && g_selKey == t.callsign) {   // its card open: a ring in the theme's colour round it
+                dl->AddCircleFilled(q, 15.0f, accentCol(40), 0);
+                dl->AddCircle(q, 15.0f, accentLite(255), 0, 2.0f);
+            }
             const double a = t.hdg * kPi / 180.0 - rot;
             const float sa = (float)std::sin(a), ca = (float)std::cos(a);
             auto P = [&](float x, float y) { return ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca); };
@@ -2883,6 +2899,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 L.push_back({0, rp.ident, "Flight plan, point " + std::to_string(i + 1) + " of " + std::to_string(m.route.size())});
                 if (i < s.plan.legs.size() && s.plan.legs[i].ident == rp.ident) {
                     const FlightPlan::Leg& lg = s.plan.legs[i];
+                    if (!lg.cross.empty()) L.push_back({1, "Crossing", lg.cross});
                     if (!lg.airway.empty()) L.push_back({1, "Via", lg.airway});
                     if (!lg.alt.empty()) L.push_back({1, "Altitude", lg.alt});
                     if (!lg.legNm.empty()) L.push_back({1, "Leg", lg.legNm + " nm"});
@@ -3842,19 +3859,26 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     ImGui::InvisibleButton("##fplog", ImVec2(lb.x - la.x, lb.y - la.y));
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_fplScroll -= ImGui::GetIO().MouseWheel * 44;
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_fplScroll -= ImGui::GetIO().MouseDelta.y;
-    const float rowH = 22, listTop = y0 + 50;
-    g_fplScroll = std::max(0.0f, std::min(g_fplScroll, std::max(0.0f, p.legs.size() * rowH - (bot - 8 - listTop))));
+    // a fix with a SID's or STAR's crossing restriction takes a second line (in the theme's colour) under it
+    const float rowH = 22, crossH = 15, listTop = y0 + 50;
+    float total = 0;
+    for (const FlightPlan::Leg& l : p.legs) total += rowH + (l.cross.empty() ? 0 : crossH);
+    g_fplScroll = std::max(0.0f, std::min(g_fplScroll, std::max(0.0f, total - (bot - 8 - listTop))));
     const float xs[4] = {c3 + 14, c3 + 14 + w3 * 0.30f, c3 + 14 + w3 * 0.56f, c3 + w3 - 14};
     textAt(dl, f.small, xs[0], y0 + 30, kMuted, "FIX");
     textAt(dl, f.small, xs[1], y0 + 30, kMuted, "VIA");
     textAt(dl, f.small, xs[2], y0 + 30, kMuted, "ALT");
     textRight(dl, f.small, xs[3], y0 + 30, kMuted, "NM  TIME");
     dl->PushClipRect(ImVec2(c3 + 2, listTop - 2), ImVec2(c3 + w3 - 2, bot - 4), true);
+    float at = 0;
     for (size_t i = 0; i < p.legs.size(); ++i) {
-        const float ry = listTop + i * rowH - g_fplScroll;
-        if (ry < listTop - rowH || ry > bot) continue;
         const FlightPlan::Leg& l = p.legs[i];
-        if (i % 2) dl->AddRectFilled(ImVec2(c3 + 6, ry - 2), ImVec2(c3 + w3 - 6, ry + rowH - 4), IM_COL32(255, 255, 255, 8), 4.0f);
+        const float hRow = rowH + (l.cross.empty() ? 0 : crossH);
+        const float ry = listTop + at - g_fplScroll;
+        at += hRow;
+        if (ry < listTop - hRow || ry > bot) continue;
+        if (i % 2) dl->AddRectFilled(ImVec2(c3 + 6, ry - 2), ImVec2(c3 + w3 - 6, ry + hRow - 4), IM_COL32(255, 255, 255, 8), 4.0f);
+        if (!l.cross.empty()) textAt(dl, f.small, xs[0] + 10, ry + rowH - 4, accentLite(255), fitText(f.small, l.cross, xs[3] - xs[0] - 10).c_str());
         textAt(dl, f.bold, xs[0], ry, kInk, l.ident.c_str());
         textAt(dl, f.small, xs[1], ry + 1, kMuted, l.airway.c_str());
         textAt(dl, f.small, xs[2], ry + 1, kInk, l.alt.c_str());

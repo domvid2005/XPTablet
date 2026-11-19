@@ -1,5 +1,6 @@
 // SimBrief: the address of a user's latest plan, and its answer read into a FlightPlan (shared by the plugin and the browser emulator)
 #pragma once
+#include <functional>
 
 #include <string>
 
@@ -14,5 +15,8 @@ void planToRoute(const FlightPlan& plan, MapState& map);     // the map's route 
 // use, not one dismissed), and then the notification says so. Nothing replaces the flight plan until the preview's Import.
 void planFetched(SimState& s, const FlightPlan& p, bool quiet);
 void planDecide(SimState& s, const Actions& a);              // the preview's Import or Dismiss
+// The SID's and STAR's crossing restrictions (altitude and speed) onto the plan's fixes, from X-Plane's procedure files (CIFP)
+// for the departure and the destination: cifpText(icao) returns that airport's file ("" when there is none).
+int addCrossings(FlightPlan& p, const std::function<std::string(const std::string&)>& cifpText);
 
 } // namespace xpt
