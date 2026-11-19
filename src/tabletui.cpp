@@ -951,7 +951,10 @@ bool iconButton(const char* id, ImVec2 a, ImVec2 b, bool enabled) {
     const bool hit = ImGui::InvisibleButton(id, ImVec2(b.x - a.x, b.y - a.y));
     const bool hot = enabled && ImGui::IsItemHovered(), down = enabled && ImGui::IsItemActive();
     ImGui::EndDisabled();
-    if (hot || down) ImGui::GetWindowDrawList()->AddRectFilled(a, b, IM_COL32(255, 255, 255, down ? 40 : 22), 8.0f);   // pressable: it lightens
+    if (hot || down) {   // pressable: it lightens plainly, with the accent's edge (as the other buttons' hover)
+        ImGui::GetWindowDrawList()->AddRectFilled(a, b, IM_COL32(255, 255, 255, down ? 48 : 32), 8.0f);
+        ImGui::GetWindowDrawList()->AddRect(a, b, accentLite(down ? 170 : 120), 8.0f, 0, 1.2f);
+    }
     return hit && enabled;
 }
 void arrow(ImDrawList* dl, ImVec2 c, bool left, ImU32 col) {
@@ -1842,16 +1845,26 @@ void fillConcave(ImDrawList* dl, std::vector<ImVec2> v, ImU32 col) {
 
 // A dashed polyline (screen points)
 void dashed(ImDrawList* dl, const std::vector<ImVec2>& p, ImU32 col, float thick, float on, float off) {
+    // only the part of each piece that is on screen is cut into dashes (zoomed right in, a line hundreds of miles long is millions
+    // of pixels: dashing all of it made thousands of lines a frame); the pattern still runs on from piece to piece
+    const ImVec2 c0 = dl->GetClipRectMin(), c1 = dl->GetClipRectMax();
+    const float m = thick + 4, x0 = c0.x - m, y0 = c0.y - m, x1 = c1.x + m, y1 = c1.y + m;
     float phase = 0;
     for (size_t i = 1; i < p.size(); ++i) {
         const ImVec2 a = p[i - 1], b = p[i];
         const float len = std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
         if (len < 1e-3f) continue;
-        float t = 0;
-        while (t < len) {
+        // the piece's visible stretch [tA, tB] (Liang-Barsky, in pixels along it)
+        float u0 = 0, u1 = 1;
+        const float dx = b.x - a.x, dy = b.y - a.y;
+        auto clipT = [&](float pq, float q) { if (std::fabs(pq) < 1e-9f) return q >= 0; const float r = q / pq; if (pq < 0) { if (r > u1) return false; if (r > u0) u0 = r; } else { if (r < u0) return false; if (r < u1) u1 = r; } return true; };
+        if (!(clipT(-dx, a.x - x0) && clipT(dx, x1 - a.x) && clipT(-dy, a.y - y0) && clipT(dy, y1 - a.y))) { phase = std::fmod(phase + len, on + off); continue; }
+        const float tB = u1 * len;
+        float t = u0 * len;
+        while (t < tB) {
             const float period = on + off, inP = std::fmod(phase + t, period);
             if (inP < on) {
-                const float t1 = std::min(len, t + (on - inP));
+                const float t1 = std::min(tB, t + (on - inP));
                 dl->AddLine(ImVec2(a.x + (b.x - a.x) * t / len, a.y + (b.y - a.y) * t / len), ImVec2(a.x + (b.x - a.x) * t1 / len, a.y + (b.y - a.y) * t1 / len), col, thick);
                 t = t1;
             } else {
@@ -4086,13 +4099,14 @@ void weatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
 int g_settingsTab = 0;   // 0 General, 1 Display, 2 Data, 3 Credits, 4 Notifications, 5 Media (not on macOS)
 
 float g_creditsScroll = 0;
-void scrollBar(ImDrawList* dl, float x, float y0, float y1, float scroll, float content, float shown);   // (below)
+float scrollBar(ImDrawList* dl, const char* id, float x, float y0, float y1, float scroll, float content, float shown);   // (below)
 void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
     const float top = kStatusH + kHeaderH + 10;
     const ImVec2 ca(left, top), cb(w - 12, h - 12);
     card(dl, ca, cb, f, "CREDITS");
     // it scrolls: the wheel, or a drag
     ImGui::SetCursorScreenPos(ca);
+    ImGui::SetNextItemAllowOverlap();   // (the scroll bar drawn over it takes its own presses)
     ImGui::InvisibleButton("##credits", ImVec2(cb.x - ca.x, cb.y - ca.y));
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_creditsScroll -= ImGui::GetIO().MouseWheel * 40;
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_creditsScroll -= ImGui::GetIO().MouseDelta.y;
@@ -4141,7 +4155,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
     dl->PopClipRect();
     const float content = y + 30 + g_creditsScroll - (top + 38);
     g_creditsScroll = std::min(g_creditsScroll, std::max(0.0f, content - (cb.y - ca.y - 40)));
-    scrollBar(dl, cb.x - 7, ca.y + 34, cb.y - 8, g_creditsScroll, content, cb.y - ca.y - 40);   // (it shows there is more below)
+    g_creditsScroll = scrollBar(dl, "##credbar", cb.x - 9, ca.y + 34, cb.y - 8, g_creditsScroll, content, cb.y - ca.y - 40);   // (draggable)
 }
 
 // ---- notifications, the pull-down (music and the notification list) and the Music app --------------------------------------------------
@@ -4177,13 +4191,24 @@ std::string agoText(double t) {
 // the pull-down's boxes, sized so the left column (Media, Brightness, Flight) ends clear of the bar at the bottom, as the list does
 constexpr float kCcMediaH = 196, kCcBrightH = 88, kCcGap = 10, kCcBottomGap = 36;
 // a thin scroll bar at x, from y0 to y1, for content taller than what shows (nothing when it all fits)
-void scrollBar(ImDrawList* dl, float x, float y0, float y1, float scroll, float content, float shown) {
-    if (content <= shown + 1 || y1 - y0 < 20) return;
-    const float track = y1 - y0, len = std::max(24.0f, track * shown / content);
-    const float t = std::max(0.0f, std::min(1.0f, scroll / std::max(1.0f, content - shown)));
-    const float top = y0 + (track - len) * t;
-    dl->AddRectFilled(ImVec2(x - 1.5f, y0), ImVec2(x + 1.5f, y1), IM_COL32(255, 255, 255, 18), 2.0f);
-    dl->AddRectFilled(ImVec2(x - 2, top), ImVec2(x + 2, top + len), IM_COL32(255, 255, 255, 120), 2.0f);
+// It can be dragged (the thumb, or a press on the track moves it there) and returns the scroll, changed or not; it widens on hover.
+float scrollBar(ImDrawList* dl, const char* id, float x, float y0, float y1, float scroll, float content, float shown) {
+    if (content <= shown + 1 || y1 - y0 < 20) return scroll;
+    const float track = y1 - y0, len = std::max(24.0f, track * shown / content), maxS = content - shown;
+    ImGui::SetCursorScreenPos(ImVec2(x - 8, y0));
+    ImGui::InvisibleButton(id, ImVec2(16, track));
+    static float grabOff = 0;
+    const float t0 = std::max(0.0f, std::min(1.0f, scroll / std::max(1.0f, maxS)));
+    const float top0 = y0 + (track - len) * t0;
+    const float my = ImGui::GetIO().MousePos.y;
+    if (ImGui::IsItemActivated()) grabOff = (my >= top0 && my <= top0 + len) ? my - top0 : len * 0.5f;   // on the thumb: held where taken
+    if (ImGui::IsItemActive()) scroll = std::max(0.0f, std::min(maxS, (my - grabOff - y0) / std::max(1.0f, track - len) * maxS));
+    const bool hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+    const float t = std::max(0.0f, std::min(1.0f, scroll / std::max(1.0f, maxS)));
+    const float top = y0 + (track - len) * t, hw = hot ? 3.0f : 2.0f;
+    dl->AddRectFilled(ImVec2(x - 1.5f, y0), ImVec2(x + 1.5f, y1), IM_COL32(255, 255, 255, hot ? 30 : 18), 2.0f);
+    dl->AddRectFilled(ImVec2(x - hw, top), ImVec2(x + hw, top + len), hot ? accentLite(220) : IM_COL32(255, 255, 255, 120), hw);
+    return scroll;
 }
 // glass, as iOS draws it: a light veil over what is behind, a hairline edge, a faint sheen at the top
 void glass(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha) {
@@ -4575,11 +4600,18 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
                         dl->AddRect(a, b, accentLite((int)(120 * ne.hot * al)), 16.0f, 0, 1.2f);
                     }
                 }
-                static float pressX = 0;
-                if (ImGui::IsItemActivated()) pressX = io.MousePos.x;
-                if (ImGui::IsItemActive()) n.dx = io.MousePos.x - pressX;   // swiped sideways
+                static float pressX = 0, pressY = 0, pressScroll = 0;
+                static int dragWay = 0;   // 0 undecided, 1 sideways (swipe it away), 2 up or down (scroll the list)
+                if (ImGui::IsItemActivated()) { pressX = io.MousePos.x; pressY = io.MousePos.y; pressScroll = g_ccScroll; dragWay = 0; }
+                if (ImGui::IsItemActive()) {
+                    const float ddx = io.MousePos.x - pressX, ddy = io.MousePos.y - pressY;
+                    if (dragWay == 0 && std::fabs(ddx) + std::fabs(ddy) > 8) dragWay = std::fabs(ddx) >= std::fabs(ddy) ? 1 : 2;
+                    if (dragWay == 1) n.dx = ddx;   // swiped sideways
+                    if (dragWay == 2) g_ccScroll = std::max(0.0f, std::min(std::max(0.0f, content - (listBot - listTop)), pressScroll - ddy));
+                }
                 if (ImGui::IsItemDeactivated()) {
-                    if (std::fabs(n.dx) > 90) { n.dying = true; n.dieT = ImGui::GetTime(); }   // gone
+                    if (dragWay == 2) { n.dx = 0; }   // it was a scroll: nothing opens
+                    else if (std::fabs(n.dx) > 90) { n.dying = true; n.dieT = ImGui::GetTime(); }   // gone
                     else if (std::fabs(n.dx) < 6) { const Note copy = n; g_notes.erase(g_notes.begin() + i); openFromNote(copy); break; }
                     else n.dx = 0;
                 }
@@ -4590,7 +4622,10 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     }
     g_notes.erase(std::remove_if(g_notes.begin(), g_notes.end(), [&](const Note& n) { return n.dying && std::fabs(n.dx) > w; }), g_notes.end());
     dl->PopClipRect();
-    scrollBar(dl, nx1 + 8, listTop, listBot, g_ccScroll, content, listBot - listTop);   // (when the list is longer than shows)
+    g_ccScroll = scrollBar(dl, "##ccbarscroll", nx1 + 8, listTop, listBot, g_ccScroll, content, listBot - listTop);   // (draggable)
+    // the wheel anywhere over the list (the cards on it take the hover, so the pull-down's own catch-all does not see it there)
+    if (ImGui::IsMouseHoveringRect(ImVec2(nx0, listTop), ImVec2(nx1 + 16, listBot), false) && io.MouseWheel != 0)
+        g_ccScroll = std::max(0.0f, std::min(std::max(0.0f, content - (listBot - listTop)), g_ccScroll - io.MouseWheel * 40));
     // the bar to push it back up
     const float by = h + oy - 16;
     ImGui::SetCursorScreenPos(ImVec2(w * 0.5f - 110, by - 18));

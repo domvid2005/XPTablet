@@ -106,13 +106,10 @@ const std::vector<GeoLine>& basemapLines() {
     return lines;
 }
 
-bool tzStdQuarterHours(double lat, double lon, int& q) {
-    struct Hit { double lat = 1e9, lon = 1e9; int q = 0; bool ok = false; };
-    static Hit cache[4];
-    static int next = 0;
-    for (const Hit& h : cache)
-        if (std::fabs(lat - h.lat) < 0.002 && std::fabs(lon - h.lon) < 0.002) { q = h.q; return h.ok; }
-    Hit hit; hit.lat = lat; hit.lon = lon;
+// The zone shapes for the lookup were simplified more than the drawn lines (0.02 against 0.01 degrees), so on their own they
+// put a border up to a mile or two from where the map draws it. inPolys is the plain lookup; tzStdQuarterHours below makes the drawn
+// line the border: near one, the zones a little way out on its two sides are asked, and the point takes the zone of its side.
+static bool inPolys(double lat, double lon, int& q) {
     if (lon > 180) lon -= 360; else if (lon < -180) lon += 360;
     const float x = (float)lon, y = (float)lat;
     for (const TzZone& z : tzData().zones) {
@@ -121,11 +118,48 @@ bool tzStdQuarterHours(double lat, double lon, int& q) {
         for (const auto& r : z.rings)
             for (size_t i = 0, j = r.size() - 1; i < r.size(); j = i++)
                 if ((r[i].y > y) != (r[j].y > y) && x < (r[j].x - r[i].x) * (y - r[i].y) / (r[j].y - r[i].y) + r[i].x) in = !in;
-        if (in) { hit.q = z.q; hit.ok = true; break; }
+        if (in) { q = z.q; return true; }
     }
+    return false;
+}
+bool tzStdQuarterHours(double lat, double lon, int& q) {
+    // the same point as a moment ago (the aircraft and the pointer are asked every frame): its answer again (exact match only, so a
+    // crossing is never missed however close the map is zoomed)
+    struct Hit { double lat = 1e9, lon = 1e9; int q = 0; bool ok = false; };
+    static Hit cache[4]; static int next = 0;
+    for (const Hit& h : cache) if (lat == h.lat && lon == h.lon) { q = h.q; return h.ok; }
+    if (lon > 180) lon -= 360; else if (lon < -180) lon += 360;
+    int base = 0;
+    bool ok = inPolys(lat, lon, base);
+    // the nearest drawn border within reach (lengths in degrees of latitude: longitude scaled by cos(lat))
+    const double reach = 0.06, kx = std::max(0.05, std::cos(lat * 3.14159265358979 / 180.0));
+    double best = reach * reach, fx = 0, fy = 0, nx = 0, ny = 0;
+    bool found = false;
+    for (const TzLine& L : tzLines()) {
+        if (lon < L.lo0 - reach / kx || lon > L.lo1 + reach / kx || lat < L.la0 - reach || lat > L.la1 + reach) continue;
+        for (size_t i = 1; i < L.pts.size(); ++i) {
+            const double ax = (L.pts[i - 1].x - lon) * kx, ay = L.pts[i - 1].y - lat, bx = (L.pts[i].x - lon) * kx, by = L.pts[i].y - lat;
+            const double dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+            if (l2 < 1e-14) continue;
+            const double t = std::max(0.0, std::min(1.0, -(ax * dx + ay * dy) / l2));
+            const double px = ax + dx * t, py = ay + dy * t, d2 = px * px + py * py;
+            if (d2 < best) { best = d2; fx = px; fy = py; const double l = std::sqrt(l2); nx = -dy / l; ny = dx / l; found = true; }
+        }
+    }
+    if (found) {   // the zones just beyond the line on each side; if they differ, the line decides
+        const double off = 0.07;
+        int qa = 0, qb = 0;
+        const bool okA = inPolys(lat + fy + ny * off, lon + (fx + nx * off) / kx, qa);
+        const bool okB = inPolys(lat + fy - ny * off, lon + (fx - nx * off) / kx, qb);
+        if (okA && okB && qa != qb) {
+            const double side = (0 - fx) * nx + (0 - fy) * ny;   // the point (the origin here) against the line's normal
+            base = side >= 0 ? qa : qb; ok = true;
+        }
+    }
+    Hit hit; hit.lat = lat; hit.lon = lon; hit.q = base; hit.ok = ok;
     cache[next] = hit; next = (next + 1) % 4;
-    q = hit.q;
-    return hit.ok;
+    q = base;
+    return ok;
 }
 
 } // namespace xpt
