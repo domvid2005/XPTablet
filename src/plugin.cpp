@@ -2103,6 +2103,10 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
     ImGui::SetCurrentContext(g_ctx);
     ImGui::GetIO().IniFilename = nullptr;
     ImGui::GetIO().LogFilename = nullptr;
+    // ImGui's developer warnings (conflicting IDs, recovered errors) never pop up over the cockpit: the tests and the emulator
+    // look for them instead (tests/ui_shot.cpp, emulator/web/web.cpp)
+    ImGui::GetIO().ConfigDebugHighlightIdConflicts = false;
+    ImGui::GetIO().ConfigErrorRecoveryEnableTooltip = false;
     xpt::applyStyle();
     loadSettings();
     loadNotes();

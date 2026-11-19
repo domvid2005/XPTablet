@@ -3,6 +3,7 @@
 // Also a smoke test: every app is opened and drawn at several screen shapes, and no triangle may leave the screen.
 //   ui_shot <out-dir> [scale]
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -441,6 +442,27 @@ int main(int argc, char** argv) {
             mp.map.airportPoints = {{"KXPT", 41.70, -86.32, 1, ""}, {"KSBN", 41.7087, -86.3173, 1, ""}, {"KGSH", 41.5264, -85.7922, 1, ""}, {"KEKM", 41.7194, -86.0003, 1, ""}};
             settings().mapAirports = true; settings().mapSource = 0; settings().mapLocalTime = true;
             shot(mp, APP_MAP, "map_airport");
+            {   // the frame's cost at every zoom step, from the farthest in to the closest, every layer on (a step costing
+                // much more than the others is how "zoomed right in, the sim freezes" shows here)
+                settings().mapTimeZones = true; settings().mapOutlines = true; settings().mapRings = true; settings().mapIls = true;
+                settings().mapNavaids = true; settings().mapWaypoints = true;
+                for (int i = 0; i < 40; ++i) mapCommand(1);   // all the way out
+                double worst = 0; int worstStep = -1;
+                for (int step = 0; step < 40; ++step) {
+                    const auto t0 = std::chrono::steady_clock::now();
+                    for (int i = 0; i < 8; ++i) {
+                        io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.25f; io.AddMousePosEvent(420, 260);
+                        ImGui::NewFrame(); Actions act; build(fonts, mp, 800, kLogicalH, act); ImGui::Render();
+                    }
+                    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / 8;
+                    const ImDrawData* dd = ImGui::GetDrawData();
+                    std::printf("map step %2d: %6.2f ms a frame, %d vertices\n", step, ms, dd ? dd->TotalVtxCount : 0);
+                    if (ms > worst) { worst = ms; worstStep = step; }
+                    mapCommand(0);   // one step in
+                }
+                if (worst > 40) { std::printf("FAIL: the map takes %.0f ms a frame at zoom step %d\n", worst, worstStep); ++failures; }
+                settings().mapOutlines = false; settings().mapWaypoints = false;
+            }
             settings().mapSource = 1; settings().mapHeadingUp = true; settings().mapLocalTime = false;
             shot(mp, APP_MAP, "map_satellite_heading");
             settings().mapSource = 0; settings().mapHeadingUp = false; settings().mapTimeZones = true; settings().mapLocalTime = true;

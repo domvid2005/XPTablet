@@ -783,7 +783,7 @@ bool pageHeader(ImDrawList* dl, const Fonts& f, float w, const char* title) {
     dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, kStatusH + kHeaderH), mixCol(themeTone(10, 24, 48, 235), accentCol(235), 0.16f));
     dl->AddLine(ImVec2(0, kStatusH + kHeaderH), ImVec2(w, kStatusH + kHeaderH), accentCol(60));
     ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
-    const bool back = ImGui::InvisibleButton("##home", ImVec2(96, kHeaderH));
+    const bool back = ImGui::InvisibleButton("##pagehome", ImVec2(96, kHeaderH));
     const ImU32 col = ImGui::IsItemHovered() ? IM_COL32(255, 255, 255, 255) : accentLite(255);
     const float my = kStatusH + kHeaderH * 0.5f;
     { const ImVec2 pts[3] = {ImVec2(22, my - 8), ImVec2(14, my), ImVec2(22, my + 8)}; dl->AddPolyline(pts, 3, col, 0, 2.0f); }
@@ -1338,7 +1338,7 @@ void metarPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
         if (r == 3) {   // backspace, to the right of the last row
             const float bx = x, bw = ix + iw - bx;
             ImGui::SetCursorScreenPos(ImVec2(bx, y));
-            const bool hit = ImGui::InvisibleButton("##kback", ImVec2(bw, kh));
+            const bool hit = ImGui::InvisibleButton("##mkback", ImVec2(bw, kh));
             dl->AddRectFilled(ImVec2(bx, y), ImVec2(bx + bw, y + kh), IM_COL32(255, 255, 255, ImGui::IsItemActive() ? 90 : 32), 8.0f);
             textCentered(dl, f.small, bx + bw * 0.5f, std::floor(y + (kh - fontPx(f.small)) * 0.5f), kInk, "Delete");
             if (hit && !g_metarInput.empty()) g_metarInput.pop_back();
@@ -1845,33 +1845,46 @@ void fillConcave(ImDrawList* dl, std::vector<ImVec2> v, ImU32 col) {
 
 // A dashed polyline (screen points)
 void dashed(ImDrawList* dl, const std::vector<ImVec2>& p, ImU32 col, float thick, float on, float off) {
-    // only the part of each piece that is on screen is cut into dashes (zoomed right in, a line hundreds of miles long is millions
-    // of pixels: dashing all of it made thousands of lines a frame); the pattern still runs on from piece to piece
+    // Only the part of each piece that is on screen is cut into dashes, counted from where it comes on screen, in double precision:
+    // zoomed right in, a line is millions of pixels long, and in single precision "a few pixels further along" was the same number,
+    // so the dash loop stood still (the sim froze, 2026-11-18). The dash pattern still runs on from piece to piece.
+    if (on <= 0.05f || off < 0) { if (p.size() >= 2) dl->AddPolyline(p.data(), (int)p.size(), col, 0, thick); return; }
     const ImVec2 c0 = dl->GetClipRectMin(), c1 = dl->GetClipRectMax();
-    const float m = thick + 4, x0 = c0.x - m, y0 = c0.y - m, x1 = c1.x + m, y1 = c1.y + m;
-    float phase = 0;
+    const double m = thick + 4, x0 = c0.x - m, y0 = c0.y - m, x1 = c1.x + m, y1 = c1.y + m;
+    const double period = (double)on + off;
+    double phase = 0;   // how far into the pattern the piece starts
     for (size_t i = 1; i < p.size(); ++i) {
-        const ImVec2 a = p[i - 1], b = p[i];
-        const float len = std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
-        if (len < 1e-3f) continue;
-        // the piece's visible stretch [tA, tB] (Liang-Barsky, in pixels along it)
-        float u0 = 0, u1 = 1;
-        const float dx = b.x - a.x, dy = b.y - a.y;
-        auto clipT = [&](float pq, float q) { if (std::fabs(pq) < 1e-9f) return q >= 0; const float r = q / pq; if (pq < 0) { if (r > u1) return false; if (r > u0) u0 = r; } else { if (r < u0) return false; if (r < u1) u1 = r; } return true; };
-        if (!(clipT(-dx, a.x - x0) && clipT(dx, x1 - a.x) && clipT(-dy, a.y - y0) && clipT(dy, y1 - a.y))) { phase = std::fmod(phase + len, on + off); continue; }
-        const float tB = u1 * len;
-        float t = u0 * len;
-        while (t < tB) {
-            const float period = on + off, inP = std::fmod(phase + t, period);
-            if (inP < on) {
-                const float t1 = std::min(tB, t + (on - inP));
-                dl->AddLine(ImVec2(a.x + (b.x - a.x) * t / len, a.y + (b.y - a.y) * t / len), ImVec2(a.x + (b.x - a.x) * t1 / len, a.y + (b.y - a.y) * t1 / len), col, thick);
-                t = t1;
-            } else {
-                t += period - inP;
+        const double ax = p[i - 1].x, ay = p[i - 1].y, bx = p[i].x, by = p[i].y;
+        const double dx = bx - ax, dy = by - ay, len = std::sqrt(dx * dx + dy * dy);
+        if (!(len > 1e-3)) continue;   // (also a NaN)
+        // the piece's visible stretch [u0, u1] of it (Liang-Barsky)
+        double u0 = 0, u1 = 1;
+        auto clipT = [&](double pq, double q) {
+            if (std::fabs(pq) < 1e-12) return q >= 0;
+            const double r = q / pq;
+            if (pq < 0) { if (r > u1) return false; if (r > u0) u0 = r; } else { if (r < u0) return false; if (r < u1) u1 = r; }
+            return true;
+        };
+        const bool shown = clipT(-dx, ax - x0) && clipT(dx, x1 - ax) && clipT(-dy, ay - y0) && clipT(dy, y1 - ay);
+        if (shown) {
+            const double tA = u0 * len, tB = u1 * len;
+            const double ux = dx / len, uy = dy / len;
+            // where the pattern is at tA; then dash by dash over the visible stretch only (a few thousand pixels at most)
+            double t = tA, inP = std::fmod(phase + tA, period);
+            int n = 0;
+            while (t < tB && n++ < 4000) {
+                if (inP < on) {
+                    const double t1 = std::min(tB, t + (on - inP));
+                    dl->AddLine(ImVec2((float)(ax + ux * t), (float)(ay + uy * t)), ImVec2((float)(ax + ux * t1), (float)(ay + uy * t1)), col, thick);
+                    inP += t1 - t; t = t1;
+                } else {
+                    const double t1 = std::min(tB, t + (period - inP));
+                    inP += t1 - t; t = t1;
+                }
+                if (inP >= period - 1e-9) inP = 0;
             }
         }
-        phase = std::fmod(phase + len, on + off);
+        phase = std::fmod(phase + len, period);
     }
 }
 
