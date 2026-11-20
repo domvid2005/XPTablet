@@ -165,12 +165,18 @@ struct MediaState {
     bool playing = false, canPrev = true, canNext = true;
     ImTextureID art = 0;          // the cover, artW x artH pixels; 0: none
     int artW = 0, artH = 0;
+    ImTextureID artPrev = 0;      // the cover before it (it fades out under the new one), artPrevW x artPrevH
+    int artPrevW = 0, artPrevH = 0;
+    double artChangedAt = -100;   // when the cover changed (the plugin's clock: ImGui's time)
+    ImU32 artColor = 0;           // the cover's own colour (its average, made deeper): the Media page's background; 0 none
     bool radioRx = false;         // the radios are receiving (xPilot's COM1/COM2, VATSIM voice apps)
     double posSec = -1, lenSec = -1;   // the track's point and length, in seconds (-1: the player does not say)
     bool canSeek = false;         // the player can be moved to another point
     bool radioTx = false;         // push-to-talk is held (xPilot's xpilot/ptt): the music is lowered or paused for it too
     bool ducked = false;          // the music is lowered or paused for the radio now
     std::string radioSource;      // what the radio is heard through ("xPilot", "TrackAudio"...), "" none
+    float playerVolume = -1;      // the player's own volume, 0..1 (-1: it keeps it to itself)
+    float masterVolume = -1;      // the computer's (Windows), 0..1 (-1: not here)
 };
 
 struct VatsimPilot {
@@ -321,6 +327,8 @@ struct Actions {
     int webZoom = 0;              // the shown page: +1 closer, -1 farther, 2 back to 100 %, 3 to webZoomPct
     int webZoomPct = 100;
     int webVolume = -1;           // the Browser's media volume, 0..100, when changed (-1 none)
+    float mediaPlayerVol = -1;    // the player's own volume set (0..1), -1 none
+    float mediaMasterVol = -1;    // the computer's volume set (0..1), -1 none
     bool webExitFullscreen = false;
     std::string webTabUrl;
     int webTabSelect = 0, webTabClose = 0;   // a tab's id: show it, close it (0: none)
@@ -395,7 +403,8 @@ const char* appName(int app);                // the icon's label (Charts and Liv
 bool appVisible(int app);                 // on the home screen (web app icons can be switched off)
 std::vector<std::pair<int, int>> wrapLines(struct ImFont* font, float px, const std::string& v, float wrapW);   // a typed text's lines (the tests)
 void mapSelect(int kind, const std::string& key);
-void openDispatchFromPlan();   // the Dispatch page, as the Flight Plan's Briefing PDF opens it (for the tests)   // opens the map's card for an item (for the tests)
+void openDispatchFromPlan();
+bool tabletPoweredOn();   // the tablet is on (not switched off, not flat): only then does it lower or pause media, or make sounds   // the Dispatch page, as the Flight Plan's Briefing PDF opens it (for the tests)   // opens the map's card for an item (for the tests)
 int touchTestCount();                     // marks in the Settings touch test (for the tests)
 const char* browserUrl();                 // the address the web page shows
 bool browserChrome();                     // the full browser (address bar, bookmarks) rather than a web app's own page

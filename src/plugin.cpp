@@ -359,6 +359,7 @@ void chimeStep() {
     if (last < 0) { last = seq; return; }
     if (seq == last) return;
     last = seq;
+    if (!xpt::tabletPoweredOn()) return;   // (off or flat: silent)
     const float vol = xpt::settings().notifyVolume;
     if (vol <= 0.001f) return;
     FMOD_CHANNEL* ch = XPLMPlayPCMOnBus((void*)xpt_asset_notify, xpt_asset_notify_size, FMOD_SOUND_FORMAT_PCM16, 48000, 1, 0, xplm_AudioUI, nullptr, nullptr);
@@ -623,11 +624,13 @@ void browserStep(const xpt::Actions& act) {
     if (act.webTabNew) br::push(xptb::CMD_TAB_NEW, 0, act.webTabGroup, 0, 0, 0, act.webTabUrl);
     if (act.webZoom == 3) br::push(xptb::CMD_ZOOM, 3, act.webZoomPct);
     else if (act.webZoom) br::push(xptb::CMD_ZOOM, act.webZoom == 2 ? 0 : act.webZoom);
-    {   // the Browser's media volume: as set, and once again each time the browser has started
-        static bool sent = false;
-        if (g_sim.browser.status != 1) sent = false;
-        else if (!sent) { sent = true; br::push(xptb::CMD_MEDIA_VOLUME, (int)std::lround(xpt::settings().browserVolume * 100)); }
-        if (act.webVolume >= 0) br::push(xptb::CMD_MEDIA_VOLUME, act.webVolume);
+    {   // the Browser's media volume: as set (silent while the tablet is off or flat), sent when it changes and when the browser starts
+        static int sent = -1;
+        if (g_sim.browser.status != 1) sent = -1;
+        else {
+            const int want = xpt::tabletPoweredOn() ? (act.webVolume >= 0 ? act.webVolume : (int)std::lround(xpt::settings().browserVolume * 100)) : 0;
+            if (want != sent) { sent = want; br::push(xptb::CMD_MEDIA_VOLUME, want); }
+        }
     }
     if (act.webExitFullscreen) br::push(xptb::CMD_EXIT_FULLSCREEN);
     if (act.webTabSelect) br::push(xptb::CMD_TAB_SELECT, act.webTabSelect);
@@ -1281,6 +1284,8 @@ void mediaStep(const xpt::Actions& act) {
     xpt::media::start();
     if (act.media) xpt::media::command(act.media);
     if (act.mediaSeek >= 0) xpt::media::seek(act.mediaSeek);
+    if (act.mediaPlayerVol >= 0) xpt::media::setPlayerVolume(act.mediaPlayerVol);
+    if (act.mediaMasterVol >= 0) xpt::media::setMasterVolume(act.mediaMasterVol);
     // the radios: xPilot says when COM1 or COM2 is receiving (looked for now and then: it may load after us)
     static XPLMDataRef com1 = nullptr, com2 = nullptr, rxOld = nullptr, ptt = nullptr;
     // X-Plane's own radios too: its ATC, ATIS and plugins' voices received on COM1 / COM2, and the pilot's voice sent
@@ -1315,7 +1320,8 @@ void mediaStep(const xpt::Actions& act) {
     const bool pilotTx = on(ptt) || g_pttCmd;
     const bool rx = pilotRx || xpRx, tx = pilotTx || on(xpTx1) || on(xpTx2);
     const char* who = pilotRx || pilotTx ? "xPilot" : "X-Plane ATC";
-    xpt::media::setDuck(st.mediaDuck, rx || tx, rx || tx ? who : "", tx ? st.duckTx : st.duckRx);   // transmitting: its own level
+    // (a tablet that is off or flat leaves the media alone)
+    xpt::media::setDuck(xpt::tabletPoweredOn() ? st.mediaDuck : 0, rx || tx, rx || tx ? who : "", tx ? st.duckTx : st.duckRx);   // transmitting: its own level
     const xpt::media::Now n = xpt::media::now();
     xpt::MediaState& m = g_sim.media;
     m.supported = n.supported; m.active = n.active; m.app = n.app; m.title = n.title; m.artist = n.artist; m.album = n.album;
@@ -1325,11 +1331,33 @@ void mediaStep(const xpt::Actions& act) {
     m.radioTx = tx;
     m.radioSource = rx ? who : n.radioApp ? n.radioAppName : "";
     m.ducked = n.ducked;
+    m.playerVolume = n.playerVolume; m.masterVolume = n.masterVolume;
     // the cover, into a texture of its own (mipmapped: it is shown small and large)
     static int version = 0;
     std::vector<uint8_t> px;
     int w = 0, h = 0;
     if (xpt::media::takeArt(version, px, w, h)) {
+        // the new cover goes into the other of two textures, so the old one can fade out under it (Media page and pull-down)
+        static int artTex2 = 0;
+        if (m.art && m.artW > 0) { m.artPrev = m.art; m.artPrevW = m.artW; m.artPrevH = m.artH; }
+        else { m.artPrev = 0; m.artPrevW = m.artPrevH = 0; }
+        m.artChangedAt = ImGui::GetTime();
+        if (g_artTex && loadGl()) { if (!artTex2) XPLMGenerateTextureNumbers(&artTex2, 1); std::swap(g_artTex, artTex2); }
+        m.artColor = 0;
+        if (w > 0 && h > 0) {   // its colour: the average of its more colourful pixels, made deeper (white text stays clear on it)
+            double r = 0, g = 0, b = 0, wsum = 0;
+            for (size_t i = 0; i + 3 < px.size(); i += 4 * 7) {
+                const double pr = px[i], pg = px[i + 1], pb = px[i + 2];
+                const double mx = std::max(pr, std::max(pg, pb)), mn = std::min(pr, std::min(pg, pb));
+                const double wgt = 0.15 + (mx - mn) / 255.0;   // (colourful pixels count more than greys)
+                r += pr * wgt; g += pg * wgt; b += pb * wgt; wsum += wgt;
+            }
+            if (wsum > 0) {
+                r /= wsum; g /= wsum; b /= wsum;
+                const double mx = std::max(1.0, std::max(r, std::max(g, b))), k = std::min(1.0, 150.0 / mx);
+                m.artColor = IM_COL32((int)(r * k), (int)(g * k), (int)(b * k), 255);
+            }
+        }
         if (w > 0 && h > 0 && loadGl()) {
             if (!g_artTex) XPLMGenerateTextureNumbers(&g_artTex, 1);
             XPLMBindTexture2d(g_artTex, 0);

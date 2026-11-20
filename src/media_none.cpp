@@ -11,6 +11,10 @@ void send(int) {}
 void seek(double) {}
 bool setVolume(float) { return false; }
 bool radioApps(std::string&) { return false; }
+bool playerVol(float&) { return false; }
+bool setPlayerVol(float) { return false; }
+bool masterVol(float&) { return false; }
+bool setMasterVol(float) { return false; }
 } // namespace platform
 } // namespace media
 } // namespace xpt

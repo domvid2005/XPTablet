@@ -837,6 +837,19 @@ int main(int argc, char** argv) {
           { openApp(APP_BROWSER); Actions got;
             for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, wb, 800, kLogicalH, act); ImGui::Render(); if (act.webTabSelect || act.webTabNew) got = act; }
             if (got.webTabNew || (got.webTabSelect && got.webTabSelect != 1)) { std::printf("FAIL: the Browser keeps to its own tab (select %d, new %d)\n", got.webTabSelect, got.webTabNew ? 1 : 0); ++failures; } }
+          {   // the Media page: a long title (it slides), the media's and the computer's volumes; the pull-down from the logo
+              SimState md = t;
+              md.media.supported = true; md.media.active = true; md.media.playing = true; md.media.app = "Spotify";
+              md.media.title = "A Very Long Song Title That Does Not Fit In Its Place At All"; md.media.artist = "The Approach Controllers"; md.media.album = "Cleared To Land";
+              md.media.posSec = 83; md.media.lenSec = 241; md.media.canSeek = true; md.media.playerVolume = 0.6f; md.media.masterVolume = 0.8f;
+              md.media.artColor = IM_COL32(150, 40, 90, 255);
+              shot(md, APP_MUSIC, "media");
+              for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(400, 14); io.AddMouseButtonEvent(0, k == 1);
+                                            ImGui::NewFrame(); Actions act; build(fonts, md, 800, kLogicalH, act); ImGui::Render(); }
+              for (int k = 0; k < 40; ++k) { io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, md, 800, kLogicalH, act); ImGui::Render(); }
+              shot(md, APP_HOME, "pulldown_media");
+              for (int k = 0; k < 3; ++k) { io.AddMousePosEvent(400, 14); io.AddMouseButtonEvent(0, k == 1); ImGui::NewFrame(); Actions act; build(fonts, md, 800, kLogicalH, act); ImGui::Render(); }
+          }
           openApp(APP_BROWSER); shot(wb, APP_BROWSER, "browser_tabs");
           {   // the History over the page; the volume card; every tab closed: the New Tab page
               settings().history = {{"ChartFox", "https://chartfox.org/"}, {"SkyVector Aeronautical Charts", "https://skyvector.com/"}, {"VATSIM", "https://vatsim.net/"}};

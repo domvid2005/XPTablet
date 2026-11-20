@@ -47,6 +47,7 @@ DBusConnection* g_bus = nullptr;
 std::string g_player;                 // the bus name of the player shown ("org.mpris.MediaPlayer2.spotify")
 std::string g_trackId;                // its track's object path (SetPosition needs it)
 std::map<std::string, double> g_baseVolume;   // a player's own volume before it was lowered
+double g_factor = 1.0;                       // what it is lowered by now (1: not lowered)
 
 template <class F> bool sym(F& f, const char* n) { f = (F)dlsym(g_lib, n); return f != nullptr; }
 
@@ -245,6 +246,7 @@ void send(int what) {
 }
 bool setVolume(float factor) {
     if (g_player.empty()) return false;
+    g_factor = factor >= 0.999f ? 1.0 : factor;
     if (factor >= 0.999f) {   // back to what it was
         auto it = g_baseVolume.find(g_player);
         if (it == g_baseVolume.end()) return true;
@@ -260,6 +262,24 @@ bool setVolume(float factor) {
     return true;
 }
 bool radioApps(std::string&) { return false; }
+bool playerVol(float& v) {
+    if (g_player.empty()) return false;
+    const auto it = g_baseVolume.find(g_player);
+    if (it != g_baseVolume.end()) { v = (float)it->second; return true; }
+    std::map<std::string, Val> p;
+    if (!getAll(g_player, "org.mpris.MediaPlayer2.Player", p) || !p["Volume"].isNum) return false;
+    v = (float)p["Volume"].num;
+    return true;
+}
+bool setPlayerVol(float v) {
+    if (g_player.empty()) return false;
+    v = std::max(0.0f, std::min(1.0f, v));
+    auto it = g_baseVolume.find(g_player);
+    if (it != g_baseVolume.end()) { it->second = v; return setPlayerVolume(g_player, v * g_factor); }
+    return setPlayerVolume(g_player, v);
+}
+bool masterVol(float&) { return false; }   // (no one way to it on Linux: PulseAudio, PipeWire, ALSA)
+bool setMasterVol(float) { return false; }
 
 } // namespace platform
 } // namespace media

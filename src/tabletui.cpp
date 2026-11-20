@@ -5031,6 +5031,7 @@ int g_planSeqSeen = -1;
 
 void postNote(const std::string& title, const std::string& body, int app) {
     if (!g_settings.notifyEnabled) return;
+    if (g_power != POWER_ON || (g_batt <= 0.0f && !g_charger)) return;   // a tablet that is off or flat gets none (and makes no sound)
     Note n;
     n.id = ++g_noteId; n.title = title; n.body = body; n.app = app; n.t = ImGui::GetTime();
     // no pop-up while the page it leads to is already open (it is still in the list, in the pull-down)
@@ -5091,10 +5092,19 @@ void glass(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha) {
 // the cover (or a stand-in), rounded
 void cover(ImDrawList* dl, const MediaState& m, ImVec2 a, float size, float r) {
     const ImVec2 b(a.x + size, a.y + size);
-    if (m.art && m.artW > 0 && m.artH > 0) {   // square-cropped
-        const float aw = (float)m.artW, ah = (float)m.artH, side = std::min(aw, ah);
+    // a new cover fades in over the one before (0.45 s)
+    const float t = std::max(0.0f, std::min(1.0f, (float)(ImGui::GetTime() - m.artChangedAt) / 0.45f));
+    const float e = t * t * (3 - 2 * t);
+    auto image = [&](ImTextureID tex, int w, int h, float alpha) {   // square-cropped
+        const float aw = (float)w, ah = (float)h, side = std::min(aw, ah);
         const ImVec2 uv0((aw - side) * 0.5f / aw, (ah - side) * 0.5f / ah), uv1(1 - uv0.x, 1 - uv0.y);
-        dl->AddImageRounded(m.art, a, b, uv0, uv1, IM_COL32(255, 255, 255, 255), r);
+        dl->AddImageRounded(tex, a, b, uv0, uv1, IM_COL32(255, 255, 255, (int)(255 * alpha)), r);
+    };
+    if (m.artPrev && m.artPrevW > 0 && e < 1.0f && m.art && m.artW > 0) {
+        image(m.artPrev, m.artPrevW, m.artPrevH, 1.0f);
+        image(m.art, m.artW, m.artH, e);
+    } else if (m.art && m.artW > 0 && m.artH > 0) {
+        image(m.art, m.artW, m.artH, 1.0f);
     } else {
         // a rounded gradient (the corners shaded vertex by vertex, as the wallpaper's are)
         const int v0 = dl->VtxBuffer.Size;
@@ -5148,8 +5158,9 @@ void progressBar(ImDrawList* dl, const Fonts& f, const MediaState& m, ImVec2 a, 
     dl->AddRectFilled(ImVec2(bx0, cy - th * 0.5f), ImVec2(bx1, cy + th * 0.5f), IM_COL32(255, 255, 255, 50), th);
     if (known) {
         const float fx = bx0 + (bx1 - bx0) * frac;
-        dl->AddRectFilled(ImVec2(bx0, cy - th * 0.5f), ImVec2(fx, cy + th * 0.5f), IM_COL32(255, 255, 255, 220), th);
-        dl->AddCircleFilled(ImVec2(fx, cy), 6.0f + 2.5f * hot, IM_COL32(255, 255, 255, 255), 24);
+        dl->AddRectFilled(ImVec2(bx0, cy - th * 0.5f), ImVec2(fx, cy + th * 0.5f), mixCol(IM_COL32(255, 255, 255, 220), accentLite(255), hot), th);
+        if (hot > 0.02f) dl->AddCircleFilled(ImVec2(fx, cy), 9.0f + 5.0f * hot, IM_COL32(255, 255, 255, (int)(40 * hot)), 24);   // a glow under the finger
+        dl->AddCircleFilled(ImVec2(fx, cy), 5.0f + 3.5f * hot, IM_COL32(255, 255, 255, 255), 24);
     }
     const double shownPos = known ? frac * m.lenSec : -1;
     const std::string l = clockText(shownPos), r = clockText(known ? m.lenSec : -1);
@@ -5171,11 +5182,27 @@ void playerButtons(ImDrawList* dl, const MediaState& m, ImVec2 c, float r, const
         std::snprintf(bid, sizeof bid, "%s%d", id, k);
         ImGui::SetCursorScreenPos(ImVec2(p.x - rr, p.y - rr));
         const bool enabled = m.active && (k == 1 || (k == 0 ? m.canPrev : m.canNext));
-        if (ImGui::InvisibleButton(bid, ImVec2(rr * 2, rr * 2)) && enabled) act.media = k == 1 ? 1 : k == 0 ? 2 : 3;
-        const bool hot = ImGui::IsItemHovered() && enabled, down = ImGui::IsItemActive() && enabled;
-        if (hot || down) dl->AddCircleFilled(p, rr, IM_COL32(255, 255, 255, down ? 60 : 28), 0);
+        const bool hit = ImGui::InvisibleButton(bid, ImVec2(rr * 2, rr * 2)) && enabled;
+        if (hit) act.media = k == 1 ? 1 : k == 0 ? 2 : 3;
+        // alive: a glass disc that swells on hover and gives under the finger; pressed, a ring spreads out from it; the play button
+        // in the theme's accent
+        const Ease e = eased(bid, k == 1 && m.playing, ImGui::IsItemHovered() && enabled, ImGui::IsItemActive() && enabled);
+        ImGuiStorage* stg = ImGui::GetStateStorage();
+        const ImGuiID pk = ImGui::GetID(bid);
+        if (hit) stg->SetFloat(pk + 7, (float)ImGui::GetTime());
+        const float since = (float)ImGui::GetTime() - stg->GetFloat(pk + 7, -10.0f);
+        const float scale = 1.0f + 0.06f * e.hot - 0.08f * e.down;
+        const float rd = rr * scale;
+        if (k == 1) {
+            dl->AddCircleFilled(ImVec2(p.x, p.y + 2), rd + 1, IM_COL32(0, 0, 0, 60), 0);
+            dl->AddCircleFilled(p, rd, mixCol(accentCol(enabled ? 230 : 90), accentLite(enabled ? 255 : 90), e.hot * 0.6f), 0);
+        } else if (e.hot > 0.01f || e.down > 0.01f) dl->AddCircleFilled(p, rd, IM_COL32(255, 255, 255, (int)(26 * e.hot + 34 * e.down)), 0);
+        if (since < 0.45f) {   // the ring
+            const float q = since / 0.45f;
+            dl->AddCircle(p, rr * (1.0f + 0.45f * q), IM_COL32(255, 255, 255, (int)(150 * (1 - q))), 0, 2.0f);
+        }
         const ImU32 col = enabled ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 255, 255, 90);
-        const float s = rr * 0.42f;
+        const float s = rr * 0.42f * scale;
         if (k == 1) {
             if (m.playing) {   // pause: two bars
                 dl->AddRectFilled(ImVec2(p.x - s * 0.75f, p.y - s), ImVec2(p.x - s * 0.22f, p.y + s), col, s * 0.15f);
@@ -5207,8 +5234,57 @@ std::string fitText(ImFont* fnt, const std::string& t, float width) {
 }
 
 // The Music app: the cover, what is playing, the controls; and what the radio does to the music
+// A line too long for its room: 5 s after the track came, and then every 30 s, it slides slowly to its end and back (25 units a
+// second, a moment's rest at each end); one that fits is drawn as it is
+void marquee(ImDrawList* dl, ImFont* fnt, float x, float y, float room, ImU32 col, const std::string& text, double since) {
+    const float tw = fnt->CalcTextSizeA(fontPx(fnt), 1e9f, 0, text.c_str()).x;
+    if (tw <= room) { textAt(dl, fnt, x, y, col, text.c_str()); return; }
+    const float over = tw - room, run = over / 25.0f;   // seconds to the end
+    const double t = std::fmod(std::max(0.0, ImGui::GetTime() - since - 5.0), 30.0);
+    float off = 0;
+    if (ImGui::GetTime() - since >= 5.0) {
+        if (t < run) off = over * (float)(t / run);
+        else if (t < run + 1.5) off = over;
+        else if (t < 2 * run + 1.5) off = over * (1.0f - (float)((t - run - 1.5) / run));
+    }
+    const float e = off / std::max(1.0f, over), eased = e * e * (3 - 2 * e);
+    dl->PushClipRect(ImVec2(x, y - 2), ImVec2(x + room, y + fontPx(fnt) + 4), true);
+    textAt(dl, fnt, std::floor(x - over * eased), y, col, text.c_str());
+    dl->PopClipRect();
+}
+double trackSince(const MediaState& m) {   // when this track began to be shown
+    static std::string key;
+    static double at = 0;
+    const std::string k = m.title + "\x01" + m.artist;
+    if (k != key) { key = k; at = ImGui::GetTime(); }
+    return at;
+}
+// a volume slider with a speaker at its left (the media's or the computer's)
+void volumeSlider(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, float x1, float vol, float& out, bool computer) {
+    const ImVec2 c(a.x + 10, a.y + 15);
+    const ImU32 col = IM_COL32(210, 222, 242, 255);
+    dl->AddRectFilled(ImVec2(c.x - 6, c.y - 3), ImVec2(c.x - 2, c.y + 3), col, 1.0f);
+    dl->AddTriangleFilled(ImVec2(c.x - 3, c.y - 3), ImVec2(c.x + 3, c.y - 8), ImVec2(c.x + 3, c.y + 8), col);
+    dl->AddTriangleFilled(ImVec2(c.x - 3, c.y - 3), ImVec2(c.x + 3, c.y + 8), ImVec2(c.x - 3, c.y + 3), col);
+    if (computer) dl->AddRect(ImVec2(c.x - 9, c.y - 10), ImVec2(c.x + 7, c.y + 10), IM_COL32(210, 222, 242, 120), 3.0f, 0, 1.0f);   // (the computer's: in a box)
+    char txt[16];
+    std::snprintf(txt, sizeof txt, "%d%%", (int)std::lround(vol * 100));
+    float v = vol;
+    if (smoothSlider(dl, f, id, ImVec2(a.x + 18, a.y), ImVec2(x1, a.y + 30), v, 0.0f, 1.0f, 0, true, txt)) out = v;
+}
+
 void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const MediaState& m = s.media;
+    {   // the background: the cover's colour, from the top left into the theme's, changing slowly with the track
+        static ImU32 shown = 0;
+        const ImU32 want = m.active && m.artColor ? m.artColor : 0;
+        const float k = 1.0f - std::exp(-ImGui::GetIO().DeltaTime * 3.0f);
+        shown = mixCol(shown ? shown : (want ? want : themeTone(10, 20, 40, 255)), want ? want : themeTone(10, 20, 40, 255), k);
+        if (want || shown) {
+            const ImU32 c0 = (shown & 0x00FFFFFF) | (200u << 24), c1 = (shown & 0x00FFFFFF) | (40u << 24);
+            dl->AddRectFilledMultiColor(ImVec2(0, kStatusH + kHeaderH), ImVec2(w, h), c0, c1, IM_COL32(0, 0, 0, 0), c1);
+        }
+    }
     const float top = kStatusH + kHeaderH + 14, bot = h - 14;
     const float art = std::min(bot - top - 20, w * 0.42f);
     const ImVec2 a(std::floor(w * 0.06f + 10), top + std::floor((bot - top - art) * 0.5f));
@@ -5231,21 +5307,28 @@ void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
     } else {
         textAt(dl, f.small, x, y, IM_COL32(255, 120, 150, 255), fitText(f.small, m.app.empty() ? std::string("Now playing") : m.app, x1 - x).c_str());
         y += 24;
-        textAt(dl, f.title, x, y, kInk, fitText(f.title, m.title.empty() ? std::string("Unknown title") : m.title, x1 - x).c_str());
+        const double since = trackSince(m);
+        marquee(dl, f.title, x, y, x1 - x, kInk, m.title.empty() ? std::string("Unknown title") : m.title, since);
         y += 30;
-        textAt(dl, f.body, x, y, kMuted, fitText(f.body, m.artist, x1 - x).c_str());
+        marquee(dl, f.body, x, y, x1 - x, kMuted, m.artist, since);
         y += 22;
-        if (!m.album.empty()) textAt(dl, f.small, x, y, kMuted, fitText(f.small, m.album, x1 - x).c_str());
+        if (!m.album.empty()) marquee(dl, f.small, x, y, x1 - x, kMuted, m.album, since);
         y += 30;
         progressBar(dl, f, m, ImVec2(x, y), x1, "##mpprog", false, act);
         y += 40;
     }
     playerButtons(dl, m, ImVec2(std::floor((x + x1) * 0.5f), y + 20), 22.0f, "##mp", act);
-    y += 78;
+    y += 62;
+    // the volumes: the player's own, and (Windows) the computer's
+    if (m.playerVolume >= 0) { float v = -1; volumeSlider(dl, f, "##mpvol", ImVec2(x, y), x1, m.playerVolume, v, false); if (v >= 0) act.mediaPlayerVol = v; y += 38; }
+    if (m.masterVolume >= 0) { float v = -1; volumeSlider(dl, f, "##mpmaster", ImVec2(x, y), x1, m.masterVolume, v, true); if (v >= 0) act.mediaMasterVol = v; y += 38; }
+    y += 4;
     dl->AddLine(ImVec2(x, y), ImVec2(x1, y), IM_COL32(255, 255, 255, 24));
-    textAt(dl, f.small, x, y + 12, m.radioRx ? kWarn : kMuted, radioLine(m).c_str());
-    const std::string rule = std::string("When the radios receive or transmit, XPTablet ") + duckName(g_settings.mediaDuck) + " (Settings, Media).";
-    dl->AddText(f.small, fontPx(f.small), ImVec2(x, y + 34), kMuted, rule.c_str(), nullptr, x1 - x);
+    textAt(dl, f.small, x, y + 10, m.radioRx ? kWarn : kMuted, radioLine(m).c_str());
+    if (y + 56 < h - 14) {
+        const std::string rule = std::string("When the radios receive or transmit, XPTablet ") + duckName(g_settings.mediaDuck) + " (Settings, Media).";
+        dl->AddText(f.small, fontPx(f.small), ImVec2(x, y + 32), kMuted, rule.c_str(), nullptr, x1 - x);
+    }
 }
 
 // notifications from what the host tells: traffic in TCAS RA range, a new SimBrief plan
@@ -5372,6 +5455,9 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         textAt(dl, f.title, m + 4, top + 2, kInk, "Media");   // as Notifications beside it; the box level with Clear All
         const ImVec2 a(m, top + 34), b(m + colL, top + 34 + kCcMediaH);
         glass(dl, a, b, 24.0f);
+        ImGui::SetCursorScreenPos(a);   // the card (where nothing else is): the Media page
+        ImGui::SetNextItemAllowOverlap();
+        if (ImGui::InvisibleButton("##ccmediacard", ImVec2(b.x - a.x, b.y - a.y))) { g_ccTarget = 0; openApp(APP_MUSIC); }
         const float art = 74;
         for (int k = 3; k >= 1; --k) {   // a soft shadow, centred under the cover
             const float g = 2.0f * k;
@@ -5383,12 +5469,14 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         else if (!md.active) { textAt(dl, f.bold, tx, a.y + 22, kInk, "Not playing"); dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 44), kMuted, "Play something in any player.", nullptr, tw); }
         else {
             textAt(dl, f.small, tx, a.y + 18, IM_COL32(255, 140, 165, 255), fitText(f.small, md.app.empty() ? std::string("Now playing") : md.app, tw).c_str());
-            textAt(dl, f.bold, tx, a.y + 36, kInk, fitText(f.bold, md.title, tw).c_str());
-            textAt(dl, f.small, tx, a.y + 58, kMuted, fitText(f.small, md.artist, tw).c_str());
+            const double since = trackSince(md);
+            marquee(dl, f.bold, tx, a.y + 36, tw, kInk, md.title, since);
+            marquee(dl, f.small, tx, a.y + 58, tw, kMuted, md.artist, since);
         }
         if (md.active) progressBar(dl, f, md, ImVec2(a.x + 16, a.y + 104), b.x - 16, "##ccprog", true, act);
-        playerButtons(dl, md, ImVec2(std::floor((a.x + b.x) * 0.5f), a.y + 146), 18.0f, "##ccmp", act);
-        textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y - 24, md.radioRx || md.radioTx ? kWarn : kMuted, fitText(f.small, radioLine(md), colL - 24).c_str());
+        playerButtons(dl, md, ImVec2(std::floor((a.x + b.x) * 0.5f), a.y + 140), 18.0f, "##ccmp", act);
+        if (md.active && md.playerVolume >= 0) { float v = -1; volumeSlider(dl, f, "##ccvol", ImVec2(a.x + 10, b.y - 38), b.x - 12, md.playerVolume, v, false); if (v >= 0) act.mediaPlayerVol = v; }
+        else textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y - 24, md.radioRx || md.radioTx ? kWarn : kMuted, fitText(f.small, radioLine(md), colL - 24).c_str());
         // the Music app
         ImGui::SetCursorScreenPos(ImVec2(a.x + 16, a.y + 16));
         if (ImGui::InvisibleButton("##ccart", ImVec2(art, art))) { g_ccTarget = 0; openApp(APP_MUSIC); }
@@ -5397,6 +5485,9 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         const float by = music ? top + 34 + kCcMediaH + kCcGap : top + 34;
         const ImVec2 a(m, by), b(m + colL, by + kCcBrightH);
         glass(dl, a, b, 24.0f);
+        ImGui::SetCursorScreenPos(a);   // the card: Settings, Display
+        ImGui::SetNextItemAllowOverlap();
+        if (ImGui::InvisibleButton("##ccbrightcard", ImVec2(b.x - a.x, b.y - a.y))) { g_ccTarget = 0; g_settingsTab = 1; openApp(APP_SETTINGS); }
         textAt(dl, f.bold, a.x + 16, a.y + 12, kInk, "Brightness");
         float br = g_settings.autoDim ? s.autoDimLevel : std::max(0.1f, std::min(1.0f, g_settings.brightness));
         char txt[16];
@@ -5413,6 +5504,9 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             const float py = (music ? top + 34 + kCcMediaH + kCcGap : top + 34) + kCcBrightH + kCcGap;
             const ImVec2 a(m, py), b(m + colL, py + 70);
             glass(dl, a, b, 24.0f);
+            ImGui::SetCursorScreenPos(a);   // the card: the Flight Plan
+            ImGui::SetNextItemAllowOverlap();
+            if (ImGui::InvisibleButton("##ccflightcard", ImVec2(b.x - a.x, b.y - a.y))) { g_ccTarget = 0; openApp(APP_ROUTES); }
             textAt(dl, f.bold, a.x + 16, a.y + 10, kInk, "Flight");
             progressStrip(dl, f, s, pr, ImVec2(a.x + 16, a.y + 32), ImVec2(b.x - 16, b.y - 4), true);
         }
@@ -5839,6 +5933,7 @@ bool trafficInRA(const MapState& m, const MapState::Traffic& t) { return tcasRA(
 int trafficThreat(const MapState& m, const MapState::Traffic& t) { return runwayConflict(m, t) ? 3 : tcasLevel(m, t); }
 void mapSelect(int kind, const std::string& key) { g_selKind = kind; g_selKey = key; }
 void openDispatchFromPlan() { openDispatch(true); }
+bool tabletPoweredOn() { return g_power == POWER_ON && !(g_batt <= 0.0f && !g_charger); }
 int powerState() { return g_power; }   // 0 on, 1 fading off, 2 off, 3 starting, 4 waking
 
 Fonts loadFonts(float pixelScale) {

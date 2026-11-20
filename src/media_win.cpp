@@ -37,6 +37,7 @@ std::wstring g_lastTrack;           // title + artist the cover was read for
 std::string g_trackArt;             // that track's cover, handed over on every poll (so it stays, rather than showing once)
 int g_artTries = 0;                 // asked for it this many times (apps often give it a moment after the title)
 std::map<DWORD, float> g_baseVol;   // a lowered process's own volume before
+float g_factor = 1.0f;              // what it is lowered by now (1: not lowered)
 
 std::string narrow(const std::wstring& w) {
     if (w.empty()) return std::string();
@@ -214,6 +215,7 @@ void send(int what) {
 }
 
 bool setVolume(float factor) {
+    g_factor = factor >= 0.999f ? 1.0f : factor;
     std::vector<Session> list = sessions();
     bool any = false;
     for (Session& s : list) {
@@ -236,6 +238,63 @@ bool setVolume(float factor) {
     if (factor >= 0.999f) g_baseVol.clear();
     release(list);
     return any || factor >= 0.999f;
+}
+
+bool playerVol(float& v) {
+    std::vector<Session> list = sessions();
+    bool got = false;
+    for (Session& s : list)
+        if (s.vol && isPlayer(s)) {
+            float x = 1.0f;
+            s.vol->GetMasterVolume(&x);
+            const auto it = g_baseVol.find(s.pid);
+            v = it != g_baseVol.end() ? it->second : x;
+            got = true;
+            break;
+        }
+    release(list);
+    return got;
+}
+bool setPlayerVol(float v) {
+    v = std::max(0.0f, std::min(1.0f, v));
+    std::vector<Session> list = sessions();
+    bool any = false;
+    for (Session& s : list)
+        if (s.vol && isPlayer(s)) {
+            auto it = g_baseVol.find(s.pid);
+            if (it != g_baseVol.end()) { it->second = v; s.vol->SetMasterVolume(v * g_factor, nullptr); }   // (lowered: it stays lowered from there)
+            else s.vol->SetMasterVolume(v, nullptr);
+            any = true;
+        }
+    release(list);
+    return any;
+}
+// the speakers' own volume (the one in Windows' taskbar)
+IAudioEndpointVolume* endpointVolume() {
+    IMMDeviceEnumerator* en = nullptr;
+    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&en)) || !en) return nullptr;
+    IAudioEndpointVolume* ev = nullptr;
+    IMMDevice* dev = nullptr;
+    if (SUCCEEDED(en->GetDefaultAudioEndpoint(eRender, eMultimedia, &dev)) && dev) {
+        dev->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr, (void**)&ev);
+        dev->Release();
+    }
+    en->Release();
+    return ev;
+}
+bool masterVol(float& v) {
+    IAudioEndpointVolume* ev = endpointVolume();
+    if (!ev) return false;
+    const bool ok = SUCCEEDED(ev->GetMasterVolumeLevelScalar(&v));
+    ev->Release();
+    return ok;
+}
+bool setMasterVol(float v) {
+    IAudioEndpointVolume* ev = endpointVolume();
+    if (!ev) return false;
+    const bool ok = SUCCEEDED(ev->SetMasterVolumeLevelScalar(std::max(0.0f, std::min(1.0f, v)), nullptr));
+    ev->Release();
+    return ok;
 }
 
 bool radioApps(std::string& who) {
