@@ -4596,9 +4596,11 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             if (pill(dl, f, id, lbl, ImVec2(bx, by - 14), ImVec2(bx + bw, by + 14), docked, canPress)) { act.ground = GA_JETWAY_DOOR; act.groundIndex = k; }
             // under the bubble: the door's name and what the jetway is doing
             // as openSAM shows it: connected only once the jetway is there, "jetway moving" until then (both kinds of jetway)
-            const char* st = moving ? "jetway moving"
-                           : !g.openSam ? (docked ? (g.toliss ? "connected, door open" : "connected") : "X-Plane jetway")
-                           : docked ? (g.toliss ? "docked, door open" : "docked") : g.jetway == 1 ? "jetway ready" : g.jetway == 0 ? "no jetway here" : g.jetway == 2 ? "jetway at the other door" : "jetway moving";
+            // (openSAM says "no jetway" while the aircraft is not ready for one: then the jetway status says why)
+            const bool planeNotReady = !g.onGround || g.groundSpeedKt > 1.0f || g.beacon || g.enginesRunning || (!g.parkBrake && !g.chocks);
+            const char* st = moving ? "Jetway moving"
+                           : !g.openSam ? (docked ? (g.toliss ? "Connected, door open" : "Connected") : planeNotReady ? "Check status" : "X-Plane jetway")
+                           : docked ? (g.toliss ? "Docked, door open" : "Docked") : planeNotReady ? "Check status" : g.jetway == 1 ? "Jetway ready" : g.jetway == 0 ? "No jetway here" : g.jetway == 2 ? "Jetway at the other door" : "Jetway moving";
             std::snprintf(b, sizeof b, "%d%c  \xC2\xB7  %s", pax / 2 + 1, 'L', st);
             textAt(dl, f.small, bx + 4, by + 17, docked ? kGood : moving ? kWarn : kMuted, b);
         }
@@ -4662,7 +4664,9 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             }
             dl->AddCircleFilled(ImVec2(hx, ty), 10.0f, IM_COL32(245, 248, 255, 255), 0);
             dl->AddCircle(ImVec2(hx, ty), 10.0f, IM_COL32(255, 214, 120, 255), 0, 2.0f);
-            y += 44;
+            y += 32;
+            textAt(dl, f.small, cx0, y, kMuted, "Leave ToLiss Cabin Lights on Auto");
+            y += 20;
         } else {
             textAt(dl, f.small, cx0, y, kMuted, "This aircraft does not offer its cabin lights.");
             y += 34;
@@ -4682,17 +4686,14 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         if (pill(dl, f, "##sauto", "Auto", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), g.slidesAuto, true)) act.ground = GA_SLIDES_AUTO;
         y += 42;
         // Cabin Ready: tells the aircraft the cabin is secure (the CABIN READY memo); greyed once given, until after takeoff or landing
+        // always the same colour (only lighter while hovered): ToLiss keeps the memo once given, so there is nothing to show undone
         const ImVec2 ra(cx0, y), rb(cx1, std::min(split - 14, y + 44));
-        if (g.cabinReady) {   // green: ready; pressed again, not ready any more
-            ImGui::SetCursorScreenPos(ra);
-            if (ImGui::InvisibleButton("##cabunready", ImVec2(rb.x - ra.x, rb.y - ra.y))) act.ground = GA_CABIN_READY;
-            dl->AddRectFilled(ra, rb, ImGui::IsItemHovered() ? IM_COL32(64, 184, 110, 255) : IM_COL32(52, 168, 96, 255), 14.0f);
-            textCentered(dl, f.bold, (ra.x + rb.x) * 0.5f, std::floor((ra.y + rb.y) * 0.5f - fontPx(f.bold) * 0.5f), IM_COL32(255, 255, 255, 255), "Cabin Ready");
-        } else {
+        {
             ImGui::SetCursorScreenPos(ra);
             const bool hit = ImGui::InvisibleButton("##cabready", ImVec2(rb.x - ra.x, rb.y - ra.y));
             const Ease ez = eased("##cabready", false, ImGui::IsItemHovered(), ImGui::IsItemActive());
-            dl->AddRectFilled(ra, rb, mixCol(accentCol(255), accentLite(255), ez.hot), 14.0f);
+            const float in = ez.down * 1.2f;
+            dl->AddRectFilled(ImVec2(ra.x + in, ra.y + in), ImVec2(rb.x - in, rb.y - in), mixCol(accentCol(255), accentLite(255), ez.hot), 14.0f);
             textCentered(dl, f.bold, (ra.x + rb.x) * 0.5f, std::floor((ra.y + rb.y) * 0.5f - fontPx(f.bold) * 0.5f), IM_COL32(255, 255, 255, 255), "Cabin Ready");
             if (hit) act.ground = GA_CABIN_READY;
         }

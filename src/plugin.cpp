@@ -2117,19 +2117,40 @@ void readSimState() {
 
 // The cabin door a jetway is on opens once the jetway has docked, and closes when the jetway leaves. Docked by door comes from
 // openSAM; without openSAM, X-Plane's own jetways (every boarding door at once) follow the Connect / Disconnect presses.
+// (the door opens 2.5 s after the jetway shows docked, once it has really come to rest against the aircraft; on Disconnect the
+// door closes first and the jetway is sent away once it has shut, see jetwayUndockStep)
+double g_dockedSince[3] = {-1, -1, -1};
+double g_undockAt = -1;          // when the jetways are to be sent away (the doors closing first), -1 none
 void followJetways() {
     SimRefs& r = g_refs;
     const xpt::GroundState& g = g_sim.ground;
     if (!g.toliss || !r.paxDoor) return;
+    const double now = XPLMGetElapsedTime();
     for (int k = 0; k < g.jwDoors && k < 3; ++k) {
-        if (g.jwDocked[k] == r.wasDocked[k]) continue;
-        r.wasDocked[k] = g.jwDocked[k];
+        if (g.jwDocked[k] && g_dockedSince[k] < 0) g_dockedSince[k] = now;
+        if (!g.jwDocked[k]) g_dockedSince[k] = -1;
+        const bool settled = g.jwDocked[k] && now - g_dockedSince[k] >= 2.5;
+        if (settled == r.wasDocked[k]) continue;
+        r.wasDocked[k] = settled;
         const int pax = g.jwDoorPax[k];
         if (pax < 0 || pax >= g.paxDoors) continue;
-        int mode = g.jwDocked[k] ? 2 : 0;
+        int mode = settled ? 2 : 0;
         XPLMSetDatavi(r.paxDoor, &mode, pax, 1);
-        logMsg("jetway %s door %dL: door %s", g.jwDocked[k] ? "docked at" : "left", pax / 2 + 1, g.jwDocked[k] ? "opened" : "closed");
+        logMsg("jetway %s door %dL: door %s", settled ? "docked at" : "left", pax / 2 + 1, settled ? "opened" : "closed");
     }
+}
+void once(const char* cmd);
+void undockNow() {
+    SimRefs& rr = g_refs;
+    if (g_sim.ground.openSam) once("openSAM/undock_jwy"); else { once("sim/ground_ops/jetway"); rr.xpJetway = false; rr.xpJetwayT0 = XPLMGetElapsedTime(); }
+}
+void jetwayUndockStep() {   // the jetways go once the doors they were on have shut (ToLiss), or after 6 s at most
+    if (g_undockAt < 0) return;
+    const xpt::GroundState& g = g_sim.ground;
+    bool shut = true;
+    for (int k = 0; k < g.jwDoors && k < 3; ++k) { const int pax = g.jwDoorPax[k]; if (pax >= 0 && pax < 8 && g.paxDoor[pax] != 0) shut = false; }
+    const double now = XPLMGetElapsedTime();
+    if ((shut && now >= g_undockAt - 4.5) || now >= g_undockAt) { g_undockAt = -1; undockNow(); logMsg("jetway: sent away (the doors shut)"); }
 }
 
 void once(const char* cmd) {
@@ -2142,15 +2163,35 @@ void toggleInt(XPLMDataRef ref) { if (ref) XPLMSetDatai(ref, XPLMGetDatai(ref) ?
 // The slides' Auto: as ToLiss does it, armed once the beacon is on with every cabin door shut, disarmed parked with the beacon and
 // engines off. Sends ToLiss's own arm / disarm commands, at most once every few seconds.
 bool g_slidesAuto = false;
-bool g_slidesHeldDisarmed = false;   // Disarm pressed: kept disarmed (the aircraft arming them is undone) until Arm or Auto
+// Arm or Disarm pressed: held so (the aircraft's own arming or disarming undone at once): -1 disarmed, 1 armed (on the ground,
+// with the doors shut), 0 none (Auto, or the aircraft's way). Checked every frame, straight from the slides' dataref, so a slide
+// the aircraft arms is disarmed again before it is drawn (checked every few frames, it flickered).
+int g_slidesHold = 0;
+void slidesHoldStep() {
+    const SimRefs& r = g_refs;
+    const xpt::GroundState& g = g_sim.ground;
+    if (!g_slidesHold || !g.toliss || !r.slides) return;
+    int sl[8] = {};
+    float slf[8] = {};
+    const int n = std::min(8, XPLMGetDatavi(r.slides, nullptr, 0, 0));
+    if (n <= 0) return;
+    if (XPLMGetDataRefTypes(r.slides) & xplmType_IntArray) XPLMGetDatavi(r.slides, sl, 0, n); else { XPLMGetDatavf(r.slides, slf, 0, n); for (int i = 0; i < n; ++i) sl[i] = slf[i] > 0.5f; }
+    bool any = false, all = true;
+    for (int i = 0; i < n; ++i) { any = any || sl[i]; all = all && sl[i]; }
+    static double lastLog = -100, lastArm = -100;
+    const double now = XPLMGetElapsedTime();
+    if (g_slidesHold < 0 && any) {
+        trigger("toliss_airbus/door_commands/disarm_slides");
+        if (now - lastLog > 10) { lastLog = now; logMsg("slides: kept disarmed (the aircraft armed them)"); }
+    } else if (g_slidesHold > 0 && !all && g.onGround && now - lastArm > 2.0) {
+        bool shut = true;
+        for (int i = 0; i < g.paxDoors && i < 8; ++i) if (g.paxDoor[i] != 0) shut = false;
+        if (shut) { trigger("toliss_airbus/door_commands/arm_slides"); lastArm = now; if (now - lastLog > 10) { lastLog = now; logMsg("slides: kept armed on the ground"); } }
+    }
+}
 void slidesAutoStep() {
     const xpt::GroundState& g = g_sim.ground;
-    if (g_slidesHeldDisarmed && g.toliss && g.slides != 0) {   // armed (all or some) though Disarm was chosen: disarmed again
-        static double lastHold = -10;
-        const double now = XPLMGetElapsedTime();
-        if (now - lastHold > 1.0) { trigger("toliss_airbus/door_commands/disarm_slides"); lastHold = now; logMsg("slides: kept disarmed (the aircraft armed them)"); }
-        return;
-    }
+    if (g_slidesHold) return;
     if (!g_slidesAuto || !g.toliss || g.slides < 0) return;
     static double last = -10;
     const double now = XPLMGetElapsedTime();
@@ -2177,17 +2218,18 @@ void doGround(const xpt::Actions& act) {
         rr.wantDoor[k] = !rr.wantDoor[k];
         for (bool w : rr.wantDoor) after = after || w;
         rr.jwPressT[k] = XPLMGetElapsedTime();
-        if (!before && after) {
+        if (!before && after && g_undockAt >= 0) g_undockAt = -1;   // connected again before the jetway left: it stays
+        else if (!before && after) {
             if (g.openSam) once("openSAM/dock_jwy"); else { once("sim/ground_ops/jetway"); rr.xpJetway = true; rr.xpJetwayT0 = XPLMGetElapsedTime(); }
-        } else if (before && !after) {
-            if (g.openSam) once("openSAM/undock_jwy"); else { once("sim/ground_ops/jetway"); rr.xpJetway = false; rr.xpJetwayT0 = XPLMGetElapsedTime(); }
+        } else if (before && !after) {   // the last door: it closes now (followJetways), the jetways leave when it has shut
+            if (g.toliss && rr.paxDoor) g_undockAt = XPLMGetElapsedTime() + 6.0; else undockNow();
         }
         logMsg("jetway: door %d %s (%s jetways)", k + 1, rr.wantDoor[k] ? "connected" : "disconnected", g.openSam ? "openSAM" : "X-Plane's");
         break;
     }
-    case xpt::GA_SLIDES_ARM: g_slidesAuto = false; g_slidesHeldDisarmed = false; if (g.toliss) trigger("toliss_airbus/door_commands/arm_slides"); break;
-    case xpt::GA_SLIDES_DISARM: g_slidesAuto = false; g_slidesHeldDisarmed = true; if (g.toliss) trigger("toliss_airbus/door_commands/disarm_slides"); break;
-    case xpt::GA_SLIDES_AUTO: g_slidesAuto = true; g_slidesHeldDisarmed = false; break;
+    case xpt::GA_SLIDES_ARM: g_slidesAuto = false; g_slidesHold = 1; if (g.toliss) trigger("toliss_airbus/door_commands/arm_slides"); break;
+    case xpt::GA_SLIDES_DISARM: g_slidesAuto = false; g_slidesHold = -1; if (g.toliss) trigger("toliss_airbus/door_commands/disarm_slides"); break;
+    case xpt::GA_SLIDES_AUTO: g_slidesAuto = true; g_slidesHold = 0; break;
     case xpt::GA_CABIN_READY:   // the cabin is secure: ToLiss's CABIN READY memo (as its flight attendant panel sends it)
         // pressed again: not ready (ToLiss has no command to take its memo back, so only the tablet's button goes back)
         if (g.toliss && g_refs.cabinReady) g_refs.cabinReady = false;
@@ -2238,6 +2280,8 @@ void doGround(const xpt::Actions& act) {
 float flightLoop(float dt, float, int, void*) {
     findSimRefs();
     if ((XPLMGetCycleNumber() & 7) == 0) { readSimState(); g_sim.ground.slidesAuto = g_slidesAuto; followJetways(); slidesAutoStep(); readMapState(); }
+    slidesHoldStep();
+    jetwayUndockStep();
     {   // the METAR search's answer
         xpt::MetarAnswer a;
         if (xpt::metarPoll(a)) { g_sim.metar.busy = false; g_sim.metar.icao = a.icao; g_sim.metar.raw = a.raw; g_sim.metar.error = a.error; }
