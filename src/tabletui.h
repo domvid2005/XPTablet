@@ -3,6 +3,7 @@
 #pragma once
 
 #include <memory>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -67,6 +68,7 @@ struct Settings {
     bool mapBestRunway = true;    // the runway most into the wind outlined in green on the airport layouts
     bool mapDaylight = false;     // day and night across the map (the sun's height where it is, from the sim's time)
     bool cabinAuto = false;       // the cabin lights follow the daylight, as the tablet's auto dim: 100 % by day, down to 0 % at full night
+    bool mapAirspaces = false;    // the Map shows VATSIM's airspaces (green where a controller is online)
     bool mapVatsimAtc = false;    // the Map shows VATSIM's controllers online round their airports
     bool vatsimAtcNotes = true;   // a notification when a controller comes online at the flight's airports
     int mapTrafficSource = 0;     // 0 nearby (X-Plane's TCAS: AI and multiplayer), 1 nearby and VATSIM worldwide
@@ -206,7 +208,13 @@ struct VatsimPilot {
 
 // A VATSIM controller (or ATIS) online: its call sign ("KORD_TWR"), frequency ("120.750"), kind (facility: 1 FSS, 2 DEL, 3 GND,
 // 4 TWR, 5 APP, 6 CTR; 7 the ATIS) and its text
-struct VatsimController { std::string callsign, freq, name, text; int facility = 0; };
+struct VatsimController { std::string callsign, freq, name, text; int facility = 0; std::string logon; };   // logon: "14:02Z"
+
+// VATSIM's airspaces (the VATSpy data): each area's outline (rings of lat, lon), its box and label point; and the FIRs, which say
+// which area a center's call sign covers
+struct AirspaceArea { std::string id; bool oceanic = false; double labelLat = 0, labelLon = 0, la0 = 0, lo0 = 0, la1 = 0, lo1 = 0;
+                      std::vector<std::vector<std::pair<float, float>>> rings; };
+struct AirspaceSet { std::vector<AirspaceArea> areas; struct Fir { std::string icao, name, prefix, boundary; }; std::vector<Fir> firs; };
 
 // The Map page: the aircraft, the time, and what the host has loaded for the view.
 struct MapState {
@@ -243,6 +251,8 @@ struct MapState {
     // the traffic card's aircraft on VATSIM (for Actions::trafficSelected)
     VatsimPilot vatsim;
     std::string vatsimStatus;     // "" when the data is fresh; else what is happening
+    std::shared_ptr<const AirspaceSet> airspaces;   // VATSIM's airspaces, once read (the Map's airspace layer)
+    std::string airspaceStatus;   // how they stand ("Reading VATSIM's airspaces..."), "" when there
 };
 
 // The Flight Plan page: the latest SimBrief plan (the operational flight plan's summary and its navigation log).

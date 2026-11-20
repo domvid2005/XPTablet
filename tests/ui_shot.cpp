@@ -20,6 +20,7 @@
 #include "imgui.h"
 #include "imgui_internal.h"   // (the error log: ImGui's own record of unbalanced calls, which it shows on screen in the sim)
 #include "tabletui.h"
+#include "airspace_parse.h"
 #include "airlines.h"
 #include "tabrender.h"
 
@@ -797,6 +798,28 @@ int main(int argc, char** argv) {
             if (!(lo1 > lo0) || z1 != z0) { std::printf("FAIL: AviTab pan_right moves the map east (%.3f -> %.3f)\n", lo0, lo1); ++failures; }
             mapCommand(3);
             shot(mp, APP_MAP, "map_navaids_route");
+            {   // VATSIM's airspaces: Chicago Center online (green, its card when tapped), Indianapolis quiet
+                auto set = std::make_shared<AirspaceSet>();
+                AirspaceArea zau; zau.id = "KZAU"; zau.labelLat = 41.9; zau.labelLon = -86.9; zau.rings = {{{43.0f, -89.0f}, {43.0f, -85.8f}, {41.2f, -85.8f}, {41.2f, -89.0f}, {43.0f, -89.0f}}};
+                AirspaceArea zid; zid.id = "KZID"; zid.labelLat = 40.2; zid.labelLon = -86.0; zid.rings = {{{41.2f, -88.0f}, {41.2f, -84.0f}, {38.5f, -84.0f}, {38.5f, -88.0f}, {41.2f, -88.0f}}};
+                for (AirspaceArea* ar : {&zau, &zid}) {
+                    ar->la0 = ar->lo0 = 1e9; ar->la1 = ar->lo1 = -1e9;
+                    for (const auto& q : ar->rings[0]) { ar->la0 = std::min(ar->la0, (double)q.first); ar->la1 = std::max(ar->la1, (double)q.first); ar->lo0 = std::min(ar->lo0, (double)q.second); ar->lo1 = std::max(ar->lo1, (double)q.second); }
+                }
+                set->areas = {zau, zid};
+                set->firs = {{"KZAU", "Chicago", "CHI", "KZAU"}, {"KZID", "Indianapolis", "IND", "KZID"}};
+                SimState as = mp; as.map.airspaces = set; as.vatsimAtcHave = true;
+                as.vatsimAtc = {{"CHI_CTR", "133.200", "Chicago Center", "Chicago Center, radar services, monitor UNICOM in uncontrolled airspace", 6, "14:02Z"}};
+                settings().mapAirspaces = true; settings().mapAirports = false; settings().mapTraffic = false;
+                for (int k = 0; k < 3; ++k) mapCommand(1);   // out a little: both areas in view
+                shot(as, APP_MAP, "map_airspaces");
+                if (airspace::firFor(*set, "CHI_CTR") == nullptr || airspace::firFor(*set, "LON_S_CTR") != nullptr) { std::printf("FAIL: a center's call sign finds its FIR\n"); ++failures; }
+                for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(330, 170); io.AddMouseButtonEvent(0, k == 1);
+                    ImGui::NewFrame(); Actions act; build(fonts, as, 800, kLogicalH, act); ImGui::Render(); }
+                shot(as, APP_MAP, "map_airspace_card");
+                for (int k = 0; k < 3; ++k) mapCommand(2);
+                settings().mapAirspaces = false;
+            }
             settings().mapAirports = true; settings().mapTraffic = true; settings().mapWaypoints = false;
         }
         {   // Airports: the list, and an airport with its radio, CTAF, runways and parking

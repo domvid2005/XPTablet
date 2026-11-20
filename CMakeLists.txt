@@ -89,7 +89,7 @@ add_custom_command(
   DEPENDS ${XPT_ASSET_FILES} ${CMAKE_SOURCE_DIR}/cmake/embed_assets.cmake
   COMMENT "Embedding the tablet's fonts")
 # The tablet itself: its screens and the triangle clipper. No X-Plane calls, so the tests build it too.
-add_library(xpt_ui STATIC src/tabletui.cpp src/tabrender.cpp src/metar.cpp src/aptgeo.cpp src/airlines.cpp src/tz.cpp ${CMAKE_BINARY_DIR}/xpt_assets.c)
+add_library(xpt_ui STATIC src/tabletui.cpp src/tabrender.cpp src/metar.cpp src/aptgeo.cpp src/airspace_parse.cpp src/airlines.cpp src/tz.cpp ${CMAKE_BINARY_DIR}/xpt_assets.c)
 target_include_directories(xpt_ui PUBLIC src)
 target_link_libraries(xpt_ui PUBLIC xpt_imgui)
 
@@ -104,7 +104,7 @@ endif()
 
 # --- The plugin: <build>/package/XPTablet/<lin_x64|mac_x64|win_x64>/XPTablet.xpl ------------------------------------------
 if(XPT_BUILD_PLUGIN)
-  add_library(XPTablet MODULE src/plugin.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp src/tiles.cpp src/aptdat.cpp src/ourairports.cpp src/navdata.cpp src/vatsim.cpp src/vatsim_parse.cpp src/simbrief.cpp src/media.cpp ${XPT_MEDIA_SRC})
+  add_library(XPTablet MODULE src/plugin.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp src/tiles.cpp src/aptdat.cpp src/ourairports.cpp src/navdata.cpp src/vatsim.cpp src/vatsim_parse.cpp src/airspace.cpp src/simbrief.cpp src/media.cpp ${XPT_MEDIA_SRC})
   target_include_directories(XPTablet PRIVATE "${XPLANE_SDK}/CHeaders/XPLM" third_party/stb)
   target_compile_definitions(XPTablet PRIVATE XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM303=1 XPLM400=1)   # (400: X-Plane 12's sound, for the notification chime)
   target_link_libraries(XPTablet PRIVATE xpt_ui ${XPT_CURL} Threads::Threads ${CMAKE_DL_LIBS})
@@ -189,7 +189,7 @@ if((XPT_BUILD_EMULATOR OR XPT_BUILD_EMULATOR_HEADLESS) AND XPLANE_SDK AND EXISTS
   # the plugin's own sources, built into the emulator, with the XPLM functions coming from the emulator instead of X-Plane
   add_library(xpt_emu_core STATIC
     src/plugin.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp src/tiles.cpp src/aptdat.cpp src/ourairports.cpp
-    src/navdata.cpp src/vatsim.cpp src/vatsim_parse.cpp src/simbrief.cpp src/media.cpp ${XPT_MEDIA_SRC}
+    src/navdata.cpp src/vatsim.cpp src/vatsim_parse.cpp src/airspace.cpp src/simbrief.cpp src/media.cpp ${XPT_MEDIA_SRC}
     emulator/xplm_emu.cpp emulator/emu_sim.cpp emulator/emu_panel.cpp emulator/emu_script.cpp emulator/emu_paths.cpp emulator/emu_png.cpp)
   target_include_directories(xpt_emu_core PUBLIC "${XPLANE_SDK}/CHeaders/XPLM" src emulator third_party/stb)
   target_compile_definitions(xpt_emu_core PUBLIC XPLM=1 XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM303=1

@@ -1,4 +1,5 @@
 #include "tabletui.h"
+#include "airspace_parse.h"
 #include "airlines.h"
 
 #include <algorithm>
@@ -688,6 +689,28 @@ std::vector<VatsimController> atcFor(const SimState& s, const std::string& icao)
     std::sort(out.begin(), out.end(), [&](const VatsimController& a, const VatsimController& b) { return rank(a) != rank(b) ? rank(a) < rank(b) : a.callsign < b.callsign; });
     return out;
 }
+
+// VATSIM's airspaces with a center (or FSS) online: each area's id with its controllers
+std::map<std::string, std::vector<VatsimController>> airspacesOnline(const SimState& s) {
+    std::map<std::string, std::vector<VatsimController>> on;
+    if (!s.map.airspaces) return on;
+    for (const VatsimController& c : s.vatsimAtc) {
+        if (c.facility != 6 && c.facility != 1) continue;
+        if (const AirspaceSet::Fir* fir = airspace::firFor(*s.map.airspaces, c.callsign)) on[fir->boundary].push_back(c);
+    }
+    return on;
+}
+bool insideRings(const AirspaceArea& a, double lat, double lon) {   // even-odd over every ring
+    if (lat < a.la0 || lat > a.la1 || lon < a.lo0 || lon > a.lo1) return false;
+    bool in = false;
+    for (const auto& r : a.rings)
+        for (size_t i = 0, j = r.size() - 1; i < r.size(); j = i++) {
+            const double yi = r[i].first, xi = r[i].second, yj = r[j].first, xj = r[j].second;
+            if (((yi > lat) != (yj > lat)) && lon < (xj - xi) * (lat - yi) / (yj - yi + 1e-12) + xi) in = !in;
+        }
+    return in;
+}
+double g_airspaceTapLat = 0, g_airspaceTapLon = 0;   // where the airspace card's area was tapped
 
 // The home screen's places: pages of cols x rows; a widget takes a block of them from its corner (its place in the list).
 int g_gridCols = 7, g_gridRows = 3;
@@ -3756,6 +3779,40 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             if (g_mapZoom >= 7.5 || i == 0 || i + 1 == tp.size()) g_labels.push_back({3, tp[i], 6, m.trafficRoute[i].ident, "", IM_COL32(255, 255, 255, 255), 0, IM_COL32(10, 60, 80, 220)});
         }
     }
+    // VATSIM's airspaces: every outline faintly; green with a controller online (its code on it); the one tapped in the accent
+    if (g_settings.mapAirspaces && m.airspaces) {
+        const auto online = airspacesOnline(s);
+        double vla0 = 90, vlo0 = 180, vla1 = -90, vlo1 = -180;
+        for (const ImVec2& c : {r0, ImVec2(r1.x, r0.y), r1, ImVec2(r0.x, r1.y)}) { double la, lo; latLonOf(fromS(c), la, lo); vla0 = std::min(vla0, la); vla1 = std::max(vla1, la); vlo0 = std::min(vlo0, lo); vlo1 = std::max(vlo1, lo); }
+        const bool wrapView = vlo1 - vlo0 > 300;   // (the whole world, or across the date line: no culling by longitude)
+        std::vector<ImVec2> pts;
+        for (int pass = 0; pass < 2; ++pass)   // the quiet ones first, the online and chosen ones over them
+            for (const AirspaceArea& ar : m.airspaces->areas) {
+                const bool on = online.count(ar.id) > 0, picked = g_selKind == 7 && g_selKey == ar.id;
+                if ((on || picked) != (pass == 1)) continue;
+                if (ar.la1 < vla0 || ar.la0 > vla1 || (!wrapView && (ar.lo1 < vlo0 || ar.lo0 > vlo1))) continue;
+                const ImU32 col = picked ? accentLite(255) : on ? IM_COL32(80, 214, 124, 235) : sat ? IM_COL32(255, 255, 255, 60) : IM_COL32(50, 70, 110, 80);
+                const float th = picked ? 2.6f : on ? 2.0f : 1.0f;
+                for (const auto& ring : ar.rings) {
+                    pts.clear();
+                    float lastLon = ring.empty() ? 0 : ring[0].second;
+                    for (const auto& q : ring) {
+                        if (std::fabs(q.second - lastLon) > 180) { if (pts.size() > 1) dl->AddPolyline(pts.data(), (int)pts.size(), col, 0, th); pts.clear(); }   // (across the date line)
+                        lastLon = q.second;
+                        const ImVec2 sp = toS(mercOf(q.first, q.second));
+                        if (!pts.empty() && std::fabs(sp.x - pts.back().x) + std::fabs(sp.y - pts.back().y) < 1.5f) continue;
+                        pts.push_back(sp);
+                    }
+                    if (pts.size() > 1) dl->AddPolyline(pts.data(), (int)pts.size(), col, 0, th);
+                }
+                if ((on || picked) && g_mapZoom >= 3.0) {   // its code, on a small dark label
+                    const ImVec2 lp = toS(mercOf(ar.labelLat, ar.labelLon));
+                    const ImVec2 ts = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, ar.id.c_str());
+                    dl->AddRectFilled(ImVec2(lp.x - ts.x * 0.5f - 5, lp.y - ts.y * 0.5f - 2), ImVec2(lp.x + ts.x * 0.5f + 5, lp.y + ts.y * 0.5f + 2), IM_COL32(10, 30, 20, 210), 4.0f);
+                    textAt(dl, f.small, std::floor(lp.x - ts.x * 0.5f), std::floor(lp.y - ts.y * 0.5f), picked ? accentLite(255) : IM_COL32(120, 235, 150, 255), ar.id.c_str());
+                }
+            }
+    }
     if (g_settings.mapTraffic) {
         if (g_settings.mapTrafficTrails && g_selKind == 1)   // the selected aircraft's trail only, under every aircraft: thin, white over a dark edge
             for (const MapState::Traffic& t : m.traffic) {
@@ -3944,7 +4001,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                             {"##mrte", "Flight Plan Route", &g_settings.mapRoute, !m.route.empty()}, {"##mring", "Range Rings", &g_settings.mapRings, true}};
         const Item tfc[] = {{"##mtraf", "Show Traffic", &g_settings.mapTraffic, true}, {"##mttrl", "Trail When Selected", &g_settings.mapTrafficTrails, g_settings.mapTraffic},
                             {"##mtrte", "Filed Route When Selected", &g_settings.mapTrafficRoute, g_settings.mapTraffic},
-                            {"##mvatc", "VATSIM ATC Online", &g_settings.mapVatsimAtc, true}};
+                            {"##mvatc", "VATSIM ATC Online", &g_settings.mapVatsimAtc, true}, {"##mvasp", "VATSIM Airspaces", &g_settings.mapAirspaces, true}};
         const Item fea[] = {{"##mtrail", "My Breadcrumbs", &g_settings.mapTrail, true}, {"##mout", "Coastlines And Borders", &g_settings.mapOutlines, true},
                             {"##mtz", "Time Zones", &g_settings.mapTimeZones, true}, {"##mday", "Daylight", &g_settings.mapDaylight, true}};
         const char* cats[3] = {"Navigation", "Traffic", "Features"};
@@ -4016,6 +4073,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             dl->AddText(f.small, fontPx(f.small), ImVec2(r1.x - as.x - 6, r1.y - as.y - 3), IM_COL32(30, 36, 48, 255), attr);
         }
         if (g_settings.mapAirports && m.aptIndexing) textAt(dl, f.small, r0.x + 12, y - 22, sat ? kInk : IM_COL32(30, 36, 48, 255), "Finding X-Plane's airports...");
+        else if (g_settings.mapAirspaces && !m.airspaces && !m.airspaceStatus.empty()) textAt(dl, f.small, r0.x + 12, y - 22, sat ? kInk : IM_COL32(30, 36, 48, 255), m.airspaceStatus.c_str());
         (void)missing;
         // what is clear of the buttons: right of the layers, below the top row, above the bottom row
         g_mapFree0 = ImVec2(r0.x + 10 + cw + 10, r0.y + 10 + 30 + 8);
@@ -4081,6 +4139,17 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     const ImVec2 b0 = toS(ap->lo), b1 = toS(ap->hi);
                     if (p.x >= std::min(b0.x, b1.x) - 8 && p.x <= std::max(b0.x, b1.x) + 8 && p.y >= std::min(b0.y, b1.y) - 8 && p.y <= std::max(b0.y, b1.y) + 8) { kind = 4; key = ap->icao; break; }
                 }
+        }
+        if (kind == 0 && g_settings.mapAirspaces && m.airspaces) {   // nothing else there: the airspace it is in
+            double la, lo;
+            latLonOf(fromS(p), la, lo);
+            const auto online = airspacesOnline(s);
+            double bestArea = 1e18;
+            for (const AirspaceArea& ar : m.airspaces->areas) {
+                if (!insideRings(ar, la, lo)) continue;
+                const double area = (ar.la1 - ar.la0) * (ar.lo1 - ar.lo0) * (online.count(ar.id) ? 0.01 : 1.0);
+                if (area < bestArea) { bestArea = area; kind = 7; key = ar.id; g_airspaceTapLat = la; g_airspaceTapLon = lo; }
+            }
         }
         g_selKind = kind; g_selKey = key;   // nothing there: the card closes
     }
@@ -4214,6 +4283,26 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     if (codes.size() > 12) L.push_back({2, "and " + std::to_string(codes.size() - 12) + " more", ""});
                 } else L.push_back({2, "The scenery names no airlines for this stand.", ""});
                 break;
+            }
+        } else if (g_selKind == 7 && m.airspaces) {   // an airspace: its name, and who is controlling it (frequency, name, message)
+            at = toS(mercOf(g_airspaceTapLat, g_airspaceTapLon));
+            const AirspaceArea* ar = nullptr;
+            for (const AirspaceArea& x : m.airspaces->areas) if (x.id == g_selKey) ar = &x;
+            std::string name;
+            for (const auto& fr : m.airspaces->firs) if (fr.boundary == g_selKey) { name = fr.name; break; }
+            L.push_back({0, name.empty() ? g_selKey : name, g_selKey + (ar && ar->oceanic ? "  \xC2\xB7  oceanic" : "  \xC2\xB7  FIR")});
+            const auto online = airspacesOnline(s);
+            const auto it = online.find(g_selKey);
+            if (it == online.end()) {
+                L.push_back({2, s.vatsimAtcHave ? "No controller online: UNICOM 122.800" : "Asking VATSIM who is online...", ""});
+            } else {
+                for (const VatsimController& c : it->second) {
+                    L.push_back({4, c.callsign, ""});
+                    L.push_back({1, "Frequency", c.freq});
+                    if (!c.name.empty()) L.push_back({1, "Controller", c.name});
+                    if (!c.logon.empty()) L.push_back({1, "Online since", c.logon});
+                    if (!c.text.empty()) L.push_back({2, c.text.size() > 300 ? c.text.substr(0, 298) + ".." : c.text, "message"});
+                }
             }
         } else if (g_selKind == 4) {
             double la = 0, lo = 0;
@@ -8164,6 +8253,7 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
+    out += std::string("map_airspaces=") + (g_settings.mapAirspaces ? "1" : "0") + "\n";
     out += std::string("map_dark_auto=") + (g_settings.mapDarkAuto ? "1" : "0") + "\n";
     out += std::string("cabin_auto=") + (g_settings.cabinAuto ? "1" : "0") + "\n";
     out += std::string("map_vatsim_atc=") + (g_settings.mapVatsimAtc ? "1" : "0") + "\nvatsim_atc_notes=" + (g_settings.vatsimAtcNotes ? "1" : "0") + "\n";
@@ -8285,6 +8375,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_traffic_trails") g_settings.mapTrafficTrails = v != 0;
         else if (key == "map_traffic_route") g_settings.mapTrafficRoute = v != 0;
         else if (key == "map_vatsim_atc") g_settings.mapVatsimAtc = v != 0;
+        else if (key == "map_airspaces") g_settings.mapAirspaces = v != 0;
         else if (key == "cabin_auto") g_settings.cabinAuto = v != 0;
         else if (key == "vatsim_atc_notes") g_settings.vatsimAtcNotes = v != 0;
         else if (key == "map_traffic_range") g_settings.mapTrafficRangeNm = std::max(0.0f, std::min(2000.0f, (float)std::atof(val.c_str())));

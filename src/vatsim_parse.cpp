@@ -54,6 +54,8 @@ void readControllers(const wx::Json& feed, std::vector<VatsimController>& out) {
             v.callsign = str(&c, "callsign");
             v.freq = str(&c, "frequency");
             v.name = str(&c, "name");
+            v.logon = str(&c, "logon_time");
+            if (v.logon.size() >= 16) v.logon = v.logon.substr(11, 5) + "Z";
             v.facility = std::string(key) == "atis" ? 7 : (int)num(&c, "facility");
             if (v.facility == 0 || v.freq == "199.998") continue;   // observers, and those not on a frequency
             const wx::Json* t = c.get("text_atis");

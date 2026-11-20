@@ -41,6 +41,7 @@
 #include "aptdat.h"
 #include "navdata.h"
 #include "vatsim.h"
+#include "airspace.h"
 #include "simbrief.h"
 #include "media.h"
 #include "ourairports.h"
@@ -713,6 +714,7 @@ void mapStop() {
     xpt::ourairports::stop();
     g_ourAirportsStarted = false;
     xpt::vatsim::stop();
+    xpt::airspace::stop();
     if (g_docThread.joinable()) g_docThread.join();
     g_sim.map.airports.clear();
     g_sim.map.airportPoints.clear();
@@ -1581,7 +1583,13 @@ void ensureFrame() {
     {   // the Map's traffic card: its aircraft on VATSIM (and its filed route); VATSIM's world as traffic when chosen
         const bool world = act.mapShown && xpt::settings().mapTraffic && xpt::settings().mapTrafficSource == 1;
         // VATSIM's controllers: for the Airports page, the Map's ATC layer, and the notifications for the flight's airports
-        const bool atc = act.airportsShown || (act.mapShown && xpt::settings().mapVatsimAtc) || (xpt::settings().vatsimAtcNotes && g_sim.plan.loaded);
+        const bool atc = act.airportsShown || (act.mapShown && (xpt::settings().mapVatsimAtc || xpt::settings().mapAirspaces)) || (xpt::settings().vatsimAtcNotes && g_sim.plan.loaded);
+        if (act.mapShown && xpt::settings().mapAirspaces) {   // VATSIM's airspaces: read once (kept a week in Output/XPTablet/vatspy)
+            char sys[2048] = "";
+            XPLMGetSystemPath(sys);
+            xpt::airspace::start(std::string(sys) + "Output/XPTablet/vatspy");
+            g_sim.map.airspaces = xpt::airspace::get(g_sim.map.airspaceStatus);
+        }
         xpt::vatsim::want((act.mapShown && !act.trafficSelected.empty()) || world || atc);
         if ((act.mapShown && !act.trafficSelected.empty()) || world || atc) xpt::vatsim::start();
         static double lastAtc = -100;
