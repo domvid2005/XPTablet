@@ -52,8 +52,9 @@ struct Settings {
     bool mapTraffic = true;       // AI and multiplayer aircraft
     bool mapOutlines = false;     // coastlines, borders, states and provinces
     bool mapNavaids = true;       // VORs, NDBs and DMEs
-    int wallpaper = 0;            // Display: the theme (0 navy .. 4 amber, from the logo's colours; 5 Noir, 6 Cloud, 7 Custom)
-    int customBg = 0x2A3E5C, customAccent = 0x46A0FF;   // the Custom theme's background and accent (0xRRGGBB)
+    int wallpaper = 0;            // Display: the theme (0 navy .. 4 amber, from the logo's colours; 5 Noir, 6 Cloud, 7-9 the Customs)
+    struct CustomTheme { int bg = 0x2A3E5C, accent = 0x46A0FF; std::string picture; };   // colours 0xRRGGBB; a picture from plugins/XPTablet/backgrounds
+    CustomTheme customs[3] = {{0x2A3E5C, 0x46A0FF, ""}, {0x2E5A3A, 0xF0A030, ""}, {0x4A2A52, 0xFF7AB0, ""}};   // the three Custom themes (7, 8, 9)
     int accent = 0;               // Display: the colour of what is chosen (0 violet .. 4 gold), from the logo's letters
     bool physicalKeys = false;    // typing: the computer's own keyboard (a thin bar instead of the on-screen keys)
     bool mapRings = true;         // range rings round the aircraft (a quarter, half and all of the range), as on WXPlane's map
@@ -321,6 +322,12 @@ struct SimState {
     bool mac = false;             // macOS: no media controls (no Music app, no Media settings)
     MediaState media;
     float fps = 0;                // X-Plane's frame rate
+    std::vector<std::string> backgroundFiles;   // the pictures in plugins/XPTablet/backgrounds (for a Custom theme)
+    std::string backgroundsFolder;              // that folder (to tell the user)
+    ImTextureID bgTex = 0;        // the Custom theme's picture, loaded (bgPicture: which), 0 none
+    int bgW = 0, bgH = 0;
+    std::string bgPicture;
+    int bgAverage = -1;           // its average colour (0xRRGGBB, made deeper): the theme's tone with it, -1 not known
     struct NavHit { int type = 0; std::string ident, name; double lat = 0, lon = 0; float freq = 0; };   // type: XPLMNavType
     std::vector<NavHit> navHits;  // what the Navigation page's search found
     std::vector<VatsimController> vatsimAtc;   // VATSIM's controllers and ATIS online (when fetched; empty otherwise)
@@ -364,6 +371,8 @@ struct Actions {
     float mapPointMinFt = 0;      // the map's airport dots: only airports with a runway at least this long (the bigger ones further out)
     // the Airports page: list airports matching this text ("" with airportsShown: the nearest), or read one in full
     bool airportsShown = false;
+    bool backgroundsList = false; // list the backgrounds folder again
+    std::string backgroundWanted; // the picture the theme shown wants ("" none)
     double com1Standby = 0;       // tune COM1's standby to this (MHz), 0 none
     std::string airportSearch;    // sent when it changes
     std::string airportOpen;      // the airport to show

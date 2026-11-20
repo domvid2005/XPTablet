@@ -196,7 +196,11 @@ const Backdrop kBackdrops[5] = {
 struct Accent { const char* name; int r, g, b; };
 // each background has its accent: Navy the blue XPTablet always had, the others the logo colour their sky is made of
 const Accent kAccents[5] = {{"Blue", 70, 140, 255}, {"Violet", 150, 100, 235}, {"Magenta", 205, 80, 170}, {"Coral", 240, 96, 96}, {"Gold", 236, 176, 56}};
-constexpr int kThemes = 8;
+constexpr int kThemes = 10;   // 0-4 from the logo, 5 Noir, 6 Cloud, 7-9 the three Customs
+// the Custom theme's picture, as the host has loaded it (set each frame from the SimState)
+ImTextureID g_bgTex = 0;
+int g_bgW = 0, g_bgH = 0;
+std::string g_bgPic;
 int themeIndex() { return std::max(0, std::min(kThemes - 1, g_settings.wallpaper)); }
 ImU32 rgbCol(int rgb, float k = 1.0f) {   // 0xRRGGBB, darkened by k
     auto c = [&](int sh) { return (int)std::lround(((rgb >> sh) & 255) * k); };
@@ -208,15 +212,16 @@ Backdrop themeBackdrop(int which) {
     if (which < 5) return kBackdrops[which];
     if (which == 5) return {"Noir", IM_COL32(8, 8, 10, 255), IM_COL32(44, 46, 50, 255), IM_COL32(32, 33, 36, 255), IM_COL32(21, 22, 25, 255)};
     if (which == 6) return {"Cloud", IM_COL32(58, 116, 190, 255), IM_COL32(176, 210, 238, 255), IM_COL32(124, 170, 214, 255), IM_COL32(96, 146, 198, 255)};
-    const int bg = g_settings.customBg;
-    return {"Custom", rgbCol(bg, 0.30f), rgbCol(bg, 1.0f), rgbCol(bg, 0.78f), rgbCol(bg, 0.56f)};
+    static const char* names[3] = {"Custom 1", "Custom 2", "Custom 3"};
+    const int bg = g_settings.customs[which - 7].bg;
+    return {names[which - 7], rgbCol(bg, 0.30f), rgbCol(bg, 1.0f), rgbCol(bg, 0.78f), rgbCol(bg, 0.56f)};
 }
 Accent themeAccent() {
     const int i = themeIndex();
     if (i < 5) return kAccents[i];
     if (i == 5) return {"Silver", 132, 142, 160};
     if (i == 6) return {"Sky", 36, 128, 232};
-    const int a = g_settings.customAccent;
+    const int a = g_settings.customs[i - 7].accent;
     return {"Custom", (a >> 16) & 255, (a >> 8) & 255, a & 255};
 }
 // the text colours follow the theme: moved by a share of how far the theme's accent is from Navy's blue (Navy: exactly as before)
@@ -241,6 +246,17 @@ ImU32 accentLite(int a) {   // the lighter one: rings, lines, focus
 ImU32 mixCol(ImU32 a, ImU32 b, float t);
 void wallpaperIn(ImDrawList* dl, ImVec2 o, float w, float h, int which, float round = 0) {
     const Backdrop bd = themeBackdrop(which);
+    {   // a Custom theme with its picture loaded: the picture, filling the box (cropped to its shape)
+        const int wi = std::max(0, std::min(kThemes - 1, which));
+        if (wi >= 7 && g_bgTex && g_bgW > 0 && g_bgH > 0 && !g_settings.customs[wi - 7].picture.empty() && g_settings.customs[wi - 7].picture == g_bgPic) {
+            const float ia = (float)g_bgW / g_bgH, ba = w / std::max(1.0f, h);
+            ImVec2 uv0(0, 0), uv1(1, 1);
+            if (ia > ba) { const float k = ba / ia; uv0.x = (1 - k) * 0.5f; uv1.x = 1 - uv0.x; } else { const float k = ia / ba; uv0.y = (1 - k) * 0.5f; uv1.y = 1 - uv0.y; }
+            if (round > 0) dl->AddImageRounded(g_bgTex, o, ImVec2(o.x + w, o.y + h), uv0, uv1, IM_COL32(255, 255, 255, 255), round);
+            else dl->AddImage(g_bgTex, o, ImVec2(o.x + w, o.y + h), uv0, uv1);
+            return;
+        }
+    }
     const ImU32 top = bd.top, bot = bd.bot;
     if (round <= 0) dl->AddRectFilledMultiColor(o, ImVec2(o.x + w, o.y + h), top, top, bot, bot);
     else {   // rounded (the little pictures in Settings): a rounded box shaded top to bottom
@@ -782,8 +798,9 @@ void trimPages() {
     g_settings.homePages = used;
     g_settings.order.resize((size_t)(used * cap), -1);
 }
+bool* storeFlag(int app);   // (below)
 void installApp(int app, bool on) {
-    if (app == APP_LIVEMAP) { g_settings.showLive = on; }
+    if (bool* fl = storeFlag(app)) *fl = on;
     else if (storeApp(app)) {
         auto& v = g_settings.installed;
         v.erase(std::remove(v.begin(), v.end(), std::string(kApps[app].id)), v.end());
@@ -6428,6 +6445,106 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     dl->PopClipRect();
 }
 
+
+// ---- a Custom theme's editor: its background and accent on colour wheels, a picture (from plugins/XPTablet/backgrounds), and a preview
+int g_customEdit = -1;   // the Custom being edited (0-2), -1 none
+double g_customEditT0 = -10;
+bool colorWheel(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 c, float r, int& rgb, float value, const char* label) {
+    const int v0 = dl->VtxBuffer.Size;
+    dl->AddCircleFilled(c, r, IM_COL32(255, 255, 255, 255), 64);
+    for (int i = v0; i < dl->VtxBuffer.Size; ++i) {   // each point: the hue round it, the colour's strength out from the middle
+        ImDrawVert& vx = dl->VtxBuffer[i];
+        const float dx = vx.pos.x - c.x, dy = vx.pos.y - c.y;
+        const float hue = std::fmod(std::atan2(dy, dx) / (2 * 3.14159265f) + 1.0f, 1.0f), sat = std::min(1.0f, std::sqrt(dx * dx + dy * dy) / r);
+        float cr, cg, cbl; ImGui::ColorConvertHSVtoRGB(hue, sat, value, cr, cg, cbl);
+        vx.col = (vx.col & IM_COL32_A_MASK) | IM_COL32((int)(cr * 255), (int)(cg * 255), (int)(cbl * 255), 0);
+    }
+    dl->AddCircle(c, r, IM_COL32(255, 255, 255, 70), 64, 1.0f);
+    ImGui::SetCursorScreenPos(ImVec2(c.x - r, c.y - r));
+    ImGui::InvisibleButton(id, ImVec2(r * 2, r * 2));
+    bool changed = false;
+    if (ImGui::IsItemActive()) {
+        const ImVec2 mp = ImGui::GetIO().MousePos;
+        const float dx = mp.x - c.x, dy = mp.y - c.y;
+        const float hue = std::fmod(std::atan2(dy, dx) / (2 * 3.14159265f) + 1.0f, 1.0f), sat = std::min(1.0f, std::sqrt(dx * dx + dy * dy) / r);
+        float cr, cg, cbl; ImGui::ColorConvertHSVtoRGB(hue, sat, value, cr, cg, cbl);
+        const int nv = ((int)(cr * 255) << 16) | ((int)(cg * 255) << 8) | (int)(cbl * 255);
+        if (nv != rgb) { rgb = nv; changed = true; }
+    }
+    float hh, ss, vv;
+    ImGui::ColorConvertRGBtoHSV(((rgb >> 16) & 255) / 255.0f, ((rgb >> 8) & 255) / 255.0f, (rgb & 255) / 255.0f, hh, ss, vv);
+    const ImVec2 k(c.x + std::cos(hh * 2 * 3.14159265f) * ss * r, c.y + std::sin(hh * 2 * 3.14159265f) * ss * r);
+    dl->AddCircleFilled(k, 6.0f, rgbCol(rgb), 16);
+    dl->AddCircle(k, 6.0f, IM_COL32(0, 0, 0, 200), 16, 2.5f);
+    dl->AddCircle(k, 6.0f, IM_COL32(255, 255, 255, 255), 16, 1.5f);
+    textCentered(dl, f.small, c.x, c.y + r + 6, kMuted, label);
+    return changed;
+}
+void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    Settings::CustomTheme& ct = g_settings.customs[g_customEdit];
+    const float e0 = std::min(1.0f, (float)(ImGui::GetTime() - g_customEditT0) / 0.22f), e = 1 - (1 - e0) * (1 - e0) * (1 - e0);
+    dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(150 * e)));
+    ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
+    const bool outside = ImGui::InvisibleButton("##ctveil", ImVec2(w, h - kStatusH));
+    const float pw = 700, ph = 400, sc = 0.9f + 0.1f * e;
+    const ImVec2 c(w * 0.5f, (kStatusH + h) * 0.5f);
+    const ImVec2 a(c.x - pw * 0.5f * sc, c.y - ph * 0.5f * sc), b(c.x + pw * 0.5f * sc, c.y + ph * 0.5f * sc);
+    dl->AddRectFilled(a, b, themeTone(14, 26, 50, (int)(240 * e)), 22.0f);
+    glass(dl, a, b, 22.0f, e);
+    ImGui::SetCursorScreenPos(a);
+    ImGui::InvisibleButton("##ctpanel", ImVec2(b.x - a.x, b.y - a.y));
+    char title[32]; std::snprintf(title, sizeof title, "Custom %d", g_customEdit + 1);
+    textAt(dl, f.title, a.x + 20, a.y + 16, kInk, title);
+    if (pill(dl, f, "##ctdone", "Done", ImVec2(b.x - 100, a.y + 14), ImVec2(b.x - 18, a.y + 44), true, true) || (outside && e0 >= 1)) { g_customEdit = -1; g_settingsChanged = true; return; }
+    // the preview: the home screen in small, with this theme (its picture too), its accent on a button and a switch
+    const ImVec2 pa(a.x + 20, a.y + 62);
+    const float pvw = 300, pvh = 180;
+    const int keepTheme = g_settings.wallpaper;
+    g_settings.wallpaper = 7 + g_customEdit;
+    dl->PushClipRect(pa, ImVec2(pa.x + pvw, pa.y + pvh), true);
+    wallpaperIn(dl, pa, pvw, pvh, 7 + g_customEdit, 10.0f);
+    dl->AddRectFilled(pa, ImVec2(pa.x + pvw, pa.y + 12), IM_COL32(0, 0, 0, 90), 10.0f, ImDrawFlags_RoundCornersTop);
+    for (int i = 0; i < 6; ++i) {
+        static const int apps[6] = {APP_MAP, APP_AIRPORTS, APP_ROUTES, APP_GROUND, APP_CHECKLISTS, APP_NOTES};
+        drawTile(dl, f, apps[i], ImVec2(pa.x + 30 + i * 48, pa.y + 46), 30, false, 1.0f, 1.0f);
+    }
+    dl->AddRectFilled(ImVec2(pa.x + 60, pa.y + pvh - 46), ImVec2(pa.x + pvw - 60, pa.y + pvh - 10), IM_COL32(255, 255, 255, 30), 12.0f);
+    for (int i = 0; i < 4; ++i) {
+        static const int dock[4] = {APP_WEATHER, APP_SIMBRIEF, APP_SETTINGS, APP_MUSIC};
+        drawTile(dl, f, dock[i], ImVec2(pa.x + 90 + i * 40, pa.y + pvh - 28), 26, false, 1.0f, 1.0f);
+    }
+    dl->AddRectFilled(ImVec2(pa.x + 24, pa.y + 82), ImVec2(pa.x + 124, pa.y + 104), accentCol(230), 11.0f);
+    textCentered(dl, f.small, pa.x + 74, pa.y + 85, kInk, "Button");
+    dl->AddRectFilled(ImVec2(pa.x + 140, pa.y + 84), ImVec2(pa.x + 176, pa.y + 102), accentCol(230), 9.0f);
+    dl->AddCircleFilled(ImVec2(pa.x + 167, pa.y + 93), 7, IM_COL32(255, 255, 255, 255), 0);
+    dl->AddRectFilled(ImVec2(pa.x + 190, pa.y + 82), ImVec2(pa.x + pvw - 24, pa.y + 104), themeTone(10, 22, 44, 210), 8.0f);
+    textAt(dl, f.small, pa.x + 198, pa.y + 85, kMuted, "A card");
+    dl->PopClipRect();
+    dl->AddRect(pa, ImVec2(pa.x + pvw, pa.y + pvh), IM_COL32(255, 255, 255, 60), 10.0f, 0, 1.0f);
+    g_settings.wallpaper = keepTheme;
+    textCentered(dl, f.small, pa.x + pvw * 0.5f, pa.y + pvh + 8, kMuted, "Preview");
+    // the wheels
+    const float wr = 62;
+    if (colorWheel(dl, f, "##ctbg", ImVec2(pa.x + pvw + 40 + wr, pa.y + wr + 4), wr, ct.bg, 0.45f, "Background")) g_settingsChanged = true;
+    if (colorWheel(dl, f, "##ctac", ImVec2(pa.x + pvw + 70 + wr * 3, pa.y + wr + 4), wr, ct.accent, 1.0f, "Accent")) g_settingsChanged = true;
+    // the picture: none, or one from the backgrounds folder (put there from your computer)
+    float py = pa.y + pvh + 34;
+    textAt(dl, f.bold, a.x + 20, py, kInk, "Picture");
+    float px = a.x + 100;
+    auto pick = [&](const char* id, const std::string& label, const std::string& file) {
+        const float bw = std::min(160.0f, f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, label.c_str()).x + 28);
+        if (px + bw > b.x - 20) { px = a.x + 100; py += 36; }
+        if (py > b.y - 40) return;
+        if (pill(dl, f, id, fitText(f.small, label, bw - 16).c_str(), ImVec2(px, py - 4), ImVec2(px + bw, py + 24), ct.picture == file, true) && ct.picture != file) { ct.picture = file; g_settingsChanged = true; }
+        px += bw + 6;
+    };
+    pick("##ctpnone", "None", "");
+    for (size_t i = 0; i < s.backgroundFiles.size() && i < 12; ++i) { char id[24]; std::snprintf(id, sizeof id, "##ctp%zu", i); pick(id, s.backgroundFiles[i], s.backgroundFiles[i]); }
+    if (pill(dl, f, "##ctlook", "Look again", ImVec2(b.x - 120, b.y - 40), ImVec2(b.x - 18, b.y - 14), false, true)) act.backgroundsList = true;
+    const std::string where = "Import a picture (PNG or JPG): put it in " + (s.backgroundsFolder.empty() ? std::string("plugins/XPTablet/backgrounds") : s.backgroundsFolder);
+    dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 20, b.y - 40), kMuted, where.c_str(), nullptr, b.x - a.x - 160);
+}
+
 void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     {   // the pages, down a sidebar as on an iPad: General, Display, Data at the top, Credits at the bottom
         const float sTop = kStatusH + kHeaderH + 10, sBot = h - 12, sW = 168;
@@ -6490,24 +6607,12 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
 
     if (g_settingsTab == 0) {   // ---- General: the home screen's icons; status and the touch test
         float y = top;
-        // the web apps on the home screen: each lit one is there; any number of them, none needed
+        // the web apps: got or removed in the App Store now
         textAt(dl, f.title, lx, y, kInk, "On the home screen");
-        y += 32;
-        const float q = std::floor((colW - 8) * 0.5f);
-        textAt(dl, f.bold, lx, y, kInk, "Chart providers");
-        y += 22;
-        toggle("##tgff", lx, y, q, "ForeFlight", g_settings.showForeflight, true);
-        toggle("##tgcf", lx + q + 8, y, q, "ChartFox", g_settings.showCharts, true);
-        toggle("##tgng", lx, y + 36, q, "Navigraph", g_settings.showNavigraph, true);
-        toggle("##tgsv", lx + q + 8, y + 36, q, "SkyVector", g_settings.showSkyvector, true);
-        y += 78;
-        textAt(dl, f.bold, lx, y, kInk, "Live map");
-        y += 22;
-        toggle("##tgva", lx, y, q, "VATSIM Radar", g_settings.showVatsim, true);   // (Volanta: in the App Store)
-        y += 42;
-        textAt(dl, f.bold, lx, y, kInk, "Flight planning");
-        y += 22;
-        toggle("##tgsb", lx, y, colW, "SimBrief", g_settings.showSimbrief, true);
+        y += 34;
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Charts, flight planning, live maps, networks, music and video: get them, or remove them, in the App Store. Hold an icon on the home screen to arrange them.", nullptr, colW);
+        y += 58;
+        if (pill(dl, f, "##genstore", "Open the App Store", ImVec2(lx, y), ImVec2(lx + colW, y + 32), true, true)) openApp(APP_APPSTORE);
         // status
         float sy = top;
         textAt(dl, f.bold, rx, sy, kInk, "Status");
@@ -6683,7 +6788,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             textAt(dl, f.bold, rx, ry, kInk, "Color theme");
             ry += 24;
             const float tw = std::floor((colW - 4 * 8) / 5), th = std::floor(tw * 480.0f / 800.0f);   // the screen's shape
-            for (int i = 0; i < kThemes; ++i) {   // the wallpaper itself, made small, with its accent under it (two rows)
+            for (int i = 0; i < kThemes; ++i) {   // the wallpaper itself, made small, with its accent under it (two rows of five)
                 const Backdrop bd = themeBackdrop(i);
                 const int keep = g_settings.wallpaper;
                 g_settings.wallpaper = i; const Accent ac = themeAccent(); g_settings.wallpaper = keep;
@@ -6691,7 +6796,17 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
                 char id[16];
                 std::snprintf(id, sizeof id, "##wp%d", i);
                 ImGui::SetCursorScreenPos(a);
-                if (ImGui::InvisibleButton(id, ImVec2(tw, th + 34))) { g_settings.wallpaper = i; g_settings.accent = std::min(i, 4); g_settingsChanged = true; }
+                const bool tapped = ImGui::InvisibleButton(id, ImVec2(tw, th + 34));
+                // a Custom held: its editor (colour wheels, a picture, and how it will look)
+                static double heldAt = -1; static int heldOn = -1;
+                if (ImGui::IsItemActivated()) { heldAt = ImGui::GetTime(); heldOn = i; }
+                bool opened = false;
+                if (i >= 7 && ImGui::IsItemActive() && heldOn == i && heldAt >= 0 && ImGui::GetTime() - heldAt > 0.5) {
+                    g_customEdit = i - 7; g_customEditT0 = ImGui::GetTime(); heldAt = -1; opened = true;
+                    g_settings.wallpaper = i; g_settings.accent = 4; g_settingsChanged = true; act.backgroundsList = true;
+                }
+                if (tapped && heldAt >= 0 && !opened) { g_settings.wallpaper = i; g_settings.accent = std::min(i, 4); g_settingsChanged = true; }
+                if (ImGui::IsItemDeactivated()) heldAt = -1;
                 const bool sel = g_settings.wallpaper == i, hot = ImGui::IsItemHovered();
                 dl->PushClipRect(a, b, true);
                 wallpaperIn(dl, a, tw, th, i, 8.0f);
@@ -6700,51 +6815,18 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
                 // chosen: a ring that hugs the picture's edge all round (no dark gap between them, the same on every side)
                 if (sel) dl->AddRect(ImVec2(a.x - 1, a.y - 1), ImVec2(b.x + 1, b.y + 1), accentLite(255), 9.0f, 0, 2.5f);
                 else dl->AddRect(a, b, hot ? IM_COL32(255, 255, 255, 110) : IM_COL32(255, 255, 255, 40), 8.0f, 0, 1.0f);
+                if (i >= 7) {   // (a pencil: hold to edit)
+                    const ImVec2 pc(b.x - 9, a.y + 9);
+                    dl->AddCircleFilled(pc, 7, IM_COL32(0, 0, 0, 140), 0);
+                    dl->AddLine(ImVec2(pc.x - 3, pc.y + 3), ImVec2(pc.x + 3, pc.y - 3), IM_COL32(255, 255, 255, 230), 1.6f);
+                }
                 dl->AddCircleFilled(ImVec2((a.x + b.x) * 0.5f, b.y + 10), 5.0f, IM_COL32(ac.r, ac.g, ac.b, 255), 0);
                 textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y + 18, sel ? kInk : kMuted, bd.name);
             }
-            {   // Custom: two colour wheels beside it, the background's and the accent's (tapped or dragged)
-                auto wheel = [&](const char* id, ImVec2 c, float r, int& rgb, float value, const char* label) {
-                    const int v0 = dl->VtxBuffer.Size;
-                    dl->AddCircleFilled(c, r, IM_COL32(255, 255, 255, 255), 48);
-                    for (int i = v0; i < dl->VtxBuffer.Size; ++i) {   // each point: the hue round it, the colour's strength out from the middle
-                        ImDrawVert& vx = dl->VtxBuffer[i];
-                        const float dx = vx.pos.x - c.x, dy = vx.pos.y - c.y;
-                        const float hue = std::fmod(std::atan2(dy, dx) / (2 * 3.14159265f) + 1.0f, 1.0f), sat = std::min(1.0f, std::sqrt(dx * dx + dy * dy) / r);
-                        float cr, cg, cbl; ImGui::ColorConvertHSVtoRGB(hue, sat, value, cr, cg, cbl);
-                        vx.col = (vx.col & IM_COL32_A_MASK) | IM_COL32((int)(cr * 255), (int)(cg * 255), (int)(cbl * 255), 0);
-                    }
-                    dl->AddCircle(c, r, IM_COL32(255, 255, 255, 70), 48, 1.0f);
-                    ImGui::SetCursorScreenPos(ImVec2(c.x - r, c.y - r));
-                    ImGui::InvisibleButton(id, ImVec2(r * 2, r * 2));
-                    if (ImGui::IsItemActive()) {
-                        const ImVec2 mp = ImGui::GetIO().MousePos;
-                        const float dx = mp.x - c.x, dy = mp.y - c.y;
-                        const float hue = std::fmod(std::atan2(dy, dx) / (2 * 3.14159265f) + 1.0f, 1.0f), sat = std::min(1.0f, std::sqrt(dx * dx + dy * dy) / r);
-                        float cr, cg, cbl; ImGui::ColorConvertHSVtoRGB(hue, sat, value, cr, cg, cbl);
-                        rgb = ((int)(cr * 255) << 16) | ((int)(cg * 255) << 8) | (int)(cbl * 255);
-                        g_settings.wallpaper = 7; g_settingsChanged = true;
-                    }
-                    // where the colour chosen is on it
-                    float hh, ss, vv;
-                    ImGui::ColorConvertRGBtoHSV(((rgb >> 16) & 255) / 255.0f, ((rgb >> 8) & 255) / 255.0f, (rgb & 255) / 255.0f, hh, ss, vv);
-                    const ImVec2 k(c.x + std::cos(hh * 2 * 3.14159265f) * ss * r, c.y + std::sin(hh * 2 * 3.14159265f) * ss * r);
-                    dl->AddCircle(k, 5.0f, IM_COL32(0, 0, 0, 200), 16, 2.5f);
-                    dl->AddCircle(k, 5.0f, IM_COL32(255, 255, 255, 255), 16, 1.5f);
-                    textCentered(dl, f.small, c.x, c.y + r + 4, kMuted, label);
-                };
-                const float r = std::floor((th + 10) * 0.5f);
-                const float wy = ry + (th + 40) + r;
-                wheel("##wheelbg", ImVec2(std::floor(rx + 3 * (tw + 8) + tw * 0.5f), wy), r, g_settings.customBg, 0.45f, "Background");
-                wheel("##wheelac", ImVec2(std::floor(rx + 4 * (tw + 8) + tw * 0.5f), wy), r, g_settings.customAccent, 1.0f, "Accent");
-            }
-            ry += th + 40;
-            ry += th + 34 + 22;   // under the themes: the flight's trail on the map
-            const char* trailNames[2] = {"Shown", "Hidden"};
-            int tr = g_settings.mapTrail ? 0 : 1;
-            choice("##chtrail", rx, ry, colW, "Flight trail on the map (since the SimBrief plan)", trailNames, tr, true);
-            if ((tr == 0) != g_settings.mapTrail) { g_settings.mapTrail = tr == 0; g_settingsChanged = true; }
+            ry += 2 * (th + 40);
+            textAt(dl, f.small, rx, ry, kMuted, "Hold a Custom theme to choose its colours and picture.");
         }
+        if (g_customEdit >= 0) customThemeEditor(dl, f, s, w, h, act);
         return;
     }
 
@@ -6873,6 +6955,16 @@ void applyStyle() {
 
 void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act, int app);
 void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    {   // a Custom theme's picture: the one the theme shown (or being edited) wants; its average colour becomes its background once
+        g_bgTex = s.bgTex; g_bgW = s.bgW; g_bgH = s.bgH; g_bgPic = s.bgPicture;
+        const int slot = g_customEdit >= 0 ? g_customEdit : (g_settings.wallpaper >= 7 && g_settings.wallpaper <= 9 ? g_settings.wallpaper - 7 : -1);
+        act.backgroundWanted = slot >= 0 ? g_settings.customs[slot].picture : std::string();
+        static std::string matched[3];
+        if (slot >= 0 && !act.backgroundWanted.empty() && s.bgPicture == act.backgroundWanted && s.bgAverage >= 0 && matched[slot] != act.backgroundWanted) {
+            if (!matched[slot].empty() || g_customEdit >= 0) { g_settings.customs[slot].bg = s.bgAverage; g_settingsChanged = true; }   // (chosen now: not on loading)
+            matched[slot] = act.backgroundWanted;
+        }
+    }
     trackCrumbs(s);   // (on every page: the trail is kept whether or not the map is open)
     // big draw lists (the map's lines) go past 65536 vertices: the renderer follows each command's vertex offset
     ImGui::GetIO().BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
@@ -7264,36 +7356,80 @@ void drawWidget(ImDrawList* dl, const Fonts& f, const SimState& s, int kind, ImV
 }
 
 // ---- the App Store: the extra web apps, each installed (onto the home screen) or removed with a tap ---------------------------------------
-bool storeInstalled(int app) { return app == APP_LIVEMAP ? g_settings.showLive : installed(app); }
+// the apps the App Store offers: the web apps that were switched on and off in Settings (each its own setting) and the store's own
+bool* storeFlag(int app) {
+    switch (app) {
+    case APP_CHARTS: return &g_settings.showCharts;
+    case APP_NAVIGRAPH: return &g_settings.showNavigraph;
+    case APP_LIVEMAP: return &g_settings.showLive;
+    case APP_VATSIM: return &g_settings.showVatsim;
+    case APP_FOREFLIGHT: return &g_settings.showForeflight;
+    case APP_SKYVECTOR: return &g_settings.showSkyvector;
+    case APP_SIMBRIEF: return &g_settings.showSimbrief;
+    default: return nullptr;
+    }
+}
+bool storeInstalled(int app) { bool* fl = storeFlag(app); return fl ? *fl : installed(app); }
+int g_storeCat = 0;   // the category shown: 0 all
+float g_storeScroll = 0;
 void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
-    struct Item { int app; const char* what; };
+    struct Item { int app; int cat; const char* what; };   // cat: 1 charts, 2 planning, 3 networks, 4 music and video
     static const Item items[] = {
-        {APP_DATIS, "Digital ATIS for the airports that publish it"},
-        {APP_LIVEMAP, "Volanta's live map of your flights"},
-        {APP_VATSIMHUB, "VATSIM: network stats, events, the AIP and pilot resources"},
-        {APP_NATTRAK, "North Atlantic oceanic clearances on VATSIM"},
-        {APP_IVAO, "IVAO's live map of pilots and controllers"},
-        {APP_SPOTIFY, "Spotify's web player"},
-        {APP_YTMUSIC, "YouTube Music's web player"},
-        {APP_APPLEMUSIC, "Apple Music on the web"},
-        {APP_SOUNDCLOUD, "SoundCloud"},
-        {APP_YOUTUBE, "YouTube"},
+        {APP_FOREFLIGHT, 1, "ForeFlight's charts and maps on the web"},
+        {APP_CHARTS, 1, "ChartFox: free charts for most of the world"},
+        {APP_NAVIGRAPH, 1, "Navigraph Charts (a Navigraph account)"},
+        {APP_SKYVECTOR, 1, "SkyVector's aeronautical charts"},
+        {APP_SIMBRIEF, 2, "SimBrief: plan and dispatch your flights"},
+        {APP_DATIS, 2, "Digital ATIS for the airports that publish it"},
+        {APP_NATTRAK, 2, "North Atlantic oceanic clearances on VATSIM"},
+        {APP_VATSIM, 3, "VATSIM Radar: the network's traffic and ATC live"},
+        {APP_LIVEMAP, 3, "Volanta's live map of your flights"},
+        {APP_VATSIMHUB, 3, "VATSIM: network stats, events, the AIP and pilot resources"},
+        {APP_IVAO, 3, "IVAO's live map of pilots and controllers"},
+        {APP_SPOTIFY, 4, "Spotify's web player"},
+        {APP_YTMUSIC, 4, "YouTube Music's web player"},
+        {APP_APPLEMUSIC, 4, "Apple Music on the web"},
+        {APP_SOUNDCLOUD, 4, "SoundCloud"},
+        {APP_YOUTUBE, 4, "YouTube"},
     };
-    const int n = (int)(sizeof items / sizeof items[0]);
-    const float top = kStatusH + kHeaderH + 12, gapX = 10, gapY = 10, cols = 3;
-    const float cw = std::floor((w - 32 - gapX * (cols - 1)) / cols), ch = 84;
-    for (int i = 0; i < n; ++i) {
-        const int app = items[i].app;
-        const ImVec2 a(16 + (i % 3) * (cw + gapX), top + (i / 3) * (ch + gapY)), b(a.x + cw, a.y + ch);
+    const float top = kStatusH + kHeaderH + 10;
+    {   // the categories
+        static const char* cats[5] = {"All", "Charts", "Flight Planning", "Networks", "Music & Video"};
+        float x = 16;
+        for (int c = 0; c < 5; ++c) {
+            const float bw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, cats[c]).x + 32;
+            char id[16]; std::snprintf(id, sizeof id, "##scat%d", c);
+            if (pill(dl, f, id, cats[c], ImVec2(x, top), ImVec2(x + bw, top + 30), g_storeCat == c, true) && g_storeCat != c) { g_storeCat = c; g_storeScroll = 0; }
+            x += bw + 8;
+        }
+    }
+    std::vector<const Item*> shown;
+    for (const Item& it : items) if (g_storeCat == 0 || it.cat == g_storeCat) shown.push_back(&it);
+    const float ly0 = top + 42, ly1 = h - 8, gapX = 10, gapY = 10;
+    const float cw = std::floor((w - 32 - gapX * 2) / 3), ch = 84;
+    const float content = ((shown.size() + 2) / 3) * (ch + gapY);
+    ImGui::SetCursorScreenPos(ImVec2(0, ly0));
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("##storelist", ImVec2(w, ly1 - ly0));
+    if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_storeScroll -= ImGui::GetIO().MouseWheel * 40;
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_storeScroll -= ImGui::GetIO().MouseDelta.y;
+    g_storeScroll = std::max(0.0f, std::min(g_storeScroll, std::max(0.0f, content - (ly1 - ly0))));
+    dl->PushClipRect(ImVec2(0, ly0), ImVec2(w, ly1), true);
+    for (size_t i = 0; i < shown.size(); ++i) {
+        const int app = shown[i]->app;
+        const ImVec2 a(16 + (i % 3) * (cw + gapX), ly0 + (i / 3) * (ch + gapY) - g_storeScroll), b(a.x + cw, a.y + ch);
+        if (b.y < ly0 || a.y > ly1) continue;
         card(dl, a, b, f, nullptr);
         drawTile(dl, f, app, ImVec2(a.x + 38, a.y + ch * 0.5f), 52, false, 1.0f, 1.0f);
         const float tx = a.x + 74, room = b.x - 10 - tx;
         textAt(dl, f.bold, tx, a.y + 10, kInk, fitText(f.bold, appName(app), room - 60).c_str());
-        dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 34), kMuted, items[i].what, nullptr, room);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 34), kMuted, shown[i]->what, nullptr, room);
         const bool on = storeInstalled(app);
         char id[24]; std::snprintf(id, sizeof id, "##store%d", app);
-        if (pill(dl, f, id, on ? "Remove" : "Get", ImVec2(b.x - 66, a.y + 8), ImVec2(b.x - 10, a.y + 30), !on, true)) installApp(app, !on);
+        if (pill(dl, f, id, on ? "Remove" : "Get", ImVec2(b.x - 66, a.y + 8), ImVec2(b.x - 10, a.y + 30), !on, a.y + 8 >= ly0 && a.y + 30 <= ly1)) installApp(app, !on);
     }
+    dl->PopClipRect();
+    if (content > ly1 - ly0) g_storeScroll = scrollBar(dl, "##storebar", w - 8, ly0 + 4, ly1 - 4, g_storeScroll, content, ly1 - ly0);
 }
 
 // ---- VATSIM: a page of bubbles, each a part of VATSIM's own sites (they open as the app's tabs) ----------------------------------------
@@ -7812,7 +7948,12 @@ std::string settingsToText() {
     }
     out += std::string("cabin_auto=") + (g_settings.cabinAuto ? "1" : "0") + "\n";
     out += std::string("map_vatsim_atc=") + (g_settings.mapVatsimAtc ? "1" : "0") + "\nvatsim_atc_notes=" + (g_settings.vatsimAtcNotes ? "1" : "0") + "\n";
-    { char cb[64]; std::snprintf(cb, sizeof cb, "custom_bg=%06X\ncustom_accent=%06X\n", g_settings.customBg & 0xFFFFFF, g_settings.customAccent & 0xFFFFFF); out += cb; }
+    for (int i = 0; i < 3; ++i) {   // the Customs: colours, and the picture's file name
+        char cb[96]; std::snprintf(cb, sizeof cb, "custom%d_bg=%06X\ncustom%d_accent=%06X\n", i, g_settings.customs[i].bg & 0xFFFFFF, i, g_settings.customs[i].accent & 0xFFFFFF); out += cb;
+        std::string pic = g_settings.customs[i].picture;
+        for (char& ch : pic) if (ch == '\n' || ch == '\r') ch = ' ';
+        out += "custom" + std::to_string(i) + "_picture=" + pic + "\n";
+    }
     {   // the home screen: its pages, folders (name, a tab, then the apps) and Volanta's overlay address
         out += "home_pages=" + std::to_string(g_settings.homePages) + "\n";
         for (const auto& fo : g_settings.folders) {
@@ -7929,8 +8070,15 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_traffic_range") g_settings.mapTrafficRangeNm = std::max(0.0f, std::min(2000.0f, (float)std::atof(val.c_str())));
         else if (key == "map_traffic_alt") g_settings.mapTrafficAltFt = std::max(0.0f, std::min(60000.0f, (float)std::atof(val.c_str())));
         else if (key == "physical_keys") g_settings.physicalKeys = v != 0;
-        else if (key == "custom_bg") g_settings.customBg = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;
-        else if (key == "custom_accent") g_settings.customAccent = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;
+        else if (key == "custom_bg") g_settings.customs[0].bg = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;   // (one Custom, before)
+        else if (key == "custom_accent") g_settings.customs[0].accent = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;
+        else if (key.size() > 8 && key.compare(0, 6, "custom") == 0 && key[6] >= '0' && key[6] <= '2' && key[7] == '_') {
+            Settings::CustomTheme& ct = g_settings.customs[key[6] - '0'];
+            const std::string what = key.substr(8);
+            if (what == "bg") ct.bg = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;
+            else if (what == "accent") ct.accent = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;
+            else if (what == "picture") ct.picture = val;
+        }
         else if (key == "wallpaper") { g_settings.wallpaper = std::max(0, std::min(kThemes - 1, v)); g_settings.accent = g_settings.wallpaper; }
         else if (key == "accent") g_settings.accent = std::max(0, std::min(4, v));
         else if (key == "battery") g_batt = (float)std::max(0, std::min(100, v));

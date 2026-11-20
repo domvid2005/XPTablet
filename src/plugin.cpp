@@ -1257,6 +1257,64 @@ void docsStep(const xpt::Actions& act) {
     std::vector<uint8_t>().swap(g_docPixels);
 }
 
+// ---- a Custom theme's picture: from plugins/XPTablet/backgrounds (listed when asked), loaded when the theme wants it --------------
+int g_bgTex = 0;
+void backgroundStep(const xpt::Actions& act) {
+    namespace fs = std::filesystem;
+    const std::string dir = pluginFolder() + "/backgrounds";
+    static bool listed = false;
+    if (act.backgroundsList || !listed) {
+        listed = true;
+        makeDirs(dir + "/");
+        g_sim.backgroundsFolder = dir;
+        g_sim.backgroundFiles.clear();
+        std::error_code ec;
+        for (fs::directory_iterator it(fs::u8path(dir), ec), end; !ec && it != end; it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            std::string ext = it->path().extension().u8string();
+            for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+            if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") g_sim.backgroundFiles.push_back(it->path().filename().u8string());
+        }
+        std::sort(g_sim.backgroundFiles.begin(), g_sim.backgroundFiles.end());
+    }
+    if (act.backgroundWanted == g_sim.bgPicture) return;
+    g_sim.bgPicture = act.backgroundWanted;
+    g_sim.bgTex = 0; g_sim.bgW = g_sim.bgH = 0; g_sim.bgAverage = -1;
+    if (g_sim.bgPicture.empty() || g_sim.bgPicture.find_first_of("/\\") != std::string::npos) return;
+    std::string bytes;
+    if (!readFile(dir + "/" + g_sim.bgPicture, bytes)) { logMsg("background: could not read %s", g_sim.bgPicture.c_str()); return; }
+    int w = 0, h = 0, n = 0;
+    unsigned char* p = stbi_load_from_memory((const unsigned char*)bytes.data(), (int)bytes.size(), &w, &h, &n, 4);
+    if (!p) { logMsg("background: not a picture: %s", g_sim.bgPicture.c_str()); return; }
+    std::vector<uint8_t> img(p, p + (size_t)w * h * 4);
+    stbi_image_free(p);
+    while (w > 2048 && h > 2) {   // at most 2048 across: halved until it fits (the tablet is 800 across)
+        const int nw = w / 2, nh = h / 2;
+        std::vector<uint8_t> half((size_t)nw * nh * 4);
+        for (int y = 0; y < nh; ++y) for (int x = 0; x < nw; ++x) for (int c = 0; c < 4; ++c)
+            half[((size_t)y * nw + x) * 4 + c] = (uint8_t)((img[((size_t)(2 * y) * w + 2 * x) * 4 + c] + img[((size_t)(2 * y) * w + 2 * x + 1) * 4 + c] +
+                                                           img[((size_t)(2 * y + 1) * w + 2 * x) * 4 + c] + img[((size_t)(2 * y + 1) * w + 2 * x + 1) * 4 + c]) / 4);
+        img.swap(half); w = nw; h = nh;
+    }
+    double r = 0, g = 0, b = 0; size_t cnt = 0;
+    for (size_t i = 0; i + 3 < img.size(); i += 4 * 61) { r += img[i]; g += img[i + 1]; b += img[i + 2]; ++cnt; }
+    if (cnt) {   // its average, made a little deeper (the cards and the pull-down take their tone from it)
+        const int R = (int)(r / cnt * 0.8), G = (int)(g / cnt * 0.8), B = (int)(b / cnt * 0.8);
+        g_sim.bgAverage = (R << 16) | (G << 8) | B;
+    }
+    if (!g_bgTex) XPLMGenerateTextureNumbers(&g_bgTex, 1);
+    XPLMBindTexture2d(g_bgTex, 0);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_CLAMP_TO_EDGE);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint)GL_CLAMP_TO_EDGE);
+    gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    gl.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    gl.TexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.data());
+    XPLMBindTexture2d(0, 0);
+    g_sim.bgTex = (ImTextureID)(intptr_t)g_bgTex; g_sim.bgW = w; g_sim.bgH = h;
+}
+
 // ---- the Checklists page: the aircraft's own checklist, if it has one ------------------------------------------------------------
 // Output/XPTablet/Checklists/<ICAO>.txt, or xptablet_checklist.txt in the aircraft's folder ("# Section", then "Item | VALUE" lines).
 void loadChecklist() {
@@ -1519,6 +1577,7 @@ void ensureFrame() {
     mapStep(act);
     planStep(act);
     mediaStep(act);
+    backgroundStep(act);
     {   // the Map's traffic card: its aircraft on VATSIM (and its filed route); VATSIM's world as traffic when chosen
         const bool world = act.mapShown && xpt::settings().mapTraffic && xpt::settings().mapTrafficSource == 1;
         // VATSIM's controllers: for the Airports page, the Map's ATC layer, and the notifications for the flight's airports

@@ -434,7 +434,7 @@ int main(int argc, char** argv) {
         { const int keep = settings().wallpaper;
           settings().wallpaper = 5; shot(t, APP_HOME, "home_noir"); shot(t, APP_SETTINGS, "settings_noir");
           settings().wallpaper = 6; shot(t, APP_HOME, "home_cloud"); shot(t, APP_MAP, "map_cloud");
-          settings().wallpaper = 7; settings().customBg = 0x2E5A3A; settings().customAccent = 0xF0A030; shot(t, APP_HOME, "home_custom");
+          settings().wallpaper = 8; shot(t, APP_HOME, "home_custom");
           settings().wallpaper = keep; }
         shot(t, APP_GAMES, "games");
         { SimState nv = t;
@@ -695,6 +695,17 @@ int main(int argc, char** argv) {
             tap(st, 80, 154);   // Display
             settings().autoDim = true;
             shot(st, APP_SETTINGS, "settings_display");
+            {   // a Custom held: its editor, with the pictures from the backgrounds folder
+                const int keepWp = settings().wallpaper;
+                SimState sb = st; sb.backgroundFiles = {"aurora.jpg", "my-livery.png"}; sb.backgroundsFolder = "E:/X-Plane 12/Resources/plugins/XPTablet/backgrounds";
+                for (int k = 0; k < 45; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(642, 205); io.AddMouseButtonEvent(0, true);
+                    ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); }
+                io.AddMouseButtonEvent(0, false);
+                shot(sb, APP_SETTINGS, "settings_custom_theme");
+                if (settings().wallpaper != 7) { std::printf("FAIL: holding Custom 1 chooses it (%d)\n", settings().wallpaper); ++failures; }
+                tap(sb, 680, 100);   // Done
+                settings().wallpaper = keepWp;
+            }
             settings().autoDim = false;
             tap(st, 80, 196);   // Data
             settings().simbriefUser = "alpineaviation";
