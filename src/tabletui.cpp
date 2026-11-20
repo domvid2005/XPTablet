@@ -673,6 +673,7 @@ void hoverTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, bo
 }
 // The grid as places: order[i] is the app at place i, or -1 for a free place. Favorites: the bar, in order, no gaps.
 void textAt(ImDrawList* dl, ImFont* font, float x, float y, ImU32 col, const char* txt);
+float pageKeyboard(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act);
 extern bool g_kbd;
 extern int g_kbdTarget;
 extern std::string* g_typeInto;
@@ -1313,7 +1314,8 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         const bool outside = ImGui::InvisibleButton("##folderveil", ImVec2(w, h - kStatusH));
         const int n = (int)fo.apps.size(), fc = 4, fr = std::max(1, (n + fc - 1) / fc);
         const float cw = 100, ch = 96, pw = fc * cw + 40, ph = fr * ch + 96;
-        const ImVec2 c(w * 0.5f, (kStatusH + h) * 0.5f - 10);
+        const bool naming = g_kbd && g_kbdTarget == 2 && g_typeInto == &fo.name;   // its name being typed: the card moves up over the keys
+        const ImVec2 c(w * 0.5f, naming ? kStatusH + 12 + ph * 0.5f : (kStatusH + h) * 0.5f - 10);
         const float sc = 0.85f + 0.15f * e;
         const ImVec2 a(c.x - pw * 0.5f * sc, c.y - ph * 0.5f * sc), b(c.x + pw * 0.5f * sc, c.y + ph * 0.5f * sc);
         dl->AddRectFilled(a, b, themeTone(14, 26, 50, (int)(230 * e)), 24.0f);   // (solid under the frost: the icons behind stay out of it)
@@ -1357,6 +1359,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
             normalizeLayout(cap);
             g_settingsChanged = true;
         }
+        if (naming) pageKeyboard(dl, f, w, h, act);   // the on-screen keys (with the physical keyboard set, its bar)
         if (outside && !(g_kbd && g_kbdTarget == 2 && g_typeInto == &fo.name)) { g_openFolder = -1; g_settingsChanged = true; }
         else if (outside) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; g_settingsChanged = true; }
     } else g_openFolder = -1;
@@ -2025,9 +2028,50 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         const float plusW = plus ? 34.0f : 0.0f, tw = std::min(190.0f, std::floor((w - 16 - plusW - 6) / n));
         float x = 8;
         int idx = 0;
+        // each tab glides to its place and width: a new one grows in, the others slide over when one closes
+        static std::map<int, std::pair<float, float>> placed;   // tab id: its x and width as drawn
+        struct Ghost { float x, w; std::string title; double t0; };
+        static std::vector<Ghost> ghosts;                       // tabs just closed: they shrink and fade where they were
+        static std::set<int> closing;                           // (and are not drawn again while the browser closes them)
+        for (auto it = closing.begin(); it != closing.end();) { bool still = false; for (const BrowserState::Tab& t : tabs) still = still || t.id == *it; if (still) ++it; else it = closing.erase(it); }
+        for (size_t gi = 0; gi < ghosts.size();) {
+            const float e = (float)(ImGui::GetTime() - ghosts[gi].t0) / 0.18f;
+            if (e >= 1) { ghosts.erase(ghosts.begin() + (long)gi); continue; }
+            const Ghost& gh = ghosts[gi];
+            const float gw = gh.w * (1 - e);
+            if (gw > 6) {
+                const ImVec2 ga(gh.x, top + 4), ge(gh.x + gw - 4, top + tabsH);
+                dl->AddRectFilled(ga, ge, IM_COL32(255, 255, 255, (int)(14 * (1 - e))), 8.0f, ImDrawFlags_RoundCornersTop);
+                dl->PushClipRect(ga, ge, true);
+                textAt(dl, f.small, ga.x + 10, std::floor(ga.y + (ge.y - ga.y - fontPx(f.small)) * 0.5f), IM_COL32(150, 168, 198, (int)(255 * (1 - e))), gh.title.c_str());
+                dl->PopClipRect();
+            }
+            ++gi;
+        }
+        const float dtT = ImGui::GetIO().DeltaTime, kT = 1.0f - std::exp(-dtT * 16.0f);
+        {
+            std::map<int, std::pair<float, float>> keep;
+            float tx = 8;
+            for (const BrowserState::Tab& t : tabs) {
+                if (closing.count(t.id)) continue;   // (the others close up at once)
+                auto it = placed.find(t.id);
+                std::pair<float, float> p = it != placed.end() ? it->second : std::make_pair(tx, 0.0f);
+                p.first += (tx - p.first) * kT; p.second += (tw - p.second) * kT;
+                if (std::fabs(p.first - tx) < 0.3f) p.first = tx;
+                if (std::fabs(p.second - tw) < 0.3f) p.second = tw;
+                keep[t.id] = p;
+                tx += tw;
+            }
+            placed.swap(keep);
+        }
+        float plusX = 8;
+        for (const BrowserState::Tab& t : tabs) { const auto& p = placed[t.id]; plusX = std::max(plusX, p.first + p.second); }
         for (const BrowserState::Tab& t : tabs) {
             const bool on = t.id == b.activeTab;
-            const ImVec2 a(x, top + 4), e(x + tw - 4, top + tabsH);
+            x = placed[t.id].first;
+            const float twNow = placed[t.id].second;
+            if (twNow < 26 || closing.count(t.id)) { ++idx; continue; }   // (still growing in: drawn once there is room for it; or closing)
+            const ImVec2 a(x, top + 4), e(x + twNow - 4, top + tabsH);
             char id[24];
             std::snprintf(id, sizeof id, "##tab%d", idx);
             ImGui::SetCursorScreenPos(a);
@@ -2046,15 +2090,19 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
             const ImVec2 cc(e.x - 12, a.y + (e.y - a.y) * 0.5f);
             std::snprintf(id, sizeof id, "##tabx%d", idx);
             ImGui::SetCursorScreenPos(ImVec2(e.x - 22, a.y));
-            if (ImGui::InvisibleButton(id, ImVec2(22, e.y - a.y))) { act.webTabClose = t.id; if (g_webGroup == 0 && tabs.size() == 1) g_browserNoTabs = true; }
+            if (ImGui::InvisibleButton(id, ImVec2(22, e.y - a.y))) {
+                act.webTabClose = t.id; if (g_webGroup == 0 && tabs.size() == 1) g_browserNoTabs = true;
+                ghosts.push_back({x, twNow, title, ImGui::GetTime()});
+                closing.insert(t.id);
+            }
             const bool xh = ImGui::IsItemHovered();
             if (xh) dl->AddCircleFilled(cc, 8.0f, IM_COL32(255, 255, 255, 28), 0);
             const ImU32 xc = xh ? kInk : kMuted;
             dl->AddLine(ImVec2(cc.x - 4, cc.y - 4), ImVec2(cc.x + 4, cc.y + 4), xc, 1.5f);
             dl->AddLine(ImVec2(cc.x - 4, cc.y + 4), ImVec2(cc.x + 4, cc.y - 4), xc, 1.5f);
-            x += tw;
             ++idx;
         }
+        x = plusX;
         if (plus) {
             const ImVec2 pa(x + 2, top + 5), pe(x + 2 + plusW - 4, top + tabsH - 3);
             if (iconButton("##tabnew", pa, pe, room && b.status == 1)) { act.webTabNew = true; act.webTabGroup = 0; act.webTabUrl.clear(); g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear(); g_browserNoTabs = false; }
@@ -2122,7 +2170,10 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         zoomGroup("b", w - 216, top + 4, top + barH - 4);
         const ImVec2 a(110, top + 6), e(w - 222, top + barH - 6);
         const bool editing = g_kbd && g_kbdTarget == 1;
-        if (iconButton("##baddr", a, e, true)) { g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear(); }
+        if (iconButton("##baddr", a, e, true)) {
+            g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear();
+            if (g_webGroup == 0 && tabs.empty() && b.status == 1 && room) { g_browserNoTabs = false; act.webTabNew = true; act.webTabGroup = 0; act.webTabUrl.clear(); }   // (no tab: as the +)
+        }
         dl->AddRectFilled(a, e, IM_COL32(255, 255, 255, editing ? 44 : 26), 14.0f);
         if (editing) dl->AddRect(a, e, accentLite(200), 14.0f, 0, 1.5f);
         dl->PushClipRect(a, e, true);
@@ -3046,7 +3097,18 @@ std::string posText(double lat, double lon) {
     return b;
 }
 // Draws the card beside the item at `at`, kept inside the map; true when its button was pressed. Its close button closes it.
+bool drawCardBody(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L, ImVec2 at, ImVec2 r0, ImVec2 r1);
+// (a new card grows out of what was tapped: faded and grown in over a fifth of a second)
 bool drawCard(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L, ImVec2 at, ImVec2 r0, ImVec2 r1) {
+    static std::string shown; static double t0 = -10;
+    const std::string key = L.empty() ? std::string() : L[0].a + "|" + L[0].b;
+    if (key != shown) { shown = key; t0 = ImGui::GetTime(); }
+    const int v0 = dl->VtxBuffer.Size;
+    const bool hit = drawCardBody(dl, f, L, at, r0, r1);
+    popIn(dl, v0, at, std::min(1.0f, (float)(ImGui::GetTime() - t0) / 0.2f));
+    return hit;
+}
+bool drawCardBody(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L, ImVec2 at, ImVec2 r0, ImVec2 r1) {
     const float W = 300, pad = 14, inner = W - 2 * pad;
     float H = pad;
     for (const CardLine& l : L) {
@@ -4000,10 +4062,10 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                             {"##mnav", "Navaids", &g_settings.mapNavaids, true}, {"##mfix", "Waypoints (GPS)", &g_settings.mapWaypoints, true},
                             {"##mrte", "Flight Plan Route", &g_settings.mapRoute, !m.route.empty()}, {"##mring", "Range Rings", &g_settings.mapRings, true}};
         const Item tfc[] = {{"##mtraf", "Show Traffic", &g_settings.mapTraffic, true}, {"##mttrl", "Trail When Selected", &g_settings.mapTrafficTrails, g_settings.mapTraffic},
-                            {"##mtrte", "Filed Route When Selected", &g_settings.mapTrafficRoute, g_settings.mapTraffic},
-                            {"##mvatc", "VATSIM ATC Online", &g_settings.mapVatsimAtc, true}, {"##mvasp", "VATSIM Airspaces", &g_settings.mapAirspaces, true}};
+                            {"##mtrte", "Filed Route When Selected", &g_settings.mapTrafficRoute, g_settings.mapTraffic}};
         const Item fea[] = {{"##mtrail", "My Breadcrumbs", &g_settings.mapTrail, true}, {"##mout", "Coastlines And Borders", &g_settings.mapOutlines, true},
-                            {"##mtz", "Time Zones", &g_settings.mapTimeZones, true}, {"##mday", "Daylight", &g_settings.mapDaylight, true}};
+                            {"##mtz", "Time Zones", &g_settings.mapTimeZones, true}, {"##mday", "Daylight", &g_settings.mapDaylight, true},
+                            {"##mvatc", "VATSIM ATC Online", &g_settings.mapVatsimAtc, true}, {"##mvasp", "VATSIM Airspaces", &g_settings.mapAirspaces, true}};
         const char* cats[3] = {"Navigation", "Traffic", "Features"};
         float cw = 0;
         for (const char* c : cats) cw = std::max(cw, bubbleW(f, nullptr, c));
@@ -4643,7 +4705,7 @@ const char* const kTurbopropChecklist =
     "# Shutdown\nParking brake | SET\nCondition levers | FUEL OFF / FEATHER\nGenerators | OFF\nBeacon | OFF\nBatteries | OFF\n";
 const char* const kAirbusAbnormal =
     "# Icing conditions\nIcing: OAT/TAT at or below 10\xC2\xB0""C with visible moisture | CHECK\nENG ANTI ICE | ON\nWING ANTI ICE | AS RQRD (not on the ground before takeoff)\nPROBE / WINDOW HEAT | AUTO (ON when needed)\nIce on the wipers or airframe | MONITOR\n"
-    "# Ground de-icing / anti-icing\nHoldover time and fluid type | NOTED\nFLAPS / SLATS | RETRACTED\nSPEED BRAKES | RETRACTED\nPACK 1 + 2 | OFF\nAPU BLEED | OFF\nENG BLEED | AS RQRD (OFF if engines running and asked)\nDoors and windows | CLOSED\nAfter spraying: wait 1 minute | DONE\nPACKS / APU BLEED | ON\nFlight controls | CHECKED\nHoldover time | MONITORED\n"
+    "# Ground de-icing / anti-icing\nHoldover time and fluid type | NOTED\nFLAPS / SLATS | RETRACTED\nSPEED BRAKES | RETRACTED\nPACK 1 + 2 | OFF\nAPU BLEED | OFF\nENG BLEED | AS RQRD (OFF if engines running and asked)\nDITCHING pb | ON (outflow valve and vents shut)\nDoors and windows | CLOSED\nAfter spraying: wait 1 minute | DONE\nDITCHING pb | OFF\nPACKS / APU BLEED | ON\nFlight controls | CHECKED\nHoldover time | MONITORED\n"
     "# Engine anti-ice fault\nAffected ENG ANTI ICE | OFF THEN ON\nIcing conditions | AVOID\nThrust | AS RQRD\n"
     "# Gear not up / gear disagree\nGear lever | DOWN THEN UP\nSpeed | BELOW VLE\nGear | LEAVE DOWN if no retraction\nFuel burn (gear down) | CONSIDER\n"
     "# Gear gravity extension\nSpeed | BELOW VLE\nGear lever | DOWN\nGravity extension handle | TURN 3 TIMES CLOCKWISE\nGear indications | 3 GREEN\nLanding distance | CHECKED\n"
@@ -6792,8 +6854,25 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
 
 void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act);
 // Settings; with a Custom theme's editor open, the editor first (it takes the presses before anything under it) but drawn on top
+// what was drawn since vtx0 faded in (t 0..1): a page's content changing (a Settings tab, an App Store category)
+void fadeSince(ImDrawList* dl, int vtx0, float t) {
+    if (t >= 0.999f) return;
+    const unsigned am = (unsigned)(std::max(0.0f, std::min(1.0f, 1 - (1 - t) * (1 - t))) * 256.0f);
+    for (int i = vtx0; i < dl->VtxBuffer.Size; ++i) {
+        ImDrawVert& v = dl->VtxBuffer[i];
+        const unsigned a = ((v.col >> IM_COL32_A_SHIFT) & 0xFF) * am >> 8;
+        v.col = (v.col & ~IM_COL32_A_MASK) | (a << IM_COL32_A_SHIFT);
+    }
+}
 void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
-    if (g_customEdit < 0) { settingsBody(dl, f, s, w, h, act); return; }
+    static int shownTab = -1; static double tabT0 = -10;
+    if (g_settingsTab != shownTab) { shownTab = g_settingsTab; tabT0 = ImGui::GetTime(); }
+    if (g_customEdit < 0) {   // (a tab chosen: its content fades in)
+        const int v0 = dl->VtxBuffer.Size;
+        settingsBody(dl, f, s, w, h, act);
+        fadeSince(dl, v0, std::min(1.0f, (float)(ImGui::GetTime() - tabT0) / 0.18f) * 0.65f + 0.35f);
+        return;
+    }
     dl->ChannelsSplit(2);
     dl->ChannelsSetCurrent(1);
     customThemeEditor(dl, f, s, w, h, act);
@@ -7672,6 +7751,9 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
     }
     std::vector<const Item*> shown;
     for (const Item& it : items) if (g_storeCat == 0 || it.cat == g_storeCat) shown.push_back(&it);
+    static int catShown = -1; static double catT0 = -10;   // (a category chosen: its apps fade in)
+    if (catShown != g_storeCat) { catShown = g_storeCat; catT0 = ImGui::GetTime(); }
+    const int storeV0 = dl->VtxBuffer.Size;
     const float ly0 = top + 42, ly1 = h - 8, gapX = 10, gapY = 10;
     const float cw = std::floor((w - 32 - gapX * 2) / 3), ch = 84;
     const float content = ((shown.size() + 2) / 3) * (ch + gapY);
@@ -7696,6 +7778,7 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
         if (pill(dl, f, id, on ? "Remove" : "Get", ImVec2(b.x - 66, a.y + 8), ImVec2(b.x - 10, a.y + 30), !on, a.y + 8 >= ly0 && a.y + 30 <= ly1)) installApp(app, !on);
     }
     dl->PopClipRect();
+    fadeSince(dl, storeV0, std::min(1.0f, (float)(ImGui::GetTime() - catT0) / 0.2f));
     if (content > ly1 - ly0) g_storeScroll = scrollBar(dl, "##storebar", w - 8, ly0 + 4, ly1 - 4, g_storeScroll, content, ly1 - ly0);
 }
 
