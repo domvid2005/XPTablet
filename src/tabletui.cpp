@@ -970,8 +970,8 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
     if (pages > 1) {
         const float dy = (hasDock ? dockTop : h) - 12, dw0 = pages * 14.0f;
         for (int p = 0; p < pages; ++p) {
-            const float near = std::max(0.0f, 1.0f - std::fabs(p - g_homeScroll));
-            dl->AddCircleFilled(ImVec2(std::floor(w * 0.5f - dw0 * 0.5f + 7 + p * 14), dy), 3.2f + near * 0.8f, IM_COL32(255, 255, 255, (int)(90 + 165 * near)), 0);
+            const float nearK = std::max(0.0f, 1.0f - std::fabs(p - g_homeScroll));
+            dl->AddCircleFilled(ImVec2(std::floor(w * 0.5f - dw0 * 0.5f + 7 + p * 14), dy), 3.2f + nearK * 0.8f, IM_COL32(255, 255, 255, (int)(90 + 165 * nearK)), 0);
         }
     }
     // the favorites bar: as many places as Settings gives it, the free ones shown as outlines
