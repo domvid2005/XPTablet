@@ -2440,6 +2440,23 @@ void doGround(const xpt::Actions& act) {
         logMsg("jetway: door %d %s (%s jetways)", k + 1, rr.wantDoor[k] ? "connected" : "disconnected", g.openSam ? "openSAM" : "X-Plane's");
         break;
     }
+    case xpt::GA_JETWAY_SET: {   // the jetway menu's choice: these doors (a mask), the others not
+        // openSAM docks every jetway it gave the stand's doors with dock_jwy (another plugin cannot pick one: its own window does);
+        // the doors not chosen stay shut and show no jetway, so only the chosen door is used
+        SimRefs& rr = g_refs;
+        bool before = false, after = false;
+        for (bool w : rr.wantDoor) before = before || w;
+        for (int k = 0; k < 3; ++k) { const bool want = (act.groundIndex >> k) & 1; if (want != rr.wantDoor[k]) rr.jwPressT[k] = XPLMGetElapsedTime(); rr.wantDoor[k] = want; }
+        for (bool w : rr.wantDoor) after = after || w;
+        if (!before && after && g_undockAt >= 0) g_undockAt = -1;
+        else if (!before && after) {
+            if (g.openSam) once("openSAM/dock_jwy"); else { once("sim/ground_ops/jetway"); rr.xpJetway = true; rr.xpJetwayT0 = XPLMGetElapsedTime(); }
+        } else if (before && !after) {
+            if (g.toliss && rr.paxDoor) g_undockAt = XPLMGetElapsedTime() + 6.0; else undockNow();
+        }
+        logMsg("jetway: doors chosen 0x%x (%s jetways)", act.groundIndex, g.openSam ? "openSAM" : "X-Plane's");
+        break;
+    }
     case xpt::GA_SLIDES_ARM: g_slidesAuto = false; g_slidesHold = 1; if (g.toliss) trigger("toliss_airbus/door_commands/arm_slides"); break;
     case xpt::GA_SLIDES_DISARM: g_slidesAuto = false; g_slidesHold = -1; if (g.toliss) trigger("toliss_airbus/door_commands/disarm_slides"); break;
     case xpt::GA_SLIDES_AUTO: g_slidesAuto = true; g_slidesHold = 0; break;
