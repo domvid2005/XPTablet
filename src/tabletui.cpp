@@ -827,6 +827,7 @@ int g_openFolder = -1;         // the folder shown open, -1 none
 double g_folderT0 = -10;
 bool g_widgetPicker = false;   // the list of widgets to add (while arranging)
 bool g_addMenu = false;        // the + button's menu: New Folder, Add Widget
+bool g_dragFromFolder = false; // an app being carried out of an open folder (its press began on the folder's card)
 int g_grabCol = 0, g_grabRow = 0;   // where in a widget it was taken hold of (in places)
 void drawWidget(ImDrawList* dl, const Fonts& f, const SimState& s, int kind, ImVec2 a, ImVec2 b, Actions& act, bool live);   // (below)
 
@@ -836,9 +837,11 @@ void folderTile(ImDrawList* dl, const Fonts& f, int k, ImVec2 c, float tile, boo
     dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, 52), tile * 0.24f * scale);
     dl->AddRect(a, b, IM_COL32(255, 255, 255, 40), tile * 0.24f * scale);
     const auto& apps = g_settings.folders[k].apps;
-    const float mini = tile * scale * 0.24f, gap = tile * scale * 0.07f;
-    for (int i = 0; i < std::min(9, (int)apps.size()); ++i) {
-        const ImVec2 mc(a.x + gap * 1.5f + mini * 0.5f + (i % 3) * (mini + gap), a.y + gap * 1.5f + mini * 0.5f + (i / 3) * (mini + gap));
+    const int n = std::min(9, (int)apps.size()), g = n <= 4 ? 2 : 3;   // the apps fill the tile: 2 x 2 up to four, else 3 x 3
+    const float side = tile * scale, pad = side * (g == 2 ? 0.11f : 0.09f), gap = side * (g == 2 ? 0.08f : 0.06f);
+    const float mini = (side - 2 * pad - (g - 1) * gap) / g;
+    for (int i = 0; i < n; ++i) {
+        const ImVec2 mc(a.x + pad + mini * 0.5f + (i % g) * (mini + gap), a.y + pad + mini * 0.5f + (i / g) * (mini + gap));
         drawTile(dl, f, apps[i], mc, mini, false, 1.0f, 1.0f);
     }
     if (label) textCentered(dl, f.small, c.x, c.y + tile * 0.5f + 6, IM_COL32(236, 241, 250, 255), g_settings.folders[k].name.c_str());
@@ -944,13 +947,14 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
                 int wc, wr; widgetCells(drag - kWidget0, wc, wr);
                 if (gi == target) {
                     const bool ok = widgetCanGo(target, drag - kWidget0, drag);
-                    dl->AddRectFilled(ImVec2(cx + 6, cy + 4), ImVec2(cx + wc * cellW - 6, cy + wr * cellH - 8), ok ? IM_COL32(255, 255, 255, 50) : IM_COL32(255, 80, 80, 50), 18.0f);
+                    dl->AddRectFilled(ImVec2(cx + (cellW - tile) * 0.5f - 4, cy + 2), ImVec2(cx + (wc - 1) * cellW + (cellW + tile) * 0.5f + 4, cy + (wr - 1) * cellH + 10 + tile), ok ? IM_COL32(255, 255, 255, 50) : IM_COL32(255, 80, 80, 50), tile * 0.28f);
                 }
             } else if (gi == target && drag >= 0)
                 dl->AddRectFilled(ImVec2(c.x - tile * 0.5f - 4, c.y - tile * 0.5f - 4), ImVec2(c.x + tile * 0.5f + 4, c.y + tile * 0.5f + 4), isFolder(e) && isApp(drag) ? accentCol(110) : IM_COL32(255, 255, 255, 60), tile * 0.28f);
             if (isWidget(e) && e != drag) {
                 int wc, wr; widgetCells(e - kWidget0, wc, wr);
-                const ImVec2 wa(cx + 8, cy + 4), wb(cx + wc * cellW - 8, cy + wr * cellH - 10);
+                // (the icons' own edges: from the first one's corner to the last one's, the icons' rounding)
+                const ImVec2 wa(cx + (cellW - tile) * 0.5f, cy + 6), wb(cx + (wc - 1) * cellW + (cellW + tile) * 0.5f, cy + (wr - 1) * cellH + 6 + tile);
                 const int v0 = dl->VtxBuffer.Size;
                 drawWidget(dl, f, s, e - kWidget0, wa, wb, act, liveWidgets && thisPage);
                 if (g_editMode) {
@@ -961,7 +965,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
                     dl->AddLine(ImVec2(bc.x - 4.5f, bc.y), ImVec2(bc.x + 4.5f, bc.y), IM_COL32(255, 255, 255, 255), 2.0f);
                     ImGui::SetCursorScreenPos(ImVec2(bc.x - 13, bc.y - 13));
                     char bid[24]; std::snprintf(bid, sizeof bid, "##wdel%d", e);
-                    if (ImGui::InvisibleButton(bid, ImVec2(26, 26))) { order[gi] = -1; g_settingsChanged = true; }
+                    if (ImGui::InvisibleButton(bid, ImVec2(26, 26)) && !g_addMenu && !g_widgetPicker && g_openFolder < 0) { order[gi] = -1; g_settingsChanged = true; }
                 }
                 hits.push_back({e, wa, wb, gi});
                 continue;
@@ -1018,7 +1022,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
     // arranging: the + button (its menu: New Folder, Add Widget). Something carried onto it: an app makes a new folder; an empty
     // folder or a widget goes (it is a bin then)
     const bool carryEmptyFolder = isFolder(drag) && g_settings.folders[drag - kFolder0].apps.empty();
-    const bool carryBin = carryEmptyFolder || isWidget(drag);
+    const bool carryBin = isFolder(drag) || isWidget(drag);   // (a folder with apps: they go onto the page, the folder goes)
     if (g_editMode || drag >= 0) {
         const Ease eb0 = eased("##addbtn", false, ImGui::IsMouseHoveringRect(bubA, bubB) && drag < 0, ImGui::IsMouseHoveringRect(bubA, bubB) && ImGui::IsMouseDown(0) && drag < 0);
         const Ease eb = eased("##newfolder", overBubble, false, false);
@@ -1029,9 +1033,9 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         if (eb0.hot > 0.02f && !carryBin) dl->AddRect(ImVec2(bubA.x - grow, bubA.y - grow), ImVec2(bubB.x + grow, bubB.y + grow), accentLite((int)(150 * eb0.hot)), 16.0f + grow, 0, 1.2f);
         const float mx = (bubA.x + bubB.x) * 0.5f, my = (bubA.y + bubB.y) * 0.5f;
         // the glyph and its word, centred together on the button
-        const char* word = drag < 0 ? "" : carryBin ? (isWidget(drag) ? "Remove" : "Delete") : isFolder(drag) ? "Not empty" : "New Folder";
+        const char* word = drag < 0 ? "" : carryBin ? (isWidget(drag) ? "Remove" : carryEmptyFolder ? "Delete" : "Unpack") : "New Folder";
         const float tw = *word ? f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, word).x : 0.0f;
-        const bool glyph = !(isFolder(drag) && !carryEmptyFolder);
+        const bool glyph = true;
         const float gw = glyph ? 16.0f : 0.0f, gap = (glyph && *word) ? 8.0f : 0.0f;
         const float x0 = std::floor(mx - (gw + gap + tw) * 0.5f);
         const float gx = x0 + gw * 0.5f;
@@ -1083,7 +1087,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         }
         turnSince(dl, v0, m, 0.06f);
     }
-    if (ImGui::IsItemDeactivated()) {
+    if (ImGui::IsItemDeactivated() || (g_dragFromFolder && !io.MouseDown[0])) {   // (let go: on the home screen's finger, or an app carried out of a folder)
         const int e = g_pressApp;
         auto& fav = g_settings.favorites;
         if (g_swiping) {
@@ -1108,11 +1112,20 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
                 } else if (isWidget(e)) {   // the bin: the widget goes
                     if (from >= 0) order[from] = -1;
                     g_settingsChanged = true;
-                } else if (carryEmptyFolder) {   // the bin: the folder goes (the ones after it move up a number)
+                } else if (isFolder(e)) {   // the bin: the folder goes (the ones after it move up a number); its apps into the page's free places
                     const int k = e - kFolder0;
+                    const std::vector<int> apps = g_settings.folders[k].apps;
                     if (from >= 0) order[from] = -1;
                     g_settings.folders.erase(g_settings.folders.begin() + k);
-                    for (int& x : order) if (x > e && x < kFolder0 + 1000) --x;
+                    for (int& x : order) if (x > e && x < kWidget0) --x;
+                    const std::vector<int> cv = coverOf(cap);
+                    const int start = from >= 0 ? from : g_homePage * cap;
+                    for (int app : apps) {
+                        int at = -1;
+                        for (int i = start; i < (int)order.size() && at < 0; ++i) if (order[i] < 0 && (i >= (int)cv.size() || cv[i] < 0)) at = i;
+                        for (int i = 0; i < start && at < 0; ++i) if (order[i] < 0 && (i >= (int)cv.size() || cv[i] < 0)) at = i;
+                        if (at >= 0) order[at] = app; else order.push_back(app);
+                    }
                     g_settingsChanged = true;
                 }
             } else if (toDock && gap >= 0) {
@@ -1177,7 +1190,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
                 g_editMode = false;   // a tap on an empty place: done
             }
         }
-        g_pressApp = -1; g_dragging = false; g_pressTime = -1; g_editEnteredNow = false;
+        g_pressApp = -1; g_dragging = false; g_pressTime = -1; g_editEnteredNow = false; g_dragFromFolder = false;
         normalizeLayout(cap);
     }
     if (g_editMode && drag < 0) {
@@ -1186,6 +1199,11 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         ImGui::SetCursorScreenPos(bubA);
         if (ImGui::InvisibleButton("##addbtn", ImVec2(bubB.x - bubA.x, bubB.y - bubA.y))) { g_addMenu = !g_addMenu; g_widgetPicker = false; }
         const float mt = openness("##addmenuopen", g_addMenu);
+        if (g_addMenu) {   // open: a press anywhere else only closes it (nothing under it is pressed; no tint)
+            ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
+            ImGui::SetNextItemAllowOverlap();
+            if (ImGui::InvisibleButton("##addmenucatch", ImVec2(w, h - kStatusH))) g_addMenu = false;
+        }
         if (mt > 0.01f) {   // (it grows out of the + and shrinks back into it)
             const int v0 = dl->VtxBuffer.Size;
             ImGui::BeginDisabled(!g_addMenu);
@@ -1215,7 +1233,15 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         const int wv0 = dl->VtxBuffer.Size;
         ImGui::BeginDisabled(!g_widgetPicker);
         const ImVec2 a(170, kStatusH + 30), b(w - 170, h - 120);
-        dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h - 90), IM_COL32(0, 0, 0, 90));
+        if (g_widgetPicker) {   // a press beside the card only closes it (nothing under it is pressed; no tint)
+            ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
+            ImGui::SetNextItemAllowOverlap();
+            if (ImGui::InvisibleButton("##wpickcatch", ImVec2(w, h - kStatusH))) g_widgetPicker = false;
+            ImGui::SetCursorScreenPos(a);
+            ImGui::SetNextItemAllowOverlap();
+            ImGui::InvisibleButton("##wpickcard", ImVec2(b.x - a.x, b.y - a.y));
+        }
+        dl->AddRectFilled(a, b, themeTone(14, 26, 50, 235), 18.0f);
         glass(dl, a, b, 18.0f, 1.0f);
         textAt(dl, f.bold, a.x + 18, a.y + 14, kInk, "Add a widget");
         float y = a.y + 46;
@@ -1260,6 +1286,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         const float e0 = std::min(1.0f, (float)(now - g_folderT0) / 0.22f), e = 1 - (1 - e0) * (1 - e0) * (1 - e0);
         dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(150 * e)));
         ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
+        ImGui::SetNextItemAllowOverlap();   // (the card and its name field, after it, take their own presses)
         const bool outside = ImGui::InvisibleButton("##folderveil", ImVec2(w, h - kStatusH));
         const int n = (int)fo.apps.size(), fc = 4, fr = std::max(1, (n + fc - 1) / fc);
         const float cw = 100, ch = 96, pw = fc * cw + 40, ph = fr * ch + 96;
@@ -1269,6 +1296,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         dl->AddRectFilled(a, b, themeTone(14, 26, 50, (int)(230 * e)), 24.0f);   // (solid under the frost: the icons behind stay out of it)
         glass(dl, a, b, 24.0f, e);
         ImGui::SetCursorScreenPos(a);
+        ImGui::SetNextItemAllowOverlap();
         ImGui::InvisibleButton("##folderpanel", ImVec2(b.x - a.x, b.y - a.y));   // (a press on the card keeps it open)
         textField(dl, f, "##foldername", fo.name, ImVec2(c.x - 120, a.y + 14), ImVec2(c.x + 120, a.y + 48), "Folder name", false, 0);
         if (fo.name.size() > 24) fo.name.resize(24);
@@ -1279,6 +1307,14 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
             ImGui::SetCursorScreenPos(ImVec2(ic.x - cw * 0.5f, ic.y - tile * 0.5f - 4));
             ImGui::SetNextItemAllowOverlap();
             const bool hit = ImGui::InvisibleButton(id, ImVec2(cw, ch));
+            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 8.0f) && takeOut < 0 && !g_dragFromFolder) {   // dragged: out of the folder, onto the page
+                const int app = fo.apps[i];
+                fo.apps.erase(fo.apps.begin() + i);
+                g_openFolder = -1;
+                g_editMode = true; g_dragging = true; g_dragFromFolder = true; g_pressApp = app; g_pressTime = -1;
+                g_settingsChanged = true;
+                break;
+            }
             const int v0 = dl->VtxBuffer.Size;
             hoverTile(dl, f, fo.apps[i], ic, tile, ImGui::IsItemHovered(), ImGui::IsItemActive());
             g_iconC[fo.apps[i]] = ic; g_iconSize[fo.apps[i]] = tile;
@@ -7395,10 +7431,11 @@ void navSearchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
 }
 
 // ---- the home screen's widgets ------------------------------------------------------------------------------------------------------
+const float kWidgetR = 60 * 0.24f;   // a widget's corners: the icons' own rounding
 void drawWidget(ImDrawList* dl, const Fonts& f, const SimState& s, int kind, ImVec2 a, ImVec2 b, Actions& act, bool live) {
     const float W = b.x - a.x, H = b.y - a.y;
     if (kind != W_VOLANTA || !live) {
-        glass(dl, a, b, 18.0f, 1.0f);
+        glass(dl, a, b, kWidgetR, 1.0f);
     }
     const float px = a.x + 14;
     switch (kind) {
@@ -7460,10 +7497,10 @@ void drawWidget(ImDrawList* dl, const Fonts& f, const SimState& s, int kind, ImV
         const ImU32 col = fps >= 30 ? kGood : fps >= 20 ? kWarn : IM_COL32(255, 96, 96, 255);
         char t[16];
         std::snprintf(t, sizeof t, "%d", (int)std::lround(fps));
-        const float big = fontPx(f.title) * 1.5f;
+        const float big = fontPx(f.title) * (H < 90 ? 1.05f : 1.5f);
         const ImVec2 sz = f.title->CalcTextSizeA(big, 1e9f, 0, t);
-        dl->AddText(f.title, big, ImVec2(std::floor((a.x + b.x - sz.x) * 0.5f), std::floor(a.y + H * 0.5f - sz.y * 0.65f)), fps > 0 ? col : kMuted, fps > 0 ? t : "--");
-        textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y - 22, kMuted, "FPS");
+        dl->AddText(f.title, big, ImVec2(std::floor((a.x + b.x - sz.x) * 0.5f), std::floor(a.y + (H < 90 ? 4 : H * 0.5f - sz.y * 0.65f))), fps > 0 ? col : kMuted, fps > 0 ? t : "--");
+        textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y - (H < 90 ? 18 : 22), kMuted, "FPS");
         break;
     }
     case W_VOLANTA: {   // Volanta's stream overlay (its page, from the Volanta app on this computer), across the screen
@@ -7483,9 +7520,9 @@ void drawWidget(ImDrawList* dl, const Fonts& f, const SimState& s, int kind, ImV
             act.webTabNew = true; act.webTabGroup = 400; act.webTabUrl = g_settings.volantaOverlay; askedAt = ImGui::GetTime();
         } else if (br.status == 1 && tab && br.activeTab != tab && !act.webTabSelect) act.webTabSelect = tab;
         if (br.status == 1 && tab && br.activeTab == tab && br.tex) {
-            dl->AddImageRounded(br.tex, a, b, ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, 255), 18.0f);
+            dl->AddImageRounded(br.tex, a, b, ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, 255), kWidgetR);
         } else {
-            glass(dl, a, b, 18.0f, 1.0f);
+            glass(dl, a, b, kWidgetR, 1.0f);
             textAt(dl, f.small, px, a.y + 10, kMuted, "Volanta Overlay");
             textCentered(dl, f.small, (a.x + b.x) * 0.5f, a.y + H * 0.5f - 6, kMuted, br.status == -3 ? "The browser is not available here" : "Opening the overlay...");
         }

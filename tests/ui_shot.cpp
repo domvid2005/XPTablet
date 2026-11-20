@@ -466,6 +466,33 @@ int main(int argc, char** argv) {
                     ImGui::NewFrame(); Actions act; build(fonts, hw, 800, kLogicalH, act); ImGui::Render(); };
                 fr(712, 175, false); fr(712, 175, true); fr(712, 175, false);
                 shot(hw, APP_HOME, "home_folder");
+                // its name: tapped, typed into
+                for (int k = 0; k < 3; ++k) fr(400, 178, k == 1);
+                if (!tabletTyping()) { std::printf("FAIL: a folder's name can be tapped to rename it\n"); ++failures; }
+                else { tabletKey(8, false); tabletKey(8, false); tabletKey(8, false); for (char c : std::string("Docs")) tabletKey(c, true); }
+                fr(-1000, -1000, false);
+                if (settings().folders.empty() || settings().folders[0].name != "Docs") { std::printf("FAIL: the folder renamed (%s)\n", settings().folders.empty() ? "-" : settings().folders[0].name.c_str()); ++failures; }
+                {   // an app dragged out of the open folder lands on the page; the folder dragged to the bin goes, its apps onto the page
+                    fr(712, 175, false); fr(712, 175, true); fr(712, 175, false);   // open it again
+                    for (int k = 0; k < 8; ++k) fr(-1000, -1000, false);
+                    const int app = settings().folders[0].apps[0];
+                    fr(250, 248, false); fr(250, 248, true);
+                    for (int k = 1; k <= 12; ++k) fr(250 + k * 30.0f, 248 + k * 2.0f, true);
+                    fr(610, 272, true); fr(610, 272, false); fr(-1000, -1000, false);
+                    const bool out = std::find(settings().order.begin(), settings().order.end(), app) != settings().order.end();
+                    if (settings().folders[0].apps.size() != 2 || !out) { std::printf("FAIL: an app dragged out of a folder (%zu left, placed %d)\n", settings().folders[0].apps.size(), out ? 1 : 0); ++failures; }
+                    const std::vector<int> rest = settings().folders[0].apps;
+                    fr(712, 175, false); fr(712, 175, true);
+                    for (int k = 1; k <= 14; ++k) fr(712 - k * 47.0f, 175 + k * 20.0f, true);
+                    fr(56, 455, true); fr(56, 455, true); fr(56, 455, false); fr(-1000, -1000, false);
+                    bool placed = true;
+                    for (int a2 : rest) placed = placed && std::find(settings().order.begin(), settings().order.end(), a2) != settings().order.end();
+                    if (!settings().folders.empty() || !placed) { std::printf("FAIL: a folder in the bin unpacks onto the page (%zu folders, placed %d)\n", settings().folders.size(), placed ? 1 : 0); ++failures; }
+                    settings().folders = {{"Docs", rest}};
+                    for (int& x : settings().order) if (std::find(rest.begin(), rest.end(), x) != rest.end()) x = -1;
+                    layoutHome();
+                    fr(752, 452, false); fr(752, 452, true); fr(752, 452, false);   // Done
+                }
                 fr(40, 100, false); fr(40, 100, true); fr(40, 100, false);
                 fr(600, 300, false); fr(600, 300, true);
                 for (int k = 1; k <= 10; ++k) fr(600 - k * 40.0f, 300, true);
@@ -477,7 +504,7 @@ int main(int argc, char** argv) {
                 const std::string txt = settingsToText();
                 const Settings before = settings();
                 settings() = Settings(); settingsFromText(txt);
-                if (settings().folders.size() != 1 || settings().folders[0].name != "Ops" || settings().folders[0].apps.size() != 3 || settings().order != before.order || settings().homePages != before.homePages)
+                if (settings().folders.size() != 1 || settings().folders[0].name != "Docs" || settings().folders[0].apps.size() != before.folders[0].apps.size() || settings().order != before.order || settings().homePages != before.homePages)
                     { std::printf("FAIL: folders and widgets round trip\n"); ++failures; }
             }
             settings().order.push_back(kWidget0 + W_MEDIA);
