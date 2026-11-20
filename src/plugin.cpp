@@ -2250,6 +2250,7 @@ void readSimState() {
     // X-Plane's own jetways leave when the plane moves off or flies; what was pressed is forgotten then
     if (!g.onGround || g.groundSpeedKt > 3.0f) { r.xpJetway = false; for (bool& w : r.wantDoor) w = false; }
     if (!g.openSam) g.jetway = r.xpJetway ? 2 : 1;
+    g.jwReach = g.openSam && r.jwNumber ? XPLMGetDatai(r.jwNumber) : -1;
     // the doors a jetway serves on other aircraft: as many as openSAM drives (X-Plane's own: one bubble, every boarding door)
     if (!g.toliss) {
         g.jwDoors = 1;

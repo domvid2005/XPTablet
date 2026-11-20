@@ -978,6 +978,21 @@ int main(int argc, char** argv) {
               shot(g3, APP_GROUND, "ground_jetway_menu");
               press(g3, 700, 450);
           }
+          // openSAM gave only 1L a jetway (2L's would cross): 2L's Connect is grey, 1L's connects straight away
+          { SimState g5 = g3; g5.ground.jwReach = 1;
+            bool two = false, one = false;
+            for (float yy = 90; yy < 460; yy += 4) { const Actions q = press(g5, 78, yy); if (q.ground == GA_JETWAY_DOOR) { (q.groundIndex == 1 ? two : one) = true; } }
+            if (two) { std::printf("FAIL: 2L's Connect works though its jetway would cross\n"); ++failures; }
+            if (!one) { std::printf("FAIL: 1L's Connect with one openSAM jetway\n"); ++failures; }
+            shot(g5, APP_GROUND, "ground_jetway_cross"); openApp(APP_GROUND); }
+          // 2L docked: in 1L's menu, jetway 2 is grey (at 2L)
+          if (cy >= 0) { SimState g6 = g3; g6.ground.jwReach = 2; g6.ground.jwDocked[1] = true;
+            press(g6, 78, cy);
+            for (int k = 0; k < 8; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, g6, 800, kLogicalH, act); ImGui::Render(); }
+            shot(g6, APP_GROUND, "ground_jetway_menu_busy");
+            const Actions m = press(g6, 220, cy + 18 + 34);
+            if (m.ground == GA_JETWAY_DOOR) { std::printf("FAIL: the jetway at 2L is pressable in 1L's menu\n"); ++failures; }
+            press(g6, 700, 450); openApp(APP_GROUND); }
           { SimState g4 = g3; g4.ground.slidesAuto = true; g4.ground.slides = 1; settings().cabinAuto = true; shot(g4, APP_GROUND, "ground_slides_auto"); settings().cabinAuto = false; }
           openApp(APP_GROUND); }
         // not a ToLiss: an airliner still gets the 1L bubble (X-Plane's own jetways, or openSAM's)

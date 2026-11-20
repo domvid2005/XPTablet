@@ -145,6 +145,7 @@ struct GroundState {
     // ToLiss: the doors a jetway can reach (1L; 2L too on an A321 with the classic door layout), each with the cabin door it is
     // (an index into paxDoor) and whether a jetway is docked there (openSAM, by door)
     int jwDoors = 0;
+    int jwReach = -1;   // openSAM: the jetways it gave the doors (1L first, then 2L: one only when a second would cross); -1 not known
     int jwDoorPax[3] = {0, 2, 4};
     bool jwDocked[3] = {false, false, false};
     int slides = -1;              // ToLiss: the cabin doors' slides, 1 armed, 0 disarmed, -1 unknown
