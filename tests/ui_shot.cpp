@@ -1106,7 +1106,7 @@ int main(int argc, char** argv) {
           {   // Pushback: its bubble opens the panel; X-Plane's tug, then BetterPushback's
               SimState p1 = g3; p1.ground.chocks = true; p1.ground.parkBrake = true; p1.ground.extPower = true;
               auto settle = [&](const SimState& st2) { for (int k = 0; k < 10; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, st2, 800, kLogicalH, act); ImGui::Render(); } };
-              press(p1, 295, 133); settle(p1);
+              press(p1, 735, 405); settle(p1);   // (Push Back: the square beside the jetway status)
               bool stop = false;
               for (float yy = 170; yy < 470 && !stop; yy += 6) { const Actions q = press(p1, 580, yy); if (q.ground == GA_PUSH_STOP) stop = true; }
               if (!stop) { std::printf("FAIL: the Pushback panel's Stop (X-Plane's tug)\n"); ++failures; }
@@ -1125,13 +1125,12 @@ int main(int argc, char** argv) {
                   if (!disc) { std::printf("FAIL: the Pushback panel's Disconnect the tug (BetterPushback)\n"); ++failures; }
                   settle(p2);
               }
-              {   // the X puts the panel away (the cabin back)
-                  press(p2, 776, 112); settle(p2);
+              {   // Push Back again (red, "Close") puts the panel away (the cabin back)
+                  press(p2, 735, 405); settle(p2);
                   bool cabin = false;
                   for (float yy = 100; yy < 340 && !cabin; yy += 6) { const Actions q = press(p2, 700, yy); if (q.ground == GA_SLIDES_AUTO) cabin = true; }
-                  if (!cabin) { std::printf("FAIL: the Pushback panel's X\n"); ++failures; }
+                  if (!cabin) { std::printf("FAIL: Push Back (Close) puts the panel away\n"); ++failures; }
               }
-              press(p2, 700, 450); settle(p2);
           }
           { SimState g4 = g3; g4.ground.slidesAuto = true; g4.ground.slides = 1; settings().cabinAuto = true; shot(g4, APP_GROUND, "ground_slides_auto"); settings().cabinAuto = false; }
           openApp(APP_GROUND); }
