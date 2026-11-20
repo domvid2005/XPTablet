@@ -442,6 +442,25 @@ int main(int argc, char** argv) {
           settings().wallpaper = 8; shot(t, APP_HOME, "home_custom");
           settings().wallpaper = keep; }
         shot(t, APP_GAMES, "games");
+        {   // the logbook: a flight found by itself (block out, takeoff, a landing, block in), saved and read back; the Timers page
+            logbookFromText(std::string()); const auto keepInst = settings().installed; settings().installed.push_back("timers"); settings().installed.push_back("logbook");
+            auto run = [&](SimState u, float secs) { for (float tt = 0; tt < secs; tt += 0.25f) { u.map.utc += 0; io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.25f; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
+                ImGui::NewFrame(); Actions act; build(fonts, u, 800, kLogicalH, act); ImGui::Render(); } };
+            SimState u = t; u.map.havePos = true; u.map.lat = 41.7; u.map.lon = -86.3; u.plan.loaded = true; u.plan.origin = "KSBN"; u.plan.dest = "KDTW"; u.plan.cruise = "FL340"; u.plan.callsign = "AAV12";
+            { FlightPlan::Leg d; d.lat = 42.21; d.lon = -83.35; u.plan.legs.push_back(d); } u.map.utc = 1763640000; u.acfIcao = "A20N"; u.fuelKg = 6000;
+            u.ground.enginesRunning = true; u.map.onGround = true; u.map.gsKt = 12; run(u, 3);
+            u.map.utc += 600; u.map.onGround = false; u.map.gsKt = 160; u.map.vsFpm = 1800; run(u, 4);
+            openApp(APP_TIMERS); u.map.utc += 3000; u.map.vsFpm = -180; u.map.altFt = 34000; shot(u, APP_TIMERS, "timers");
+            u.map.utc += 1200; u.map.onGround = true; u.map.gsKt = 130; u.fuelKg = 3400; run(u, 3);
+            shot(u, APP_LOGBOOK, "logbook_live");
+            u.map.utc += 420; u.map.gsKt = 0; u.ground.enginesRunning = false; run(u, 6);
+            const std::string lt = logbookToText();
+            if (lt.find("flight\t") != 0 || lt.find("A20N") == std::string::npos || lt.find("\t-180\t2600\t") == std::string::npos) { std::printf("FAIL: the logbook's flight: %s\n", lt.c_str()); ++failures; }
+            if (!takeLogbookChanged()) { std::printf("FAIL: a logged flight is saved\n"); ++failures; }
+            logbookFromText(lt + lt); if (logbookToText() != lt + lt) { std::printf("FAIL: the logbook read back\n"); ++failures; }
+            shot(u, APP_LOGBOOK, "logbook");
+            logbookFromText(std::string()); settings().installed = keepInst;
+        }
         {   // each game, opened from its card (nothing drawn over the board)
             auto tp = [&](float x, float y) { for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1);
                 ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); } };

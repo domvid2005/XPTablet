@@ -560,6 +560,9 @@ App icons (provided through creatorsrepo.com)
 ------------------------------------------------------------------------------
 VATSIM airspaces (fetched at run time, not bundled)
 ------------------------------------------------------------------------------
+openAIP overlay: aeronautical map tiles from openAIP (https://www.openaip.net), CC BY-NC 4.0. Fetched with the user's own openAIP
+API key (Settings, Accounts) and shown as served, credited "© openAIP" on the map.
+
 FIR and airspace boundaries: the VATSpy Data Project (https://github.com/vatsimnetwork/vatspy-data-project), CC BY-SA 4.0. XPTablet
 downloads Boundaries.geojson and VATSpy.dat from it and shows them as published.
 

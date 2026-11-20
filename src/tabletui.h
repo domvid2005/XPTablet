@@ -22,6 +22,7 @@ enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_
            APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_MUSIC, APP_DISPATCH, APP_NAVSEARCH,
            // the App Store and what it offers (web apps, installed or not), and Games
            APP_APPSTORE, APP_GAMES, APP_DATIS, APP_SPOTIFY, APP_YTMUSIC, APP_APPLEMUSIC, APP_SOUNDCLOUD, APP_YOUTUBE, APP_VATSIMHUB, APP_NATTRAK, APP_IVAO,
+           APP_TIMERS, APP_LOGBOOK, APP_ACARS,   // (App Store apps of XPTablet's own)
            APP_COUNT };
 
 constexpr int kMaxFavorites = 7;   // the favorites bar holds up to 7 places (icons, or the 1 x 1 and 7 x 1 widgets); its size is chosen in Settings, 0 removes it
@@ -83,6 +84,10 @@ struct Settings {
     std::string startGate;        // the stand the flight left from (found when the plan came in on the ground; "N/A" in the air)
     std::string arrivalGate;      // the stand it is going to (typed; shown on the destination's layout)
     std::string simbriefUser;     // SimBrief user name or pilot ID (the Flight Plan page and the route on the map)
+    std::string openAipKey;       // the user's openAIP API key (Settings, Accounts): the map's openAIP overlay
+    std::string hoppieCode;       // the user's Hoppie ACARS logon code (Settings, Accounts): the ACARS app
+    bool mapOpenAip = false;      // the map's openAIP overlay (airspaces, airports, navaids)
+    float mapOpenAipAlpha = 0.9f; // its opacity
     bool autoDim = false;         // the screen dims itself as the daylight goes (WXPlane's curve); the brightness slider rests
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
     bool mediaEnabled = true;     // the Music app and the music controls in the pull-down (not on macOS)
@@ -340,6 +345,7 @@ struct SimState {
     float pixelScale = 1.0f;      // screen pixels per layout unit
     int batteryPct = 100;         // the tablet's own battery
     LocalConnectState local;      // Local Connect (Settings)
+    float fuelKg = -1;            // the fuel on board, kg (-1 unknown): the logbook's fuel used
     bool charging = false;        // the aircraft's electrical system is feeding it
     SimWeather wx;
     BrowserState browser;
@@ -474,6 +480,9 @@ void gameKey(int dir);                   // a move for it: 0 left, 1 right, 2 up
 void gameKeyEvent(int key, bool down);  // the arcade games: 0 left, 1 right, 2 up, 3 down, 4 the action (Space), pressed or let go
 void tabletKey(int code, bool isChar);   // code: a character, or 8 (back) / 13 (enter)
 // The Notes page's contents, kept between sessions by the host
+std::string logbookToText();   // the logbook's flights, one a line (saved by the host: Output/XPTablet/logbook.txt)
+void logbookFromText(const std::string& text);
+bool takeLogbookChanged();
 std::string notesToText();
 void notesFromText(const std::string& text);
 bool takeNotesChanged();

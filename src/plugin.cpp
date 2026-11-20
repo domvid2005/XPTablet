@@ -740,6 +740,7 @@ void mapStep(const xpt::Actions& act) {
         }
     }
     if (act.mapShown) {
+        { static std::string aipKey = "\x01"; if (aipKey != xpt::settings().openAipKey) { aipKey = xpt::settings().openAipKey; xpt::tiles::setOpenAipKey(aipKey); } }   // (openAIP's overlay: the user's key)
         xpt::tiles::want(g_tileWants);
         xpt::aptdat::setView(act.mapLat, act.mapLon, act.mapLayoutNm, act.mapPointNm, act.mapLayouts, act.mapPointMinFt);
         xpt::navdata::setView(act.mapLat, act.mapLon, act.mapNavNm, act.mapFixNm);
@@ -1369,6 +1370,20 @@ void saveNotes() {
     const std::string t = xpt::notesToText();
     std::fwrite(t.data(), 1, t.size(), f);
     std::fclose(f);
+}
+
+// ---- Logbook: kept in Output/XPTablet/logbook.txt -------------------------------------------------------------------------------
+std::string logbookPath() { char sys[1024] = {0}; XPLMGetSystemPath(sys); return std::string(sys) + "Output" + XPLMGetDirectorySeparator() + "XPTablet" + XPLMGetDirectorySeparator() + "logbook.txt"; }
+void loadLogbook() { std::string t; if (readFile(logbookPath(), t)) xpt::logbookFromText(t); }
+void saveLogbook() {
+    std::string sys = logbookPath(); const std::string dir = sys.substr(0, sys.find_last_of("/\\"));
+#if defined(_WIN32)
+    CreateDirectoryA(dir.c_str(), nullptr);
+#else
+    mkdir(dir.c_str(), 0755);
+#endif
+    FILE* f = std::fopen(sys.c_str(), "wb"); if (!f) return;
+    const std::string t = xpt::logbookToText(); std::fwrite(t.data(), 1, t.size(), f); std::fclose(f);
 }
 
 // One UI frame per sim frame, built by whichever of the two surfaces is drawn first and shared by the other.
@@ -2575,7 +2590,9 @@ float flightLoop(float dt, float, int, void*) {
     chimeStep();
     updateNotify();
     if (xpt::takeNotesChanged()) saveNotes();
+    if (xpt::takeLogbookChanged()) saveLogbook();
     if (g_drZulu) g_sim.zuluSec = (int)XPLMGetDataf(g_drZulu);
+    { static XPLMDataRef fu = XPLMFindDataRef("sim/flightmodel/weight/m_fuel_total"); g_sim.fuelKg = fu ? XPLMGetDataf(fu) : -1.0f; }
     { static XPLMDataRef fr = XPLMFindDataRef("sim/time/framerate_period"); if (fr) { const float per = XPLMGetDataf(fr); g_sim.fps = per > 0 ? 1.0f / per : 0.0f; } }
     if (g_drIcao) {
         char icao[41] = "";
@@ -2639,6 +2656,7 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
     xpt::applyStyle();
     loadSettings();
     loadNotes();
+    loadLogbook();
     loadShapesFile();
 
     g_menuItem = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "XPTablet", nullptr, 0);
