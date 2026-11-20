@@ -5887,7 +5887,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     const float hwPx = (shape && hw0 > 0 ? hw0 * kx : spec.fus * 0.5f) * px;
     // each door keeps its bubble; with two jetways or more at the stand, a door's Connect opens a menu of the jetways that can serve it
     static int jwMenuDoor = -1;   // the door whose menu is open, -1 none
-    const bool chooser = false;   // (the jetway menu: off for now; each door's Connect connects it)
+    const bool chooser = doors && g.openSam && jwDoors > 1;   // (openSAM finds two jetways or more: Connect lists them)
     if (!chooser) jwMenuDoor = -1;
     float menuBy = -1;
     if (doors) {

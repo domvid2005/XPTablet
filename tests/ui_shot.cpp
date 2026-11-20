@@ -962,9 +962,22 @@ int main(int argc, char** argv) {
           shot(g2, APP_GROUND, "ground_a321_jetways"); openApp(APP_GROUND); }
         // nothing connected yet on that A321: each door its own Connect (no menu), 1L's connects 1L
         { SimState g3 = g; g3.acfIcao = "A321"; g3.ground.paxDoors = 8; g3.ground.jwDoors = 2; g3.ground.jwDoorPax[0] = 0; g3.ground.jwDoorPax[1] = 2;
-          bool first = false;
-          for (float yy = 90; yy < 460 && !first; yy += 4) { const Actions q = press(g3, 78, yy); first = q.ground == GA_JETWAY_DOOR && q.groundIndex == 0; }
-          if (!first) { std::printf("FAIL: 1L's Connect connects 1L on an A321 with two jetways\n"); ++failures; }
+          float cy = -1;
+          for (float yy = 90; yy < 460 && cy < 0; yy += 4) {   // 1L's Connect: pressed, its menu of jetways (no jetway action yet)
+              const Actions q = press(g3, 78, yy);
+              if (q.ground == GA_JETWAY_DOOR) { std::printf("FAIL: with two openSAM jetways, Connect must ask which\n"); ++failures; break; }
+              for (int k = 0; k < 8; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, g3, 800, kLogicalH, act); ImGui::Render(); }
+              const Actions m = press(g3, 220, yy + 18);
+              if (m.ground == GA_JETWAY_DOOR) { cy = yy; if (m.groundIndex != 0) { std::printf("FAIL: 1L's menu connects 1L (%d)\n", m.groundIndex); ++failures; } }
+              else press(g3, 700, 450);
+          }
+          if (cy < 0) { std::printf("FAIL: no jetway menu with two openSAM jetways\n"); ++failures; }
+          else {
+              press(g3, 78, cy);
+              for (int k = 0; k < 8; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, g3, 800, kLogicalH, act); ImGui::Render(); }
+              shot(g3, APP_GROUND, "ground_jetway_menu");
+              press(g3, 700, 450);
+          }
           { SimState g4 = g3; g4.ground.slidesAuto = true; g4.ground.slides = 1; settings().cabinAuto = true; shot(g4, APP_GROUND, "ground_slides_auto"); settings().cabinAuto = false; }
           openApp(APP_GROUND); }
         // not a ToLiss: an airliner still gets the 1L bubble (X-Plane's own jetways, or openSAM's)
