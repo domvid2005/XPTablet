@@ -70,7 +70,7 @@ const AppDef kApps[APP_COUNT] = {
     {"music", "Media", IM_COL32(250, 45, 85, 255), nullptr},   // (its id stays "music": saved home screens keep it)
     {"dispatch", "Dispatch", IM_COL32(58, 110, 200, 255), nullptr},   // the SimBrief briefing (its PDF)
     {"navsearch", "Navaids", IM_COL32(24, 150, 170, 255), nullptr},   // X-Plane's navaids, fixes and airports, searched
-    {"appstore", "App Store", IM_COL32(30, 140, 250, 255), nullptr},
+    {"appstore", "App Store", IM_COL32(38, 48, 122, 255), nullptr},   // deep indigo, with a bag (not a blue tile with an A)
     {"games", "Games", IM_COL32(236, 72, 120, 255), nullptr},
     {"datis", "D-ATIS", IM_COL32(40, 160, 140, 255), "https://datis.clowd.io"},
     {"spotify", "Spotify", IM_COL32(30, 185, 84, 255), "https://open.spotify.com"},
@@ -619,12 +619,23 @@ void drawTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, boo
     } else if (storeApp(app) || app == APP_APPSTORE || app == APP_GAMES) {   // (until their logos come: a mark of their own)
         const float r = tile * 0.32f * scale;
         const ImU32 wcol = IM_COL32(255, 255, 255, 255);
-        if (app == APP_APPSTORE) {   // an A of three strokes in a ring
-            dl->AddCircle(c, r * 1.02f, IM_COL32(255, 255, 255, 120), 0, std::max(1.5f, r * 0.08f));
-            const float tt = std::max(2.0f, r * 0.16f);
-            dl->AddLine(ImVec2(c.x - r * 0.48f, c.y + r * 0.56f), ImVec2(c.x + r * 0.10f, c.y - r * 0.62f), wcol, tt);
-            dl->AddLine(ImVec2(c.x + r * 0.48f, c.y + r * 0.56f), ImVec2(c.x - r * 0.10f, c.y - r * 0.62f), wcol, tt);
-            dl->AddLine(ImVec2(c.x - r * 0.64f, c.y + r * 0.20f), ImVec2(c.x + r * 0.64f, c.y + r * 0.20f), wcol, tt);
+        if (app == APP_APPSTORE) {   // a shopping bag with an orange download arrow
+            const float tt = std::max(1.5f, r * 0.13f);
+            const ImU32 orange = shade(IM_COL32(255, 150, 50, 255), shadeK);
+            // the handle: an arch over the bag's top
+            dl->PathArcTo(ImVec2(c.x, c.y - r * 0.40f), r * 0.34f, 3.14159f, 2 * 3.14159f, 16);
+            dl->PathStroke(wcol, 0, tt);
+            dl->AddLine(ImVec2(c.x - r * 0.34f, c.y - r * 0.40f), ImVec2(c.x - r * 0.34f, c.y - r * 0.26f), wcol, tt);
+            dl->AddLine(ImVec2(c.x + r * 0.34f, c.y - r * 0.40f), ImVec2(c.x + r * 0.34f, c.y - r * 0.26f), wcol, tt);
+            // the bag, a little wider at the bottom
+            const ImVec2 q[4] = {ImVec2(c.x - r * 0.70f, c.y - r * 0.30f), ImVec2(c.x + r * 0.70f, c.y - r * 0.30f), ImVec2(c.x + r * 0.82f, c.y + r * 0.80f), ImVec2(c.x - r * 0.82f, c.y + r * 0.80f)};
+            dl->AddConvexPolyFilled(q, 4, wcol);
+            // the arrow, down into a tray
+            const float at = std::max(1.5f, r * 0.15f);
+            dl->AddLine(ImVec2(c.x, c.y - r * 0.08f), ImVec2(c.x, c.y + r * 0.44f), orange, at);
+            dl->AddLine(ImVec2(c.x - r * 0.24f, c.y + r * 0.22f), ImVec2(c.x, c.y + r * 0.46f), orange, at);
+            dl->AddLine(ImVec2(c.x + r * 0.24f, c.y + r * 0.22f), ImVec2(c.x, c.y + r * 0.46f), orange, at);
+            dl->AddLine(ImVec2(c.x - r * 0.36f, c.y + r * 0.62f), ImVec2(c.x + r * 0.36f, c.y + r * 0.62f), orange, at);
         } else if (app == APP_GAMES) {   // a game pad
             dl->AddRectFilled(ImVec2(c.x - r * 0.86f, c.y - r * 0.40f), ImVec2(c.x + r * 0.86f, c.y + r * 0.46f), wcol, r * 0.40f);
             const ImU32 k = shade(appColor(app), shadeK);
