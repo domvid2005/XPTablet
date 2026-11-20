@@ -712,6 +712,16 @@ int main(int argc, char** argv) {
                     ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); }
                 io.AddMouseButtonEvent(0, false);
                 shot(sb, APP_SETTINGS, "settings_custom_theme");
+                {   // its wheels can be dragged (the background's colour changes); a press beside the card does not close it
+                    const int before = settings().customs[0].bg;
+                    for (int k = 0; k < 6; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(472.0f + k * 8, 182); io.AddMouseButtonEvent(0, k < 5);
+                        ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); }
+                    if (settings().customs[0].bg == before) { std::printf("FAIL: the background wheel can be dragged\n"); ++failures; }
+                    tap(sb, 20, 300);
+                    tap(sb, 20, 300);
+                    for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); }
+                    shot(sb, APP_SETTINGS, "settings_custom_theme_dragged");
+                }
                 if (settings().wallpaper != 7) { std::printf("FAIL: holding Custom 1 chooses it (%d)\n", settings().wallpaper); ++failures; }
                 tap(sb, 680, 100);   // Done
                 settings().wallpaper = keepWp;

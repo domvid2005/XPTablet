@@ -1764,6 +1764,12 @@ void noKey(XPLMWindowID, char, XPLMKeyFlags, char, void*, int) {}
 // Settings, Display, "Physical keyboard": while a text box takes typing, the computer's keys go to it wherever X-Plane's focus is
 // (the cockpit tablet too); everything else (Escape, the arrows, X-Plane's own keys when nothing is typed in) goes on as usual
 int keySniffer(char key, XPLMKeyFlags flags, char vkey, void*) {
+    if (xpt::gameWantsKeys() && !(flags & (xplm_ControlFlag | xplm_OptionAltFlag))) {   // 2048 pressed: W A S D and the arrows play it
+        const unsigned char vk = (unsigned char)vkey;
+        const char c = (char)std::tolower((unsigned char)key);
+        const int dir = c == 'a' || vk == 37 ? 0 : c == 'd' || vk == 39 ? 1 : c == 'w' || vk == 38 ? 2 : c == 's' || vk == 40 ? 3 : -1;
+        if (dir >= 0) { if (flags & xplm_DownFlag) xpt::gameKey(dir); return 0; }
+    }
     if (!xpt::settings().physicalKeys) return 1;
     // a web page's text field (a site's search box) with the computer's keyboard: the keys go to the page, not to X-Plane
     if (xpt::webTyping() && g_webShown && xpt::browser::started() && !xpt::tabletTyping()) {
