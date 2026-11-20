@@ -24,7 +24,7 @@ enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_
            APP_APPSTORE, APP_GAMES, APP_DATIS, APP_SPOTIFY, APP_YTMUSIC, APP_APPLEMUSIC, APP_SOUNDCLOUD, APP_YOUTUBE, APP_VATSIMHUB, APP_NATTRAK, APP_IVAO,
            APP_COUNT };
 
-constexpr int kMaxFavorites = 6;   // the favorites bar holds up to 6 icons; its size is chosen in Settings, 0 removes it
+constexpr int kMaxFavorites = 7;   // the favorites bar holds up to 7 places (icons, or the 1 x 1 and 7 x 1 widgets); its size is chosen in Settings, 0 removes it
 
 // What the user chose. Kept between sessions by the host (settingsToText / settingsFromText).
 struct Settings {

@@ -511,6 +511,24 @@ int main(int argc, char** argv) {
             settings().order.push_back(kWidget0 + W_MEDIA);
             layoutHome();
             shot(hw, APP_HOME, "home_widgets2");
+            {   // the favorites bar: seven places; Frame Rate takes one, Volanta's overlay all seven
+                settings().favoriteSlots = 7;
+                settings().favorites = {APP_MAP, APP_AIRPORTS, kWidget0 + W_FPS, APP_ROUTES, APP_GROUND, APP_CHECKLISTS, APP_NOTES};
+                layoutHome();
+                const auto& fv = settings().favorites;
+                if (fv.size() != 7 || std::find(fv.begin(), fv.end(), kWidget0 + W_FPS) == fv.end()) { std::printf("FAIL: Frame Rate in a 7-place favorites bar (%zu)\n", fv.size()); ++failures; }
+                for (int x : settings().order) if (x == kWidget0 + W_FPS) { std::printf("FAIL: Frame Rate both in the bar and on a page\n"); ++failures; }
+                shot(hw, APP_HOME, "home_dock_fps");
+                settings().favorites = {kWidget0 + W_VOLANTA};
+                layoutHome();
+                shot(hw, APP_HOME, "home_dock_volanta");
+                settings().favorites = {kWidget0 + W_VOLANTA, APP_MAP};   // (no room for the Map beside it: to a page)
+                layoutHome();
+                if (settings().favorites.size() != 1) { std::printf("FAIL: the bar holds more than its seven places\n"); ++failures; }
+                settings().favoriteSlots = 3; layoutHome();   // (too narrow for Volanta's overlay: it goes to a page)
+                bool onPage = false; for (int x : settings().order) if (x == kWidget0 + W_VOLANTA) onPage = true;
+                if (!settings().favorites.empty() || !onPage) { std::printf("FAIL: Volanta's overlay leaves a 3-place bar for a page\n"); ++failures; }
+            }
             settings() = keep;
             layoutHome();
         }

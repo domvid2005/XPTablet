@@ -779,14 +779,26 @@ std::vector<int> coverOf(int cap) {
     for (int i = 0; i < (int)g_settings.order.size(); ++i) if (isWidget(g_settings.order[i])) markWidget(i, g_settings.order[i] - kWidget0, cap, cover);
     return cover;
 }
+// the widgets the favorites bar takes (one row high): Frame Rate (one place) and Volanta's overlay (all seven)
+bool dockWidget(int e) { return isWidget(e) && (e - kWidget0 == W_FPS || e - kWidget0 == W_VOLANTA); }
+int favSpan(int e) { return dockWidget(e) && e - kWidget0 == W_VOLANTA ? 7 : 1; }
 void normalizeLayout(int capacity) {
     auto& order = g_settings.order;
     auto& folders = g_settings.folders;
     bool seen[APP_COUNT] = {};
     std::vector<int> fav;
-    for (int a : g_settings.favorites) if (isApp(a) && !seen[a]) { seen[a] = true; fav.push_back(a); }   // (no folders, no widgets)
-    std::vector<int> spill;   // favorites beyond the bar's size go to the grid
-    while ((int)fav.size() > favSlots()) { spill.insert(spill.begin(), fav.back()); seen[fav.back()] = false; fav.pop_back(); }
+    bool favWidget[W_COUNT] = {};
+    for (int a : g_settings.favorites) {   // apps, and the bar's two widgets (no folders)
+        if (isApp(a) && !seen[a]) { seen[a] = true; fav.push_back(a); }
+        else if (dockWidget(a) && !favWidget[a - kWidget0]) { favWidget[a - kWidget0] = true; fav.push_back(a); }
+    }
+    std::vector<int> spill;   // favorites beyond the bar's size go to the grid (by the places they take)
+    auto spanOf = [&]() { int n = 0; for (int a : fav) n += favSpan(a); return n; };
+    while (!fav.empty() && spanOf() > favSlots()) {
+        const int b = fav.back(); fav.pop_back();
+        if (isApp(b)) { spill.insert(spill.begin(), b); seen[b] = false; }
+        else { favWidget[b - kWidget0] = false; spill.insert(spill.begin(), b); }
+    }
     g_settings.favorites.swap(fav);
     for (auto& fo : folders) {   // a folder's apps: each once, and only apps
         std::vector<int> keep;
@@ -795,6 +807,7 @@ void normalizeLayout(int capacity) {
     }
     std::vector<char> folderSeen(folders.size(), 0);
     bool widgetSeen[W_COUNT] = {};
+    for (int k = 0; k < W_COUNT; ++k) widgetSeen[k] = favWidget[k];   // (one in the bar is not on a page too)
     for (int& a : order) {
         if (isWidget(a)) { if (widgetSeen[a - kWidget0]) a = -1; else widgetSeen[a - kWidget0] = true; continue; }
         if (isFolder(a)) { if (folderSeen[a - kFolder0]) a = -1; else folderSeen[a - kFolder0] = 1; continue; }
@@ -839,7 +852,7 @@ void normalizeLayout(int capacity) {
     };
     for (int e : movedWidgets) place(e);
     for (int e : bumped) place(e);
-    for (int a : spill) { place(a); seen[a] = true; }
+    for (int a : spill) { place(a); if (isApp(a)) seen[a] = true; }
     for (int a = 0; a < APP_COUNT; ++a) if (!seen[a] && installed(a) && appVisible(a)) place(a);   // (an app hidden now gets a place when shown)
     for (int k = 0; k < (int)folders.size(); ++k) if (!folderSeen[k]) place(kFolder0 + k);
 }
@@ -937,18 +950,22 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
     const float gy0 = kStatusH + std::max(6.0f, std::floor((areaBot - kStatusH - rows * cellH) * 0.5f));
     const int drag = g_dragging ? g_pressApp : -1;
     std::vector<int> dock;
-    for (int a : g_settings.favorites) if (appVisible(a) && a != drag) dock.push_back(a);
+    for (int a : g_settings.favorites) if (((isApp(a) && appVisible(a)) || dockWidget(a)) && a != drag) dock.push_back(a);
+    int dockUsed = 0;   // the places the bar's entries take
+    for (int a : dock) dockUsed += favSpan(a);
     const ImVec2 bubA(16, h - 44), bubB(g_dragging ? 150.0f : 96.0f, h - 12);   // (as wide as Done; wider with a word while carrying)        // arranging: + (New Folder, Add Widget); a bin for an empty folder or a widget carried
     const bool overBubble = drag >= 0 && m.x >= bubA.x && m.x < bubB.x && m.y >= bubA.y - 6 && m.y < bubB.y + 6;
     // where the dragged thing would land: a place in the grid (a widget: its corner), or a place in the bar
     bool toDock = false;
     int target = -1, gap = -1;
     if (drag >= 0 && !overBubble) {
-        toDock = hasDock && isApp(drag) && m.y >= dockTop - 8;
+        toDock = hasDock && (isApp(drag) || dockWidget(drag)) && m.y >= dockTop - 8;
         if (toDock) {
-            const bool fromDock = std::find(g_settings.favorites.begin(), g_settings.favorites.end(), drag) != g_settings.favorites.end();
-            if ((int)dock.size() < favSlots() || fromDock) gap = std::max(0, std::min((int)dock.size(), (int)std::floor((m.x - ((w - favSlots() * dockCell) * 0.5f)) / dockCell)));
-            else toDock = false;   // the bar is full
+            if (dockUsed + favSpan(drag) <= favSlots()) {   // room for it (the bar's places: an icon one, Frame Rate one, Volanta's overlay all seven)
+                const int place = (int)std::floor((m.x - ((w - favSlots() * dockCell) * 0.5f)) / dockCell);
+                gap = 0;   // the entry it goes before: the first one starting at or past that place
+                for (int k = 0, at = 0; k < (int)dock.size(); ++k) { if (at + favSpan(dock[k]) * 0.5f <= place) gap = k + 1; at += favSpan(dock[k]); }
+            } else toDock = false;   // the bar is full
         }
         if (!toDock && m.y < dockTop - 8) {
             int col = std::max(0, std::min(cols - 1, (int)std::floor((m.x - gx0) / cellW)));
@@ -1055,13 +1072,22 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
     const float dw = dockSlots * dockCell + dockPad * 2;
     const float dx0 = std::floor((w - dw) * 0.5f);
     if (hasDock) dl->AddRectFilled(ImVec2(dx0, dockTop), ImVec2(dx0 + dw, dockTop + dockH), IM_COL32(255, 255, 255, drag >= 0 && toDock ? 52 : 30), 22.0f);
-    for (int k = (int)dock.size() + ((drag >= 0 && toDock) ? 1 : 0); k < dockSlots; ++k) {
+    for (int k = dockUsed + ((drag >= 0 && toDock) ? favSpan(drag) : 0); k < dockSlots; ++k) {
         const ImVec2 c(dx0 + dockPad + k * dockCell + dockCell * 0.5f, dockTop + 8 + dockTile * 0.5f);
         dl->AddRect(ImVec2(c.x - dockTile * 0.5f, c.y - dockTile * 0.5f), ImVec2(c.x + dockTile * 0.5f, c.y + dockTile * 0.5f), IM_COL32(255, 255, 255, 46), dockTile * 0.24f, 0, snap(1.5f));
     }
-    for (int k = 0; k < (int)dock.size(); ++k) {
-        const int slot = (drag >= 0 && toDock && k >= gap) ? k + 1 : k;
+    for (int k = 0, at = 0; k < (int)dock.size(); at += favSpan(dock[k]), ++k) {
+        const int slot = (drag >= 0 && toDock && k >= gap) ? at + favSpan(drag) : at;
         const float cx = dx0 + dockPad + slot * dockCell;
+        if (isWidget(dock[k])) {   // a widget in the bar: the icons' height, its places wide
+            const int sp = favSpan(dock[k]);
+            const ImVec2 wa(cx + (dockCell - dockTile) * 0.5f, dockTop + 8), wb(cx + (sp - 1) * dockCell + (dockCell + dockTile) * 0.5f, dockTop + 8 + dockTile);
+            const int v0 = dl->VtxBuffer.Size;
+            drawWidget(dl, f, s, dock[k] - kWidget0, wa, wb, act, liveWidgets);
+            if (g_editMode) turnSince(dl, v0, ImVec2((wa.x + wb.x) * 0.5f, (wa.y + wb.y) * 0.5f), wiggle(dock[k]) * 0.25f);
+            hits.push_back({dock[k], ImVec2(cx, dockTop), ImVec2(cx + sp * dockCell, dockTop + dockH), -1});
+            continue;
+        }
         const ImVec2 c(cx + dockCell * 0.5f, dockTop + 8 + dockTile * 0.5f);   // the icon, its name under it
         const bool over = drag < 0 && m.x >= cx && m.x < cx + dockCell && m.y >= dockTop && m.y < dockTop + dockH;
         const bool held = g_pressApp == dock[k] && io.MouseDown[0];
@@ -1149,7 +1175,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         } else if (e >= 0 && g_dragging) {   // dropped
             int from = -1;   // its place in the grid, if it was there
             for (int i = 0; i < (int)order.size(); ++i) if (order[i] == e) from = i;
-            const bool fromDock = isApp(e) && std::find(fav.begin(), fav.end(), e) != fav.end();
+            const bool fromDock = std::find(fav.begin(), fav.end(), e) != fav.end();
             auto takeOut = [&]() { if (fromDock) fav.erase(std::find(fav.begin(), fav.end(), e)); if (from >= 0) order[from] = -1; };
             if (overBubble) {
                 if (isApp(e)) {   // a new folder, where the app was, with the app in it; open, its name to type
@@ -1162,7 +1188,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
                     g_openFolder = fe - kFolder0; g_folderT0 = now;
                     g_settingsChanged = true;
                 } else if (isWidget(e)) {   // the bin: the widget goes
-                    if (from >= 0) order[from] = -1;
+                    takeOut();
                     g_settingsChanged = true;
                 } else if (isFolder(e)) {   // the bin: the folder goes (the ones after it move up a number); its apps into the page's free places
                     const int k = e - kFolder0;
@@ -1189,7 +1215,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
                 g_settingsChanged = true;
             } else if (target >= 0 && isWidget(e)) {
                 if (widgetCanGo(target, e - kWidget0, e)) {
-                    if (from >= 0) order[from] = -1;
+                    takeOut();
                     // (a hidden app in its block moves to the end)
                     int wc, wr; widgetCells(e - kWidget0, wc, wr);
                     const int slot = target % cap, col = slot % cols, row = slot / cols;
@@ -1300,6 +1326,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         for (int k = 0; k < W_COUNT; ++k) {
             bool there = false;
             for (int x : order) if (x == kWidget0 + k) there = true;
+            for (int x : g_settings.favorites) if (x == kWidget0 + k) there = true;
             int wc, wr; widgetCells(k, wc, wr);
             char lab[64]; std::snprintf(lab, sizeof lab, "%s   %d x %d", widgetName(k), wc, wr);
             char id[24]; std::snprintf(id, sizeof id, "##addw%d", k);
