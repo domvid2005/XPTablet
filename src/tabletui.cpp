@@ -489,6 +489,8 @@ double g_powerT0 = 0;
 // 30 minutes from empty to full on the charger, which is plugged in and out by tapping the battery in the status bar
 float g_batt = 100.0f;
 bool g_charger = false;
+bool g_battFromDevice = false;   // Local Connect: the battery shown is the connected device's (the tablet's own kept below)
+float g_ownBatt = 100.0f; bool g_ownCharger = false;
 int g_battSaved = -1;
 int g_lowAlert = 0;          // the low battery alert shown (20 or 10; 0: none)
 double g_lowAlertT0 = 0;
@@ -592,7 +594,7 @@ void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
     {   // tap the battery (or its figure): the charger goes in, or comes out; highlighted on hover as the clock is
         const float bx0 = x - sz.x - (g_charger ? 20 : 8) - 6, bx1 = x + 25 + 6;
         ImGui::SetCursorScreenPos(ImVec2(bx0, 0));
-        if (ImGui::InvisibleButton("##battery", ImVec2(bx1 - bx0, kStatusH))) { g_charger = !g_charger; g_settingsChanged = true; }
+        if (ImGui::InvisibleButton("##battery", ImVec2(bx1 - bx0, kStatusH)) && !g_battFromDevice) { g_charger = !g_charger; g_settingsChanged = true; }   // (a device's battery: its own charger decides)
         if (const float hk = itemHover(); hk > 0.01f) dl->AddRectFilled(ImVec2(bx0, 3), ImVec2(bx1, kStatusH - 3), IM_COL32(255, 255, 255, (int)(26 * hk)), 6.0f);
     }
     battery(dl, ImVec2(x, std::floor((kStatusH - 11) * 0.5f)), pct, g_charger);
@@ -7031,6 +7033,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         std::vector<Tab> tabs = {{0, "General", IM_COL32(110, 120, 140, 255), APP_SETTINGS}, {1, "Display", IM_COL32(64, 132, 230, 255), APP_WEATHER},
                                  {2, "Data", IM_COL32(60, 190, 130, 255), APP_DOCUMENTS}, {4, "Notifications", IM_COL32(240, 70, 70, 255), APP_NOTES}};
         if (!g_mac) tabs.push_back({5, "Media", IM_COL32(250, 45, 85, 255), APP_MUSIC});
+        tabs.push_back({6, "Local Connect", IM_COL32(24, 150, 170, 255), APP_BROWSER});
         if (g_mac && g_settingsTab == 5) g_settingsTab = 0;
         tabs.push_back({3, "Credits", IM_COL32(236, 152, 50, 255), APP_NOTES});
         // the highlight glides to the chosen page (as the setting buttons ease), drawn under the names
@@ -7174,6 +7177,85 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             ry += 40;
         }
         dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "The chime with each notification, played through X-Plane's sound. At 0% it is silent.", nullptr, w - 18 - rx);
+        return;
+    }
+    if (g_settingsTab == 6) {   // ---- Local Connect: the tablet on a phone or tablet on the same network
+        const LocalConnectState& L = s.local;
+        float y = top;
+        toggle("##lcon", lx, y, colW, g_settings.localConnect ? "Local Connect: on" : "Local Connect: off", g_settings.localConnect, true);
+        y += 42;
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Use this tablet on your phone or iPad: on the same Wi-Fi, open the address below in Safari or Chrome, then Add to Home Screen. Only your home network can reach it, and each device is paired once with a code.", nullptr, colW);
+        y += 72;
+        textAt(dl, f.bold, lx, y, kInk, "Address");
+        y += 24;
+        {   // the address, large, in a field of its own
+            const ImVec2 a(lx, y), e(lx + colW, y + 44);
+            dl->AddRectFilled(a, e, themeTone(10, 20, 38, 255), 12.0f);
+            dl->AddRect(a, e, IM_COL32(255, 255, 255, 30), 12.0f, 0, 1.0f);
+            const bool on = g_settings.localConnect && L.status == 2 && !L.address.empty();
+            const char* txt = !g_settings.localConnect ? "Switch Local Connect on" : on ? L.address.c_str() : L.status == 1 ? "Starting..." : L.address.empty() ? "No network found" : L.address.c_str();
+            textAt(dl, on ? f.title : f.body, a.x + 14, std::floor((a.y + e.y) * 0.5f - fontPx(on ? f.title : f.body) * 0.5f), on ? kInk : kMuted, txt);
+            y += 54;
+        }
+        // the status: a dot and a line
+        textAt(dl, f.bold, lx, y, kInk, "Status");
+        y += 26;
+        int connected = 0;
+        const LocalDevice* first = nullptr;
+        for (const LocalDevice& d : L.devices) if (d.connected) { ++connected; if (!first) first = &d; }
+        std::string st;
+        ImU32 dot = kMuted;
+        if (!g_settings.localConnect) st = "Off";
+        else if (L.status == -2) { st = "Not available in this version yet"; dot = kWarn; }
+        else if (L.status == -1) { st = "Cannot start" + (L.error.empty() ? std::string() : ": " + L.error); dot = IM_COL32(240, 90, 90, 255); }
+        else if (L.status == 1) { st = "Starting..."; dot = kWarn; }
+        else if (connected == 1) { st = "Connected: " + first->name; dot = kGood; }
+        else if (connected > 1) { st = "Connected: " + first->name + " and " + std::to_string(connected - 1) + " more"; dot = kGood; }
+        else { st = "Waiting for a device"; dot = accentLite(255); }
+        dl->AddCircleFilled(ImVec2(lx + 6, y + 9), 5.0f, dot, 0);
+        dl->AddText(f.body, fontPx(f.body), ImVec2(lx + 20, y), kInk, st.c_str(), nullptr, colW - 20);
+        y += 34;
+        if (g_settings.localConnect && !L.pairCode.empty()) {   // a device asking to pair: its code, to type on it
+            const ImVec2 a(lx, y), e(lx + colW, y + 92);
+            dl->AddRectFilled(a, e, accentCol(40), 12.0f);
+            dl->AddRect(a, e, accentLite(120), 12.0f, 0, 1.0f);
+            const std::string who = (L.pairName.empty() ? std::string("A device") : L.pairName) + " wants to connect. Enter on it:";
+            textAt(dl, f.small, a.x + 12, a.y + 10, kInk, who.c_str());
+            std::string code = L.pairCode;
+            if (code.size() == 6) code = code.substr(0, 3) + " " + code.substr(3);
+            textAt(dl, f.title, a.x + 12, a.y + 34, kInk, code.c_str());
+            if (pill(dl, f, "##lcdeny", "Not me", ImVec2(e.x - 96, a.y + 50), ImVec2(e.x - 10, a.y + 80), false, true)) act.localPairDeny = true;
+            y += 102;
+        }
+        // the right: the devices, and the battery
+        float ry = top;
+        textAt(dl, f.title, rx, ry, kInk, "Devices");
+        ry += 34;
+        if (L.devices.empty()) { dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "None paired yet.", nullptr, colW); ry += 30; }
+        for (size_t i = 0; i < L.devices.size() && i < 4; ++i) {
+            const LocalDevice& d = L.devices[i];
+            const ImVec2 a(rx, ry), e(rx + colW, ry + 58);
+            dl->AddRectFilled(a, e, themeTone(10, 20, 38, 255), 12.0f);
+            dl->AddCircleFilled(ImVec2(a.x + 14, a.y + 18), 4.5f, d.connected ? kGood : IM_COL32(120, 130, 150, 255), 0);
+            textAt(dl, f.bold, a.x + 26, a.y + 8, kInk, d.name.c_str());
+            std::string sub = d.kind.empty() ? std::string() : d.kind;
+            if (d.connected) sub += sub.empty() ? "Connected" : "  \xC2\xB7  Connected";
+            else if (!d.lastSeen.empty()) sub += (sub.empty() ? "" : "  \xC2\xB7  ") + std::string("Last seen ") + d.lastSeen;
+            textAt(dl, f.small, a.x + 26, a.y + 32, kMuted, sub.c_str());
+            if (d.connected && d.batteryPct >= 0) {   // its battery, as its own status bar shows it
+                char bb[24]; std::snprintf(bb, sizeof bb, "%d%%%s", d.batteryPct, d.charging ? ", charging" : "");
+                textRight(dl, f.small, e.x - 96, a.y + 10, d.batteryPct <= 20 && !d.charging ? kWarn : kInk, bb);
+            }
+            char id[24]; std::snprintf(id, sizeof id, "##lcforget%zu", i);
+            if (pill(dl, f, id, "Remove", ImVec2(e.x - 86, a.y + 14), ImVec2(e.x - 10, a.y + 44), false, true)) act.localForget = d.name;
+            ry += 66;
+        }
+        ry += 8;
+        textAt(dl, f.bold, rx, ry, kInk, "Battery");
+        ry += 24;
+        toggle("##lcbatt", rx, ry, colW, "Use the device's battery", g_settings.localBattery, true);
+        ry += 38;
+        dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "With a device connected, the tablet shows that device's charge and whether it is charging, instead of its own. Android's Chrome and other Chromium browsers share these; iPhone and iPad browsers do not, so there the tablet keeps its own battery.", nullptr, colW);
         return;
     }
     if (g_settingsTab == 5 && !g_mac) {   // ---- Media: the Music app and the pull-down's player; what the radio does to the music
@@ -7485,7 +7567,16 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     {   // the battery: down while the screen is on and the charger out, up on the charger (screen on or not)
         const float dt = std::max(0.0f, std::min(1.0f, ImGui::GetIO().DeltaTime));
         const bool screenOn = g_power == POWER_ON || g_power == POWER_FADING || g_power == POWER_REVEAL || g_power == POWER_BOOT;
-        if (g_charger) g_batt = std::min(100.0f, g_batt + dt * 100.0f / 1800.0f);
+        // Local Connect: a connected device that tells its battery is the tablet's battery (its charge, and its charger); the
+        // tablet's own comes back, as it was, once none is
+        const LocalDevice* dev = nullptr;
+        if (g_settings.localConnect && g_settings.localBattery) for (const LocalDevice& d : s.local.devices) if (d.connected && d.batteryPct >= 0) { dev = &d; break; }
+        if (dev) {
+            if (!g_battFromDevice) { g_ownBatt = g_batt; g_ownCharger = g_charger; g_battFromDevice = true; }
+            g_batt = (float)std::max(0, std::min(100, dev->batteryPct)); g_charger = dev->charging;
+        } else if (g_battFromDevice) { g_batt = g_ownBatt; g_charger = g_ownCharger; g_battFromDevice = false; }
+        if (g_battFromDevice) {}   // (the device's own: nothing to run down or charge here)
+        else if (g_charger) g_batt = std::min(100.0f, g_batt + dt * 100.0f / 1800.0f);
         else if (screenOn) {   // the brighter the screen, the faster it goes: 2 hours at full, about 5 at the dimmest (as a screen's draw does)
             const float bright = std::max(0.1f, std::min(1.0f, g_settings.autoDim ? s.autoDimLevel : g_settings.brightness));
             g_batt = std::max(0.0f, g_batt - dt * 100.0f / 7200.0f * (0.35f + 0.65f * bright));
@@ -8300,7 +8391,7 @@ std::string checklistFor(const std::string& text, const std::string& icao, const
     }
     return out;
 }
-void setBattery(float pct) { g_batt = std::max(0.0f, std::min(100.0f, pct)); }
+void setBattery(float pct) { (g_battFromDevice ? g_ownBatt : g_batt) = std::max(0.0f, std::min(100.0f, pct)); }   // (a device's battery showing: the tablet's own)
 bool hasShape(const std::string& icao) { float l, sp; return exactShape(icao, l, sp) != nullptr; }   // a drawing of its own
 const unsigned char* wxLogoPixels(unsigned int& bytes) { bytes = xpt_asset_wxlogo_size; return xpt_asset_wxlogo; }
 const unsigned char* logoPixels(int& w, int& h, int& levels) {   // "XPTL", width, height, levels (u32), then the pixels
@@ -8482,6 +8573,7 @@ std::string settingsToText() {
     out += std::string("map_airspaces=") + (g_settings.mapAirspaces ? "1" : "0") + "\n";
     out += std::string("map_dark_auto=") + (g_settings.mapDarkAuto ? "1" : "0") + "\n";
     out += std::string("cabin_auto=") + (g_settings.cabinAuto ? "1" : "0") + "\n";
+    out += std::string("local_connect=") + (g_settings.localConnect ? "1" : "0") + "\nlocal_battery=" + (g_settings.localBattery ? "1" : "0") + "\n";
     out += std::string("map_vatsim_atc=") + (g_settings.mapVatsimAtc ? "1" : "0") + "\nvatsim_atc_notes=" + (g_settings.vatsimAtcNotes ? "1" : "0") + "\n";
     for (int i = 0; i < 3; ++i) {   // the Customs: colours, and the picture's file name
         char cb[96]; std::snprintf(cb, sizeof cb, "custom%d_bg=%06X\ncustom%d_accent=%06X\n", i, g_settings.customs[i].bg & 0xFFFFFF, i, g_settings.customs[i].accent & 0xFFFFFF); out += cb;
@@ -8504,7 +8596,7 @@ std::string settingsToText() {
     }
     std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\nmap_rings=%d\nmap_trail=%d\nphysical_keys=%d\nwallpaper=%d\naccent=%d\nbattery=%d\ncharger=%d\n",
                   g_settings.mapSource, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
-                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0, g_settings.mapTrail ? 1 : 0, g_settings.physicalKeys ? 1 : 0, g_settings.wallpaper, g_settings.accent, (int)std::ceil(g_batt - 0.001f), g_charger ? 1 : 0);
+                  g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0, g_settings.mapTrail ? 1 : 0, g_settings.physicalKeys ? 1 : 0, g_settings.wallpaper, g_settings.accent, (int)std::ceil((g_battFromDevice ? g_ownBatt : g_batt) - 0.001f), (g_battFromDevice ? g_ownCharger : g_charger) ? 1 : 0);   // (the tablet's own, not a device's)
     out += buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
         out += key; out += "=";
@@ -8604,6 +8696,8 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_airspaces") g_settings.mapAirspaces = v != 0;
         else if (key == "cabin_auto") g_settings.cabinAuto = v != 0;
         else if (key == "vatsim_atc_notes") g_settings.vatsimAtcNotes = v != 0;
+        else if (key == "local_connect") g_settings.localConnect = v != 0;
+        else if (key == "local_battery") g_settings.localBattery = v != 0;
         else if (key == "map_traffic_range") g_settings.mapTrafficRangeNm = std::max(0.0f, std::min(2000.0f, (float)std::atof(val.c_str())));
         else if (key == "map_traffic_alt") g_settings.mapTrafficAltFt = std::max(0.0f, std::min(60000.0f, (float)std::atof(val.c_str())));
         else if (key == "physical_keys") g_settings.physicalKeys = v != 0;

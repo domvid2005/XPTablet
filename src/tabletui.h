@@ -58,6 +58,8 @@ struct Settings {
     struct CustomTheme { int bg = 0x2A3E5C, accent = 0x46A0FF; std::string picture; };   // colours 0xRRGGBB; a picture from plugins/XPTablet/backgrounds
     CustomTheme customs[3] = {{0x2A3E5C, 0x46A0FF, ""}, {0x2E5A3A, 0xF0A030, ""}, {0x4A2A52, 0xFF7AB0, ""}};   // the three Custom themes (7, 8, 9)
     int accent = 0;               // Display: the colour of what is chosen (0 violet .. 4 gold), from the logo's letters
+    bool localConnect = false;    // Local Connect: the tablet on a phone or tablet on the same network (off until switched on)
+    bool localBattery = true;     // with a device connected that tells its battery: the tablet's battery is that device's
     bool physicalKeys = false;    // typing: the computer's own keyboard (a thin bar instead of the on-screen keys)
     bool mapRings = true;         // range rings round the aircraft (a quarter, half and all of the range), as on WXPlane's map
     bool mapIls = true;           // ILS and localizer courses (a layer of their own)
@@ -302,6 +304,23 @@ struct DocsState {
     std::string error;
 };
 
+// Local Connect: the tablet in a phone's or tablet's browser on the home network (the plugin serves it)
+struct LocalDevice {
+    std::string name;             // as the device calls itself ("Dom's iPhone"), or its kind
+    std::string kind;             // "iPhone", "iPad", "Android phone", "Android tablet", "Computer"
+    bool connected = false;       // open now (paired devices that are not open are listed too)
+    int batteryPct = -1;          // its battery, -1 not told (iPhone and iPad browsers do not share it)
+    bool charging = false;
+    std::string lastSeen;         // when it was last open ("Today 14:32"), for one not connected
+};
+struct LocalConnectState {
+    int status = 0;               // 0 off, 1 starting, 2 on (waiting or connected), -1 cannot start (error), -2 not in this build yet
+    std::string address;          // what to open on the device: https://192.168.1.20:8443
+    std::string error;            // why it could not start
+    std::string pairCode;         // a device asking to pair: the code it must enter ("482913"), empty none
+    std::string pairName;         // and its name
+    std::vector<LocalDevice> devices;
+};
 struct SimState {
     std::string acfIcao;          // "A321", "" when unknown
     int zuluSec = -1;             // seconds since 00:00Z, -1 when unknown
@@ -315,6 +334,7 @@ struct SimState {
     float brightness = 1.0f;      // what the aircraft sets for its tablet (avitab/brightness)
     float pixelScale = 1.0f;      // screen pixels per layout unit
     int batteryPct = 100;         // the tablet's own battery
+    LocalConnectState local;      // Local Connect (Settings)
     bool charging = false;        // the aircraft's electrical system is feeding it
     SimWeather wx;
     BrowserState browser;
@@ -358,6 +378,8 @@ enum GroundAction { GA_NONE, GA_JETWAY, GA_GPU, GA_CHOCKS, GA_HP_AIR, GA_LP_AIR,
                     GA_JETWAY_DOOR, GA_SLIDES_ARM, GA_SLIDES_DISARM, GA_CABIN_LIGHT, GA_SLIDES_AUTO, GA_CABIN_READY, GA_CABIN_AUTO, GA_OPENSAM_UI, GA_JETWAY_SET };   // GA_JETWAY_SET: groundIndex a mask of the doors to connect
 
 struct Actions {
+    std::string localForget;      // Local Connect: a paired device removed (its name)
+    bool localPairDeny = false;   // Local Connect: the device asking to pair is turned away
     int ground = GA_NONE;
     int groundIndex = 0;          // which door (GA_PAX_DOOR, GA_CARGO_DOOR, GA_JETWAY_DOOR); GA_CABIN_LIGHT: the level, 0-100 %
     std::string metarSearch;      // look this airport's METAR up (the Weather page's search)

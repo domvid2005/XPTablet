@@ -42,6 +42,7 @@
 #include "navdata.h"
 #include "vatsim.h"
 #include "airspace.h"
+#include "localnet.h"
 #include "simbrief.h"
 #include "media.h"
 #include "ourairports.h"
@@ -2534,6 +2535,20 @@ float flightLoop(float dt, float, int, void*) {
     g_battery = std::max(0.0f, std::min(100.0f, g_battery + sec * (fed ? 100.0f / 5400.0f : -100.0f / 21600.0f)));
     g_sim.batteryPct = (int)std::lround(g_battery);
     g_sim.charging = fed;
+    {   // Local Connect: the address a phone opens (this computer on the home network); the server for it comes in a later version
+        static double lookedAt = -100;
+        xpt::LocalConnectState& L = g_sim.local;
+        if (!xpt::settings().localConnect) { L.status = 0; L.pairCode.clear(); for (auto& d : L.devices) d.connected = false; }
+        else {
+            const double now = XPLMGetElapsedTime();
+            if (now - lookedAt > 10) {   // (the network can change: looked at again every 10 s)
+                lookedAt = now;
+                const std::string ip = xpt::localIPv4();
+                L.address = !ip.empty() && xpt::isPrivateIPv4(ip) ? "https://" + ip + ":8443" : std::string();
+            }
+            L.status = -2;   // (not served yet: the Settings page says so)
+        }
+    }
     if (xpt::takeSettingsChanged()) saveSettings();
     saveSettingsIfChanged(sec);
     chimeStep();

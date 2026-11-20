@@ -788,7 +788,7 @@ int main(int argc, char** argv) {
                     shot(sb, APP_SETTINGS, "settings_custom_theme_dragged");
                 }
                 if (settings().wallpaper != 7) { std::printf("FAIL: holding Custom 1 chooses it (%d)\n", settings().wallpaper); ++failures; }
-                tap(sb, 680, 100);   // Done
+                tap(sb, 690, 83);   // Done
                 settings().wallpaper = keepWp;
             }
             settings().autoDim = false;
@@ -803,6 +803,25 @@ int main(int argc, char** argv) {
             settings().mediaDuck = 0;
             tap(st, 80, 238);   // Notifications
             shot(st, APP_SETTINGS, "settings_notifications");
+            tap(st, 80, 322);   // Local Connect
+            {   // on, an Android phone connected (its battery the tablet's), an iPhone paired before, an iPad asking to pair
+                SimState lc = st;
+                settings().localConnect = true;
+                lc.local.status = 2; lc.local.address = "https://192.168.1.20:8443"; lc.local.pairCode = "482913"; lc.local.pairName = "Dom's iPad";
+                LocalDevice p; p.name = "Pixel 8"; p.kind = "Android phone"; p.connected = true; p.batteryPct = 64; p.charging = true;
+                LocalDevice i; i.name = "Dom's iPhone"; i.kind = "iPhone"; i.lastSeen = "Today 14:32";
+                lc.local.devices = {p, i};
+                shot(lc, APP_SETTINGS, "settings_local_connect");
+                // the status bar's battery: the phone's 64 %, and back to the tablet's own once it goes
+                setBattery(37);
+                for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, lc, 800, kLogicalH, act); ImGui::Render(); }
+                const std::string t1 = settingsToText();
+                if (t1.find("battery=37\n") == std::string::npos) { std::printf("FAIL: the tablet's own battery is kept while a device's shows\n"); ++failures; }
+                lc.local.devices.clear();
+                for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, lc, 800, kLogicalH, act); ImGui::Render(); }
+                setBattery(100);
+                settings().localConnect = false;
+            }
             tap(st, 80, 112);   // back to General
         }
         {   // the status bar's clock: a tap switches Zulu and local time where the aircraft is (EST here)
