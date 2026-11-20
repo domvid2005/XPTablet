@@ -160,6 +160,7 @@ int brandCell(int app) {
     case APP_VATSIMHUB: return 24;   // VATSIM
     case APP_NATTRAK: return 25;
     case APP_IVAO: return 26;        // IVAO Webeye
+    case APP_SPOTIFY: return 27;
     default: return -1;
     }
 }

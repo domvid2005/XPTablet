@@ -553,7 +553,7 @@ App icons (provided through creatorsrepo.com)
     tools/make_icons_rgba.py into assets/icons.rgba.
   * Service logos (assets/brands): ForeFlight (ForeFlight LLC), Navigraph (Navigraph), SkyVector (SkyVector / Seattle Avionics) and
     Volanta (Orbx), ChartFox (chartfox.org), SimBrief (Navigraph), VATSIM Radar (vatsim-radar.com), VATSIM (VATSIM, Inc.), natTrak (VATSIM),
-    IVAO (International Virtual Aviation Organisation), YouTube and YouTube Music (Google LLC), Apple Music (Apple Inc.) and SoundCloud
+    IVAO (International Virtual Aviation Organisation), Spotify (Spotify AB), YouTube and YouTube Music (Google LLC), Apple Music (Apple Inc.) and SoundCloud
     (SoundCloud Global Limited) are trademarks of their owners, used only on the icons that open their web apps. XPTablet is not made by or
     affiliated with any of them.
 

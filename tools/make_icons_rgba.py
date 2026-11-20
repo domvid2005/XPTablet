@@ -12,7 +12,7 @@ from svgpath import raster
 CELL = 256
 ORDER = ["cog", "list-status", "check-bold", "file-document", "star-four-points", "airplane", "airport", "web",   # pictograms
          "foreflight", "navigraph", "skyvector", "volanta", "vatsimradar", "simbrief", "power", "weather-partly-snowy-rainy", "chartfox", "music", "map", "file-document-edit",
-         "soundcloud", "youtube", "ytmusic", "applemusic", "vatsim", "nattrak", "ivao"]                                                       # tiles
+         "soundcloud", "youtube", "ytmusic", "applemusic", "vatsim", "nattrak", "ivao", "spotify"]                                                       # tiles
 root = os.path.join(os.path.dirname(__file__), "..", "assets", "brands")
 
 def gradient(c0, c1, radial=False):
@@ -91,6 +91,10 @@ def tile(name):
         cx, cy, r = (370, 370, 338) if name == "youtube" else (480, 480, 478)
         k = 0.66
         return np.asarray(im.crop((int(cx - r * k), int(cy - r * k), int(cx + r * k), int(cy + r * k))).resize((CELL, CELL), Image.LANCZOS)).astype(float)
+    if name == "spotify":   # its green square (its corners filled with its green: the tile rounds them)
+        im = Image.open(os.path.join(root, "spotify.webp")).convert("RGBA")
+        bg = Image.new("RGBA", im.size, (30, 215, 96, 255)); bg.alpha_composite(im)
+        return np.asarray(bg.convert("RGB").crop((122, 122, 858, 858)).resize((CELL, CELL), Image.LANCZOS)).astype(float)
     if name == "applemusic":   # its own app icon (on its red, where its corners are clear)
         im = Image.open(os.path.join(root, "applemusic.webp")).convert("RGBA")
         bg = Image.new("RGBA", im.size, (250, 45, 72, 255)); bg.alpha_composite(im)
