@@ -45,6 +45,24 @@ void readPilots(const wx::Json& feed, std::unordered_map<std::string, VatsimPilo
         }
 }
 
+void readControllers(const wx::Json& feed, std::vector<VatsimController>& out) {
+    for (const char* key : {"controllers", "atis"}) {
+        const wx::Json* list = feed.get(key);
+        if (!list || list->type != wx::Json::Arr) continue;
+        for (const wx::Json& c : list->arr) {
+            VatsimController v;
+            v.callsign = str(&c, "callsign");
+            v.freq = str(&c, "frequency");
+            v.name = str(&c, "name");
+            v.facility = std::string(key) == "atis" ? 7 : (int)num(&c, "facility");
+            if (v.facility == 0 || v.freq == "199.998") continue;   // observers, and those not on a frequency
+            const wx::Json* t = c.get("text_atis");
+            if (t && t->type == wx::Json::Arr) for (const wx::Json& line : t->arr) { if (!v.text.empty()) v.text += " "; v.text += line.asString(); }
+            out.push_back(std::move(v));
+        }
+    }
+}
+
 bool readPilots(const std::string& body, std::unordered_map<std::string, VatsimPilot>& out) {
     wx::Json j;
     if (!wx::parseJson(body, j)) return false;

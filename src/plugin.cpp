@@ -1470,6 +1470,10 @@ void ensureFrame() {
     xpt::build(g_fonts, g_sim, g_logW, xpt::kLogicalH, act);
     ImGui::Render();
     xpt::clipDrawData(ImGui::GetDrawData(), g_batches);
+    if (act.com1Standby > 0) {   // the headset on the Airports page: that frequency into COM1's standby (8.33 kHz steps, in kHz)
+        static XPLMDataRef c = XPLMFindDataRef("sim/cockpit2/radios/actuators/com1_standby_frequency_hz_833");
+        if (c) XPLMSetDatai(c, (int)std::lround(act.com1Standby * 1000.0));
+    }
     if (!act.metarSearch.empty()) { xpt::metarRequest(act.metarSearch); g_sim.metar = xpt::MetarLookup(); g_sim.metar.icao = act.metarSearch; g_sim.metar.busy = true; }
     if (act.ground != xpt::GA_NONE) g_pendingGround = act;   // carried out from the flight loop, not from inside drawing
     browserStep(act);
@@ -1478,8 +1482,12 @@ void ensureFrame() {
     mediaStep(act);
     {   // the Map's traffic card: its aircraft on VATSIM (and its filed route); VATSIM's world as traffic when chosen
         const bool world = act.mapShown && xpt::settings().mapTraffic && xpt::settings().mapTrafficSource == 1;
-        xpt::vatsim::want((act.mapShown && !act.trafficSelected.empty()) || world);
-        if ((act.mapShown && !act.trafficSelected.empty()) || world) xpt::vatsim::start();
+        // VATSIM's controllers: for the Airports page, the Map's ATC layer, and the notifications for the flight's airports
+        const bool atc = act.airportsShown || (act.mapShown && xpt::settings().mapVatsimAtc) || (xpt::settings().vatsimAtcNotes && g_sim.plan.loaded);
+        xpt::vatsim::want((act.mapShown && !act.trafficSelected.empty()) || world || atc);
+        if ((act.mapShown && !act.trafficSelected.empty()) || world || atc) xpt::vatsim::start();
+        static double lastAtc = -100;
+        if (XPLMGetElapsedTime() - lastAtc > 5.0) { lastAtc = XPLMGetElapsedTime(); g_sim.vatsimAtc = xpt::vatsim::controllers(&g_sim.vatsimAtcHave); }
         if (act.mapShown && !act.trafficSelected.empty()) {
             g_sim.map.vatsim = xpt::vatsim::lookup(act.trafficSelected, g_sim.map.vatsimStatus);
             static std::string routeKey;

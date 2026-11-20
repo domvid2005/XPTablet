@@ -64,6 +64,8 @@ struct Settings {
     bool mapStands = true;        // parking spaces (stands and gates) on the airport layouts
     bool mapBestRunway = true;    // the runway most into the wind outlined in green on the airport layouts
     bool mapDaylight = false;     // day and night across the map (the sun's height where it is, from the sim's time)
+    bool mapVatsimAtc = false;    // the Map shows VATSIM's controllers online round their airports
+    bool vatsimAtcNotes = true;   // a notification when a controller comes online at the flight's airports
     int mapTrafficSource = 0;     // 0 nearby (X-Plane's TCAS: AI and multiplayer), 1 nearby and VATSIM worldwide
     bool mapTrafficTrails = false;   // each aircraft's trail behind it
     bool mapTrafficRoute = true;  // a VATSIM aircraft's filed route on the map while its card is open
@@ -199,6 +201,10 @@ struct VatsimPilot {
     std::string rules, aircraft, aircraftFull, departure, arrival, alternate, cruiseAlt, cruiseTas, depTime, enroute, fuel, route, remarks, assignedSquawk;
 };
 
+// A VATSIM controller (or ATIS) online: its call sign ("KORD_TWR"), frequency ("120.750"), kind (facility: 1 FSS, 2 DEL, 3 GND,
+// 4 TWR, 5 APP, 6 CTR; 7 the ATIS) and its text
+struct VatsimController { std::string callsign, freq, name, text; int facility = 0; };
+
 // The Map page: the aircraft, the time, and what the host has loaded for the view.
 struct MapState {
     bool havePos = false;
@@ -314,6 +320,8 @@ struct SimState {
     bool mac = false;             // macOS: no media controls (no Music app, no Media settings)
     MediaState media;
     float fps = 0;                // X-Plane's frame rate
+    std::vector<VatsimController> vatsimAtc;   // VATSIM's controllers and ATIS online (when fetched; empty otherwise)
+    bool vatsimAtcHave = false;   // the list is from a fetch (else it is not known)
     int engineType = -1;          // the first engine's kind (X-Plane's acf_en_type: 0/1 piston, 2/8 turboprop, 3 electric, 4/5 jet), -1 unknown
     FlightPlan planPreview;       // a plan fetched from SimBrief, waiting for Import or Dismiss (loaded: the window shows it)
     bool planPreviewOpen = false; // its window is up (Dismiss closes it; the plan stays, to review again)
@@ -353,6 +361,7 @@ struct Actions {
     float mapPointMinFt = 0;      // the map's airport dots: only airports with a runway at least this long (the bigger ones further out)
     // the Airports page: list airports matching this text ("" with airportsShown: the nearest), or read one in full
     bool airportsShown = false;
+    double com1Standby = 0;       // tune COM1's standby to this (MHz), 0 none
     std::string airportSearch;    // sent when it changes
     std::string airportOpen;      // the airport to show
     // the Documents page: list the folders (again), show a picture

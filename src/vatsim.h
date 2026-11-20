@@ -17,6 +17,8 @@ void want(bool on);   // a traffic card is open: keep the data fresh
 VatsimPilot lookup(const std::string& callsign, std::string& status);
 // Every pilot connected (the Map's VATSIM world traffic), as of the latest fetch.
 std::vector<VatsimPilot> allPilots();
+// The controllers and ATIS online, as of the latest fetch (have: there was one).
+std::vector<VatsimController> controllers(bool* have = nullptr);
 
 } // namespace vatsim
 } // namespace xpt

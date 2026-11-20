@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 #include <array>
 #include <cfloat>
 #include <cmath>
@@ -650,6 +651,18 @@ extern int g_kbdTarget;
 extern std::string* g_typeInto;
 void glass(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha);
 bool textField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, ImVec2 a, ImVec2 b, const char* hint, bool multiline, float ruled);
+// VATSIM's controllers for an airport: their call signs start with its ICAO code (or, in the US, the code without its K)
+std::vector<VatsimController> atcFor(const SimState& s, const std::string& icao) {
+    std::vector<VatsimController> out;
+    if (icao.size() < 3) return out;
+    const std::string p1 = icao + "_", p2 = icao.size() == 4 && icao[0] == 'K' ? icao.substr(1) + "_" : std::string("\x01");
+    for (const VatsimController& c : s.vatsimAtc)
+        if (c.facility >= 2 && c.facility != 6 && (c.callsign.compare(0, p1.size(), p1) == 0 || c.callsign.compare(0, p2.size(), p2) == 0)) out.push_back(c);
+    auto rank = [](const VatsimController& c) { return c.facility == 7 ? 0 : c.facility; };   // the ATIS first, then DEL, GND, TWR, APP
+    std::sort(out.begin(), out.end(), [&](const VatsimController& a, const VatsimController& b) { return rank(a) != rank(b) ? rank(a) < rank(b) : a.callsign < b.callsign; });
+    return out;
+}
+
 // The home screen's places: pages of cols x rows; a widget takes a block of them from its corner (its place in the list).
 int g_gridCols = 7, g_gridRows = 3;
 bool isApp(int e) { return e >= 0 && e < APP_COUNT; }
@@ -3399,6 +3412,38 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 if (g_mapZoom >= 8.5 || picked) g_labels.push_back({2, q, 6, p.icao, "", picked ? accentLite(255) : sat ? kInk : IM_COL32(24, 40, 80, 255), 0, picked ? IM_COL32(10, 16, 28, 190) : 0});
             }
         }
+        // VATSIM's controllers online: an approach's 30 nm ring, and a badge of letters by the airport (D G T A, I for its ATIS)
+        if (g_settings.mapVatsimAtc && g_mapZoom >= 6.0 && !s.vatsimAtc.empty()) {
+            for (const AptPoint& p : m.airportPoints) {
+                const std::vector<VatsimController> atc = atcFor(s, p.icao);
+                if (atc.empty()) continue;
+                const ImVec2 q = toS(mercOf(p.lat, p.lon));
+                if (q.x < r0.x - 400 || q.x > r1.x + 400 || q.y < r0.y - 400 || q.y > r1.y + 400) continue;
+                std::string letters;
+                bool app = false;
+                for (const VatsimController& c : atc) {
+                    const char L = c.facility == 2 ? 'D' : c.facility == 3 ? 'G' : c.facility == 4 ? 'T' : c.facility == 5 ? 'A' : c.facility == 7 ? 'I' : 0;
+                    if (L && letters.find(L) == std::string::npos) letters += L;
+                    app = app || c.facility == 5;
+                }
+                if (app) {
+                    const ImVec2 e = toS(mercOf(p.lat + 0.5, p.lon));   // 30 nm north
+                    const float rr = std::fabs(q.y - e.y);
+                    dl->AddCircleFilled(q, rr, IM_COL32(70, 160, 255, 26), 64);
+                    dl->AddCircle(q, rr, IM_COL32(90, 170, 255, 170), 64, 1.5f);
+                }
+                if (q.x < r0.x || q.x > r1.x || q.y < r0.y || q.y > r1.y) continue;
+                const float bw = letters.size() * 11.0f + 8;
+                const ImVec2 ba(q.x + 8, q.y - 20), bb(ba.x + bw, ba.y + 16);
+                dl->AddRectFilled(ba, bb, IM_COL32(10, 20, 36, 225), 5.0f);
+                for (size_t i = 0; i < letters.size(); ++i) {
+                    const char L = letters[i];
+                    const ImU32 col = L == 'D' ? IM_COL32(120, 200, 255, 255) : L == 'G' ? IM_COL32(110, 220, 130, 255) : L == 'T' ? IM_COL32(255, 110, 110, 255) : L == 'A' ? IM_COL32(110, 160, 255, 255) : IM_COL32(255, 210, 100, 255);
+                    const char t[2] = {L, 0};
+                    textAt(dl, f.bold, ba.x + 4 + i * 11.0f, ba.y + 1, col, t);
+                }
+            }
+        }
         act.mapLayouts = layouts;
         act.mapLayoutNm = std::min(25.0, std::max(3.0, halfDiagNm * 1.4));
         act.mapPointNm = g_mapZoom >= 7.0 ? std::min(400.0, halfDiagNm * 1.2) : 0.0;
@@ -3732,7 +3777,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                             {"##mnav", "Navaids", &g_settings.mapNavaids, true}, {"##mfix", "Waypoints (GPS)", &g_settings.mapWaypoints, true},
                             {"##mrte", "Flight Plan Route", &g_settings.mapRoute, !m.route.empty()}, {"##mring", "Range Rings", &g_settings.mapRings, true}};
         const Item tfc[] = {{"##mtraf", "Show Traffic", &g_settings.mapTraffic, true}, {"##mttrl", "Traffic Trails", &g_settings.mapTrafficTrails, g_settings.mapTraffic},
-                            {"##mtrte", "Filed Route When Selected", &g_settings.mapTrafficRoute, g_settings.mapTraffic}};
+                            {"##mtrte", "Filed Route When Selected", &g_settings.mapTrafficRoute, g_settings.mapTraffic},
+                            {"##mvatc", "VATSIM ATC Online", &g_settings.mapVatsimAtc, true}};
         const Item fea[] = {{"##mtrail", "My Breadcrumbs", &g_settings.mapTrail, true}, {"##mout", "Coastlines And Borders", &g_settings.mapOutlines, true},
                             {"##mtz", "Time Zones", &g_settings.mapTimeZones, true}, {"##mday", "Daylight", &g_settings.mapDaylight, true}};
         const char* cats[3] = {"Navigation", "Traffic", "Features"};
@@ -4559,6 +4605,20 @@ double distNmLL(double la1, double lo1, double la2, double lo2, double* brgOut) 
     return 2 * std::atan2(std::sqrt(a), std::sqrt(1 - a)) * 3440.065;
 }
 
+// a headset: tapped, its frequency goes into COM1's standby (lit a moment after)
+bool headsetButton(ImDrawList* dl, const char* id, ImVec2 c, double mhz, Actions& act) {
+    static std::string litId; static double litAt = -10;
+    const ImVec2 a(c.x - 13, c.y - 12), b(c.x + 13, c.y + 12);
+    const bool hit = iconButton(id, a, b, mhz > 0);
+    if (hit) { act.com1Standby = mhz; litId = id; litAt = ImGui::GetTime(); }
+    const bool lit = litId == id && ImGui::GetTime() - litAt < 1.5;
+    const ImU32 col = lit ? kGood : IM_COL32(200, 214, 238, 255);
+    dl->PathArcTo(ImVec2(c.x, c.y + 1), 7.5f, 3.14159f, 2 * 3.14159f, 12); dl->PathStroke(col, 0, 1.8f);
+    dl->AddRectFilled(ImVec2(c.x - 9, c.y), ImVec2(c.x - 5, c.y + 7), col, 1.5f);
+    dl->AddRectFilled(ImVec2(c.x + 5, c.y), ImVec2(c.x + 9, c.y + 7), col, 1.5f);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", lit ? "Set in COM1 standby" : "Tune COM1 standby");
+    return hit;
+}
 void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     act.airportsShown = true;
     act.airportSearch = g_aptQuery;
@@ -4661,24 +4721,57 @@ void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         char fq[16];
         std::snprintf(fq, sizeof fq, "%.3f", ap.ctaf.mhz);
         textAt(dl, f.title, a.x + 12, a.y + 20, kInk, fq);
-        dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 112, a.y + 9), kMuted, ap.ctaf.note.c_str(), nullptr, b.x - a.x - 120);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 112, a.y + 9), kMuted, ap.ctaf.note.c_str(), nullptr, b.x - a.x - 150);
+        headsetButton(dl, "##hsctaf", ImVec2(b.x - 20, (a.y + b.y) * 0.5f), ap.ctaf.mhz, act);
     }
     // the METAR beside it
     if (s.metar.icao == ap.icao && !s.metar.raw.empty()) dl->AddText(f.mono, fontPx(f.mono), ImVec2(x0 + 314, y + 2), kInk, s.metar.raw.c_str(), nullptr, x1 - x0 - 314);
     else textAt(dl, f.small, x0 + 314, y + 4, kMuted, s.metar.icao == ap.icao && s.metar.busy ? "METAR: asking NOAA..." : "No METAR");
     y += 64;
+    // VATSIM: who is online here (their frequencies), else UNICOM 122.800
+    {
+        textAt(dl, f.small, x0, y, kMuted, "VATSIM");
+        y += 20;
+        const std::vector<VatsimController> atc = atcFor(s, ap.icao);
+        int k = 0;
+        for (const VatsimController& c : atc) {
+            textAt(dl, f.body, x0, y, c.facility == 7 ? IM_COL32(120, 200, 255, 255) : kGood, c.callsign.c_str());
+            textAt(dl, f.mono, x0 + 150, y + 1, kInk, c.freq.c_str());
+            char id[24]; std::snprintf(id, sizeof id, "##hsv%d", k++);
+            headsetButton(dl, id, ImVec2(x0 + 226, y + 9), std::atof(c.freq.c_str()), act);
+            if (c.facility == 7 && !c.text.empty()) {   // the ATIS: its text, wrapped
+                const ImVec2 sz = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, x1 - x0 - 250, c.text.c_str());
+                dl->AddText(f.small, fontPx(f.small), ImVec2(x0 + 250, y + 2), kMuted, c.text.c_str(), nullptr, x1 - x0 - 250);
+                y += std::max(22.0f, sz.y + 6);
+            } else {
+                textAt(dl, f.small, x0 + 250, y + 2, kMuted, c.name.c_str());
+                y += 22;
+            }
+        }
+        if (atc.empty()) {
+            textAt(dl, f.body, x0, y, kInk, "UNICOM");
+            textAt(dl, f.mono, x0 + 150, y + 1, kInk, "122.800");
+            headsetButton(dl, "##hsunicom", ImVec2(x0 + 226, y + 9), 122.8, act);
+            textAt(dl, f.small, x0 + 250, y + 2, kMuted, s.vatsimAtcHave ? "No ATC online here: VATSIM's CTAF" : "VATSIM's CTAF (checking who is online...)");
+            y += 22;
+        }
+        y += 10;
+    }
     // radio
     textAt(dl, f.small, x0, y, kMuted, "RADIO");
     y += 20;
+    int fqi = 0;
     for (const AirportInfo::Freq& fq : ap.freqs) {
         textAt(dl, f.body, x0, y, kInk, fq.what.c_str());
         char b[16];
         std::snprintf(b, sizeof b, "%.3f", fq.mhz);
         textAt(dl, f.mono, x0 + 150, y + 1, kInk, b);
+        char id[24]; std::snprintf(id, sizeof id, "##hsf%d", fqi++);
+        headsetButton(dl, id, ImVec2(x0 + 226, y + 9), fq.mhz, act);
         if (!fq.note.empty()) {
             std::string n = fq.note;
-            while (n.size() > 3 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, n.c_str()).x > x1 - x0 - 230) { n.resize(n.size() - 3); n += ".."; }
-            textAt(dl, f.small, x0 + 230, y + 2, kMuted, n.c_str());
+            while (n.size() > 3 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, n.c_str()).x > x1 - x0 - 250) { n.resize(n.size() - 3); n += ".."; }
+            textAt(dl, f.small, x0 + 250, y + 2, kMuted, n.c_str());
         }
         y += 22;
     }
@@ -6038,6 +6131,22 @@ void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
 void watchForNotes(const SimState& s) {
     const double now = ImGui::GetTime();
     trackTraffic(s.map);
+    {   // VATSIM: a controller coming online at the flight's departure or destination (not those already there when it was first seen)
+        static std::set<std::string> seen;
+        static bool primed = false;
+        static std::string forPlan;
+        const std::string planKey = s.plan.loaded ? s.plan.origin + ">" + s.plan.dest : std::string();
+        if (planKey != forPlan) { forPlan = planKey; seen.clear(); primed = false; }
+        if (g_settings.vatsimAtcNotes && s.plan.loaded && s.vatsimAtcHave) {
+            for (const std::string& icao : {s.plan.origin, s.plan.dest}) {
+                for (const VatsimController& c : atcFor(s, icao)) {
+                    if (!seen.insert(c.callsign).second || !primed) continue;
+                    postNote(c.callsign + " online", (c.facility == 7 ? std::string("ATIS ") : std::string()) + c.freq + (c.name.empty() || c.facility == 7 ? std::string() : "  \xC2\xB7  " + c.name), APP_AIRPORTS);
+                }
+            }
+            primed = true;
+        }
+    }
     for (const MapState::Traffic& t : s.map.traffic) {
         // the worst of: a runway collision (3), an RA (2), a TA (1); one notification each time it gets worse, and again after a minute
         const int level = runwayConflict(s.map, t) ? 3 : tcasLevel(s.map, t);
@@ -6448,6 +6557,10 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "SimBrief is checked every 2 minutes with your SimBrief ID; a new plan is loaded. Opens the Flight Plan.", nullptr, colW);
         y += 34;
         if (g_settings.simbriefUser.empty()) textAt(dl, f.small, lx, y, kWarn, "Enter your SimBrief ID under Data first.");
+        y += 26;
+        toggle("##ntfatc", lx, y, colW, "VATSIM ATC online", g_settings.vatsimAtcNotes, g_settings.notifyEnabled);
+        y += 36;
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "A controller comes online at your departure or destination. Opens Airports.", nullptr, colW);
         // the right: try one
         float ry = top;
         textAt(dl, f.bold, rx, ry, kInk, "Try it");
@@ -7637,6 +7750,7 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
+    out += std::string("map_vatsim_atc=") + (g_settings.mapVatsimAtc ? "1" : "0") + "\nvatsim_atc_notes=" + (g_settings.vatsimAtcNotes ? "1" : "0") + "\n";
     { char cb[64]; std::snprintf(cb, sizeof cb, "custom_bg=%06X\ncustom_accent=%06X\n", g_settings.customBg & 0xFFFFFF, g_settings.customAccent & 0xFFFFFF); out += cb; }
     {   // the home screen: its pages, folders (name, a tab, then the apps) and Volanta's overlay address
         out += "home_pages=" + std::to_string(g_settings.homePages) + "\n";
@@ -7748,6 +7862,8 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_traffic_source") g_settings.mapTrafficSource = v == 1 ? 1 : 0;
         else if (key == "map_traffic_trails") g_settings.mapTrafficTrails = v != 0;
         else if (key == "map_traffic_route") g_settings.mapTrafficRoute = v != 0;
+        else if (key == "map_vatsim_atc") g_settings.mapVatsimAtc = v != 0;
+        else if (key == "vatsim_atc_notes") g_settings.vatsimAtcNotes = v != 0;
         else if (key == "map_traffic_range") g_settings.mapTrafficRangeNm = std::max(0.0f, std::min(2000.0f, (float)std::atof(val.c_str())));
         else if (key == "map_traffic_alt") g_settings.mapTrafficAltFt = std::max(0.0f, std::min(60000.0f, (float)std::atof(val.c_str())));
         else if (key == "physical_keys") g_settings.physicalKeys = v != 0;

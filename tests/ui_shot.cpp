@@ -756,6 +756,12 @@ int main(int argc, char** argv) {
             ap.airport.ctaf = {"CTAF", 118.950, "Tower frequency, the CTAF when the tower is closed"};
             ap.metar.icao = "KXPT"; ap.metar.raw = "KXPT 180054Z 24014G22KT 10SM FEW035 BKN250 08/02 A2998 RMK AO2";
             shot(ap, APP_AIRPORTS, "airports");
+            {   // VATSIM's controllers online there (and their headsets)
+                SimState av = ap; av.vatsimAtcHave = true;
+                av.vatsimAtc = {{av.airport.icao + "_ATIS", "135.400", "", "INFORMATION KILO 1251Z WIND 270 AT 8 VIS 10 CEILING 2500 BROKEN ILS 27 IN USE", 7},
+                                {av.airport.icao + "_TWR", "118.700", "Tower controller", "", 4}, {av.airport.icao + "_GND", "121.900", "Ground", "", 3}};
+                shot(av, APP_AIRPORTS, "airports_vatsim");
+            }
         }
         {   // Notes: a clearance typed in; the scratchpad with handwriting
             notesFromText("craft0=KORD\ncraft1=PORTAGE ONE, then as filed\ncraft2=5000, expect FL350 10 min after\ncraft3=125.25\ncraft4=4521\n"

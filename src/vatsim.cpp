@@ -22,6 +22,7 @@ std::atomic<bool> g_quit{false}, g_want{false};
 std::mutex g_mx;
 std::condition_variable g_cv;
 std::unordered_map<std::string, VatsimPilot> g_pilots;
+std::vector<VatsimController> g_ctrls;
 std::string g_status = "Asking VATSIM...";
 bool g_have = false;
 
@@ -38,8 +39,11 @@ void fetchOnce() {
     if (!wx::parseJson(body, j)) { std::lock_guard<std::mutex> lk(g_mx); g_status = "VATSIM's data could not be read"; return; }
     std::unordered_map<std::string, VatsimPilot> pilots;
     readPilots(j, pilots);
+    std::vector<VatsimController> ctrls;
+    readControllers(j, ctrls);
     std::lock_guard<std::mutex> lk(g_mx);
     g_pilots.swap(pilots);
+    g_ctrls.swap(ctrls);
     g_have = true;
     g_status.clear();
 }
@@ -67,7 +71,7 @@ void stop() {
     g_cv.notify_all();
     if (g_thread.joinable()) g_thread.join();
     std::lock_guard<std::mutex> lk(g_mx);
-    g_pilots.clear(); g_have = false; g_status = "Asking VATSIM...";
+    g_pilots.clear(); g_ctrls.clear(); g_have = false; g_status = "Asking VATSIM...";
 }
 void want(bool on) { g_want = on; }
 std::vector<VatsimPilot> allPilots() {
@@ -76,6 +80,11 @@ std::vector<VatsimPilot> allPilots() {
     out.reserve(g_pilots.size());
     for (const auto& pr : g_pilots) out.push_back(pr.second);
     return out;
+}
+std::vector<VatsimController> controllers(bool* have) {
+    std::lock_guard<std::mutex> lk(g_mx);
+    if (have) *have = g_have;
+    return g_ctrls;
 }
 VatsimPilot lookup(const std::string& callsign, std::string& status) {
     std::lock_guard<std::mutex> lk(g_mx);

@@ -11,5 +11,7 @@ namespace xpt {
 namespace vatsim {
 void readPilots(const wx::Json& feed, std::unordered_map<std::string, VatsimPilot>& out);
 bool readPilots(const std::string& body, std::unordered_map<std::string, VatsimPilot>& out);   // false: not readable
+void readControllers(const wx::Json& feed, std::vector<VatsimController>& out);   // controllers and ATIS
+
 } // namespace vatsim
 } // namespace xpt
