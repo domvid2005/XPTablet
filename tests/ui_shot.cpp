@@ -1149,6 +1149,16 @@ int main(int argc, char** argv) {
                   if (!cabin) { std::printf("FAIL: Push Back (Close) puts the panel away\n"); ++failures; }
               }
           }
+          {   // a jetway docked: listed, and BetterPushback's Start and tug greyed (no action from them)
+              SimState pj = g3; pj.ground.pushSource = 1; pj.ground.jwDocked[0] = true;
+              press(pj, 735, 405);
+              for (int k = 0; k < 10; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, pj, 800, kLogicalH, act); ImGui::Render(); }
+              bool acted = false;
+              for (float yy = 200; yy < 330; yy += 6) { const Actions q = press(pj, 480, yy); const Actions q2 = press(pj, 700, yy); if (q.ground == GA_BP_START || q2.ground == GA_BP_CONNECT) acted = true; }
+              if (acted) { std::printf("FAIL: BetterPushback starts with a jetway connected\n"); ++failures; }
+              shot(pj, APP_GROUND, "ground_pushback_jetway");
+              press(pj, 735, 405);
+          }
           {   // the tug on its way (a push started, not connected yet): yellow "Tug Connecting"
               SimState p3 = g3; p3.ground.pushSource = 1; p3.ground.bpStarted = true; p3.ground.bpConnected = false;
               press(p3, 735, 405);

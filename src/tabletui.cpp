@@ -6279,7 +6279,9 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         if (t > 0.01f) {   // the panel: over the cabin's card; Push Back (red, "Close", under the finger) puts it away
             std::vector<std::string> checks;   // what is in the way
             if (!gnd) checks.push_back("Not on the ground");
-            if (anyDocked) checks.push_back("Disconnect the jetway");
+            // a jetway still on the aircraft (openSAM's or X-Plane's): no tug is called and no push starts until it is off
+            const bool jwOn = anyDocked || (g.openSam && g.jetway == 2);
+            if (jwOn) checks.push_back(bp ? "Jetway connected: disconnect it before the tug" : "Jetway connected: disconnect it first");
             if (g.chocks) checks.push_back("Remove the chocks");
             if (g.toliss && g.extPower) checks.push_back("Disconnect ground power");
             bool doorOpen = false;
@@ -6342,17 +6344,17 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
                 const char* tugLbl = tugOn ? "Disconnect the tug" : g.bpStarted ? "Reconnect the tug" : "Connect the tug";
                 const bool tugBusy = connecting || disconnecting;   // (on its way, or leaving: wait for it)
                 if (pill(dl, f, "##bpplan", "Plan route", ImVec2(x0, by0), ImVec2(x0 + hwB, by0 + rowH - 6), false, gnd && !g.bpStarted)) act.ground = GA_BP_PLAN;
-                if (pill(dl, f, "##bpconn", tugLbl, ImVec2(x1 - hwB, by0), ImVec2(x1, by0 + rowH - 6), tugOn && !tugBusy, gnd && !tugBusy)) {
+                if (pill(dl, f, "##bpconn", tugLbl, ImVec2(x1 - hwB, by0), ImVec2(x1, by0 + rowH - 6), tugOn && !tugBusy, gnd && !tugBusy && (tugOn || !jwOn))) {
                     act.ground = tugOn ? GA_BP_DISCONNECT : g.bpStarted ? GA_BP_RECONNECT : GA_BP_CONNECT;
                     if (tugOn) { discAsked = nowT; if (g.bpStarted) handSignals = true; } else { connAsked = nowT; handSignals = false; }
                 }
-                if (pill(dl, f, "##bpstart", "Start", ImVec2(x0, by1), ImVec2(x0 + hwB, by1 + rowH - 6), g.bpStarted, gnd && !g.bpStarted)) { act.ground = GA_BP_START; if (!g.bpConnected) connAsked = nowT; handSignals = false; }
+                if (pill(dl, f, "##bpstart", "Start", ImVec2(x0, by1), ImVec2(x0 + hwB, by1 + rowH - 6), g.bpStarted, gnd && !g.bpStarted && !jwOn)) { act.ground = GA_BP_START; if (!g.bpConnected) connAsked = nowT; handSignals = false; }
                 if (pill(dl, f, "##bpstop", "Stop", ImVec2(x1 - hwB, by1), ImVec2(x1, by1 + rowH - 6), false, g.bpStarted)) { act.ground = GA_BP_STOP; if (g.bpConnected) discAsked = nowT; }
             } else {
                 const float tw = std::floor((x1 - x0 - 16) / 3.0f);
-                if (pill(dl, f, "##pbl", "Left", ImVec2(x0, by0), ImVec2(x0 + tw, by0 + rowH - 6), false, gnd)) act.ground = GA_PUSH_LEFT;
-                if (pill(dl, f, "##pbs", "Straight", ImVec2(x0 + tw + 8, by0), ImVec2(x0 + 2 * tw + 8, by0 + rowH - 6), false, gnd)) act.ground = GA_PUSH_STRAIGHT;
-                if (pill(dl, f, "##pbr", "Right", ImVec2(x1 - tw, by0), ImVec2(x1, by0 + rowH - 6), false, gnd)) act.ground = GA_PUSH_RIGHT;
+                if (pill(dl, f, "##pbl", "Left", ImVec2(x0, by0), ImVec2(x0 + tw, by0 + rowH - 6), false, gnd && !jwOn)) act.ground = GA_PUSH_LEFT;
+                if (pill(dl, f, "##pbs", "Straight", ImVec2(x0 + tw + 8, by0), ImVec2(x0 + 2 * tw + 8, by0 + rowH - 6), false, gnd && !jwOn)) act.ground = GA_PUSH_STRAIGHT;
+                if (pill(dl, f, "##pbr", "Right", ImVec2(x1 - tw, by0), ImVec2(x1, by0 + rowH - 6), false, gnd && !jwOn)) act.ground = GA_PUSH_RIGHT;
                 if (pill(dl, f, "##pbstop", "Stop", ImVec2(x0, by1), ImVec2(x1, by1 + rowH - 6), false, gnd)) act.ground = GA_PUSH_STOP;
             }
             ImGui::EndDisabled();
