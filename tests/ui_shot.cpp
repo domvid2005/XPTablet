@@ -545,6 +545,32 @@ int main(int argc, char** argv) {
             mp.map.airportPoints = {{"KXPT", 41.70, -86.32, 1, "", 9000}, {"KSBN", 41.7087, -86.3173, 1, "", 8412}, {"KGSH", 41.5264, -85.7922, 1, "", 5500}, {"KEKM", 41.7194, -86.0003, 1, "", 6500}};
             settings().mapAirports = true; settings().mapSource = 0; settings().mapLocalTime = true;
             shot(mp, APP_MAP, "map_airport");
+            {   // as the emulator gives it: airports as dots only (no layouts), tapped for their card
+                SimState em = mp; em.map.airports.clear(); em.map.lat = 41.75; em.map.lon = -86.40;
+                em.map.airportPoints = {{"KSBN", 41.7087, -86.3173, 1, "South Bend Intl", 8500}, {"KORD", 41.9786, -87.9048, 1, "Chicago O'Hare Intl", 13000}};
+                std::string got;
+                auto tapAt = [&](float x, float y) {
+                    const bool downs[5] = {false, true, true, false, false};
+                    for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, d);
+                        ImGui::NewFrame(); Actions act; build(fonts, em, 800, kLogicalH, act); ImGui::Render(); if (!act.airportOpen.empty()) got = act.airportOpen; }
+                };
+                openApp(APP_MAP); for (int i = 0; i < 9; ++i) mapCommand(1); shot(em, APP_MAP, "map_airport_dots");
+                for (float yy = 150; yy < 400 && got.empty(); yy += 5) for (float xx = 280; xx < 560 && got.empty(); xx += 5) tapAt(xx, yy);
+                if (got.empty()) { std::printf("FAIL: an airport's dot on the map cannot be tapped\n"); ++failures; }
+                else shot(em, APP_MAP, "map_airport_dot_card");
+                {   // its VATSIM ATC badge: tapped, the card (with the controllers)
+                    mapSelect(0, ""); got.clear();
+                    em.vatsimAtc = {{"SBN_TWR", "118.950", "South Bend Tower", "", 4}, {"KSBN_ATIS", "135.200", "", "INFO B", 7}}; em.vatsimAtcHave = true;
+                    const bool was = settings().mapVatsimAtc; settings().mapVatsimAtc = true;
+                    for (float yy = 150; yy < 400 && got.empty(); yy += 4) for (float xx = 280; xx < 600 && got.empty(); xx += 4) {
+                        tapAt(xx, yy); if (!got.empty() && got != "KSBN") got.clear();
+                    }
+                    if (got.empty()) { std::printf("FAIL: no KSBN card from the map\n"); ++failures; }
+                    else shot(em, APP_MAP, "map_airport_atc_card");
+                    settings().mapVatsimAtc = was;
+                }
+                mapSelect(0, ""); for (int i = 0; i < 9; ++i) mapCommand(0);
+            }
             {   // the frame's cost at every zoom step, from the farthest in to the closest, every layer on (a step costing
                 // much more than the others is how "zoomed right in, the sim freezes" shows here)
                 settings().mapTimeZones = true; settings().mapOutlines = true; settings().mapRings = true; settings().mapIls = true;

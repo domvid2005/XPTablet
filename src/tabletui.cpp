@@ -4194,6 +4194,16 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     const float d = std::sqrt((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y));
                     if (d < aBest) { aBest = d; aKey = a.icao; }
                 }
+            if (aKey.empty() && g_settings.mapVatsimAtc && g_mapZoom >= 6.0 && !s.vatsimAtc.empty())   // its VATSIM ATC badge (beside the dot) opens it too
+                for (const AptPoint& a : m.airportPoints) {
+                    const ImVec2 q = toS(mercOf(a.lat, a.lon));
+                    if (p.x < q.x - 4 || p.x > q.x + 70 || p.y < q.y - 26 || p.y > q.y + 4) continue;
+                    const std::vector<VatsimController> atc = atcFor(s, a.icao);
+                    if (atc.empty()) continue;
+                    std::string letters;
+                    for (const VatsimController& c : atc) { const char L = c.facility == 2 ? 'D' : c.facility == 3 ? 'G' : c.facility == 4 ? 'T' : c.facility == 5 ? 'A' : c.facility == 7 ? 'I' : 0; if (L && letters.find(L) == std::string::npos) letters += L; }
+                    if (p.x <= q.x + 8 + letters.size() * 11.0f + 8 + 4) { aKey = a.icao; break; }
+                }
             bool stand = false;
             if (g_mapShownNm < 1.9 && g_settings.mapStands)   // the stands are drawn
                 for (const auto& ap : m.airports) {
@@ -4412,6 +4422,12 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                         std::snprintf(b, sizeof b, "%.0f x %.0f ft, %s", ft, g.runways[i].widthM * 3.28084, surfaceName(surf));
                         L.push_back({1, g.runways[i].idA + " / " + g.runways[i].idB, b});
                     }
+                }
+                if (g_settings.mapVatsimAtc && s.vatsimAtcHave) {   // VATSIM's controllers there (the badge's letters, in full)
+                    const std::vector<VatsimController> atc = atcFor(s, g_selKey);
+                    L.push_back({4, "VATSIM ATC", ""});
+                    if (atc.empty()) L.push_back({2, "No controller online: UNICOM 122.800", ""});
+                    for (const VatsimController& c : atc) L.push_back({1, c.facility == 7 ? c.callsign + " (ATIS)" : c.callsign, c.freq});
                 }
                 if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, la, lo, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0T", d, brg); L.push_back({1, "From you", b}); }
                 L.push_back({5, "Open in Airports", ""});
