@@ -1103,6 +1103,24 @@ int main(int argc, char** argv) {
             const Actions m = press(g6, 220, cy + 18 + 34);
             if (m.ground == GA_JETWAY_DOOR) { std::printf("FAIL: the jetway at 2L is pressable in 1L's menu\n"); ++failures; }
             press(g6, 700, 450); openApp(APP_GROUND); }
+          {   // Pushback: its bubble opens the panel; X-Plane's tug, then BetterPushback's
+              SimState p1 = g3; p1.ground.chocks = true; p1.ground.parkBrake = true; p1.ground.extPower = true;
+              auto settle = [&](const SimState& st2) { for (int k = 0; k < 10; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, st2, 800, kLogicalH, act); ImGui::Render(); } };
+              press(p1, 295, 133); settle(p1);
+              bool stop = false;
+              for (float yy = 170; yy < 420 && !stop; yy += 6) { const Actions q = press(p1, 200, yy); if (q.ground == GA_PUSH_STOP) stop = true; }
+              if (!stop) { std::printf("FAIL: the Pushback panel's Stop (X-Plane's tug)\n"); ++failures; }
+              settle(p1);
+              shot(p1, APP_GROUND, "ground_pushback_xp");
+              SimState p2 = g3; p2.ground.pushSource = 1; p2.ground.bpConnected = true; p2.ground.parkBrake = true;
+              press(p2, 700, 450); settle(p2); press(p2, 295, 133); settle(p2);
+              bool start = false;
+              for (float yy = 170; yy < 420 && !start; yy += 6) { const Actions q = press(p2, 120, yy); if (q.ground == GA_BP_START) start = true; }
+              if (!start) { std::printf("FAIL: the Pushback panel's Start (BetterPushback)\n"); ++failures; }
+              settle(p2);
+              shot(p2, APP_GROUND, "ground_pushback_bp");
+              press(p2, 700, 450); settle(p2);
+          }
           { SimState g4 = g3; g4.ground.slidesAuto = true; g4.ground.slides = 1; settings().cabinAuto = true; shot(g4, APP_GROUND, "ground_slides_auto"); settings().cabinAuto = false; }
           openApp(APP_GROUND); }
         // not a ToLiss: an airliner still gets the 1L bubble (X-Plane's own jetways, or openSAM's)

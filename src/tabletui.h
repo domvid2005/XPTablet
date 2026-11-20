@@ -153,6 +153,9 @@ struct GroundState {
     int slides = -1;              // ToLiss: the cabin doors' slides, 1 armed, 0 disarmed, -1 unknown
     // what keeps a jetway from connecting (the Ground page's status)
     bool beacon = false, enginesRunning = false, parkBrake = false;
+    // pushback: 1 BetterPushback is installed (its planner, tug and its state), 0 X-Plane's own (left, straight, right, stop)
+    int pushSource = 0;
+    bool bpStarted = false, bpConnected = false;   // BetterPushback: a pushback under way; its tug is connected
     float groundSpeedKt = 0;
     float cabinLight = -1;        // ToLiss: the cabin lights, 0..1, -1 unknown
     int cabinAuto = -1;           // ToLiss: the cabin lights' auto setting, 1 on, 0 off, -1 the aircraft has none (XPTablet's own Auto: Settings::cabinAuto)
@@ -375,7 +378,8 @@ struct SimState {
 // What the user asked for on the Ground page; the host carries it out.
 enum GroundAction { GA_NONE, GA_JETWAY, GA_GPU, GA_CHOCKS, GA_HP_AIR, GA_LP_AIR, GA_TRUCKS, GA_PUSH_LEFT, GA_PUSH_STRAIGHT, GA_PUSH_RIGHT, GA_PUSH_STOP,
                     GA_PAX_DOOR, GA_CARGO_DOOR, GA_DOORS_CLOSE, GA_DOORS_AUTO, GA_DEICE, GA_DEICE_QUICK,
-                    GA_JETWAY_DOOR, GA_SLIDES_ARM, GA_SLIDES_DISARM, GA_CABIN_LIGHT, GA_SLIDES_AUTO, GA_CABIN_READY, GA_CABIN_AUTO, GA_OPENSAM_UI, GA_JETWAY_SET };   // GA_JETWAY_SET: groundIndex a mask of the doors to connect
+                    GA_JETWAY_DOOR, GA_SLIDES_ARM, GA_SLIDES_DISARM, GA_CABIN_LIGHT, GA_SLIDES_AUTO, GA_CABIN_READY, GA_CABIN_AUTO, GA_OPENSAM_UI, GA_JETWAY_SET,
+                    GA_BP_PLAN, GA_BP_CONNECT, GA_BP_START, GA_BP_STOP };   // GA_BP_*: BetterPushback's planner, tug, start and stop   // GA_JETWAY_SET: groundIndex a mask of the doors to connect
 
 struct Actions {
     std::string localForget;      // Local Connect: a paired device removed (its name)

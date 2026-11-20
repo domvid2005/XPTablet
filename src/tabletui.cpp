@@ -6247,6 +6247,78 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             }
         }
     }
+    // ---- pushback: a bubble under the aircraft's size, its panel growing out of it: BetterPushback's planner, tug, Start and Stop
+    // when it is installed, X-Plane's own tug (left, straight, right, stop) otherwise; and what is still in the way of pushing
+    {
+        static bool pbOpen = false;
+        const bool bp = g.pushSource == 1;
+        const ImVec2 pa(e.x - 124, a.y + 34), pb(e.x - 14, a.y + 64);
+        dl->AddRectFilled(pa, pb, themeTone(16, 30, 56, 255), 15.0f);
+        if (pill(dl, f, "##pushbtn", g.bpStarted ? "Pushing" : "Pushback", pa, pb, pbOpen || g.bpStarted, true)) pbOpen = !pbOpen;
+        const float t = openness("##pushopen", pbOpen);
+        if (t > 0.01f) {
+            std::vector<std::string> checks;   // what is in the way
+            if (!gnd) checks.push_back("Not on the ground");
+            if (anyDocked) checks.push_back("Disconnect the jetway");
+            if (g.chocks) checks.push_back("Remove the chocks");
+            if (g.toliss && g.extPower) checks.push_back("Disconnect ground power");
+            bool doorOpen = false;
+            if (g.toliss) { for (int i = 0; i < g.paxDoors && i < 8; ++i) if (g.paxDoor[i] == 2) doorOpen = true; for (int i = 0; i < g.cargoDoors && i < 4; ++i) if (g.cargoDoor[i] == 2) doorOpen = true; }
+            if (doorOpen) checks.push_back("Close the doors");
+            if (g.parkBrake && (!bp || g.bpConnected)) checks.push_back(bp ? "Release the parking brake: the tug is on" : "Release the parking brake");
+            const float pw = 300, rowH = 36;
+            const float ph = 46 + 30 + std::max(1, (int)checks.size()) * 22 + 10 + 2 * rowH + 46;
+            const ImVec2 qa(pb.x - pw, pb.y + 8), qb(pb.x, pb.y + 8 + ph);
+            const int v0 = dl->VtxBuffer.Size;
+            ImGui::BeginDisabled(!pbOpen);
+            ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
+            ImGui::SetNextItemAllowOverlap();
+            if (ImGui::InvisibleButton("##pushcatch", ImVec2(w, h - kStatusH))) pbOpen = false;   // (a press beside it: closed)
+            ImGui::SetCursorScreenPos(qa);
+            ImGui::SetNextItemAllowOverlap();
+            ImGui::InvisibleButton("##pushbg", ImVec2(qb.x - qa.x, qb.y - qa.y));
+            dl->AddRectFilled(ImVec2(qa.x + 2, qa.y + 4), ImVec2(qb.x + 2, qb.y + 4), IM_COL32(0, 0, 0, 70), 14.0f);
+            dl->AddRectFilled(qa, qb, themeTone(12, 22, 40, 246), 14.0f);
+            dl->AddRect(qa, qb, IM_COL32(255, 255, 255, 46), 14.0f, 0, 1.0f);
+            float y = qa.y + 12;
+            textAt(dl, f.bold, qa.x + 14, y, kInk, "Pushback");
+            textRight(dl, f.small, qb.x - 14, y + 2, kMuted, bp ? "BetterPushback" : "X-Plane's tug");
+            y += 30;
+            const char* state = bp ? (g.bpStarted ? (g.bpConnected ? "Pushing back" : "The tug is on its way") : g.bpConnected ? "Tug connected" : "Tug not called")
+                                   : "Steer with the rudder while it pushes";
+            textAt(dl, f.small, qa.x + 14, y, g.bpStarted ? kGood : kMuted, state);
+            y += 26;
+            if (checks.empty()) { dl->AddCircleFilled(ImVec2(qa.x + 18, y + 8), 3.5f, kGood, 0); textAt(dl, f.body, qa.x + 30, y, kGood, "Ready to push"); y += 22; }
+            for (const std::string& c : checks) {
+                dl->AddCircleFilled(ImVec2(qa.x + 18, y + 8), 3.5f, kWarn, 0);
+                textAt(dl, f.body, qa.x + 30, y, kInk, c.c_str());
+                y += 22;
+            }
+            y += 10;
+            const float bx0 = qa.x + 12, bx1 = qb.x - 12;
+            if (bp) {
+                const float hwB = std::floor((bx1 - bx0 - 8) * 0.5f);
+                if (pill(dl, f, "##bpplan", "Plan route", ImVec2(bx0, y), ImVec2(bx0 + hwB, y + rowH - 6), false, gnd && !g.bpStarted)) act.ground = GA_BP_PLAN;
+                if (pill(dl, f, "##bpconn", "Call the tug", ImVec2(bx1 - hwB, y), ImVec2(bx1, y + rowH - 6), g.bpConnected, gnd && !g.bpStarted && !g.bpConnected)) act.ground = GA_BP_CONNECT;
+                y += rowH;
+                if (pill(dl, f, "##bpstart", "Start", ImVec2(bx0, y), ImVec2(bx0 + hwB, y + rowH - 6), g.bpStarted, gnd && !g.bpStarted)) act.ground = GA_BP_START;
+                if (pill(dl, f, "##bpstop", "Stop", ImVec2(bx1 - hwB, y), ImVec2(bx1, y + rowH - 6), false, g.bpStarted)) act.ground = GA_BP_STOP;
+                y += rowH;
+                dl->AddText(f.small, fontPx(f.small), ImVec2(bx0, y + 2), kMuted, "Plan the route on the ground, then Start: BetterPushback connects and pushes.", nullptr, bx1 - bx0);
+            } else {
+                const float tw = std::floor((bx1 - bx0 - 16) / 3.0f);
+                if (pill(dl, f, "##pbl", "Left", ImVec2(bx0, y), ImVec2(bx0 + tw, y + rowH - 6), false, gnd)) act.ground = GA_PUSH_LEFT;
+                if (pill(dl, f, "##pbs", "Straight", ImVec2(bx0 + tw + 8, y), ImVec2(bx0 + 2 * tw + 8, y + rowH - 6), false, gnd)) act.ground = GA_PUSH_STRAIGHT;
+                if (pill(dl, f, "##pbr", "Right", ImVec2(bx1 - tw, y), ImVec2(bx1, y + rowH - 6), false, gnd)) act.ground = GA_PUSH_RIGHT;
+                y += rowH;
+                if (pill(dl, f, "##pbstop", "Stop", ImVec2(bx0, y), ImVec2(bx1, y + rowH - 6), false, gnd)) act.ground = GA_PUSH_STOP;
+                y += rowH;
+                dl->AddText(f.small, fontPx(f.small), ImVec2(bx0, y + 2), kMuted, "For a planned route and a tug you can watch, install BetterPushback: the panel then drives it.", nullptr, bx1 - bx0);
+            }
+            ImGui::EndDisabled();
+            popIn(dl, v0, ImVec2(pb.x - 55, pb.y), t);
+        }
+    }
 }
 
 // Weather: WXPlane's own screen when WXPlane is installed (it draws itself into the page: the host passes the area on), otherwise
