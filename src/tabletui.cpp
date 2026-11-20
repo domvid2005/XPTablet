@@ -194,28 +194,51 @@ const Backdrop kBackdrops[5] = {
 struct Accent { const char* name; int r, g, b; };
 // each background has its accent: Navy the blue XPTablet always had, the others the logo colour their sky is made of
 const Accent kAccents[5] = {{"Blue", 70, 140, 255}, {"Violet", 150, 100, 235}, {"Magenta", 205, 80, 170}, {"Coral", 240, 96, 96}, {"Gold", 236, 176, 56}};
+constexpr int kThemes = 8;
+int themeIndex() { return std::max(0, std::min(kThemes - 1, g_settings.wallpaper)); }
+ImU32 rgbCol(int rgb, float k = 1.0f) {   // 0xRRGGBB, darkened by k
+    auto c = [&](int sh) { return (int)std::lround(((rgb >> sh) & 255) * k); };
+    return IM_COL32(c(16), c(8), c(0), 255);
+}
+// a theme's sky: the five from the logo; Noir, dark greys; Cloud, a pale blue day; Custom, from the colour chosen
+Backdrop themeBackdrop(int which) {
+    which = std::max(0, std::min(kThemes - 1, which));
+    if (which < 5) return kBackdrops[which];
+    if (which == 5) return {"Noir", IM_COL32(8, 8, 10, 255), IM_COL32(44, 46, 50, 255), IM_COL32(32, 33, 36, 255), IM_COL32(21, 22, 25, 255)};
+    if (which == 6) return {"Cloud", IM_COL32(58, 116, 190, 255), IM_COL32(176, 210, 238, 255), IM_COL32(124, 170, 214, 255), IM_COL32(96, 146, 198, 255)};
+    const int bg = g_settings.customBg;
+    return {"Custom", rgbCol(bg, 0.30f), rgbCol(bg, 1.0f), rgbCol(bg, 0.78f), rgbCol(bg, 0.56f)};
+}
+Accent themeAccent() {
+    const int i = themeIndex();
+    if (i < 5) return kAccents[i];
+    if (i == 5) return {"Silver", 132, 142, 160};
+    if (i == 6) return {"Sky", 36, 128, 232};
+    const int a = g_settings.customAccent;
+    return {"Custom", (a >> 16) & 255, (a >> 8) & 255, a & 255};
+}
 // the text colours follow the theme: moved by a share of how far the theme's accent is from Navy's blue (Navy: exactly as before)
 ImU32 themeText(int r, int g, int b, float share) {
-    const Accent& c = kAccents[std::max(0, std::min(4, g_settings.wallpaper))];
+    const Accent c = themeAccent();
     const Accent& n = kAccents[0];
     auto ch = [&](int base, int t, int nv) { return std::max(0, std::min(255, base + (int)std::lround((t - nv) * share))); };
     return IM_COL32(ch(r, c.r, n.r), ch(g, c.g, n.g), ch(b, c.b, n.b), 255);
 }
 #define kInk themeText(236, 241, 250, 0.05f)     // the main text: white with the faintest tint
 #define kMuted themeText(150, 168, 198, 0.32f)   // the quieter text: labels, hints, card titles
-ImU32 accentCol(int a) { const Accent& c = kAccents[std::max(0, std::min(4, g_settings.wallpaper))]; return IM_COL32(c.r, c.g, c.b, std::max(0, std::min(255, a))); }
+ImU32 accentCol(int a) { const Accent c = themeAccent(); return IM_COL32(c.r, c.g, c.b, std::max(0, std::min(255, a))); }
 ImU32 accentLite(int a);
 ImU32 mixCol(ImU32 a, ImU32 b, float t);
 // the route on the map: the theme's accent, a little lighter so it shows on the street map and the imagery
 ImU32 routeCol(int a) { const ImU32 c = mixCol(accentCol(255), IM_COL32(255, 255, 255, 255), 0.12f); return (c & 0x00FFFFFF) | ((ImU32)std::max(0, std::min(255, a)) << 24); }
 ImU32 accentLite(int a) {   // the lighter one: rings, lines, focus
-    const Accent& c = kAccents[std::max(0, std::min(4, g_settings.wallpaper))];
+    const Accent c = themeAccent();
     return IM_COL32(c.r + (255 - c.r) * 2 / 5, c.g + (255 - c.g) * 2 / 5, c.b + (255 - c.b) * 2 / 5, std::max(0, std::min(255, a)));
 }
 // one background drawn into a box (the screen; or a little picture of it in Settings, the same drawing made small)
 ImU32 mixCol(ImU32 a, ImU32 b, float t);
 void wallpaperIn(ImDrawList* dl, ImVec2 o, float w, float h, int which, float round = 0) {
-    const Backdrop& bd = kBackdrops[std::max(0, std::min(4, which))];
+    const Backdrop bd = themeBackdrop(which);
     const ImU32 top = bd.top, bot = bd.bot;
     if (round <= 0) dl->AddRectFilledMultiColor(o, ImVec2(o.x + w, o.y + h), top, top, bot, bot);
     else {   // rounded (the little pictures in Settings): a rounded box shaded top to bottom
@@ -252,7 +275,7 @@ void wallpaper(ImDrawList* dl, float w, float h) { wallpaperIn(dl, ImVec2(0, 0),
 // the theme's dark tone, for what lies over the page (the pull-down, glass cards, banners): navy turned towards the theme's sky
 // a navy tone moved by a share of how far the theme's sky is from Navy's (so on Navy it is exactly the tone given)
 ImU32 themeTone(int r, int g, int b, int a) {
-    const Backdrop& bd = kBackdrops[std::max(0, std::min(4, g_settings.wallpaper))];
+    const Backdrop bd = themeBackdrop(g_settings.wallpaper);
     const ImU32 n = kBackdrops[0].bot, t = bd.bot;
     auto ch = [&](int base, int sh) { const int d = (int)((t >> sh) & 255) - (int)((n >> sh) & 255); return std::max(0, std::min(255, base + (int)std::lround(d * 0.35f))); };
     return IM_COL32(ch(r, IM_COL32_R_SHIFT), ch(g, IM_COL32_G_SHIFT), ch(b, IM_COL32_B_SHIFT), std::max(0, std::min(255, a)));
@@ -456,7 +479,7 @@ void statusLogoRect(float w, ImVec2& a, ImVec2& size) {
 void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
     dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, kStatusH), IM_COL32(0, 0, 0, 90));
     {   // a touch of the theme: its sky's darkest tone and a faint glow of its accent (the logo and layout are unchanged)
-        const Backdrop& bd = kBackdrops[std::max(0, std::min(4, g_settings.wallpaper))];
+        const Backdrop bd = themeBackdrop(g_settings.wallpaper);
         dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, kStatusH), (bd.top & 0x00FFFFFF) | (70u << 24));
         // a clear edge under it: a dark line, then a hairline of the accent's light tone (no gradient)
         dl->AddRectFilled(ImVec2(0, kStatusH - 2), ImVec2(w, kStatusH - 1), IM_COL32(0, 0, 0, 110));
@@ -6413,14 +6436,15 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             textAt(dl, f.bold, rx, ry, kInk, "Color theme");
             ry += 24;
             const float tw = std::floor((colW - 4 * 8) / 5), th = std::floor(tw * 480.0f / 800.0f);   // the screen's shape
-            for (int i = 0; i < 5; ++i) {   // the wallpaper itself, made small, with its accent under it
-                const Backdrop& bd = kBackdrops[i];
-                const Accent& ac = kAccents[i];
-                const ImVec2 a(std::floor(rx + i * (tw + 8)), std::floor(ry)), b(a.x + tw, a.y + th);   // (on whole pixels: even edges)
+            for (int i = 0; i < kThemes; ++i) {   // the wallpaper itself, made small, with its accent under it (two rows)
+                const Backdrop bd = themeBackdrop(i);
+                const int keep = g_settings.wallpaper;
+                g_settings.wallpaper = i; const Accent ac = themeAccent(); g_settings.wallpaper = keep;
+                const ImVec2 a(std::floor(rx + (i % 5) * (tw + 8)), std::floor(ry + (i / 5) * (th + 40))), b(a.x + tw, a.y + th);   // (on whole pixels: even edges)
                 char id[16];
                 std::snprintf(id, sizeof id, "##wp%d", i);
                 ImGui::SetCursorScreenPos(a);
-                if (ImGui::InvisibleButton(id, ImVec2(tw, th + 34))) { g_settings.wallpaper = i; g_settings.accent = i; g_settingsChanged = true; }
+                if (ImGui::InvisibleButton(id, ImVec2(tw, th + 34))) { g_settings.wallpaper = i; g_settings.accent = std::min(i, 4); g_settingsChanged = true; }
                 const bool sel = g_settings.wallpaper == i, hot = ImGui::IsItemHovered();
                 dl->PushClipRect(a, b, true);
                 wallpaperIn(dl, a, tw, th, i, 8.0f);
@@ -6432,6 +6456,42 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
                 dl->AddCircleFilled(ImVec2((a.x + b.x) * 0.5f, b.y + 10), 5.0f, IM_COL32(ac.r, ac.g, ac.b, 255), 0);
                 textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y + 18, sel ? kInk : kMuted, bd.name);
             }
+            {   // Custom: two colour wheels beside it, the background's and the accent's (tapped or dragged)
+                auto wheel = [&](const char* id, ImVec2 c, float r, int& rgb, float value, const char* label) {
+                    const int v0 = dl->VtxBuffer.Size;
+                    dl->AddCircleFilled(c, r, IM_COL32(255, 255, 255, 255), 48);
+                    for (int i = v0; i < dl->VtxBuffer.Size; ++i) {   // each point: the hue round it, the colour's strength out from the middle
+                        ImDrawVert& vx = dl->VtxBuffer[i];
+                        const float dx = vx.pos.x - c.x, dy = vx.pos.y - c.y;
+                        const float hue = std::fmod(std::atan2(dy, dx) / (2 * 3.14159265f) + 1.0f, 1.0f), sat = std::min(1.0f, std::sqrt(dx * dx + dy * dy) / r);
+                        float cr, cg, cbl; ImGui::ColorConvertHSVtoRGB(hue, sat, value, cr, cg, cbl);
+                        vx.col = (vx.col & IM_COL32_A_MASK) | IM_COL32((int)(cr * 255), (int)(cg * 255), (int)(cbl * 255), 0);
+                    }
+                    dl->AddCircle(c, r, IM_COL32(255, 255, 255, 70), 48, 1.0f);
+                    ImGui::SetCursorScreenPos(ImVec2(c.x - r, c.y - r));
+                    ImGui::InvisibleButton(id, ImVec2(r * 2, r * 2));
+                    if (ImGui::IsItemActive()) {
+                        const ImVec2 mp = ImGui::GetIO().MousePos;
+                        const float dx = mp.x - c.x, dy = mp.y - c.y;
+                        const float hue = std::fmod(std::atan2(dy, dx) / (2 * 3.14159265f) + 1.0f, 1.0f), sat = std::min(1.0f, std::sqrt(dx * dx + dy * dy) / r);
+                        float cr, cg, cbl; ImGui::ColorConvertHSVtoRGB(hue, sat, value, cr, cg, cbl);
+                        rgb = ((int)(cr * 255) << 16) | ((int)(cg * 255) << 8) | (int)(cbl * 255);
+                        g_settings.wallpaper = 7; g_settingsChanged = true;
+                    }
+                    // where the colour chosen is on it
+                    float hh, ss, vv;
+                    ImGui::ColorConvertRGBtoHSV(((rgb >> 16) & 255) / 255.0f, ((rgb >> 8) & 255) / 255.0f, (rgb & 255) / 255.0f, hh, ss, vv);
+                    const ImVec2 k(c.x + std::cos(hh * 2 * 3.14159265f) * ss * r, c.y + std::sin(hh * 2 * 3.14159265f) * ss * r);
+                    dl->AddCircle(k, 5.0f, IM_COL32(0, 0, 0, 200), 16, 2.5f);
+                    dl->AddCircle(k, 5.0f, IM_COL32(255, 255, 255, 255), 16, 1.5f);
+                    textCentered(dl, f.small, c.x, c.y + r + 4, kMuted, label);
+                };
+                const float r = std::floor((th + 10) * 0.5f);
+                const float wy = ry + (th + 40) + r;
+                wheel("##wheelbg", ImVec2(std::floor(rx + 3 * (tw + 8) + tw * 0.5f), wy), r, g_settings.customBg, 0.45f, "Background");
+                wheel("##wheelac", ImVec2(std::floor(rx + 4 * (tw + 8) + tw * 0.5f), wy), r, g_settings.customAccent, 1.0f, "Accent");
+            }
+            ry += th + 40;
             ry += th + 34 + 22;   // under the themes: the flight's trail on the map
             const char* trailNames[2] = {"Shown", "Hidden"};
             int tr = g_settings.mapTrail ? 0 : 1;
@@ -7452,6 +7512,7 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
+    { char cb[64]; std::snprintf(cb, sizeof cb, "custom_bg=%06X\ncustom_accent=%06X\n", g_settings.customBg & 0xFFFFFF, g_settings.customAccent & 0xFFFFFF); out += cb; }
     {   // the home screen: its pages, folders (name, a tab, then the apps) and Volanta's overlay address
         out += "home_pages=" + std::to_string(g_settings.homePages) + "\n";
         for (const auto& fo : g_settings.folders) {
@@ -7565,7 +7626,9 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_traffic_range") g_settings.mapTrafficRangeNm = std::max(0.0f, std::min(2000.0f, (float)std::atof(val.c_str())));
         else if (key == "map_traffic_alt") g_settings.mapTrafficAltFt = std::max(0.0f, std::min(60000.0f, (float)std::atof(val.c_str())));
         else if (key == "physical_keys") g_settings.physicalKeys = v != 0;
-        else if (key == "wallpaper") { g_settings.wallpaper = std::max(0, std::min(4, v)); g_settings.accent = g_settings.wallpaper; }
+        else if (key == "custom_bg") g_settings.customBg = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;
+        else if (key == "custom_accent") g_settings.customAccent = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;
+        else if (key == "wallpaper") { g_settings.wallpaper = std::max(0, std::min(kThemes - 1, v)); g_settings.accent = g_settings.wallpaper; }
         else if (key == "accent") g_settings.accent = std::max(0, std::min(4, v));
         else if (key == "battery") g_batt = (float)std::max(0, std::min(100, v));
         else if (key == "charger") g_charger = v != 0;

@@ -431,6 +431,11 @@ int main(int argc, char** argv) {
         shot(t, APP_GROUND, "ground_generic");
         // the App Store, Games, VATSIM's page; the home screen with widgets, a folder and a second page
         shot(t, APP_APPSTORE, "appstore");
+        { const int keep = settings().wallpaper;
+          settings().wallpaper = 5; shot(t, APP_HOME, "home_noir"); shot(t, APP_SETTINGS, "settings_noir");
+          settings().wallpaper = 6; shot(t, APP_HOME, "home_cloud"); shot(t, APP_MAP, "map_cloud");
+          settings().wallpaper = 7; settings().customBg = 0x2E5A3A; settings().customAccent = 0xF0A030; shot(t, APP_HOME, "home_custom");
+          settings().wallpaper = keep; }
         shot(t, APP_GAMES, "games");
         shot(t, APP_VATSIMHUB, "vatsimhub");
         {

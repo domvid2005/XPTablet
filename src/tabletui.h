@@ -52,7 +52,8 @@ struct Settings {
     bool mapTraffic = true;       // AI and multiplayer aircraft
     bool mapOutlines = false;     // coastlines, borders, states and provinces
     bool mapNavaids = true;       // VORs, NDBs and DMEs
-    int wallpaper = 0;            // Display: the background (0 navy .. 4 amber), from the XPTablet logo's colours
+    int wallpaper = 0;            // Display: the theme (0 navy .. 4 amber, from the logo's colours; 5 Noir, 6 Cloud, 7 Custom)
+    int customBg = 0x2A3E5C, customAccent = 0x46A0FF;   // the Custom theme's background and accent (0xRRGGBB)
     int accent = 0;               // Display: the colour of what is chosen (0 violet .. 4 gold), from the logo's letters
     bool physicalKeys = false;    // typing: the computer's own keyboard (a thin bar instead of the on-screen keys)
     bool mapRings = true;         // range rings round the aircraft (a quarter, half and all of the range), as on WXPlane's map
