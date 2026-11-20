@@ -130,6 +130,7 @@ bool writePng(const Canvas&, const std::string&) { return true; }   // no zlib h
 
 } // namespace
 
+static int installedApps() { int n = 0; for (int a = 0; a < APP_COUNT; ++a) n += appInstalled(a) && appVisible(a) ? 1 : 0; return n; }
 int main(int argc, char** argv) {
     const std::string out = argc > 1 ? argv[1] : ".";
     const float scale = argc > 2 ? (float)std::atof(argv[2]) : 2.0f;
@@ -232,10 +233,10 @@ int main(int argc, char** argv) {
         settings() = Settings();
         settingsFromText(txt);
         const Settings& st = settings();
-        if (!st.showNavigraph || st.showCharts || !st.showVatsim || !st.showLive || st.showForeflight || !st.showSimbrief) { std::printf("FAIL: settings round trip\n"); ++failures; }
+        if (!st.showNavigraph || st.showCharts || !st.showVatsim || st.showLive || st.showForeflight || !st.showSimbrief) { std::printf("FAIL: settings round trip\n"); ++failures; }
         int placed = 0;
         for (int a : st.order) placed += a >= 0 ? 1 : 0;
-        if (st.favorites != std::vector<int>({APP_WEATHER, APP_MAP}) || st.order[0] != APP_SETTINGS || st.order[1] != -1 || st.order[2] != APP_NOTES || placed != APP_COUNT - 2) { std::printf("FAIL: layout round trip\n"); ++failures; }
+        if (st.favorites != std::vector<int>({APP_WEATHER, APP_MAP}) || st.order[0] != APP_SETTINGS || st.order[1] != -1 || st.order[2] != APP_NOTES || placed != installedApps() - 2) { std::printf("FAIL: layout round trip\n"); ++failures; }
         openApp(APP_NAVIGRAPH);
         if (currentApp() != APP_BROWSER || browserChrome() || std::string(browserUrl()).find("navigraph") == std::string::npos) { std::printf("FAIL: the Navigraph icon\n"); ++failures; }
         openApp(APP_HOME); openApp(APP_VATSIM);
@@ -246,7 +247,7 @@ int main(int argc, char** argv) {
         if (appVisible(APP_FOREFLIGHT) || !appVisible(APP_SIMBRIEF)) { std::printf("FAIL: web app switch\n"); ++failures; }
         // an older settings file (one charts icon set to Navigraph) shows the Navigraph icon
         settings() = Settings(); settingsFromText("charts_provider=1\nshow_charts=1\nlive_provider=0\n");
-        if (!settings().showNavigraph || settings().showCharts || !settings().showLive) { std::printf("FAIL: older settings\n"); ++failures; }
+        if (!settings().showNavigraph || settings().showCharts) { std::printf("FAIL: older settings\n"); ++failures; }
         settings() = Settings();
     }
     // Performance is gone (everywhere); Checklists are not offered in a ToLiss (it has its own)
@@ -297,7 +298,8 @@ int main(int argc, char** argv) {
         if (!takeSettingsChanged()) { std::printf("FAIL: a rearranged home screen must be saved\n"); ++failures; }
         // an icon dropped on a free place stays there (the places between are left free)
         {
-            const int last = (int)settings().order.size() - 1;
+            int last = 20;   // the first page's last place, made free
+            if (settings().order[last] >= 0) { settings().order.push_back(settings().order[last]); settings().order[last] = -1; }
             int app = -1, from = -1;
             for (int i = 0; i < (int)settings().order.size(); ++i) if (settings().order[i] >= 0 && appVisible(settings().order[i])) { app = settings().order[i]; from = i; break; }
             const float cx = std::floor((W - cols * 104) * 0.5f) + (last % (int)cols) * 104 + 52;
@@ -338,7 +340,7 @@ int main(int argc, char** argv) {
         // 0 takes the bar away: every favorite returns to the grid, and the home screen still draws
         settings() = Settings(); settings().favoriteSlots = 0;
         settingsFromText(settingsToText());
-        if (!settings().favorites.empty() || std::count_if(settings().order.begin(), settings().order.end(), [](int a) { return a >= 0; }) != APP_COUNT) { std::printf("FAIL: favorites bar off\n"); ++failures; }
+        if (!settings().favorites.empty() || std::count_if(settings().order.begin(), settings().order.end(), [](int a) { return a >= 0; }) != installedApps()) { std::printf("FAIL: favorites bar off\n"); ++failures; }
         openApp(APP_HOME);
         std::vector<Batch> b;
         for (int i = 0; i < 2; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
@@ -427,6 +429,45 @@ int main(int argc, char** argv) {
         shot(s, APP_HOME, "home_wxplane");
         if (std::string(appName(APP_WEATHER)) != "WXPlane") { std::printf("FAIL: with WXPlane the icon is WXPlane\n"); ++failures; }
         shot(t, APP_GROUND, "ground_generic");
+        // the App Store, Games, VATSIM's page; the home screen with widgets, a folder and a second page
+        shot(t, APP_APPSTORE, "appstore");
+        shot(t, APP_GAMES, "games");
+        shot(t, APP_VATSIMHUB, "vatsimhub");
+        {
+            const Settings keep = settings();
+            settings().installed = {"datis", "spotify", "youtube", "nattrak"};
+            settings().folders = {{"Ops", {APP_NOTES, APP_DOCUMENTS, APP_CHECKLISTS}}};
+            settings().order = {kWidget0 + W_WEATHER, -1, kWidget0 + W_FLIGHT, -1, -1, -1, kWidget0 + W_FPS, -1, -1, -1, -1, -1, -1, kFolder0};
+            SimState hw = t; hw.fps = 47; hw.media.supported = true; hw.media.active = true; hw.media.title = "Night Flight"; hw.media.artist = "The Cruise"; hw.media.playing = true;
+            layoutHome();
+            if (settings().homePages < 2) { std::printf("FAIL: widgets push the icons onto a second page (%d)\n", settings().homePages); ++failures; }
+            shot(hw, APP_HOME, "home_widgets");
+            {   // a tap on the folder opens it; a tap beside it closes it; a swipe shows the next page
+                auto fr = [&](float x, float y, bool down) {
+                    io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, down);
+                    ImGui::NewFrame(); Actions act; build(fonts, hw, 800, kLogicalH, act); ImGui::Render(); };
+                fr(712, 175, false); fr(712, 175, true); fr(712, 175, false);
+                shot(hw, APP_HOME, "home_folder");
+                fr(40, 100, false); fr(40, 100, true); fr(40, 100, false);
+                fr(600, 300, false); fr(600, 300, true);
+                for (int k = 1; k <= 10; ++k) fr(600 - k * 40.0f, 300, true);
+                fr(200, 300, false);
+                shot(hw, APP_HOME, "home_page2");
+                for (int k = 0; k <= 10; ++k) fr(200 + k * 40.0f, 300, k < 10);   // and back
+            }
+            {   // the folders and widgets round-trip
+                const std::string txt = settingsToText();
+                const Settings before = settings();
+                settings() = Settings(); settingsFromText(txt);
+                if (settings().folders.size() != 1 || settings().folders[0].name != "Ops" || settings().folders[0].apps.size() != 3 || settings().order != before.order || settings().homePages != before.homePages)
+                    { std::printf("FAIL: folders and widgets round trip\n"); ++failures; }
+            }
+            settings().order.push_back(kWidget0 + W_MEDIA);
+            layoutHome();
+            shot(hw, APP_HOME, "home_widgets2");
+            settings() = keep;
+            layoutHome();
+        }
         {   // the Map page: a made-up airport (runway, apron with a hole and a curved edge, lines, stands, taxi routes)
             // the triangulator: a square with a square hole is 8 triangles
             const std::vector<std::vector<std::pair<double, double>>> sq = {{{0, 0}, {10, 0}, {10, 10}, {0, 10}}, {{3, 3}, {3, 7}, {7, 7}, {7, 3}}};
@@ -829,7 +870,7 @@ int main(int argc, char** argv) {
           wb.browser.activeTab = 1;
           press(wb, 300, 28 + 46 + 32 + 20); shot(wb, APP_BROWSER, "browser_keyboard");
           // a web app already open in a tab is shown again (its tab selected), not loaded over the shown page
-          { openApp(APP_LIVEMAP);
+          { settings().showLive = true; openApp(APP_LIVEMAP);
             Actions got;
             for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, wb, 800, kLogicalH, act); ImGui::Render(); if (act.webTabSelect || act.webTabNew || !act.webNavigate.empty()) got = act; }
             if (got.webTabSelect != 3) { std::printf("FAIL: Volanta's tab is shown again (%d, new %d, nav %s)\n", got.webTabSelect, got.webTabNew ? 1 : 0, got.webNavigate.c_str()); ++failures; } }

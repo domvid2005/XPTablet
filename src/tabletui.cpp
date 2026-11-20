@@ -64,12 +64,31 @@ const AppDef kApps[APP_COUNT] = {
     {"skyvector", "SkyVector", IM_COL32(32, 132, 108, 255), "https://skyvector.com"},
     {"music", "Media", IM_COL32(250, 45, 85, 255), nullptr},   // (its id stays "music": saved home screens keep it)
     {"dispatch", "Dispatch", IM_COL32(58, 110, 200, 255), nullptr},   // the SimBrief briefing (its PDF)
+    {"appstore", "App Store", IM_COL32(30, 140, 250, 255), nullptr},
+    {"games", "Games", IM_COL32(236, 72, 120, 255), nullptr},
+    {"datis", "D-ATIS", IM_COL32(40, 160, 140, 255), "https://datis.clowd.io"},
+    {"spotify", "Spotify", IM_COL32(30, 185, 84, 255), "https://open.spotify.com"},
+    {"ytmusic", "YouTube Music", IM_COL32(230, 33, 23, 255), "https://music.youtube.com"},
+    {"applemusic", "Apple Music", IM_COL32(250, 60, 90, 255), "https://music.apple.com"},
+    {"soundcloud", "SoundCloud", IM_COL32(255, 85, 0, 255), "https://soundcloud.com"},
+    {"youtube", "YouTube", IM_COL32(220, 30, 30, 255), "https://www.youtube.com"},
+    {"vatsimhub", "VATSIM", IM_COL32(40, 70, 160, 255), nullptr},   // with AIP / Stats bubbles
+    {"nattrak", "natTrak", IM_COL32(20, 90, 150, 255), "https://nattrak.vatsim.net"},
+    {"ivao", "IVAO Webeye", IM_COL32(20, 80, 200, 255), "https://webeye.ivao.aero"},
 };
 enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM, ICON_SKYVECTOR };   // pictures of their own (the other web apps borrow one)
 
 bool g_wx = false;             // WXPlane is installed (told by the host each frame): the Weather icon and page are WXPlane's
 ImTextureID g_wxLogo = 0;
 Settings g_settings;
+// the App Store's apps: on the home screen only once installed (the others were always there, their Settings switches too)
+bool g_installedRead = false;   // the settings file had its list (else D-ATIS comes installed)
+bool storeApp(int app) { return app >= APP_DATIS && app < APP_COUNT; }
+bool installed(int app) {
+    if (!storeApp(app)) return true;
+    for (const std::string& id : g_settings.installed) if (id == kApps[app].id) return true;
+    return false;
+}
 bool g_settingsChanged = false;
 std::string g_url = "https://chartfox.org", g_site = "Browser";   // what the web page shows
 int favSlots() { return std::max(0, std::min(kMaxFavorites, g_settings.favoriteSlots)); }
@@ -546,6 +565,31 @@ void drawTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, boo
     if (app == APP_WEATHER && g_wx && g_wxLogo) {   // WXPlane's own logo, WX above PLANE, on its dark tile
         const float r = tile * 0.46f * scale;
         dl->AddImage(g_wxLogo, ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r));
+    } else if (storeApp(app) || app == APP_APPSTORE || app == APP_GAMES) {   // (until their logos come: a mark of their own)
+        const float r = tile * 0.32f * scale;
+        const ImU32 wcol = IM_COL32(255, 255, 255, 255);
+        if (app == APP_APPSTORE) {   // an A of three strokes in a ring
+            dl->AddCircle(c, r * 1.02f, IM_COL32(255, 255, 255, 120), 0, std::max(1.5f, r * 0.08f));
+            const float tt = std::max(2.0f, r * 0.16f);
+            dl->AddLine(ImVec2(c.x - r * 0.48f, c.y + r * 0.56f), ImVec2(c.x + r * 0.10f, c.y - r * 0.62f), wcol, tt);
+            dl->AddLine(ImVec2(c.x + r * 0.48f, c.y + r * 0.56f), ImVec2(c.x - r * 0.10f, c.y - r * 0.62f), wcol, tt);
+            dl->AddLine(ImVec2(c.x - r * 0.64f, c.y + r * 0.20f), ImVec2(c.x + r * 0.64f, c.y + r * 0.20f), wcol, tt);
+        } else if (app == APP_GAMES) {   // a game pad
+            dl->AddRectFilled(ImVec2(c.x - r * 0.86f, c.y - r * 0.40f), ImVec2(c.x + r * 0.86f, c.y + r * 0.46f), wcol, r * 0.40f);
+            const ImU32 k = shade(appColor(app), shadeK);
+            dl->AddRectFilled(ImVec2(c.x - r * 0.58f, c.y - r * 0.06f), ImVec2(c.x - r * 0.22f, c.y + r * 0.10f), k);
+            dl->AddRectFilled(ImVec2(c.x - r * 0.48f, c.y - r * 0.16f), ImVec2(c.x - r * 0.32f, c.y + r * 0.20f), k);
+            dl->AddCircleFilled(ImVec2(c.x + r * 0.34f, c.y - r * 0.04f), r * 0.10f, k, 0);
+            dl->AddCircleFilled(ImVec2(c.x + r * 0.56f, c.y + r * 0.14f), r * 0.10f, k, 0);
+        } else {   // its name's first letters
+            std::string mono;
+            const char* nm = appName(app);
+            mono += nm[0];
+            for (const char* q = nm; *q; ++q) if (*q == ' ' && q[1] && mono.size() < 2) mono += q[1];
+            if (app == APP_DATIS) mono = "ATIS";
+            ImFont* fn = mono.size() > 2 ? f.bold : f.title;
+            textCentered(dl, fn, c.x, std::floor(c.y - fontPx(fn) * 0.5f * scale), wcol, mono.c_str());
+        }
     } else {
         icon(dl, appIcon(app), c, tile * 0.32f * scale, IM_COL32(255, 255, 255, 255));
     }
@@ -577,91 +621,315 @@ void hoverTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, bo
     }
 }
 // The grid as places: order[i] is the app at place i, or -1 for a free place. Favorites: the bar, in order, no gaps.
+void textAt(ImDrawList* dl, ImFont* font, float x, float y, ImU32 col, const char* txt);
+extern bool g_kbd;
+extern int g_kbdTarget;
+extern std::string* g_typeInto;
+void glass(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha);
+bool textField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, ImVec2 a, ImVec2 b, const char* hint, bool multiline, float ruled);
+// The home screen's places: pages of cols x rows; a widget takes a block of them from its corner (its place in the list).
+int g_gridCols = 7, g_gridRows = 3;
+bool isApp(int e) { return e >= 0 && e < APP_COUNT; }
+bool isFolder(int e) { return e >= kFolder0 && e < kFolder0 + (int)g_settings.folders.size(); }
+bool isWidget(int e) { return e >= kWidget0 && e < kWidget0 + W_COUNT; }
+void widgetCells(int kind, int& wc, int& wr) {
+    static const int sz[W_COUNT][2] = {{2, 2}, {4, 2}, {2, 2}, {1, 1}, {7, 2}};
+    wc = std::min(sz[kind][0], g_gridCols); wr = std::min(sz[kind][1], g_gridRows);
+}
+const char* widgetName(int kind) {
+    static const char* n[W_COUNT] = {"Weather", "Flight", "Now Playing", "Frame Rate", "Volanta Overlay"};
+    return n[kind];
+}
+// the places a widget covers (cap per page): marks cover[] with the widget's own place in the list
+bool widgetFits(int anchor, int kind, int cap, const std::vector<int>& cover, int self) {
+    int wc, wr; widgetCells(kind, wc, wr);
+    const int slot = anchor % cap, col = slot % g_gridCols, row = slot / g_gridCols;
+    if (col + wc > g_gridCols || row + wr > g_gridRows) return false;
+    for (int r = 0; r < wr; ++r) for (int c = 0; c < wc; ++c) {
+        const int i = anchor - slot + (row + r) * g_gridCols + col + c;
+        if (i < (int)cover.size() && cover[i] >= 0 && cover[i] != self) return false;
+    }
+    return true;
+}
+void markWidget(int anchor, int kind, int cap, std::vector<int>& cover) {
+    int wc, wr; widgetCells(kind, wc, wr);
+    const int slot = anchor % cap, col = slot % g_gridCols, row = slot / g_gridCols;
+    for (int r = 0; r < wr; ++r) for (int c = 0; c < wc; ++c) {
+        const int i = anchor - slot + (row + r) * g_gridCols + col + c;
+        if (i < (int)cover.size()) cover[i] = anchor;
+    }
+}
+// which widget covers each place (its corner's index), -1 none
+std::vector<int> coverOf(int cap) {
+    std::vector<int> cover(g_settings.order.size(), -1);
+    for (int i = 0; i < (int)g_settings.order.size(); ++i) if (isWidget(g_settings.order[i])) markWidget(i, g_settings.order[i] - kWidget0, cap, cover);
+    return cover;
+}
 void normalizeLayout(int capacity) {
+    auto& order = g_settings.order;
+    auto& folders = g_settings.folders;
     bool seen[APP_COUNT] = {};
     std::vector<int> fav;
-    for (int a : g_settings.favorites) if (a >= 0 && a < APP_COUNT && !seen[a]) { seen[a] = true; fav.push_back(a); }
+    for (int a : g_settings.favorites) if (isApp(a) && !seen[a]) { seen[a] = true; fav.push_back(a); }   // (no folders, no widgets)
     std::vector<int> spill;   // favorites beyond the bar's size go to the grid
     while ((int)fav.size() > favSlots()) { spill.insert(spill.begin(), fav.back()); seen[fav.back()] = false; fav.pop_back(); }
     g_settings.favorites.swap(fav);
-    for (int& a : g_settings.order) { if (a < 0 || a >= APP_COUNT || seen[a]) a = -1; else seen[a] = true; }
-    while ((int)g_settings.order.size() < capacity) g_settings.order.push_back(-1);
-    auto place = [&](int app) {   // after the last icon (gaps the user left stay), else into the first free place, else at the end
-        int last = -1;
-        for (int i = 0; i < (int)g_settings.order.size(); ++i) if (g_settings.order[i] >= 0) last = i;
-        for (int i = last + 1; i < capacity; ++i) if (g_settings.order[i] < 0) { g_settings.order[i] = app; return; }
-        for (int i = 0; i < capacity; ++i) if (g_settings.order[i] < 0) { g_settings.order[i] = app; return; }
-        g_settings.order.push_back(app);
-    };
-    for (int a : spill) { place(a); seen[a] = true; }
-    for (int a = 0; a < APP_COUNT; ++a) if (!seen[a]) place(a);
-    // icons past the grid's end (a narrower screen than before) come back into free places
-    for (int i = capacity; i < (int)g_settings.order.size(); ++i) {
-        const int a = g_settings.order[i];
-        if (a < 0) continue;
-        for (int k = 0; k < capacity; ++k) if (g_settings.order[k] < 0) { g_settings.order[k] = a; g_settings.order[i] = -1; break; }
+    for (auto& fo : folders) {   // a folder's apps: each once, and only apps
+        std::vector<int> keep;
+        for (int a : fo.apps) if (isApp(a) && !seen[a] && installed(a)) { seen[a] = true; keep.push_back(a); }
+        fo.apps.swap(keep);
     }
-    while ((int)g_settings.order.size() > capacity && g_settings.order.back() < 0) g_settings.order.pop_back();
+    std::vector<char> folderSeen(folders.size(), 0);
+    bool widgetSeen[W_COUNT] = {};
+    for (int& a : order) {
+        if (isWidget(a)) { if (widgetSeen[a - kWidget0]) a = -1; else widgetSeen[a - kWidget0] = true; continue; }
+        if (isFolder(a)) { if (folderSeen[a - kFolder0]) a = -1; else folderSeen[a - kFolder0] = 1; continue; }
+        if (!isApp(a) || seen[a] || !installed(a)) a = -1; else seen[a] = true;
+    }
+    g_settings.homePages = std::max(1, std::max(g_settings.homePages, ((int)order.size() + capacity - 1) / capacity));
+    order.resize((size_t)(g_settings.homePages * capacity), -1);
+    // widgets: each where it fits (one that no longer does, or overlaps another, moves to a place where it does)
+    std::vector<int> cover(order.size(), -1);
+    std::vector<int> movedWidgets;
+    for (int i = 0; i < (int)order.size(); ++i) if (isWidget(order[i])) {
+        const int k = order[i] - kWidget0;
+        if (widgetFits(i, k, capacity, cover, -1)) markWidget(i, k, capacity, cover);
+        else { movedWidgets.push_back(order[i]); order[i] = -1; }
+    }
+    std::vector<int> bumped;   // icons a widget now covers
+    for (int i = 0; i < (int)order.size(); ++i) if (order[i] >= 0 && !isWidget(order[i]) && cover[i] >= 0) { bumped.push_back(order[i]); order[i] = -1; }
+    auto addPage = [&]() { g_settings.homePages++; order.resize((size_t)(g_settings.homePages * capacity), -1); cover.resize(order.size(), -1); };
+    auto freeAt = [&](int i) { return order[i] < 0 && cover[i] < 0; };
+    auto place = [&](int e) {   // after the last icon (gaps the user left stay), else into the first free place, else on a new page
+        if (isWidget(e)) {
+            for (;;) {
+                for (int i = 0; i < (int)order.size(); ++i) {
+                    if (!freeAt(i) || !widgetFits(i, e - kWidget0, capacity, cover, -1)) continue;
+                    bool clear = true;   // (and no icon in its block)
+                    int wc, wr; widgetCells(e - kWidget0, wc, wr);
+                    const int slot = i % capacity, col = slot % g_gridCols, row = slot / g_gridCols;
+                    for (int r = 0; r < wr && clear; ++r) for (int c = 0; c < wc; ++c) if (!freeAt(i - slot + (row + r) * g_gridCols + col + c)) { clear = false; break; }
+                    if (!clear) continue;
+                    order[i] = e; markWidget(i, e - kWidget0, capacity, cover);
+                    return;
+                }
+                addPage();
+            }
+        }
+        int last = -1;
+        for (int i = 0; i < (int)order.size(); ++i) if (order[i] >= 0 && !isWidget(order[i])) last = i;
+        for (int i = last + 1; i < (int)order.size(); ++i) if (freeAt(i)) { order[i] = e; return; }
+        for (int i = 0; i < (int)order.size(); ++i) if (freeAt(i)) { order[i] = e; return; }
+        addPage();
+        for (int i = 0; i < (int)order.size(); ++i) if (freeAt(i)) { order[i] = e; return; }
+    };
+    for (int e : movedWidgets) place(e);
+    for (int e : bumped) place(e);
+    for (int a : spill) { place(a); seen[a] = true; }
+    for (int a = 0; a < APP_COUNT; ++a) if (!seen[a] && installed(a) && appVisible(a)) place(a);   // (an app hidden now gets a place when shown)
+    for (int k = 0; k < (int)folders.size(); ++k) if (!folderSeen[k]) place(kFolder0 + k);
 }
-void normalizeLayout() { normalizeLayout(21); }
+void normalizeLayout() { normalizeLayout(g_gridCols * g_gridRows); }
 int g_gridCapacity = 21;
+// the pages after the last one that holds anything go (one page always stays)
+void trimPages() {
+    const int cap = g_gridCapacity;
+    int used = 1;
+    for (int i = 0; i < (int)g_settings.order.size(); ++i) if (g_settings.order[i] >= 0) used = std::max(used, i / cap + 1);
+    g_settings.homePages = used;
+    g_settings.order.resize((size_t)(used * cap), -1);
+}
+void installApp(int app, bool on) {
+    if (app == APP_LIVEMAP) { g_settings.showLive = on; }
+    else if (storeApp(app)) {
+        auto& v = g_settings.installed;
+        v.erase(std::remove(v.begin(), v.end(), std::string(kApps[app].id)), v.end());
+        if (on) v.push_back(kApps[app].id);
+    }
+    if (!on) {   // out of the grid, the bar and its folder
+        for (int& e : g_settings.order) if (e == app) e = -1;
+        auto& fv = g_settings.favorites;
+        fv.erase(std::remove(fv.begin(), fv.end(), app), fv.end());
+        for (auto& fo : g_settings.folders) fo.apps.erase(std::remove(fo.apps.begin(), fo.apps.end(), app), fo.apps.end());
+    }
+    normalizeLayout(g_gridCapacity);
+    g_settingsChanged = true;
+}
 
-void home(ImDrawList* dl, const Fonts& f, float w, float h) {
+int g_homePage = 0;            // the page shown
+float g_homeScroll = 0;        // where the pages are now (a page's number; eases to g_homePage, follows a swipe)
+bool g_swiping = false;
+double g_edgeSince = -1;       // an icon held at the screen's edge since then (the page turns)
+int g_openFolder = -1;         // the folder shown open, -1 none
+double g_folderT0 = -10;
+bool g_widgetPicker = false;   // the list of widgets to add (while arranging)
+int g_grabCol = 0, g_grabRow = 0;   // where in a widget it was taken hold of (in places)
+void drawWidget(ImDrawList* dl, const Fonts& f, const SimState& s, int kind, ImVec2 a, ImVec2 b, Actions& act, bool live);   // (below)
+
+// a folder: a frosted tile with its first apps in small, its name under it
+void folderTile(ImDrawList* dl, const Fonts& f, int k, ImVec2 c, float tile, bool label, float scale) {
+    const ImVec2 a(c.x - tile * 0.5f * scale, c.y - tile * 0.5f * scale), b(c.x + tile * 0.5f * scale, c.y + tile * 0.5f * scale);
+    dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, 52), tile * 0.24f * scale);
+    dl->AddRect(a, b, IM_COL32(255, 255, 255, 40), tile * 0.24f * scale);
+    const auto& apps = g_settings.folders[k].apps;
+    const float mini = tile * scale * 0.24f, gap = tile * scale * 0.07f;
+    for (int i = 0; i < std::min(9, (int)apps.size()); ++i) {
+        const ImVec2 mc(a.x + gap * 1.5f + mini * 0.5f + (i % 3) * (mini + gap), a.y + gap * 1.5f + mini * 0.5f + (i / 3) * (mini + gap));
+        drawTile(dl, f, apps[i], mc, mini, false, 1.0f, 1.0f);
+    }
+    if (label) textCentered(dl, f.small, c.x, c.y + tile * 0.5f + 6, IM_COL32(236, 241, 250, 255), g_settings.folders[k].name.c_str());
+}
+
+void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     ImGuiIO& io = ImGui::GetIO();
     const ImVec2 m = io.MousePos;
     const double now = ImGui::GetTime();
+    const float dt = io.DeltaTime;
     const float cellW = 104, cellH = 100, tile = 60, dockTile = tile, dockCell = 86, dockH = 98, dockPad = 12;   // the bar's icons as big as the grid's
     const bool hasDock = favSlots() > 0;
     const float dockTop = hasDock ? h - dockH - 10 : h + 100;   // no favorites bar: the grid has the whole screen
     const int cols = std::max(1, (int)((w - 24) / cellW));
-    const float areaBot = hasDock ? dockTop - 6 : h - 8;
+    const float areaBot = (hasDock ? dockTop - 6 : h - 8) - 16;   // (the page dots under the grid)
     const int rows = std::max(1, (int)((areaBot - kStatusH - 10) / cellH));
-    g_gridCapacity = std::max(cols * rows, 1);
-    normalizeLayout(g_gridCapacity);
+    g_gridCols = cols; g_gridRows = rows;
+    const int cap = std::max(cols * rows, 1);
+    if (cap != g_gridCapacity) { g_gridCapacity = cap; }
+    normalizeLayout(cap);
+    auto& order = g_settings.order;
+    const bool arranging = g_editMode || g_dragging;
+    if (!arranging && (int)order.size() > cap) {   // (empty pages at the end go when the arranging is done)
+        bool empty = true;
+        for (int i = (g_settings.homePages - 1) * cap; i < (int)order.size(); ++i) if (order[i] >= 0) empty = false;
+        if (empty && g_settings.homePages > 1) trimPages();
+    }
+    int pages = g_settings.homePages;
+    if (g_dragging) {   // carrying something: a page more to put it on
+        bool lastEmpty = true;
+        for (int i = (pages - 1) * cap; i < pages * cap; ++i) if (order[i] >= 0) lastEmpty = false;
+        if (!lastEmpty) { ++pages; order.resize((size_t)(pages * cap), -1); g_settings.homePages = pages; }
+    }
+    g_homePage = std::max(0, std::min(pages - 1, g_homePage));
+    if (!g_swiping) {
+        g_homeScroll += (g_homePage - g_homeScroll) * (1.0f - std::exp(-dt * 12.0f));
+        if (std::fabs(g_homeScroll - g_homePage) < 0.001f) g_homeScroll = (float)g_homePage;
+    }
+    const std::vector<int> cover = coverOf(cap);
     const float gx0 = std::floor((w - cols * cellW) * 0.5f);
     const float gy0 = kStatusH + std::max(6.0f, std::floor((areaBot - kStatusH - rows * cellH) * 0.5f));
     const int drag = g_dragging ? g_pressApp : -1;
     std::vector<int> dock;
     for (int a : g_settings.favorites) if (appVisible(a) && a != drag) dock.push_back(a);
-    // where the dragged icon would land: a place in the grid, or a place in the bar
+    const ImVec2 bubA(16, h - 44), bubB(150, h - 12);        // arranging: New Folder (a trash while an empty folder is carried)
+    const ImVec2 wgA(16, h - 82), wgB(150, h - 50);          // and Widgets
+    const bool overBubble = drag >= 0 && m.x >= bubA.x && m.x < bubB.x && m.y >= bubA.y - 6 && m.y < bubB.y + 6;
+    // where the dragged thing would land: a place in the grid (a widget: its corner), or a place in the bar
     bool toDock = false;
     int target = -1, gap = -1;
-    if (drag >= 0) {
-        toDock = hasDock && m.y >= dockTop - 8;
+    if (drag >= 0 && !overBubble) {
+        toDock = hasDock && isApp(drag) && m.y >= dockTop - 8;
         if (toDock) {
             const bool fromDock = std::find(g_settings.favorites.begin(), g_settings.favorites.end(), drag) != g_settings.favorites.end();
             if ((int)dock.size() < favSlots() || fromDock) gap = std::max(0, std::min((int)dock.size(), (int)std::floor((m.x - ((w - favSlots() * dockCell) * 0.5f)) / dockCell)));
             else toDock = false;   // the bar is full
         }
-        if (!toDock) {
-            const int col = std::max(0, std::min(cols - 1, (int)std::floor((m.x - gx0) / cellW)));
-            const int row = std::max(0, std::min(rows - 1, (int)std::floor((m.y - gy0) / cellH)));
-            target = row * cols + col;
+        if (!toDock && m.y < dockTop - 8) {
+            int col = std::max(0, std::min(cols - 1, (int)std::floor((m.x - gx0) / cellW)));
+            int row = std::max(0, std::min(rows - 1, (int)std::floor((m.y - gy0) / cellH)));
+            if (isWidget(drag)) {
+                int wc, wr; widgetCells(drag - kWidget0, wc, wr);
+                col = std::max(0, std::min(cols - wc, col - g_grabCol)); row = std::max(0, std::min(rows - wr, row - g_grabRow));
+            }
+            target = g_homePage * cap + row * cols + col;
         }
-    }
+        // held at the screen's edge: the page turns
+        const bool edge = m.x < 18 || m.x > w - 18;
+        if (edge && g_edgeSince < 0) g_edgeSince = now;
+        if (!edge) g_edgeSince = -1;
+        if (edge && now - g_edgeSince > 0.6) {
+            const int to = g_homePage + (m.x < 18 ? -1 : 1);
+            if (to >= 0 && to < pages) g_homePage = to;
+            g_edgeSince = now;
+        }
+    } else g_edgeSince = -1;
+    // a widget can go where its block is free (of others, and of icons)
+    auto widgetCanGo = [&](int anchor, int kind, int self) {
+        if (!widgetFits(anchor, kind, cap, cover, self)) return false;
+        int wc, wr; widgetCells(kind, wc, wr);
+        const int slot = anchor % cap, col = slot % cols, row = slot / cols;
+        for (int r = 0; r < wr; ++r) for (int c = 0; c < wc; ++c) {
+            const int i = anchor - slot + (row + r) * cols + col + c, e = i < (int)order.size() ? order[i] : -1;
+            if (e >= 0 && e != self && !(isApp(e) && !appVisible(e))) return false;
+        }
+        return true;
+    };
 
-    // the grid: icons, and (while arranging) the free places, faintly
-    struct Hit { int app; ImVec2 a, b; };
+    // the pages: icons, folders, widgets; while arranging, the free places faintly
+    struct Hit { int e; ImVec2 a, b; int slot; };
     std::vector<Hit> hits;
-    const bool arranging = g_editMode || drag >= 0;
-    for (int slot = 0; slot < g_gridCapacity; ++slot) {
-        const float cx = gx0 + (slot % cols) * cellW, cy = gy0 + (slot / cols) * cellH;
-        const ImVec2 c(cx + cellW * 0.5f, cy + 6 + tile * 0.5f);
-        const int app = slot < (int)g_settings.order.size() ? g_settings.order[slot] : -1;
-        const bool shown = app >= 0 && appVisible(app) && app != drag;
-        if (slot == target && drag >= 0)
-            dl->AddRectFilled(ImVec2(c.x - tile * 0.5f - 4, c.y - tile * 0.5f - 4), ImVec2(c.x + tile * 0.5f + 4, c.y + tile * 0.5f + 4), IM_COL32(255, 255, 255, 60), tile * 0.28f);
-        if (!shown) {
-            if (arranging) dl->AddRectFilled(ImVec2(c.x - tile * 0.5f, c.y - tile * 0.5f), ImVec2(c.x + tile * 0.5f, c.y + tile * 0.5f), IM_COL32(255, 255, 255, 22), tile * 0.24f);
-            continue;
+    const bool liveWidgets = !g_editMode && drag < 0 && g_openFolder < 0;
+    for (int p = 0; p < pages; ++p) {
+        const float ox = std::floor((p - g_homeScroll) * w);
+        if (std::fabs(ox) >= w) continue;
+        const bool thisPage = std::fabs(p - g_homeScroll) < 0.02f;
+        dl->PushClipRect(ImVec2(0, kStatusH), ImVec2(w, dockTop - 4), true);
+        for (int slot = 0; slot < cap; ++slot) {
+            const int gi = p * cap + slot;
+            const float cx = ox + gx0 + (slot % cols) * cellW, cy = gy0 + (slot / cols) * cellH;
+            const ImVec2 c(cx + cellW * 0.5f, cy + 6 + tile * 0.5f);
+            const int e = gi < (int)order.size() ? order[gi] : -1;
+            if (isWidget(drag) && target >= 0 && p == g_homePage) {   // the block it would take
+                int wc, wr; widgetCells(drag - kWidget0, wc, wr);
+                if (gi == target) {
+                    const bool ok = widgetCanGo(target, drag - kWidget0, drag);
+                    dl->AddRectFilled(ImVec2(cx + 6, cy + 4), ImVec2(cx + wc * cellW - 6, cy + wr * cellH - 8), ok ? IM_COL32(255, 255, 255, 50) : IM_COL32(255, 80, 80, 50), 18.0f);
+                }
+            } else if (gi == target && drag >= 0)
+                dl->AddRectFilled(ImVec2(c.x - tile * 0.5f - 4, c.y - tile * 0.5f - 4), ImVec2(c.x + tile * 0.5f + 4, c.y + tile * 0.5f + 4), isFolder(e) && isApp(drag) ? accentCol(110) : IM_COL32(255, 255, 255, 60), tile * 0.28f);
+            if (isWidget(e) && e != drag) {
+                int wc, wr; widgetCells(e - kWidget0, wc, wr);
+                const ImVec2 wa(cx + 8, cy + 4), wb(cx + wc * cellW - 8, cy + wr * cellH - 10);
+                const int v0 = dl->VtxBuffer.Size;
+                drawWidget(dl, f, s, e - kWidget0, wa, wb, act, liveWidgets && thisPage);
+                if (g_editMode) {
+                    turnSince(dl, v0, ImVec2((wa.x + wb.x) * 0.5f, (wa.y + wb.y) * 0.5f), wiggle(e) * 0.25f);
+                    // its remove badge
+                    const ImVec2 bc(wa.x + 4, wa.y + 4);
+                    dl->AddCircleFilled(bc, 11, IM_COL32(60, 64, 72, 240), 0);
+                    dl->AddLine(ImVec2(bc.x - 4.5f, bc.y), ImVec2(bc.x + 4.5f, bc.y), IM_COL32(255, 255, 255, 255), 2.0f);
+                    ImGui::SetCursorScreenPos(ImVec2(bc.x - 13, bc.y - 13));
+                    char bid[24]; std::snprintf(bid, sizeof bid, "##wdel%d", e);
+                    if (ImGui::InvisibleButton(bid, ImVec2(26, 26))) { order[gi] = -1; g_settingsChanged = true; }
+                }
+                hits.push_back({e, wa, wb, gi});
+                continue;
+            }
+            const bool shown = (isApp(e) && appVisible(e) && e != drag) || (isFolder(e) && e != drag);
+            if (!shown) {
+                if (arranging && cover[gi] < 0) dl->AddRectFilled(ImVec2(c.x - tile * 0.5f, c.y - tile * 0.5f), ImVec2(c.x + tile * 0.5f, c.y + tile * 0.5f), IM_COL32(255, 255, 255, 22), tile * 0.24f);
+                continue;
+            }
+            const bool over = drag < 0 && m.x >= cx && m.x < cx + cellW && m.y >= cy && m.y < cy + cellH;
+            const bool held = g_pressApp == e && io.MouseDown[0];
+            const int v0 = dl->VtxBuffer.Size;
+            if (isFolder(e)) {
+                const Ease ez = eased(("##fold" + std::to_string(e)).c_str(), false, over, held);
+                folderTile(dl, f, e - kFolder0, c, tile, true, 1.0f + 0.06f * ez.hot - 0.06f * ez.down);
+            } else {
+                hoverTile(dl, f, e, c, tile, over, held);
+                g_iconC[e] = c; g_iconSize[e] = tile;
+            }
+            if (g_editMode) turnSince(dl, v0, c, wiggle(e));
+            hits.push_back({e, ImVec2(cx, cy), ImVec2(cx + cellW, cy + cellH), gi});
         }
-        const bool over = drag < 0 && m.x >= cx && m.x < cx + cellW && m.y >= cy && m.y < cy + cellH;
-        const bool held = g_pressApp == app && io.MouseDown[0];
-        const int v0 = dl->VtxBuffer.Size;
-        hoverTile(dl, f, app, c, tile, over, held);
-        if (g_editMode) turnSince(dl, v0, c, wiggle(app));
-        g_iconC[app] = c; g_iconSize[app] = tile;
-        hits.push_back({app, ImVec2(cx, cy), ImVec2(cx + cellW, cy + cellH)});
+        dl->PopClipRect();
+    }
+    // the page dots, over the bar
+    if (pages > 1) {
+        const float dy = (hasDock ? dockTop : h) - 12, dw0 = pages * 14.0f;
+        for (int p = 0; p < pages; ++p) {
+            const float near = std::max(0.0f, 1.0f - std::fabs(p - g_homeScroll));
+            dl->AddCircleFilled(ImVec2(std::floor(w * 0.5f - dw0 * 0.5f + 7 + p * 14), dy), 3.2f + near * 0.8f, IM_COL32(255, 255, 255, (int)(90 + 165 * near)), 0);
+        }
     }
     // the favorites bar: as many places as Settings gives it, the free ones shown as outlines
     const int dockSlots = favSlots();
@@ -682,7 +950,29 @@ void home(ImDrawList* dl, const Fonts& f, float w, float h) {
         hoverTile(dl, f, dock[k], c, dockTile, over, held);
         if (g_editMode) turnSince(dl, v0, c, wiggle(dock[k]));
         g_iconC[dock[k]] = c; g_iconSize[dock[k]] = dockTile;
-        hits.push_back({dock[k], ImVec2(cx, dockTop), ImVec2(cx + dockCell, dockTop + dockH)});
+        hits.push_back({dock[k], ImVec2(cx, dockTop), ImVec2(cx + dockCell, dockTop + dockH), -1});
+    }
+    // arranging: New Folder (a trash for an empty folder carried onto it) and Widgets
+    const bool carryEmptyFolder = isFolder(drag) && g_settings.folders[drag - kFolder0].apps.empty();
+    if (g_editMode || drag >= 0) {
+        const Ease eb = eased("##newfolder", overBubble, false, false);
+        const ImU32 bg = carryEmptyFolder ? mixCol(IM_COL32(200, 50, 50, 200), IM_COL32(240, 70, 70, 255), eb.on) : mixCol(IM_COL32(255, 255, 255, 40), accentCol(220), eb.on);
+        const float grow = eb.on * 3;
+        dl->AddRectFilled(ImVec2(bubA.x - grow, bubA.y - grow), ImVec2(bubB.x + grow, bubB.y + grow), bg, 16.0f + grow);
+        const float my = (bubA.y + bubB.y) * 0.5f;
+        if (carryEmptyFolder) {   // a bin
+            const float x = bubA.x + 20;
+            dl->AddRect(ImVec2(x - 6, my - 5), ImVec2(x + 6, my + 8), kInk, 2.0f, 0, 1.6f);
+            dl->AddLine(ImVec2(x - 8, my - 7), ImVec2(x + 8, my - 7), kInk, 1.8f);
+            dl->AddLine(ImVec2(x - 2.5f, my - 10), ImVec2(x + 2.5f, my - 10), kInk, 1.8f);
+            textAt(dl, f.small, bubA.x + 34, std::floor(my - fontPx(f.small) * 0.5f), kInk, "Delete");
+        } else {
+            const float x = bubA.x + 20;
+            dl->AddRect(ImVec2(x - 8, my - 7), ImVec2(x + 8, my + 7), kInk, 4.0f, 0, 1.6f);
+            dl->AddLine(ImVec2(x, my - 3.5f), ImVec2(x, my + 3.5f), kInk, 1.6f);
+            dl->AddLine(ImVec2(x - 3.5f, my), ImVec2(x + 3.5f, my), kInk, 1.6f);
+            textAt(dl, f.small, bubA.x + 34, std::floor(my - fontPx(f.small) * 0.5f), kInk, isFolder(drag) ? "Not empty" : "New Folder");
+        }
     }
 
     // the finger (drawn first so Done, after it, takes its own presses)
@@ -690,60 +980,216 @@ void home(ImDrawList* dl, const Fonts& f, float w, float h) {
     ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##home", ImVec2(w, h - kStatusH));
     if (ImGui::IsItemActivated()) {
-        g_pressApp = -1; g_dragging = false; g_pressPos = m; g_pressTime = now; g_editEnteredNow = false;
-        for (const Hit& ht : hits) if (m.x >= ht.a.x && m.x < ht.b.x && m.y >= ht.a.y && m.y < ht.b.y) g_pressApp = ht.app;
+        g_pressApp = -1; g_dragging = false; g_swiping = false; g_pressPos = m; g_pressTime = now; g_editEnteredNow = false;
+        for (const Hit& ht : hits) if (m.x >= ht.a.x && m.x < ht.b.x && m.y >= ht.a.y && m.y < ht.b.y) {
+            g_pressApp = ht.e;
+            if (isWidget(ht.e)) { g_grabCol = (int)((m.x - ht.a.x) / cellW); g_grabRow = (int)((m.y - ht.a.y) / cellH); }
+        }
     }
-    const float moved = std::fabs(m.x - g_pressPos.x) + std::fabs(m.y - g_pressPos.y);
+    const float dxp = m.x - g_pressPos.x, dyp = m.y - g_pressPos.y;
+    const float moved = std::fabs(dxp) + std::fabs(dyp);
     if (ImGui::IsItemActive() && !g_editMode && g_pressTime >= 0 && now - g_pressTime >= 0.75 && moved < 10) { g_editMode = true; g_editEnteredNow = true; }   // held: wiggle
-    if (ImGui::IsItemActive() && g_editMode && g_pressApp >= 0 && !g_dragging && moved > 6) g_dragging = true;
+    if (ImGui::IsItemActive() && g_editMode && g_pressApp >= 0 && !g_dragging && !g_swiping && moved > 6) g_dragging = true;
+    // a swipe across (not carrying anything): the pages follow the finger
+    if (ImGui::IsItemActive() && !g_dragging && !g_swiping && std::fabs(dxp) > 12 && std::fabs(dxp) > std::fabs(dyp) * 1.3f && !(g_editMode && g_pressApp >= 0)) g_swiping = true;
+    if (g_swiping && ImGui::IsItemActive()) {
+        float sc = g_homePage - dxp / w;
+        if (sc < 0) sc *= 0.3f;   // (a little give past either end)
+        if (sc > pages - 1) sc = (pages - 1) + (sc - (pages - 1)) * 0.3f;
+        g_homeScroll = sc;
+    }
     if (g_dragging && g_pressApp >= 0) {   // the lifted icon, under the finger
         const int v0 = dl->VtxBuffer.Size;
-        drawTile(dl, f, g_pressApp, m, tile, false, 1.12f, 1.08f);
+        if (isApp(g_pressApp)) drawTile(dl, f, g_pressApp, m, tile, false, 1.12f, 1.08f);
+        else if (isFolder(g_pressApp)) folderTile(dl, f, g_pressApp - kFolder0, m, tile, false, 1.12f);
+        else {
+            int wc, wr; widgetCells(g_pressApp - kWidget0, wc, wr);
+            const ImVec2 a(m.x - (g_grabCol + 0.5f) * cellW + 8, m.y - (g_grabRow + 0.5f) * cellH + 4);
+            dl->AddRectFilled(a, ImVec2(a.x + wc * cellW - 16, a.y + wr * cellH - 14), themeTone(10, 22, 44, 200), 18.0f);
+            dl->AddRect(a, ImVec2(a.x + wc * cellW - 16, a.y + wr * cellH - 14), accentLite(160), 18.0f, 0, 1.5f);
+            textCentered(dl, f.bold, a.x + (wc * cellW - 16) * 0.5f, a.y + (wr * cellH - 14) * 0.5f - 8, kInk, widgetName(g_pressApp - kWidget0));
+        }
         turnSince(dl, v0, m, 0.06f);
     }
     if (ImGui::IsItemDeactivated()) {
-        const int app = g_pressApp;
-        if (app >= 0 && g_dragging) {   // dropped
-            auto& order = g_settings.order;
-            auto& fav = g_settings.favorites;
+        const int e = g_pressApp;
+        auto& fav = g_settings.favorites;
+        if (g_swiping) {
+            if (dxp < -w * 0.15f) g_homePage = std::min(pages - 1, g_homePage + 1);
+            else if (dxp > w * 0.15f) g_homePage = std::max(0, g_homePage - 1);
+            g_swiping = false;
+        } else if (e >= 0 && g_dragging) {   // dropped
             int from = -1;   // its place in the grid, if it was there
-            for (int i = 0; i < (int)order.size(); ++i) if (order[i] == app) from = i;
-            const bool fromDock = std::find(fav.begin(), fav.end(), app) != fav.end();
-            if (toDock && gap >= 0) {
-                if (fromDock) fav.erase(std::find(fav.begin(), fav.end(), app));
-                if (from >= 0) order[from] = -1;
+            for (int i = 0; i < (int)order.size(); ++i) if (order[i] == e) from = i;
+            const bool fromDock = isApp(e) && std::find(fav.begin(), fav.end(), e) != fav.end();
+            auto takeOut = [&]() { if (fromDock) fav.erase(std::find(fav.begin(), fav.end(), e)); if (from >= 0) order[from] = -1; };
+            if (overBubble) {
+                if (isApp(e)) {   // a new folder, where the app was, with the app in it; open, its name to type
+                    const int at = from >= 0 ? from : -1;
+                    takeOut();
+                    g_settings.folders.push_back({"Folder", {e}});
+                    const int fe = kFolder0 + (int)g_settings.folders.size() - 1;
+                    if (at >= 0) order[at] = fe;
+                    normalizeLayout(cap);
+                    g_openFolder = fe - kFolder0; g_folderT0 = now;
+                    g_settingsChanged = true;
+                } else if (carryEmptyFolder) {   // the bin: the folder goes (the ones after it move up a number)
+                    const int k = e - kFolder0;
+                    if (from >= 0) order[from] = -1;
+                    g_settings.folders.erase(g_settings.folders.begin() + k);
+                    for (int& x : order) if (x > e && x < kFolder0 + 1000) --x;
+                    g_settingsChanged = true;
+                }
+            } else if (toDock && gap >= 0) {
+                takeOut();
                 // the gap counts shown icons; the stored list may also hold hidden ones: insert before the icon now at the gap
                 size_t at = fav.size();
                 if (gap < (int)dock.size()) for (size_t i = 0; i < fav.size(); ++i) if (fav[i] == dock[gap]) { at = i; break; }
-                fav.insert(fav.begin() + at, app);
+                fav.insert(fav.begin() + at, e);
                 g_settingsChanged = true;
-            } else if (target >= 0) {
-                while ((int)order.size() <= target) order.push_back(-1);
+            } else if (target >= 0 && isWidget(e)) {
+                if (widgetCanGo(target, e - kWidget0, e)) {
+                    if (from >= 0) order[from] = -1;
+                    // (a hidden app in its block moves to the end)
+                    int wc, wr; widgetCells(e - kWidget0, wc, wr);
+                    const int slot = target % cap, col = slot % cols, row = slot / cols;
+                    std::vector<int> moveOut;
+                    for (int r = 0; r < wr; ++r) for (int c = 0; c < wc; ++c) {
+                        int& x = order[target - slot + (row + r) * cols + col + c];
+                        if (x >= 0) { moveOut.push_back(x); x = -1; }
+                    }
+                    order[target] = e;
+                    for (int x : moveOut) order.push_back(x);
+                    g_settingsChanged = true;
+                }
+            } else if (target >= 0 && target < (int)order.size() && cover[target] < 0) {
                 const int there = order[target];
-                if (there == app) {}
-                else if (there < 0 || !appVisible(there)) {   // a free place (or one a hidden app keeps): it goes there
-                    if (from >= 0) order[from] = there; else if (there >= 0) { /* a hidden app moves to the end */ order[target] = -1; order.push_back(there); }
-                    if (fromDock) fav.erase(std::find(fav.begin(), fav.end(), app));
-                    order[target] = app;
+                if (there == e) {}
+                else if (isFolder(there) && isApp(e)) {   // into the folder
+                    takeOut();
+                    g_settings.folders[there - kFolder0].apps.push_back(e);
                     g_settingsChanged = true;
-                } else {   // onto an icon: the two change places (from the bar, the other icon goes into the bar in its place)
-                    if (fromDock) *std::find(fav.begin(), fav.end(), app) = there;
-                    else if (from >= 0) order[from] = there;
-                    order[target] = app;
-                    if (fromDock && from >= 0) order[from] = -1;   // (it was in both: its old grid place is free now)
+                } else if (there < 0 || (isApp(there) && !appVisible(there))) {   // a free place (or one a hidden app keeps): it goes there
+                    if (from >= 0) order[from] = there; else if (there >= 0) { order[target] = -1; order.push_back(there); }
+                    if (fromDock) fav.erase(std::find(fav.begin(), fav.end(), e));
+                    order[target] = e;
                     g_settingsChanged = true;
+                } else if (!isWidget(there)) {   // onto an icon: the two change places (from the bar, the other icon goes into the bar in its place)
+                    if (fromDock && !isApp(there)) {}   // (a folder never goes into the bar)
+                    else {
+                        if (fromDock) *std::find(fav.begin(), fav.end(), e) = there;
+                        else if (from >= 0) order[from] = there;
+                        order[target] = e;
+                        if (fromDock && from >= 0) order[from] = -1;   // (it was in both: its old grid place is free now)
+                        g_settingsChanged = true;
+                    }
                 }
             }
         } else if (!g_dragging && !g_editEnteredNow && moved < 10) {
-            if (app >= 0 && !g_editMode) {
-                for (const Hit& ht : hits) if (ht.app == app && m.x >= ht.a.x && m.x < ht.b.x && m.y >= ht.a.y && m.y < ht.b.y) openApp(app);
-            } else if (app < 0 && g_editMode) {
+            if (e >= 0 && !g_editMode) {
+                for (const Hit& ht : hits) if (ht.e == e && m.x >= ht.a.x && m.x < ht.b.x && m.y >= ht.a.y && m.y < ht.b.y) {
+                    if (isApp(e)) openApp(e);
+                    else if (isFolder(e)) { g_openFolder = e - kFolder0; g_folderT0 = now; }
+                    else if (isWidget(e)) {   // a widget opens what it shows
+                        static const int to[W_COUNT] = {APP_WEATHER, APP_ROUTES, APP_MUSIC, -1, APP_LIVEMAP};
+                        const int app = to[e - kWidget0];
+                        if (app >= 0 && appVisible(app)) openApp(app);
+                    }
+                }
+            } else if (e >= 0 && g_editMode && isFolder(e)) {
+                g_openFolder = e - kFolder0; g_folderT0 = now;   // (arranging: open to rename it, or take apps out)
+            } else if (e < 0 && g_editMode) {
                 g_editMode = false;   // a tap on an empty place: done
             }
         }
         g_pressApp = -1; g_dragging = false; g_pressTime = -1; g_editEnteredNow = false;
+        normalizeLayout(cap);
     }
-    if (g_editMode && pill(dl, f, "##homedone", "Done", ImVec2(w - 96, h - 44), ImVec2(w - 16, h - 12), true, true)) g_editMode = false;
+    if (g_editMode && drag < 0) {
+        if (pill(dl, f, "##homedone", "Done", ImVec2(w - 96, h - 44), ImVec2(w - 16, h - 12), true, true)) { g_editMode = false; g_widgetPicker = false; }
+        // New Folder tapped: an empty one, at the first free place
+        ImGui::SetCursorScreenPos(bubA);
+        if (ImGui::InvisibleButton("##newfolderbtn", ImVec2(bubB.x - bubA.x, bubB.y - bubA.y))) {
+            g_settings.folders.push_back({"Folder", {}});
+            normalizeLayout(cap);
+            g_openFolder = (int)g_settings.folders.size() - 1; g_folderT0 = now;
+            g_settingsChanged = true;
+        }
+        if (pill(dl, f, "##widgets", "+ Widgets", wgA, wgB, g_widgetPicker, true)) g_widgetPicker = !g_widgetPicker;
+    }
+    // the widgets to add: a card over the grid (a widget is never a favorite)
+    if (g_widgetPicker && g_editMode) {
+        const ImVec2 a(170, kStatusH + 30), b(w - 170, h - 120);
+        dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h - 90), IM_COL32(0, 0, 0, 90));
+        glass(dl, a, b, 18.0f, 1.0f);
+        textAt(dl, f.bold, a.x + 18, a.y + 14, kInk, "Add a widget");
+        float y = a.y + 46;
+        for (int k = 0; k < W_COUNT; ++k) {
+            bool there = false;
+            for (int x : order) if (x == kWidget0 + k) there = true;
+            int wc, wr; widgetCells(k, wc, wr);
+            char lab[64]; std::snprintf(lab, sizeof lab, "%s   %d x %d", widgetName(k), wc, wr);
+            char id[24]; std::snprintf(id, sizeof id, "##addw%d", k);
+            if (pill(dl, f, id, there ? (std::string(widgetName(k)) + "  (on the home screen)").c_str() : lab, ImVec2(a.x + 18, y), ImVec2(b.x - 18, y + 32), false, !there)) {
+                // onto the page shown, where it fits, else the next page that has room
+                bool put = false;
+                for (int i = g_homePage * cap; i < (int)order.size() && !put; ++i) if (order[i] < 0 && cover[i] < 0 && widgetCanGo(i, k, -1)) { order[i] = kWidget0 + k; put = true; }
+                if (!put) order.push_back(kWidget0 + k);
+                normalizeLayout(cap);
+                for (int i = 0; i < (int)order.size(); ++i) if (order[i] == kWidget0 + k) g_homePage = i / cap;
+                g_widgetPicker = false;
+                g_settingsChanged = true;
+            }
+            y += 38;
+        }
+    }
+    // an open folder: its apps on a frosted card; its name can be typed over; arranging, each app has a badge that takes it out
+    if (g_openFolder >= 0 && g_openFolder < (int)g_settings.folders.size()) {
+        auto& fo = g_settings.folders[g_openFolder];
+        const float e0 = std::min(1.0f, (float)(now - g_folderT0) / 0.22f), e = 1 - (1 - e0) * (1 - e0) * (1 - e0);
+        dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(150 * e)));
+        ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
+        const bool outside = ImGui::InvisibleButton("##folderveil", ImVec2(w, h - kStatusH));
+        const int n = (int)fo.apps.size(), fc = 4, fr = std::max(1, (n + fc - 1) / fc);
+        const float cw = 100, ch = 96, pw = fc * cw + 40, ph = fr * ch + 96;
+        const ImVec2 c(w * 0.5f, (kStatusH + h) * 0.5f - 10);
+        const float sc = 0.85f + 0.15f * e;
+        const ImVec2 a(c.x - pw * 0.5f * sc, c.y - ph * 0.5f * sc), b(c.x + pw * 0.5f * sc, c.y + ph * 0.5f * sc);
+        dl->AddRectFilled(a, b, themeTone(14, 26, 50, (int)(230 * e)), 24.0f);   // (solid under the frost: the icons behind stay out of it)
+        glass(dl, a, b, 24.0f, e);
+        ImGui::SetCursorScreenPos(a);
+        ImGui::InvisibleButton("##folderpanel", ImVec2(b.x - a.x, b.y - a.y));   // (a press on the card keeps it open)
+        textField(dl, f, "##foldername", fo.name, ImVec2(c.x - 120, a.y + 14), ImVec2(c.x + 120, a.y + 48), "Folder name", false, 0);
+        if (fo.name.size() > 24) fo.name.resize(24);
+        int takeOut = -1;
+        for (int i = 0; i < n; ++i) {
+            const ImVec2 ic(a.x + 20 + (i % fc) * cw + cw * 0.5f, a.y + 70 + (i / fc) * ch + tile * 0.5f);
+            char id[24]; std::snprintf(id, sizeof id, "##fapp%d", i);
+            ImGui::SetCursorScreenPos(ImVec2(ic.x - cw * 0.5f, ic.y - tile * 0.5f - 4));
+            ImGui::SetNextItemAllowOverlap();
+            const bool hit = ImGui::InvisibleButton(id, ImVec2(cw, ch));
+            const int v0 = dl->VtxBuffer.Size;
+            hoverTile(dl, f, fo.apps[i], ic, tile, ImGui::IsItemHovered(), ImGui::IsItemActive());
+            g_iconC[fo.apps[i]] = ic; g_iconSize[fo.apps[i]] = tile;
+            if (g_editMode) {
+                turnSince(dl, v0, ic, wiggle(fo.apps[i]));
+                const ImVec2 bc(ic.x - tile * 0.5f + 2, ic.y - tile * 0.5f + 2);
+                dl->AddCircleFilled(bc, 11, IM_COL32(60, 64, 72, 240), 0);
+                dl->AddLine(ImVec2(bc.x - 4.5f, bc.y), ImVec2(bc.x + 4.5f, bc.y), IM_COL32(255, 255, 255, 255), 2.0f);
+                ImGui::SetCursorScreenPos(ImVec2(bc.x - 13, bc.y - 13));
+                char bid[24]; std::snprintf(bid, sizeof bid, "##fout%d", i);
+                if (ImGui::InvisibleButton(bid, ImVec2(26, 26))) takeOut = i;
+            } else if (hit) { const int app = fo.apps[i]; g_openFolder = -1; openApp(app); break; }
+        }
+        if (n == 0) textCentered(dl, f.small, c.x, a.y + 80, kMuted, g_editMode ? "Drag apps onto the folder to add them" : "Empty: hold an icon, then drag apps onto the folder");
+        if (takeOut >= 0) {   // back onto the home screen
+            fo.apps.erase(fo.apps.begin() + takeOut);
+            normalizeLayout(cap);
+            g_settingsChanged = true;
+        }
+        if (outside && !(g_kbd && g_kbdTarget == 2 && g_typeInto == &fo.name)) { g_openFolder = -1; g_settingsChanged = true; }
+        else if (outside) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; g_settingsChanged = true; }
+    } else g_openFolder = -1;
 }
 
 // ---- pages opening and closing, as on an iPad: a page grows out of its icon, and shrinks back into it ----------------------------------
@@ -5791,8 +6237,7 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         y += 78;
         textAt(dl, f.bold, lx, y, kInk, "Live map");
         y += 22;
-        toggle("##tgvo", lx, y, q, "Volanta", g_settings.showLive, true);
-        toggle("##tgva", lx + q + 8, y, q, "VATSIM Radar", g_settings.showVatsim, true);
+        toggle("##tgva", lx, y, q, "VATSIM Radar", g_settings.showVatsim, true);   // (Volanta: in the App Store)
         y += 42;
         textAt(dl, f.bold, lx, y, kInk, "Flight planning");
         y += 22;
@@ -6003,7 +6448,34 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     y += 22;
     dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Your SimBrief user name or pilot ID (Account settings on simbrief.com). The Flight Plan page imports your latest plan with it.", nullptr, w - 12 - lx);
     y += 36;
-    textField(dl, f, "##sbuser", g_settings.simbriefUser, ImVec2(lx, y), ImVec2(w - 12 - 200, y + 36), "Tap to enter your SimBrief ID", false);
+    {   // hidden as dots unless it is being typed, or the eye is held
+        const ImVec2 fa(lx, y), fb(w - 12 - 200, y + 36);
+        const ImVec2 ea(fb.x - 40, fa.y + 2), eb(fb.x - 2, fb.y - 2);
+        ImGui::SetCursorScreenPos(ea);
+        ImGui::SetNextItemAllowOverlap();
+        static bool eyeHeld = false;
+        const bool eyeWas = eyeHeld;
+        (void)eyeWas;
+        if (typing || eyeHeld) textField(dl, f, "##sbuser", g_settings.simbriefUser, fa, ImVec2(fb.x - 42, fb.y), "Tap to enter your SimBrief ID", false, 0);
+        else {
+            static std::string dots;
+            dots.clear();
+            for (size_t i = 0; i < g_settings.simbriefUser.size(); ++i) dots += "\xE2\x80\xA2";
+            textField(dl, f, "##sbuser", dots, fa, ImVec2(fb.x - 42, fb.y), "Tap to enter your SimBrief ID", false, 0);
+            if (g_typeInto == &dots) g_typeInto = &g_settings.simbriefUser;   // (tapped: it is typed into, shown as typed)
+        }
+        ImGui::SetCursorScreenPos(ea);
+        ImGui::InvisibleButton("##sbeye", ImVec2(eb.x - ea.x, eb.y - ea.y));
+        eyeHeld = ImGui::IsItemActive();
+        const bool eyeHot = ImGui::IsItemHovered() || eyeHeld;
+        dl->AddRectFilled(ea, eb, IM_COL32(255, 255, 255, eyeHeld ? 40 : eyeHot ? 26 : 14), 8.0f);
+        const ImVec2 ec((ea.x + eb.x) * 0.5f, (ea.y + eb.y) * 0.5f);
+        const ImU32 ecol = eyeHeld ? accentLite(255) : kMuted;
+        dl->PathArcTo(ImVec2(ec.x, ec.y + 6), 11, 3.14159f * 1.22f, 3.14159f * 1.78f, 12); dl->PathStroke(ecol, 0, 1.6f);
+        dl->PathArcTo(ImVec2(ec.x, ec.y - 6), 11, 3.14159f * 0.22f, 3.14159f * 0.78f, 12); dl->PathStroke(ecol, 0, 1.6f);
+        dl->AddCircleFilled(ec, 3.2f, ecol, 0);
+        if (!eyeHeld && !typing) {}
+    }
     if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; }
     if (pill(dl, f, "##sbimport", s.plan.busy ? "Importing..." : "Import flight plan", ImVec2(w - 12 - 192, y + 2), ImVec2(w - 12, y + 34), true, !g_settings.simbriefUser.empty() && !s.plan.busy)) {
         act.planImport = true; g_kbd = false; g_typeInto = nullptr;
@@ -6012,6 +6484,13 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     if (!s.plan.status.empty()) { textAt(dl, f.small, lx, y, s.plan.loaded ? kGood : kMuted, s.plan.status.c_str()); }
     y += 26;
     if (typing) { pageKeyboard(dl, f, w, h, act); return; }
+    // Volanta's stream overlay (its widget on the home screen): the address the Volanta app serves it at
+    textAt(dl, f.bold, lx, y, kInk, "Volanta overlay");
+    textAt(dl, f.small, lx + 150, y + 2, kMuted, "For the home screen's Volanta widget (Volanta, Settings, Stream overlay)");
+    y += 22;
+    textField(dl, f, "##volov", g_settings.volantaOverlay, ImVec2(lx, y), ImVec2(w - 12 - 200, y + 32), "http://localhost:53011", false, 0);
+    if (g_kbd && g_kbdTarget == 2 && g_typeInto == &g_settings.volantaOverlay) { if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; } pageKeyboard(dl, f, w, h, act); return; }
+    y += 42;
     textAt(dl, f.bold, lx, y, kInk, "Data");
     y += 24;
     for (const auto& kv : s.dataInfo) {
@@ -6241,7 +6720,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const bool closing = onHome && !g_animOpening && since < kCloseS && g_animPage >= 0 && g_animPage < APP_COUNT;
     if (onHome || opening) {   // the home screen (still, under a page growing out of it)
         if (opening) ImGui::BeginDisabled();
-        home(dl, f, w, h);
+        home(dl, f, s, w, h, act);
         if (opening) ImGui::EndDisabled();
     }
     if (!onHome || closing) {
@@ -6325,6 +6804,362 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     ImGui::PopStyleVar();
 }
 
+namespace {
+// ---- the home screen's widgets ------------------------------------------------------------------------------------------------------
+void drawWidget(ImDrawList* dl, const Fonts& f, const SimState& s, int kind, ImVec2 a, ImVec2 b, Actions& act, bool live) {
+    const float W = b.x - a.x, H = b.y - a.y;
+    if (kind != W_VOLANTA || !live) {
+        glass(dl, a, b, 18.0f, 1.0f);
+    }
+    const float px = a.x + 14;
+    switch (kind) {
+    case W_WEATHER: {   // the weather where the aircraft is (WXPlane's name on it when it is there)
+        textAt(dl, f.small, px, a.y + 10, kMuted, g_wx ? "WXPlane" : "Weather");
+        const SimWeather& x = s.wx;
+        if (!x.valid) { textAt(dl, f.small, px, a.y + 40, kMuted, "No weather yet"); break; }
+        char t[48];
+        std::snprintf(t, sizeof t, "%.0f\xC2\xB0", x.tempC);
+        dl->AddText(f.title, fontPx(f.title) * 1.6f, ImVec2(px, a.y + 28), kInk, t);
+        std::snprintf(t, sizeof t, "%03.0f\xC2\xB0 / %.0f kt", x.windDir, x.windKt);
+        textAt(dl, f.small, px, b.y - 62, kInk, t);
+        std::snprintf(t, sizeof t, "QNH %.0f", x.qnhHpa);
+        textAt(dl, f.small, px, b.y - 42, kMuted, t);
+        if (x.visSm >= 10) std::snprintf(t, sizeof t, "Vis 10+ sm"); else std::snprintf(t, sizeof t, "Vis %.1f sm", x.visSm);
+        textAt(dl, f.small, px, b.y - 24, kMuted, t);
+        // a sun, or a cloud when it is overcast
+        const ImVec2 ic(b.x - 34, a.y + 34);
+        const bool cloudy = x.clouds > 0 && x.cloudCover[0] > 0.6f;
+        if (!cloudy) {
+            dl->AddCircleFilled(ic, 11, IM_COL32(255, 204, 80, 255), 0);
+            for (int i = 0; i < 8; ++i) { const float an = i * 3.14159f / 4; dl->AddLine(ImVec2(ic.x + std::cos(an) * 15, ic.y + std::sin(an) * 15), ImVec2(ic.x + std::cos(an) * 20, ic.y + std::sin(an) * 20), IM_COL32(255, 204, 80, 255), 2.0f); }
+        } else {
+            dl->AddCircleFilled(ImVec2(ic.x - 7, ic.y + 3), 9, IM_COL32(220, 228, 240, 255), 0);
+            dl->AddCircleFilled(ImVec2(ic.x + 3, ic.y - 3), 11, IM_COL32(220, 228, 240, 255), 0);
+            dl->AddRectFilled(ImVec2(ic.x - 16, ic.y + 2), ImVec2(ic.x + 15, ic.y + 12), IM_COL32(220, 228, 240, 255), 5.0f);
+        }
+        break;
+    }
+    case W_FLIGHT: {   // the flight: its callsign, from and to, and how far along it is
+        textAt(dl, f.small, px, a.y + 10, kMuted, "Flight");
+        const FlightPlan& p = s.plan;
+        if (!p.loaded) { textAt(dl, f.small, px, a.y + 40, kMuted, "No flight plan: import one from SimBrief"); break; }
+        std::string top = p.callsign.empty() ? (p.origin + "  \xE2\x80\x93  " + p.dest) : (p.callsign + "   " + p.origin + "  \xE2\x80\x93  " + p.dest);
+        textAt(dl, f.bold, px, a.y + 30, kInk, fitText(f.bold, top, W - 28).c_str());
+        const Progress pr = flightProgress(s);
+        progressStrip(dl, f, s, pr, ImVec2(a.x + 10, a.y + 60), ImVec2(b.x - 10, b.y - 10), true);
+        break;
+    }
+    case W_MEDIA: {   // what is playing: its cover, title, artist, and the buttons
+        const MediaState& m = s.media;
+        if (!m.active) {
+            textAt(dl, f.small, px, a.y + 10, kMuted, "Now Playing");
+            textCentered(dl, f.small, (a.x + b.x) * 0.5f, a.y + H * 0.5f, kMuted, m.supported ? "Nothing playing" : "Media controls are not available");
+            break;
+        }
+        const float cs = std::min(64.0f, H * 0.4f);
+        cover(dl, m, ImVec2(px, a.y + 12), cs, 10.0f);
+        const float tx = px + cs + 10, room = b.x - 12 - tx;
+        marquee(dl, f.bold, tx, a.y + 16, room, kInk, m.title.empty() ? std::string("Unknown") : m.title, trackSince(m));
+        textAt(dl, f.small, tx, a.y + 40, kMuted, fitText(f.small, m.artist, room).c_str());
+        if (!live) ImGui::BeginDisabled();
+        playerButtons(dl, m, ImVec2((a.x + b.x) * 0.5f, b.y - 36), 16, "##wmedia", act);
+        if (!live) ImGui::EndDisabled();
+        break;
+    }
+    case W_FPS: {   // X-Plane's frame rate: green from 30, amber from 20, else red
+        const float fps = s.fps;
+        const ImU32 col = fps >= 30 ? kGood : fps >= 20 ? kWarn : IM_COL32(255, 96, 96, 255);
+        char t[16];
+        std::snprintf(t, sizeof t, "%d", (int)std::lround(fps));
+        const float big = fontPx(f.title) * 1.5f;
+        const ImVec2 sz = f.title->CalcTextSizeA(big, 1e9f, 0, t);
+        dl->AddText(f.title, big, ImVec2(std::floor((a.x + b.x - sz.x) * 0.5f), std::floor(a.y + H * 0.5f - sz.y * 0.65f)), fps > 0 ? col : kMuted, fps > 0 ? t : "--");
+        textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y - 22, kMuted, "FPS");
+        break;
+    }
+    case W_VOLANTA: {   // Volanta's stream overlay (its page, from the Volanta app on this computer), across the screen
+        const BrowserState& br = s.browser;
+        if (!live) {
+            textAt(dl, f.small, px, a.y + 10, kMuted, "Volanta Overlay");
+            textCentered(dl, f.small, (a.x + b.x) * 0.5f, a.y + H * 0.5f - 6, kMuted, g_settings.volantaOverlay.c_str());
+            break;
+        }
+        // shown here: the browser's tab for it (its own group), opened when it is not there yet
+        act.webShown = true;
+        act.webX = a.x; act.webY = a.y; act.webW = W; act.webH = H;
+        int tab = 0;
+        for (const BrowserState::Tab& t : br.tabs) if (t.group == 400) tab = t.id;
+        static double askedAt = -10;
+        if (br.status == 1 && !tab && ImGui::GetTime() - askedAt > 3 && (int)br.tabs.size() < 16) {
+            act.webTabNew = true; act.webTabGroup = 400; act.webTabUrl = g_settings.volantaOverlay; askedAt = ImGui::GetTime();
+        } else if (br.status == 1 && tab && br.activeTab != tab && !act.webTabSelect) act.webTabSelect = tab;
+        if (br.status == 1 && tab && br.activeTab == tab && br.tex) {
+            dl->AddImageRounded(br.tex, a, b, ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, 255), 18.0f);
+        } else {
+            glass(dl, a, b, 18.0f, 1.0f);
+            textAt(dl, f.small, px, a.y + 10, kMuted, "Volanta Overlay");
+            textCentered(dl, f.small, (a.x + b.x) * 0.5f, a.y + H * 0.5f - 6, kMuted, br.status == -3 ? "The browser is not available here" : "Opening the overlay...");
+        }
+        break;
+    }
+    default: break;
+    }
+}
+
+// ---- the App Store: the extra web apps, each installed (onto the home screen) or removed with a tap ---------------------------------------
+bool storeInstalled(int app) { return app == APP_LIVEMAP ? g_settings.showLive : installed(app); }
+void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
+    struct Item { int app; const char* what; };
+    static const Item items[] = {
+        {APP_DATIS, "Digital ATIS for the airports that publish it"},
+        {APP_LIVEMAP, "Volanta's live map of your flights"},
+        {APP_VATSIMHUB, "VATSIM: network stats, events, the AIP and pilot resources"},
+        {APP_NATTRAK, "North Atlantic oceanic clearances on VATSIM"},
+        {APP_IVAO, "IVAO's live map of pilots and controllers"},
+        {APP_SPOTIFY, "Spotify's web player"},
+        {APP_YTMUSIC, "YouTube Music's web player"},
+        {APP_APPLEMUSIC, "Apple Music on the web"},
+        {APP_SOUNDCLOUD, "SoundCloud"},
+        {APP_YOUTUBE, "YouTube"},
+    };
+    const int n = (int)(sizeof items / sizeof items[0]);
+    const float top = kStatusH + kHeaderH + 12, gapX = 10, gapY = 10, cols = 3;
+    const float cw = std::floor((w - 32 - gapX * (cols - 1)) / cols), ch = 84;
+    for (int i = 0; i < n; ++i) {
+        const int app = items[i].app;
+        const ImVec2 a(16 + (i % 3) * (cw + gapX), top + (i / 3) * (ch + gapY)), b(a.x + cw, a.y + ch);
+        card(dl, a, b, f, nullptr);
+        drawTile(dl, f, app, ImVec2(a.x + 38, a.y + ch * 0.5f), 52, false, 1.0f, 1.0f);
+        const float tx = a.x + 74, room = b.x - 10 - tx;
+        textAt(dl, f.bold, tx, a.y + 10, kInk, fitText(f.bold, appName(app), room - 60).c_str());
+        dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 34), kMuted, items[i].what, nullptr, room);
+        const bool on = storeInstalled(app);
+        char id[24]; std::snprintf(id, sizeof id, "##store%d", app);
+        if (pill(dl, f, id, on ? "Remove" : "Get", ImVec2(b.x - 66, a.y + 8), ImVec2(b.x - 10, a.y + 30), !on, true)) installApp(app, !on);
+    }
+}
+
+// ---- VATSIM: a page of bubbles, each a part of VATSIM's own sites (they open as the app's tabs) ----------------------------------------
+void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
+    struct Bubble { const char* name; const char* what; const char* url; ImU32 col; };
+    static const Bubble bubbles[] = {
+        {"Stats", "Your hours, flights and the network's numbers", "https://stats.vatsim.net", IM_COL32(40, 120, 220, 255)},
+        {"AIP", "Airports, their controllers and procedures (myVATSIM)", "https://my.vatsim.net", IM_COL32(40, 160, 120, 255)},
+        {"Events", "What is on across the network", "https://my.vatsim.net/events", IM_COL32(220, 120, 40, 255)},
+        {"Pilot resources", "Guides, charts, maps and tools", "https://vatsim.net/docs/pilots/pilots", IM_COL32(140, 90, 220, 255)},
+    };
+    const float top = kStatusH + kHeaderH + 24, bw = std::floor((w - 32 - 16) * 0.5f), bh = 150;
+    for (int i = 0; i < 4; ++i) {
+        const ImVec2 a(16 + (i % 2) * (bw + 16), top + (i / 2) * (bh + 16)), b(a.x + bw, a.y + bh);
+        char id[24]; std::snprintf(id, sizeof id, "##vbub%d", i);
+        ImGui::SetCursorScreenPos(a);
+        const bool hit = ImGui::InvisibleButton(id, ImVec2(bw, bh));
+        const Ease e = eased(id, false, ImGui::IsItemHovered(), ImGui::IsItemActive());
+        const float in = e.down * 3;
+        const ImVec2 a2(a.x + in, a.y + in), b2(b.x - in, b.y - in);
+        dl->AddRectFilled(a2, b2, mixCol(mixCol(bubbles[i].col, IM_COL32(0, 0, 0, 255), 0.35f), bubbles[i].col, 0.5f + 0.4f * e.hot), 28.0f);
+        dl->AddRect(a2, b2, IM_COL32(255, 255, 255, (int)(30 + 60 * e.hot)), 28.0f, 0, 1.2f);
+        dl->AddText(f.title, fontPx(f.title), ImVec2(a2.x + 22, a2.y + 22), IM_COL32(255, 255, 255, 255), bubbles[i].name);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(a2.x + 22, a2.y + 62), IM_COL32(235, 240, 250, 220), bubbles[i].what, nullptr, bw - 44);
+        if (hit) openWeb("VATSIM", bubbles[i].url, false, 100 + APP_VATSIMHUB);
+    }
+}
+
+// ---- Games: 2048 and noughts and crosses against the tablet ---------------------------------------------------------------------------
+int g_game = -1;   // the game shown, -1 the list
+int g_board[16] = {}, g_score = 0, g_best = 0;
+float g_pop[16] = {};   // a tile's grow-in (0 to 1)
+bool g_2048Over = false;
+void addTile() {
+    int freeN = 0;
+    for (int v : g_board) freeN += v == 0;
+    if (!freeN) return;
+    int k = std::rand() % freeN;
+    for (int i = 0; i < 16; ++i) if (!g_board[i] && k-- == 0) { g_board[i] = (std::rand() % 10) ? 2 : 4; g_pop[i] = 0; return; }
+}
+void new2048() { for (int& v : g_board) v = 0; g_score = 0; g_2048Over = false; addTile(); addTile(); }
+bool slide(int dir) {   // 0 left, 1 right, 2 up, 3 down
+    bool movedAny = false;
+    for (int line = 0; line < 4; ++line) {
+        int idx[4];
+        for (int k = 0; k < 4; ++k) {
+            const int kk = (dir == 1 || dir == 3) ? 3 - k : k;
+            idx[k] = dir <= 1 ? line * 4 + kk : kk * 4 + line;
+        }
+        int vals[4], n = 0;
+        for (int k = 0; k < 4; ++k) if (g_board[idx[k]]) vals[n++] = g_board[idx[k]];
+        int out[4] = {0, 0, 0, 0}, o = 0;
+        bool merged[4] = {};
+        for (int k = 0; k < n; ++k) {
+            if (o > 0 && out[o - 1] == vals[k] && !merged[o - 1]) { out[o - 1] *= 2; g_score += out[o - 1]; merged[o - 1] = true; }
+            else out[o++] = vals[k];
+        }
+        for (int k = 0; k < 4; ++k) {
+            if (g_board[idx[k]] != out[k]) { movedAny = true; if (merged[k]) g_pop[idx[k]] = 0.4f; }
+            g_board[idx[k]] = out[k];
+        }
+    }
+    return movedAny;
+}
+bool canMove() {
+    for (int i = 0; i < 16; ++i) {
+        if (!g_board[i]) return true;
+        if (i % 4 < 3 && g_board[i] == g_board[i + 1]) return true;
+        if (i < 12 && g_board[i] == g_board[i + 4]) return true;
+    }
+    return false;
+}
+int g_ttt[9] = {}, g_tttTurn = 1, g_tttResult = 0;   // cells: 0 empty, 1 you (X), 2 the tablet (O); result: 0 on, 1 you, 2 tablet, 3 draw
+int tttWinner(const int* c) {
+    static const int L[8][3] = {{0,1,2},{3,4,5},{6,7,8},{0,3,6},{1,4,7},{2,5,8},{0,4,8},{2,4,6}};
+    for (auto& l : L) if (c[l[0]] && c[l[0]] == c[l[1]] && c[l[1]] == c[l[2]]) return c[l[0]];
+    for (int i = 0; i < 9; ++i) if (!c[i]) return 0;
+    return 3;
+}
+int tttScore(int* c, int who) {   // minimax: +10 the tablet wins, -10 you do
+    const int r = tttWinner(c);
+    if (r == 2) return 10; if (r == 1) return -10; if (r == 3) return 0;
+    int best = who == 2 ? -100 : 100;
+    for (int i = 0; i < 9; ++i) if (!c[i]) {
+        c[i] = who;
+        const int v = tttScore(c, 3 - who);
+        c[i] = 0;
+        best = who == 2 ? std::max(best, v) : std::min(best, v);
+    }
+    return best;
+}
+void tttTabletMove() {
+    int bestI = -1, best = -100;
+    for (int i = 0; i < 9; ++i) if (!g_ttt[i]) {
+        g_ttt[i] = 2;
+        int v = tttScore(g_ttt, 1);
+        g_ttt[i] = 0;
+        if (std::rand() % 6 == 0) v -= 3;   // (now and then not the best move: it can be beaten)
+        if (v > best) { best = v; bestI = i; }
+    }
+    if (bestI >= 0) g_ttt[bestI] = 2;
+}
+void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
+    const float top = kStatusH + kHeaderH;
+    const float dt = ImGui::GetIO().DeltaTime;
+    if (g_game < 0) {   // the list
+        struct G { const char* name; const char* what; ImU32 col; };
+        static const G games[] = {{"2048", "Slide the tiles; equal ones join. Reach 2048.", IM_COL32(237, 194, 46, 255)},
+                                  {"Noughts and Crosses", "Three in a row against the tablet.", IM_COL32(80, 170, 240, 255)}};
+        const float bw = std::floor((w - 48) * 0.5f), bh = 190;
+        for (int i = 0; i < 2; ++i) {
+            const ImVec2 a(16 + i * (bw + 16), top + 40), b(a.x + bw, a.y + bh);
+            char id[16]; std::snprintf(id, sizeof id, "##game%d", i);
+            ImGui::SetCursorScreenPos(a);
+            const bool hit = ImGui::InvisibleButton(id, ImVec2(bw, bh));
+            const Ease e = eased(id, false, ImGui::IsItemHovered(), ImGui::IsItemActive());
+            const float in = e.down * 3;
+            dl->AddRectFilled(ImVec2(a.x + in, a.y + in), ImVec2(b.x - in, b.y - in), mixCol(mixCol(games[i].col, IM_COL32(0, 0, 0, 255), 0.45f), games[i].col, 0.45f + 0.35f * e.hot), 28.0f);
+            dl->AddText(f.title, fontPx(f.title), ImVec2(a.x + 24, a.y + 24), IM_COL32(255, 255, 255, 255), games[i].name);
+            dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 24, a.y + 64), IM_COL32(240, 244, 250, 220), games[i].what, nullptr, bw - 48);
+            // a little picture of it, at the bottom right
+            const ImVec2 pc(b.x - 80, b.y - 70);
+            if (i == 0) {
+                static const char* v[4] = {"2", "4", "8", "16"};
+                for (int k = 0; k < 4; ++k) {
+                    const ImVec2 t0(pc.x - 44 + (k % 2) * 46, pc.y - 44 + (k / 2) * 46);
+                    dl->AddRectFilled(t0, ImVec2(t0.x + 42, t0.y + 42), IM_COL32(255, 255, 255, 60 + k * 30), 8.0f);
+                    textCentered(dl, f.bold, t0.x + 21, t0.y + 21 - fontPx(f.bold) * 0.5f, IM_COL32(255, 255, 255, 255), v[k]);
+                }
+            } else {
+                for (int k = 1; k < 3; ++k) {
+                    dl->AddLine(ImVec2(pc.x - 45 + k * 30, pc.y - 45), ImVec2(pc.x - 45 + k * 30, pc.y + 45), IM_COL32(255, 255, 255, 150), 3.0f);
+                    dl->AddLine(ImVec2(pc.x - 45, pc.y - 45 + k * 30), ImVec2(pc.x + 45, pc.y - 45 + k * 30), IM_COL32(255, 255, 255, 150), 3.0f);
+                }
+                dl->AddLine(ImVec2(pc.x - 38, pc.y - 38), ImVec2(pc.x - 22, pc.y - 22), IM_COL32(255, 255, 255, 255), 3.5f);
+                dl->AddLine(ImVec2(pc.x - 22, pc.y - 38), ImVec2(pc.x - 38, pc.y - 22), IM_COL32(255, 255, 255, 255), 3.5f);
+                dl->AddCircle(ImVec2(pc.x, pc.y), 9, IM_COL32(255, 220, 140, 255), 0, 3.5f);
+                dl->AddCircle(ImVec2(pc.x + 30, pc.y + 30), 9, IM_COL32(255, 220, 140, 255), 0, 3.5f);
+            }
+            if (hit) {
+                g_game = i;
+                if (i == 0) { bool empty = true; for (int v : g_board) if (v) empty = false; if (empty) new2048(); }
+            }
+        }
+        return;
+    }
+    if (pill(dl, f, "##gamesback", "All games", ImVec2(16, top + 12), ImVec2(116, top + 40), false, true)) { g_game = -1; return; }
+    if (g_game == 0) {   // 2048: swipe on the board, or the arrow keys
+        char t[48];
+        std::snprintf(t, sizeof t, "Score %d", g_score); textAt(dl, f.bold, w - 300, top + 16, kInk, t);
+        std::snprintf(t, sizeof t, "Best %d", g_best); textAt(dl, f.small, w - 300, top + 40, kMuted, t);
+        if (pill(dl, f, "##2048new", "New game", ImVec2(w - 126, top + 12), ImVec2(w - 16, top + 40), false, true)) new2048();
+        const float side = std::min(h - top - 30, w - 340), cell = side / 4;
+        const ImVec2 o(std::floor((w - side) * 0.5f) - 80, top + 16);
+        ImGui::SetCursorScreenPos(o);
+        ImGui::InvisibleButton("##2048board", ImVec2(side, side));
+        static ImVec2 from;
+        if (ImGui::IsItemActivated()) from = ImGui::GetIO().MousePos;
+        int dir = -1;
+        if (ImGui::IsItemDeactivated()) {
+            const ImVec2 to = ImGui::GetIO().MousePos;
+            const float dx = to.x - from.x, dy = to.y - from.y;
+            if (std::fabs(dx) > 30 || std::fabs(dy) > 30) dir = std::fabs(dx) > std::fabs(dy) ? (dx < 0 ? 0 : 1) : (dy < 0 ? 2 : 3);
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) dir = 0;
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) dir = 1;
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) dir = 2;
+        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) dir = 3;
+        if (dir >= 0 && !g_2048Over && slide(dir)) { addTile(); g_best = std::max(g_best, g_score); g_settingsChanged = true; if (!canMove()) g_2048Over = true; }
+        dl->AddRectFilled(o, ImVec2(o.x + side, o.y + side), IM_COL32(187, 173, 160, 255), 14.0f);
+        for (int i = 0; i < 16; ++i) {
+            g_pop[i] = std::min(1.0f, g_pop[i] + dt * 6.0f);
+            const ImVec2 c0(o.x + (i % 4) * cell + 6, o.y + (i / 4) * cell + 6), c1(c0.x + cell - 12, c0.y + cell - 12);
+            dl->AddRectFilled(c0, c1, IM_COL32(205, 193, 180, 255), 8.0f);
+            const int v = g_board[i];
+            if (!v) continue;
+            int lv = 0; for (int x = v; x > 2; x >>= 1) ++lv;
+            static const ImU32 cols[] = {IM_COL32(238, 228, 218, 255), IM_COL32(237, 224, 200, 255), IM_COL32(242, 177, 121, 255), IM_COL32(245, 149, 99, 255), IM_COL32(246, 124, 95, 255), IM_COL32(246, 94, 59, 255), IM_COL32(237, 207, 114, 255), IM_COL32(237, 204, 97, 255), IM_COL32(237, 200, 80, 255), IM_COL32(237, 197, 63, 255), IM_COL32(237, 194, 46, 255), IM_COL32(60, 58, 50, 255)};
+            const float pe = g_pop[i], sc = pe < 1 ? 0.6f + 0.4f * (1 - (1 - pe) * (1 - pe)) : 1.0f;
+            const ImVec2 mc((c0.x + c1.x) * 0.5f, (c0.y + c1.y) * 0.5f), hs((c1.x - c0.x) * 0.5f * sc, (c1.y - c0.y) * 0.5f * sc);
+            dl->AddRectFilled(ImVec2(mc.x - hs.x, mc.y - hs.y), ImVec2(mc.x + hs.x, mc.y + hs.y), cols[std::min(11, lv)], 8.0f);
+            char num[12]; std::snprintf(num, sizeof num, "%d", v);
+            ImFont* fn = v < 1000 ? f.title : f.bold;
+            textCentered(dl, fn, mc.x, std::floor(mc.y - fontPx(fn) * 0.5f), lv < 2 ? IM_COL32(119, 110, 101, 255) : IM_COL32(249, 246, 242, 255), num);
+        }
+        if (g_2048Over) {
+            dl->AddRectFilled(o, ImVec2(o.x + side, o.y + side), IM_COL32(238, 228, 218, 170), 14.0f);
+            textCentered(dl, f.title, o.x + side * 0.5f, o.y + side * 0.5f - 14, IM_COL32(119, 110, 101, 255), "No moves left");
+        }
+        textAt(dl, f.small, w - 300, top + 80, kMuted, "Swipe on the board, or use");
+        textAt(dl, f.small, w - 300, top + 98, kMuted, "the arrow keys.");
+        return;
+    }
+    // noughts and crosses: you are X and go first; the tablet answers
+    const float side = std::min(h - top - 40, 330.0f), cell = side / 3;
+    const ImVec2 o(std::floor((w - side) * 0.5f), top + 24);
+    if (pill(dl, f, "##tttnew", "New game", ImVec2(w - 126, top + 12), ImVec2(w - 16, top + 40), false, true)) { for (int& c : g_ttt) c = 0; g_tttResult = 0; }
+    for (int i = 0; i < 9; ++i) {
+        const ImVec2 c0(o.x + (i % 3) * cell, o.y + (i / 3) * cell), c1(c0.x + cell, c0.y + cell);
+        char id[16]; std::snprintf(id, sizeof id, "##ttt%d", i);
+        ImGui::SetCursorScreenPos(c0);
+        if (ImGui::InvisibleButton(id, ImVec2(cell, cell)) && !g_ttt[i] && !g_tttResult) {
+            g_ttt[i] = 1;
+            g_tttResult = tttWinner(g_ttt);
+            if (!g_tttResult) { tttTabletMove(); g_tttResult = tttWinner(g_ttt); }
+        }
+        if (ImGui::IsItemHovered() && !g_ttt[i] && !g_tttResult) dl->AddRectFilled(ImVec2(c0.x + 6, c0.y + 6), ImVec2(c1.x - 6, c1.y - 6), IM_COL32(255, 255, 255, 18), 12.0f);
+        const ImVec2 mc((c0.x + c1.x) * 0.5f, (c0.y + c1.y) * 0.5f);
+        const float r = cell * 0.28f;
+        if (g_ttt[i] == 1) {
+            dl->AddLine(ImVec2(mc.x - r, mc.y - r), ImVec2(mc.x + r, mc.y + r), accentLite(255), 7.0f);
+            dl->AddLine(ImVec2(mc.x + r, mc.y - r), ImVec2(mc.x - r, mc.y + r), accentLite(255), 7.0f);
+        } else if (g_ttt[i] == 2) dl->AddCircle(mc, r, IM_COL32(255, 190, 90, 255), 0, 7.0f);
+    }
+    for (int k = 1; k < 3; ++k) {
+        dl->AddLine(ImVec2(o.x + k * cell, o.y + 8), ImVec2(o.x + k * cell, o.y + side - 8), IM_COL32(255, 255, 255, 90), 3.0f);
+        dl->AddLine(ImVec2(o.x + 8, o.y + k * cell), ImVec2(o.x + side - 8, o.y + k * cell), IM_COL32(255, 255, 255, 90), 3.0f);
+    }
+    const char* msg = g_tttResult == 1 ? "You win!" : g_tttResult == 2 ? "The tablet wins" : g_tttResult == 3 ? "A draw" : "Your move (X)";
+    textAt(dl, f.bold, w - 250, top + 70, kInk, msg);
+}
+
+} // namespace
 // One page, with its title bar
 void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act, int app) {
     {
@@ -6346,6 +7181,9 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
         else if (app == APP_GROUND) groundPage(dl, f, s, w, h, act);
         else if (app == APP_MUSIC) musicPage(dl, f, s, w, h, act);
         else if (app == APP_DISPATCH) dispatchPage(dl, f, s, w, h, act);
+        else if (app == APP_APPSTORE) storePage(dl, f, w, h);
+        else if (app == APP_GAMES) gamesPage(dl, f, w, h);
+        else if (app == APP_VATSIMHUB) vatsimHubPage(dl, f, w, h);
         else placeholderPage(dl, f, app, w, h);
     }
 }
@@ -6477,9 +7315,11 @@ bool appVisible(int app) {
     case APP_CHECKLISTS: return true;   // on every aircraft, ToLiss too (its own checklists, else the airliner set)
     case APP_TRAFFIC: return false;                    // traffic is a layer of the Map
     case APP_MUSIC: return !g_mac && g_settings.mediaEnabled;   // macOS gives no media controls
-    default: return app >= 0 && app < APP_COUNT;
+    default: return app >= 0 && app < APP_COUNT && installed(app);
     }
 }
+bool appInstalled(int app) { return installed(app); }
+void layoutHome() { normalizeLayout(); }
 
 // Charts, Live Map, SimBrief and ForeFlight are sites shown as pages of their own. The Browser icon opens the full browser.
 void openApp(int app) {
@@ -6612,16 +7452,40 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
+    {   // the home screen: its pages, folders (name, a tab, then the apps) and Volanta's overlay address
+        out += "home_pages=" + std::to_string(g_settings.homePages) + "\n";
+        for (const auto& fo : g_settings.folders) {
+            std::string n = fo.name;
+            for (char& c : n) if (c == '\n' || c == '\r' || c == '\t') c = ' ';
+            out += "folder=" + n + "\t";
+            for (size_t i = 0; i < fo.apps.size(); ++i) { if (i) out += ","; if (fo.apps[i] >= 0 && fo.apps[i] < APP_COUNT) out += kApps[fo.apps[i]].id; }
+            out += "\n";
+        }
+        std::string v = g_settings.volantaOverlay;
+        for (char& c : v) if (c == '\n' || c == '\r') c = ' ';
+        out += "volanta_overlay=" + v + "\n";
+    }
     std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\nmap_rings=%d\nmap_trail=%d\nphysical_keys=%d\nwallpaper=%d\naccent=%d\nbattery=%d\ncharger=%d\n",
                   g_settings.mapSource, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
                   g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0, g_settings.mapTrail ? 1 : 0, g_settings.physicalKeys ? 1 : 0, g_settings.wallpaper, g_settings.accent, (int)std::ceil(g_batt - 0.001f), g_charger ? 1 : 0);
     out += buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
         out += key; out += "=";
-        for (size_t i = 0; i < v.size(); ++i) { if (i) out += ","; out += v[i] >= 0 && v[i] < APP_COUNT ? kApps[v[i]].id : "-"; }   // "-": a free place
+        for (size_t i = 0; i < v.size(); ++i) {   // "-": a free place; "@2": folder 2; "#1": widget 1
+            if (i) out += ",";
+            if (v[i] >= 0 && v[i] < APP_COUNT) out += kApps[v[i]].id;
+            else if (v[i] >= kWidget0 && v[i] < kWidget0 + W_COUNT) out += "#" + std::to_string(v[i] - kWidget0);
+            else if (v[i] >= kFolder0 && v[i] < kWidget0) out += "@" + std::to_string(v[i] - kFolder0);
+            else out += "-";
+        }
         out += "\n";
     };
     list("order", g_settings.order);
+    {
+        out += "installed=";
+        for (size_t i = 0; i < g_settings.installed.size(); ++i) { if (i) out += ","; out += g_settings.installed[i]; }
+        out += "\n";
+    }
     list("favorites", g_settings.favorites);
     for (const auto& bm : g_settings.bookmarks) {   // title, a tab, the address (tabs and line ends taken out of the title)
         std::string t = bm.first;
@@ -6653,10 +7517,13 @@ void settingsFromText(const std::string& text) {
             if (e == std::string::npos) e = val.size();
             const std::string id = val.substr(p, e - p);
             if (id == "-") v.push_back(-1);
+            else if (id.size() > 1 && id[0] == '#') v.push_back(kWidget0 + std::max(0, std::min(W_COUNT - 1, std::atoi(id.c_str() + 1))));
+            else if (id.size() > 1 && id[0] == '@') v.push_back(kFolder0 + std::max(0, std::min(999, std::atoi(id.c_str() + 1))));
             else for (int a = 0; a < APP_COUNT; ++a) if (id == kApps[a].id) v.push_back(a);
             p = e + 1;
         }
     };
+    bool foldersRead = false;
     g_settings.bookmarks.clear();   // (read again, the file's bookmarks replace these rather than adding a second set)
     g_settings.history.clear();
     size_t pos = 0;
@@ -6722,6 +7589,16 @@ void settingsFromText(const std::string& text) {
         else if (key == "show_live") g_settings.showLive = v != 0;
         else if (key == "show_foreflight") g_settings.showForeflight = v != 0;
         else if (key == "order") parseList(val, g_settings.order);
+        else if (key == "home_pages") g_settings.homePages = std::max(1, std::min(20, std::atoi(val.c_str())));
+        else if (key == "volanta_overlay") g_settings.volantaOverlay = val;
+        else if (key == "folder") {
+            if (!foldersRead) { g_settings.folders.clear(); foldersRead = true; }
+            Settings::Folder fo;
+            const size_t tab = val.find('\t');
+            fo.name = val.substr(0, tab);
+            if (tab != std::string::npos) parseList(val.substr(tab + 1), fo.apps);
+            g_settings.folders.push_back(fo);
+        }
         else if (key == "favorites") parseList(val, g_settings.favorites);
         else if (key == "bookmark") {
             const size_t tab = val.find('\t');
@@ -6730,6 +7607,12 @@ void settingsFromText(const std::string& text) {
         else if (key == "history") {
             const size_t tab = val.find('\t');
             if (tab != std::string::npos && tab + 1 < val.size() && g_settings.history.size() < 200) g_settings.history.push_back({val.substr(0, tab), val.substr(tab + 1)});
+        }
+        else if (key == "installed") {
+            g_settings.installed.clear();
+            size_t p0 = 0;
+            while (p0 <= val.size()) { size_t e = val.find(',', p0); if (e == std::string::npos) e = val.size(); if (e > p0) g_settings.installed.push_back(val.substr(p0, e - p0)); p0 = e + 1; }
+            g_installedRead = true;
         }
         else if (key == "gates_for") g_settings.gatesFor = val;
         else if (key == "start_gate") g_settings.startGate = val;

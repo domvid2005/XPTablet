@@ -2378,6 +2378,7 @@ float flightLoop(float dt, float, int, void*) {
     updateNotify();
     if (xpt::takeNotesChanged()) saveNotes();
     if (g_drZulu) g_sim.zuluSec = (int)XPLMGetDataf(g_drZulu);
+    { static XPLMDataRef fr = XPLMFindDataRef("sim/time/framerate_period"); if (fr) { const float per = XPLMGetDataf(fr); g_sim.fps = per > 0 ? 1.0f / per : 0.0f; } }
     if (g_drIcao) {
         char icao[41] = "";
         const int n = XPLMGetDatab(g_drIcao, icao, 0, 40);

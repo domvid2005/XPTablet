@@ -18,16 +18,24 @@ constexpr float kLogicalH = 480.0f;   // the tablet is always laid out 480 units
 // as the settings file keeps the home screen by these numbers.
 enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_ROUTES, APP_WEATHER, APP_GROUND, APP_CHECKLISTS,
            APP_PERFORMANCE, APP_TRAFFIC, APP_NOTES, APP_SIMBRIEF, APP_LIVEMAP, APP_FOREFLIGHT, APP_BROWSER, APP_SETTINGS,
-           APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_MUSIC, APP_DISPATCH, APP_COUNT };
+           APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_MUSIC, APP_DISPATCH,
+           // the App Store and what it offers (web apps, installed or not), and Games
+           APP_APPSTORE, APP_GAMES, APP_DATIS, APP_SPOTIFY, APP_YTMUSIC, APP_APPLEMUSIC, APP_SOUNDCLOUD, APP_YOUTUBE, APP_VATSIMHUB, APP_NATTRAK, APP_IVAO,
+           APP_COUNT };
 
-constexpr int kMaxFavorites = 5;   // the favorites bar holds up to 5 icons; its size is chosen in Settings, 0 removes it
+constexpr int kMaxFavorites = 6;   // the favorites bar holds up to 6 icons; its size is chosen in Settings, 0 removes it
 
 // What the user chose. Kept between sessions by the host (settingsToText / settingsFromText).
 struct Settings {
     // the web apps on the home screen, each on or off: charts (ChartFox, Navigraph), live maps (Volanta, VATSIM), chart providers
     // (ForeFlight, SkyVector), flight planning (SimBrief)
-    bool showCharts = true, showNavigraph = false, showLive = true, showVatsim = false, showForeflight = true, showSkyvector = false, showSimbrief = true;
+    bool showCharts = true, showNavigraph = false, showLive = false, showVatsim = false, showForeflight = true, showSkyvector = false, showSimbrief = true;
     std::vector<int> order;       // the home screen's icons, in the order the user arranged them
+    std::vector<std::string> installed = {"datis"};   // the App Store's apps on the home screen (their ids)
+    struct Folder { std::string name; std::vector<int> apps; };
+    std::vector<Folder> folders;  // the home screen's folders (in order as kFolder0 + their index)
+    int homePages = 1;            // the home screen's pages
+    std::string volantaOverlay = "http://localhost:53011";   // Volanta's stream overlay (its widget)
     float brightness = 1.0f;      // the screen's brightness set in Settings, 0.1 to 1 (on top of what the aircraft sets)
     int favoriteSlots = 4;        // how many icons the favorites bar holds, 0 (no bar) to kMaxFavorites
     std::vector<int> favorites = {APP_MAP, APP_CHARTS, APP_WEATHER, APP_SIMBRIEF};   // the icons in the bar along the bottom (they leave the grid)
@@ -304,6 +312,7 @@ struct SimState {
     std::vector<std::pair<std::string, std::string>> dataInfo;   // Settings, Data: where the tablet's data comes from, and how it is
     bool mac = false;             // macOS: no media controls (no Music app, no Media settings)
     MediaState media;
+    float fps = 0;                // X-Plane's frame rate
     FlightPlan planPreview;       // a plan fetched from SimBrief, waiting for Import or Dismiss (loaded: the window shows it)
     bool planPreviewOpen = false; // its window is up (Dismiss closes it; the plan stays, to review again)
     std::string planDismissed;    // the last plan dismissed (its ofpId): the 2-minute check does not offer it again
@@ -407,6 +416,11 @@ void openDocuments(const std::string& folder);
 void webAddressKey(int code, bool isChar);   // code: a character, or 8 (back) / 13 (enter)
 void openApp(int app);   // APP_HOME: the home screen
 const char* appName(int app);                // the icon's label (Charts and Live Map carry their provider's name)
+// the home screen's places hold an app, a folder (kFolder0 + its index) or a widget (kWidget0 + its kind), or -1 (free)
+constexpr int kFolder0 = 1000, kWidget0 = 2000;
+enum WidgetKind { W_WEATHER, W_FLIGHT, W_MEDIA, W_FPS, W_VOLANTA, W_COUNT };
+bool appInstalled(int app);
+void layoutHome();                       // the home screen's places put in order (as it is drawn)               // an App Store app is on the home screen only once installed
 bool appVisible(int app);                 // on the home screen (web app icons can be switched off)
 std::vector<std::pair<int, int>> wrapLines(struct ImFont* font, float px, const std::string& v, float wrapW);   // a typed text's lines (the tests)
 void mapSelect(int kind, const std::string& key);
