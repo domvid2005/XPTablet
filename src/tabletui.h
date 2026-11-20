@@ -60,6 +60,7 @@ struct Settings {
     int accent = 0;               // Display: the colour of what is chosen (0 violet .. 4 gold), from the logo's letters
     bool localConnect = false;    // Local Connect: the tablet on a phone or tablet on the same network (off until switched on)
     bool localBattery = true;     // with a device connected that tells its battery: the tablet's battery is that device's
+    int arcadeBest[4] = {0, 0, 0, 0};   // the best scores of Contrail, Taxi Rush, Sky Patrol and Hangar Climb
     bool physicalKeys = false;    // typing: the computer's own keyboard (a thin bar instead of the on-screen keys)
     bool mapRings = true;         // range rings round the aircraft (a quarter, half and all of the range), as on WXPlane's map
     bool mapIls = true;           // ILS and localizer courses (a layer of their own)
@@ -470,6 +471,7 @@ int chimeSeq();               // counted up for each notification chime: the hos
 bool tabletTyping();
 bool gameWantsKeys();                    // 2048's board was pressed: W A S D and the arrows play it
 void gameKey(int dir);                   // a move for it: 0 left, 1 right, 2 up, 3 down
+void gameKeyEvent(int key, bool down);  // the arcade games: 0 left, 1 right, 2 up, 3 down, 4 the action (Space), pressed or let go
 void tabletKey(int code, bool isChar);   // code: a character, or 8 (back) / 13 (enter)
 // The Notes page's contents, kept between sessions by the host
 std::string notesToText();

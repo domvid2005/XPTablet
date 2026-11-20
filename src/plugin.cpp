@@ -1778,8 +1778,12 @@ int keySniffer(char key, XPLMKeyFlags flags, char vkey, void*) {
     if (xpt::gameWantsKeys() && !(flags & (xplm_ControlFlag | xplm_OptionAltFlag))) {   // 2048 pressed: W A S D and the arrows play it
         const unsigned char vk = (unsigned char)vkey;
         const char c = (char)std::tolower((unsigned char)key);
-        const int dir = c == 'a' || vk == 37 ? 0 : c == 'd' || vk == 39 ? 1 : c == 'w' || vk == 38 ? 2 : c == 's' || vk == 40 ? 3 : -1;
-        if (dir >= 0) { if (flags & xplm_DownFlag) xpt::gameKey(dir); return 0; }
+        const int dir = c == 'a' || vk == 37 ? 0 : c == 'd' || vk == 39 ? 1 : c == 'w' || vk == 38 ? 2 : c == 's' || vk == 40 ? 3 : c == ' ' || vk == 32 ? 4 : -1;
+        if (dir >= 0) {   // pressed and let go (the arcade games hold them); X-Plane does not see them meanwhile
+            if (flags & xplm_DownFlag) xpt::gameKeyEvent(dir, true);
+            if (flags & xplm_UpFlag) xpt::gameKeyEvent(dir, false);
+            return 0;
+        }
     }
     if (!xpt::settings().physicalKeys) return 1;
     // a web page's text field (a site's search box) with the computer's keyboard: the keys go to the page, not to X-Plane

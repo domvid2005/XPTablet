@@ -2,6 +2,7 @@
 #include "airspace_parse.h"
 #include "airlines.h"
 #include "imgui_internal.h"
+#include "arcade.h"
 
 #include <algorithm>
 #include <map>
@@ -6442,7 +6443,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"Spotify, YouTube, YouTube Music, Apple Music and SoundCloud icons", "Their logos are trademarks of Spotify AB, Google LLC, Apple Inc. and SoundCloud Global Limited, used only to show their web players", "Trademark"},
         {"VATSIM ATC and airspaces", "VATSIM data feed (data.vatsim.net); FIR and airspace boundaries from the VATSpy Data Project (github.com/vatsimnetwork/vatspy-data-project), fetched and shown as published", "CC BY-SA 4.0"},
         {"Jetways", "openSAM by Holger Teutsch (hotbso) and contributors (github.com/hotbso/openSAM), its commands and datarefs (no openSAM code is in XPTablet)", "LGPL-2.1"},
-        {"Games", "Tic-tac-toe and 2048 (after Gabriele Cirulli's game), made for XPTablet", ""},
+        {"Games", "Knots and Crosses, 2048 (after Gabriele Cirulli's game), and Contrail, Taxi Rush, Sky Patrol and Hangar Climb: all made for XPTablet, every map, rule and drawing its own", ""},
         {"", "XPTablet is not made by or affiliated with ForeFlight, Navigraph, SkyVector, Volanta / Orbx, VATSIM Radar, ChartFox, SimBrief, VATSIM, IVAO, Spotify, Google / YouTube, Apple, SoundCloud or openSAM.", ""},
     };
     float y = top + 38 - g_creditsScroll;
@@ -8173,7 +8174,7 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
         {APP_APPLEMUSIC, 4, "Apple Music on the web"},
         {APP_SOUNDCLOUD, 4, "SoundCloud"},
         {APP_YOUTUBE, 4, "YouTube"},
-        {APP_GAMES, 5, "2048, and noughts and crosses against the tablet"},
+        {APP_GAMES, 5, "2048, Knots and Crosses, and four aviation arcade games"},
     };
     const float top = kStatusH + kHeaderH + 10;
     {   // the categories
@@ -8245,8 +8246,10 @@ void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
     }
 }
 
-// ---- Games: 2048 and noughts and crosses against the tablet ---------------------------------------------------------------------------
-int g_game = -1;   // the game shown, -1 the list
+// ---- Games: 2048 and Knots and Crosses against the tablet ---------------------------------------------------------------------------
+int g_game = -1;   // the game shown, -1 the list (0 2048, 1 Knots and Crosses, 2.. the arcade games)
+bool g_arcKeys = false;            // an arcade game's field was pressed: the computer's keys play it
+bool g_arcHeld[5] = {}, g_arcHit[5] = {};   // its keys: held, and pressed since the last frame (left, right, up, down, action)
 bool g_2048Keys = false;   // its board was pressed: the computer's W A S D and arrows play it
 int g_gameKeyDir = -1;     // a move from those keys, waiting for the page
 int g_board[16] = {}, g_score = 0, g_best = 0;
@@ -8329,48 +8332,131 @@ void tttTabletMove() {
 void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
     const float top = kStatusH + kHeaderH;
     const float dt = ImGui::GetIO().DeltaTime;
-    if (g_game < 0) {   // the list
+    if (g_game < 0) {   // the list: three across, two rows (2048, Knots and Crosses, then the arcade games)
         struct G { const char* name; const char* what; ImU32 col; };
-        static const G games[] = {{"2048", "Slide the tiles; equal ones join. Reach 2048.", IM_COL32(237, 194, 46, 255)},
-                                  {"Noughts and Crosses", "Three in a row against the tablet.", IM_COL32(80, 170, 240, 255)}};
-        const float bw = std::floor((w - 48) * 0.5f), bh = 190;
-        for (int i = 0; i < 2; ++i) {
-            const ImVec2 a(16 + i * (bw + 16), top + 40), b(a.x + bw, a.y + bh);
+        const G games[6] = {{"2048", "Slide the tiles; equal ones join. Reach 2048.", IM_COL32(237, 194, 46, 255)},
+                            {"Knots and Crosses", "Three in a row against the tablet.", IM_COL32(80, 170, 240, 255)},
+                            {arcade::name(0), arcade::blurb(0), IM_COL32(70, 150, 230, 255)},
+                            {arcade::name(1), arcade::blurb(1), IM_COL32(60, 170, 100, 255)},
+                            {arcade::name(2), arcade::blurb(2), IM_COL32(120, 90, 230, 255)},
+                            {arcade::name(3), arcade::blurb(3), IM_COL32(230, 120, 50, 255)}};
+        const float gap = 14, bw = std::floor((w - 32 - 2 * gap) / 3), bh = std::floor((h - top - 40 - gap) * 0.5f);
+        for (int i = 0; i < 6; ++i) {
+            const ImVec2 a(16 + (i % 3) * (bw + gap), top + 26 + (i / 3) * (bh + gap)), b(a.x + bw, a.y + bh);
             char id[16]; std::snprintf(id, sizeof id, "##game%d", i);
             ImGui::SetCursorScreenPos(a);
             const bool hit = ImGui::InvisibleButton(id, ImVec2(bw, bh));
             const Ease e = eased(id, false, ImGui::IsItemHovered(), ImGui::IsItemActive());
             const float in = e.down * 3;
-            dl->AddRectFilled(ImVec2(a.x + in, a.y + in), ImVec2(b.x - in, b.y - in), mixCol(mixCol(games[i].col, IM_COL32(0, 0, 0, 255), 0.45f), games[i].col, 0.45f + 0.35f * e.hot), 28.0f);
-            dl->AddText(f.title, fontPx(f.title), ImVec2(a.x + 24, a.y + 24), IM_COL32(255, 255, 255, 255), games[i].name);
-            dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 24, a.y + 64), IM_COL32(240, 244, 250, 220), games[i].what, nullptr, bw - 48);
+            dl->AddRectFilled(ImVec2(a.x + in, a.y + in), ImVec2(b.x - in, b.y - in), mixCol(mixCol(games[i].col, IM_COL32(0, 0, 0, 255), 0.45f), games[i].col, 0.45f + 0.35f * e.hot), 24.0f);
+            dl->AddText(f.title, fontPx(f.title), ImVec2(a.x + 18, a.y + 16), IM_COL32(255, 255, 255, 255), games[i].name);
+            dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 18, a.y + 52), IM_COL32(240, 244, 250, 220), games[i].what, nullptr, bw - 36);
             // a little picture of it, at the bottom right
-            const ImVec2 pc(b.x - 80, b.y - 70);
+            const ImVec2 pc(b.x - 56, b.y - 46);
             if (i == 0) {
                 static const char* v[4] = {"2", "4", "8", "16"};
                 for (int k = 0; k < 4; ++k) {
-                    const ImVec2 t0(pc.x - 44 + (k % 2) * 46, pc.y - 44 + (k / 2) * 46);
-                    dl->AddRectFilled(t0, ImVec2(t0.x + 42, t0.y + 42), IM_COL32(255, 255, 255, 60 + k * 30), 8.0f);
-                    textCentered(dl, f.bold, t0.x + 21, t0.y + 21 - fontPx(f.bold) * 0.5f, IM_COL32(255, 255, 255, 255), v[k]);
+                    const ImVec2 t0(pc.x - 30 + (k % 2) * 31, pc.y - 30 + (k / 2) * 31);
+                    dl->AddRectFilled(t0, ImVec2(t0.x + 28, t0.y + 28), IM_COL32(255, 255, 255, 60 + k * 30), 6.0f);
+                    textCentered(dl, f.small, t0.x + 14, t0.y + 14 - fontPx(f.small) * 0.5f, IM_COL32(255, 255, 255, 255), v[k]);
                 }
-            } else {
+            } else if (i == 1) {
                 for (int k = 1; k < 3; ++k) {
-                    dl->AddLine(ImVec2(pc.x - 45 + k * 30, pc.y - 45), ImVec2(pc.x - 45 + k * 30, pc.y + 45), IM_COL32(255, 255, 255, 150), 3.0f);
-                    dl->AddLine(ImVec2(pc.x - 45, pc.y - 45 + k * 30), ImVec2(pc.x + 45, pc.y - 45 + k * 30), IM_COL32(255, 255, 255, 150), 3.0f);
+                    dl->AddLine(ImVec2(pc.x - 30 + k * 20, pc.y - 30), ImVec2(pc.x - 30 + k * 20, pc.y + 30), IM_COL32(255, 255, 255, 150), 2.5f);
+                    dl->AddLine(ImVec2(pc.x - 30, pc.y - 30 + k * 20), ImVec2(pc.x + 30, pc.y - 30 + k * 20), IM_COL32(255, 255, 255, 150), 2.5f);
                 }
-                dl->AddLine(ImVec2(pc.x - 38, pc.y - 38), ImVec2(pc.x - 22, pc.y - 22), IM_COL32(255, 255, 255, 255), 3.5f);
-                dl->AddLine(ImVec2(pc.x - 22, pc.y - 38), ImVec2(pc.x - 38, pc.y - 22), IM_COL32(255, 255, 255, 255), 3.5f);
-                dl->AddCircle(ImVec2(pc.x, pc.y), 9, IM_COL32(255, 220, 140, 255), 0, 3.5f);
-                dl->AddCircle(ImVec2(pc.x + 30, pc.y + 30), 9, IM_COL32(255, 220, 140, 255), 0, 3.5f);
-            }
+                dl->AddLine(ImVec2(pc.x - 26, pc.y - 26), ImVec2(pc.x - 14, pc.y - 14), IM_COL32(255, 255, 255, 255), 3.0f);
+                dl->AddLine(ImVec2(pc.x - 14, pc.y - 26), ImVec2(pc.x - 26, pc.y - 14), IM_COL32(255, 255, 255, 255), 3.0f);
+                dl->AddCircle(ImVec2(pc.x, pc.y), 6, IM_COL32(255, 220, 140, 255), 0, 3.0f);
+                dl->AddCircle(ImVec2(pc.x + 20, pc.y + 20), 6, IM_COL32(255, 220, 140, 255), 0, 3.0f);
+            } else arcade::icon(i - 2, dl, pc, 42.0f);
             if (hit) {
                 g_game = i;
                 if (i == 0) { bool empty = true; for (int v : g_board) if (v) empty = false; if (empty) new2048(); }
+                if (i >= 2 && !arcade::started(i - 2)) arcade::reset(i - 2);
+                for (int k = 0; k < 5; ++k) g_arcHeld[k] = g_arcHit[k] = false;
             }
         }
         return;
     }
     if (pill(dl, f, "##gamesback", "All games", ImVec2(16, top + 12), ImVec2(116, top + 40), false, true)) { g_game = -1; return; }
+    if (g_game >= 2) {   // an arcade game: its field at the left, the score and its pad at the right
+        const int ag = g_game - 2;
+        const float panelW = 220;
+        const ImVec2 fa(16, top + 52), fb(w - 16 - panelW - 16, h - 12);
+        // the field (a press on it gives it the computer's keys)
+        ImGui::SetCursorScreenPos(fa);
+        ImGui::InvisibleButton("##arcfield", ImVec2(fb.x - fa.x, fb.y - fa.y));
+        if (ImGui::IsItemActivated()) g_arcKeys = true;
+        const bool fieldHeld = ImGui::IsItemActive();
+        // the pad: four directions and the action, held as long as they are pressed
+        const float px0 = fb.x + 16, px1 = w - 16;
+        const float bs = 44, padCx = px0 + 56, padCy = h - 12 - bs * 1.5f - 6;
+        bool padHeld[5] = {}, padHit[5] = {};
+        auto padBtn = [&](int k, ImVec2 c, const char* id, float r) {
+            ImGui::SetCursorScreenPos(ImVec2(c.x - r, c.y - r));
+            ImGui::InvisibleButton(id, ImVec2(r * 2, r * 2));
+            padHeld[k] = ImGui::IsItemActive(); padHit[k] = ImGui::IsItemActivated();
+            const Ease e = eased(id, padHeld[k], ImGui::IsItemHovered(), padHeld[k]);
+            dl->AddRectFilled(ImVec2(c.x - r + 2, c.y - r + 2), ImVec2(c.x + r - 2, c.y + r - 2), mixCol(IM_COL32(255, 255, 255, 26 + (int)(20 * e.hot)), accentCol(230), e.on), k == 4 ? r : 12.0f);
+            return c;
+        };
+        const ImVec2 cL = padBtn(0, ImVec2(padCx - bs, padCy), "##arcL", bs * 0.5f), cR = padBtn(1, ImVec2(padCx + bs, padCy), "##arcR", bs * 0.5f);
+        const ImVec2 cU = padBtn(2, ImVec2(padCx, padCy - bs), "##arcU", bs * 0.5f), cD = padBtn(3, ImVec2(padCx, padCy + bs), "##arcD", bs * 0.5f);
+        const ImVec2 cA = padBtn(4, ImVec2(px1 - 30, padCy + bs * 0.4f), "##arcA", 28.0f);
+        auto tri = [&](ImVec2 c, int d) {   // an arrow in a pad button
+            const float r = 9;
+            ImVec2 p[3];
+            if (d == 0) { p[0] = ImVec2(c.x - r, c.y); p[1] = ImVec2(c.x + r * 0.6f, c.y - r); p[2] = ImVec2(c.x + r * 0.6f, c.y + r); }
+            else if (d == 1) { p[0] = ImVec2(c.x + r, c.y); p[1] = ImVec2(c.x - r * 0.6f, c.y + r); p[2] = ImVec2(c.x - r * 0.6f, c.y - r); }
+            else if (d == 2) { p[0] = ImVec2(c.x, c.y - r); p[1] = ImVec2(c.x + r, c.y + r * 0.6f); p[2] = ImVec2(c.x - r, c.y + r * 0.6f); }
+            else { p[0] = ImVec2(c.x, c.y + r); p[1] = ImVec2(c.x - r, c.y - r * 0.6f); p[2] = ImVec2(c.x + r, c.y - r * 0.6f); }
+            dl->AddTriangleFilled(p[0], p[1], p[2], kInk);
+        };
+        tri(cL, 0); tri(cR, 1); tri(cU, 2); tri(cD, 3);
+        textCentered(dl, f.small, cA.x, cA.y - fontPx(f.small) * 0.5f, kInk, ag == arcade::SKY_PATROL ? "Fire" : ag == arcade::HANGAR_CLIMB ? "Jump" : "Go");
+        // a press beside the field and the pad gives the keys back to X-Plane
+        if (ImGui::IsMouseClicked(0) && !ImGui::IsAnyItemHovered()) g_arcKeys = false;
+        // a swipe on the field steers too (a finger's quick drag: a direction)
+        arcade::Input in;
+        {
+            static ImVec2 from; static bool swiped = false;
+            if (ImGui::IsItemActivated()) {}
+            if (fieldHeld && ImGui::IsMouseClicked(0)) { from = ImGui::GetIO().MousePos; swiped = false; }
+            if (fieldHeld && !swiped) {
+                const ImVec2 m = ImGui::GetIO().MousePos; const float dx = m.x - from.x, dy = m.y - from.y;
+                if (std::fabs(dx) > 24 || std::fabs(dy) > 24) {
+                    swiped = true;
+                    const int d = std::fabs(dx) > std::fabs(dy) ? (dx < 0 ? 0 : 1) : (dy < 0 ? 2 : 3);
+                    if (d == 0) in.leftHit = true; else if (d == 1) in.rightHit = true; else if (d == 2) in.upHit = true; else in.downHit = true;
+                }
+            }
+        }
+        in.left = g_arcHeld[0] || padHeld[0]; in.right = g_arcHeld[1] || padHeld[1]; in.up = g_arcHeld[2] || padHeld[2]; in.down = g_arcHeld[3] || padHeld[3]; in.action = g_arcHeld[4] || padHeld[4];
+        in.leftHit = in.leftHit || g_arcHit[0] || padHit[0]; in.rightHit = in.rightHit || g_arcHit[1] || padHit[1]; in.upHit = in.upHit || g_arcHit[2] || padHit[2];
+        in.downHit = in.downHit || g_arcHit[3] || padHit[3]; in.actionHit = g_arcHit[4] || padHit[4];
+        for (bool& b : g_arcHit) b = false;
+        if (!g_arcKeys) for (bool& b : g_arcHeld) b = false;
+        arcade::step(ag, in, dt);
+        const int sc = arcade::score(ag);
+        if (sc > g_settings.arcadeBest[ag]) { g_settings.arcadeBest[ag] = sc; g_settingsChanged = true; }
+        dl->PushClipRect(fa, fb, true);
+        arcade::draw(ag, dl, fa, fb, f.title, fontPx(f.title), f.small, fontPx(f.small));
+        dl->PopClipRect();
+        if (g_arcKeys) dl->AddRect(ImVec2(fa.x - 2, fa.y - 2), ImVec2(fb.x + 2, fb.y + 2), accentLite(200), 6.0f, 0, 2.0f);   // (it has the keys)
+        // the panel: name, score, best, lives, New game, how to play
+        float y = top + 52;
+        textAt(dl, f.title, px0, y, kInk, arcade::name(ag)); y += 36;
+        char t[48];
+        std::snprintf(t, sizeof t, "Score %d", sc); textAt(dl, f.bold, px0, y, kInk, t); y += 24;
+        std::snprintf(t, sizeof t, "Best %d", g_settings.arcadeBest[ag]); textAt(dl, f.body, px0, y, kMuted, t);
+        if (arcade::lives(ag) >= 0) { std::snprintf(t, sizeof t, "Lives %d", std::max(0, arcade::lives(ag))); textRight(dl, f.body, px1, y, kMuted, t); }
+        y += 30;
+        if (pill(dl, f, "##arcnew", "New game", ImVec2(px0, y), ImVec2(px1, y + 30), false, true)) { arcade::reset(ag); g_arcKeys = true; }
+        y += 40;
+        dl->AddText(f.small, fontPx(f.small), ImVec2(px0, y), kMuted, arcade::help(ag), nullptr, px1 - px0);
+        return;
+    }
     if (g_game == 0) {   // 2048: swipe on the board, or the arrow keys
         // the board at the left under All games; the score, the best and New game in a column to its right (nothing over the board)
         const float side = std::floor(std::min(h - top - 62, w * 0.5f)), cell = side / 4;
@@ -8447,7 +8533,7 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         if (g_2048Keys) dl->AddRect(ImVec2(o.x - 3, o.y - 3), ImVec2(o.x + side + 3, o.y + side + 3), accentLite(220), 16.0f, 0, 2.0f);   // (it has the keys)
         return;
     }
-    // noughts and crosses: you are X and go first; the tablet answers
+    // Knots and Crosses: you are X and go first; the tablet answers
     const float side = std::floor(std::min(h - top - 62, 340.0f)), cell = side / 3;
     const ImVec2 o(std::floor((w - side) * 0.5f) - 120, top + 52);
     const float px = o.x + side + 40;
@@ -8508,8 +8594,14 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
 }
 
 int currentApp() { return g_app; }
-bool gameWantsKeys() { return g_2048Keys && g_app == APP_GAMES && g_game == 0; }
+bool gameWantsKeys() { return g_app == APP_GAMES && ((g_2048Keys && g_game == 0) || (g_arcKeys && g_game >= 2)); }
 void gameKey(int dir) { g_gameKeyDir = dir; }
+void gameKeyEvent(int key, bool down) {
+    if (key < 0 || key > 4) return;
+    if (g_game == 0) { if (down && key < 4) g_gameKeyDir = key; return; }
+    if (down && !g_arcHeld[key]) g_arcHit[key] = true;
+    g_arcHeld[key] = down;
+}
 void notify(const std::string& title, const std::string& body, int app) { postNote(title, body, app); }
 int notificationCount() { return (int)g_notes.size(); }
 bool pullDownOpen() { return g_ccT > 0.5f; }
@@ -8777,6 +8869,7 @@ std::string settingsToText() {
     out += std::string("map_airspaces=") + (g_settings.mapAirspaces ? "1" : "0") + "\n";
     out += std::string("map_dark_auto=") + (g_settings.mapDarkAuto ? "1" : "0") + "\n";
     out += std::string("cabin_auto=") + (g_settings.cabinAuto ? "1" : "0") + "\n";
+    { char ab[96]; std::snprintf(ab, sizeof ab, "arcade_best=%d,%d,%d,%d\n", g_settings.arcadeBest[0], g_settings.arcadeBest[1], g_settings.arcadeBest[2], g_settings.arcadeBest[3]); out += ab; }
     out += std::string("local_connect=") + (g_settings.localConnect ? "1" : "0") + "\nlocal_battery=" + (g_settings.localBattery ? "1" : "0") + "\n";
     out += std::string("map_vatsim_atc=") + (g_settings.mapVatsimAtc ? "1" : "0") + "\nvatsim_atc_notes=" + (g_settings.vatsimAtcNotes ? "1" : "0") + "\n";
     for (int i = 0; i < 3; ++i) {   // the Customs: colours, and the picture's file name
@@ -8901,6 +8994,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "cabin_auto") g_settings.cabinAuto = v != 0;
         else if (key == "vatsim_atc_notes") g_settings.vatsimAtcNotes = v != 0;
         else if (key == "local_connect") g_settings.localConnect = v != 0;
+        else if (key == "arcade_best") { int a4[4] = {0, 0, 0, 0}; std::sscanf(val.c_str(), "%d,%d,%d,%d", &a4[0], &a4[1], &a4[2], &a4[3]); for (int i = 0; i < 4; ++i) g_settings.arcadeBest[i] = std::max(0, a4[i]); }
         else if (key == "local_battery") g_settings.localBattery = v != 0;
         else if (key == "map_traffic_range") g_settings.mapTrafficRangeNm = std::max(0.0f, std::min(2000.0f, (float)std::atof(val.c_str())));
         else if (key == "map_traffic_alt") g_settings.mapTrafficAltFt = std::max(0.0f, std::min(60000.0f, (float)std::atof(val.c_str())));

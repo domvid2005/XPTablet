@@ -20,6 +20,7 @@
 #include "imgui.h"
 #include "imgui_internal.h"   // (the error log: ImGui's own record of unbalanced calls, which it shows on screen in the sim)
 #include "tabletui.h"
+#include "arcade.h"
 #include "airspace_parse.h"
 #include "airlines.h"
 #include "tabrender.h"
@@ -445,8 +446,24 @@ int main(int argc, char** argv) {
             auto tp = [&](float x, float y) { for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1);
                 ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); } };
             tp(200, 200); shot(t, APP_GAMES, "games_2048");
-            tp(60, 100); tp(600, 200); tp(200, 300); shot(t, APP_GAMES, "games_ttt");
+            tp(60, 100); tp(400, 200); tp(200, 300); shot(t, APP_GAMES, "games_ttt");
             tp(60, 100);
+            {   // the arcade games: each from its card, played a little (keys held and pressed), its page
+                static const float cx[4] = {660, 140, 400, 660}, cy[4] = {200, 380, 380, 380};
+                static const char* nm[4] = {"games_contrail", "games_taxirush", "games_skypatrol", "games_hangarclimb"};
+                for (int g = 0; g < 4; ++g) {
+                    tp(cx[g], cy[g]);
+                    tp(200, 250);   // (the field pressed: it has the keys)
+                    if (!gameWantsKeys()) { std::printf("FAIL: %s's field takes the keys when pressed\n", nm[g]); ++failures; }
+                    gameKeyEvent(g == 0 ? 3 : 2, true); gameKeyEvent(g == 0 ? 3 : 2, false);
+                    gameKeyEvent(1, true);
+                    for (int k = 0; k < 40; ++k) { if (k % 9 == 0) { gameKeyEvent(4, true); } if (k % 9 == 4) gameKeyEvent(4, false);
+                        io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); io.AddMouseButtonEvent(0, false); ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); }
+                    gameKeyEvent(1, false); gameKeyEvent(4, false);
+                    shot(t, APP_GAMES, nm[g]);
+                    tp(60, 100);
+                }
+            }
         }
         { SimState nv = t;
           nv.navHits = {{4, "GIJ", "GIPPER VORTAC", 41.77, -86.32, 11580}, {2, "SB", "SOUTH BEND NDB", 41.6, -86.2, 356}, {512, "SBNAP", "SBNAP", 41.5, -86.4, 0}};
@@ -1283,6 +1300,27 @@ int main(int argc, char** argv) {
             std::printf("phone tap (%s): app %d\n", same ? "down and up in one frame" : "down, then up", currentApp());
             if (currentApp() == APP_HOME) { std::printf("FAIL: one phone tap does not open an app (%s)\n", same ? "down and up in one frame" : "down, then up"); ++failures; }
             if (currentApp() != APP_HOME) { tap(30, 50, same != 0); if (currentApp() != APP_HOME) { std::printf("FAIL: one phone tap on Home does not go home (%d)\n", currentApp()); ++failures; openApp(APP_HOME); } }
+        }
+    }
+    {   // the arcade games played by random fingers for a while each: nothing goes out of its field, scores only grow
+        for (int g = 0; g < xpt::arcade::COUNT; ++g) {
+            xpt::arcade::reset(g);
+            unsigned seed = 7u + g * 13u;
+            int last = 0, games = 0;
+            for (int i = 0; i < 20000; ++i) {
+                seed = seed * 1103515245u + 12345u;
+                xpt::arcade::Input in;
+                const int k = (seed >> 16) % 7;
+                in.left = k == 0; in.right = k == 1; in.up = k == 2; in.down = k == 3; in.action = (seed >> 20) % 3 == 0;
+                in.leftHit = in.left && (seed >> 24) % 4 == 0; in.rightHit = in.right && (seed >> 24) % 4 == 0; in.upHit = in.up && (seed >> 24) % 4 == 0;
+                in.downHit = in.down && (seed >> 24) % 4 == 0; in.actionHit = in.action && (seed >> 25) % 3 == 0;
+                xpt::arcade::step(g, in, 1.0f / 60.0f);
+                const int sc = xpt::arcade::score(g);
+                if (sc < last) { std::printf("FAIL: %s's score went down (%d to %d)\n", xpt::arcade::name(g), last, sc); ++failures; break; }
+                last = sc;
+                if (xpt::arcade::over(g)) { ++games; xpt::arcade::reset(g); last = 0; }
+            }
+            std::printf("arcade %s: %d games over in 20000 steps\n", xpt::arcade::name(g), games);
         }
     }
     {   // ImGui's recoverable errors (a Push without its Pop, an item before Begin...): in the sim each one is a "Dear ImGui" pop-up
