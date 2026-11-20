@@ -552,8 +552,16 @@ App icons (provided through creatorsrepo.com)
     cog, check-bold, power, weather-partly-snowy-rainy, file-document, star-four-points, airplane, airport, web. Drawn from their vector paths by
     tools/make_icons_rgba.py into assets/icons.rgba.
   * Service logos (assets/brands): ForeFlight (ForeFlight LLC), Navigraph (Navigraph), SkyVector (SkyVector / Seattle Avionics) and
-    Volanta (Orbx), ChartFox (chartfox.org), SimBrief (Navigraph) and VATSIM Radar (vatsim-radar.com) are trademarks of their owners, used only on the icons that open their web apps. XPTablet is not made by or
+    Volanta (Orbx), ChartFox (chartfox.org), SimBrief (Navigraph), VATSIM Radar (vatsim-radar.com), VATSIM (VATSIM, Inc.), natTrak (VATSIM),
+    IVAO (International Virtual Aviation Organisation), YouTube and YouTube Music (Google LLC), Apple Music (Apple Inc.) and SoundCloud
+    (SoundCloud Global Limited) are trademarks of their owners, used only on the icons that open their web apps. XPTablet is not made by or
     affiliated with any of them.
+
+------------------------------------------------------------------------------
+VATSIM airspaces (fetched at run time, not bundled)
+------------------------------------------------------------------------------
+FIR and airspace boundaries: the VATSpy Data Project (https://github.com/vatsimnetwork/vatspy-data-project), CC BY-SA 4.0. XPTablet
+downloads Boundaries.geojson and VATSpy.dat from it and shows them as published.
 
 ------------------------------------------------------------------------------
 Airbus checklists (checklists/airbus.txt)

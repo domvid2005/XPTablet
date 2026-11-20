@@ -153,6 +153,13 @@ int brandCell(int app) {
     case APP_VATSIM: return 12;      // VATSIM Radar
     case APP_SIMBRIEF: return 13;
     case APP_CHARTS: return 16;      // ChartFox
+    case APP_SOUNDCLOUD: return 20;
+    case APP_YOUTUBE: return 21;
+    case APP_YTMUSIC: return 22;
+    case APP_APPLEMUSIC: return 23;
+    case APP_VATSIMHUB: return 24;   // VATSIM
+    case APP_NATTRAK: return 25;
+    case APP_IVAO: return 26;        // IVAO Webeye
     default: return -1;
     }
 }
@@ -6320,7 +6327,14 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"ChartFox icon", "The ChartFox logo is a trademark of ChartFox (chartfox.org), used only to show their charts web app", "Trademark"},
         {"SimBrief icon", "The SimBrief logo is a trademark of SimBrief (Navigraph), used only to show their web app", "Trademark"},
         {"VATSIM Radar icon", "The VATSIM Radar logo belongs to VATSIM Radar (vatsim-radar.com), used only to show their web map", "Trademark"},
-        {"", "XPTablet is not made by or affiliated with ForeFlight, Navigraph, SkyVector, Volanta / Orbx, VATSIM Radar, ChartFox, SimBrief or VATSIM.", ""},
+        {"VATSIM icon", "The VATSIM logo is a trademark of VATSIM, Inc. (vatsim.net), used only to show their pages", "Trademark"},
+        {"natTrak icon", "The natTrak logo belongs to VATSIM's natTrak (nattrak.vatsim.net), used only to show their web app", "Trademark"},
+        {"IVAO icon", "The IVAO logo is a trademark of the International Virtual Aviation Organisation (ivao.aero), used only to show their Webeye map", "Trademark"},
+        {"Spotify, YouTube, YouTube Music, Apple Music and SoundCloud icons", "Their logos are trademarks of Spotify AB, Google LLC, Apple Inc. and SoundCloud Global Limited, used only to show their web players", "Trademark"},
+        {"VATSIM ATC and airspaces", "VATSIM data feed (data.vatsim.net); FIR and airspace boundaries from the VATSpy Data Project (github.com/vatsimnetwork/vatspy-data-project), fetched and shown as published", "CC BY-SA 4.0"},
+        {"Jetways", "openSAM by Holger Teutsch (hotbso) and contributors (github.com/hotbso/openSAM), its commands and datarefs (no openSAM code is in XPTablet)", "LGPL-2.1"},
+        {"Games", "Tic-tac-toe and 2048 (after Gabriele Cirulli's game), made for XPTablet", ""},
+        {"", "XPTablet is not made by or affiliated with ForeFlight, Navigraph, SkyVector, Volanta / Orbx, VATSIM Radar, ChartFox, SimBrief, VATSIM, IVAO, Spotify, Google / YouTube, Apple, SoundCloud or openSAM.", ""},
     };
     float y = top + 38 - g_creditsScroll;
     const float x0 = left + 18, xLic = w - 30, wrap = w - 30 - x0 - 150;

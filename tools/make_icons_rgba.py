@@ -11,7 +11,8 @@ from svgpath import raster
 
 CELL = 256
 ORDER = ["cog", "list-status", "check-bold", "file-document", "star-four-points", "airplane", "airport", "web",   # pictograms
-         "foreflight", "navigraph", "skyvector", "volanta", "vatsimradar", "simbrief", "power", "weather-partly-snowy-rainy", "chartfox", "music", "map", "file-document-edit"]                                                       # tiles
+         "foreflight", "navigraph", "skyvector", "volanta", "vatsimradar", "simbrief", "power", "weather-partly-snowy-rainy", "chartfox", "music", "map", "file-document-edit",
+         "soundcloud", "youtube", "ytmusic", "applemusic", "vatsim", "nattrak", "ivao"]                                                       # tiles
 root = os.path.join(os.path.dirname(__file__), "..", "assets", "brands")
 
 def gradient(c0, c1, radial=False):
@@ -83,6 +84,39 @@ def tile(name):
         sh = np.clip(1 - np.hypot((xx - 128) / 78, (yy - 226) / 9), 0, 1) ** 1.4 * 0.32
         out = out * (1 - sh[..., None]) + np.array([90, 100, 115.0]) * sh[..., None]
         return place(out, s, a, (int(cx - r - 1), int(cy - r - 1), int(cx + r + 2), int(cy + r + 2)), 178)
+    if name == "soundcloud":   # its own app tile (the white cloud on orange)
+        return np.asarray(Image.open(os.path.join(root, "soundcloud.png")).convert("RGB").resize((CELL, CELL), Image.LANCZOS)).astype(float)
+    if name in ("youtube", "ytmusic"):   # the red disc's middle, filling the tile: the white mark on YouTube's red
+        im = Image.open(os.path.join(root, "youtube.png" if name == "youtube" else "ytmusic.webp")).convert("RGB")
+        cx, cy, r = (370, 370, 338) if name == "youtube" else (480, 480, 478)
+        k = 0.66
+        return np.asarray(im.crop((int(cx - r * k), int(cy - r * k), int(cx + r * k), int(cy + r * k))).resize((CELL, CELL), Image.LANCZOS)).astype(float)
+    if name == "applemusic":   # its own app icon (on its red, where its corners are clear)
+        im = Image.open(os.path.join(root, "applemusic.webp")).convert("RGBA")
+        bg = Image.new("RGBA", im.size, (250, 45, 72, 255)); bg.alpha_composite(im)
+        return np.asarray(bg.convert("RGB").crop((60, 60, 900, 900)).resize((CELL, CELL), Image.LANCZOS)).astype(float)   # (inside its own rounded rim)
+    if name == "vatsim":   # the round VATSIM logo, on white
+        v = np.asarray(Image.open(os.path.join(root, "vatsim.jpg")).convert("RGB")).astype(float)
+        a = np.ones(v.shape[:2])
+        return place(np.full((CELL, CELL, 3), 255.0), v, a, (0, 0, v.shape[1], v.shape[0]), 224)
+    if name == "nattrak":   # the wordmark (its dots too), on white
+        im = Image.open(os.path.join(root, "nattrak.webp")).convert("RGBA")
+        n = np.asarray(im).astype(float)
+        return place(np.full((CELL, CELL, 3), 255.0), n[..., :3], n[..., 3] / 255, (0, 0, n.shape[1], n.shape[0]), 222)
+    if name == "ivao":   # IVAO's ring and aircraft (its SVG), white on IVAO's blue
+        import re as _re
+        from svgpath import raster as _raster
+        svg = open(os.path.join(root, "ivao.svg")).read()
+        plane = _re.findall(r'<path fill-rule="evenodd" clip-rule="evenodd" d="([^"]+)" fill="#0D2C99"', svg)[0]
+        box = 1993.0
+        a = np.asarray(_raster(plane, CELL, box=box)).astype(float) / 255
+        yy, xx = (np.mgrid[0:CELL, 0:CELL] + 0.5) * box / CELL
+        d = np.hypot(xx - 996, yy - 997)
+        px = box / CELL
+        ring = np.clip((25 - np.abs(d - 725)) / px + 0.5, 0, 1)
+        a = np.maximum(a, ring)
+        out = gradient((22, 62, 186), (9, 32, 120))
+        return out * (1 - a[..., None]) + 255.0 * a[..., None]
     return None
 
 cols = 4
