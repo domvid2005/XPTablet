@@ -3146,9 +3146,12 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     };
     const bool satImg = g_settings.mapSource == 1;
     const bool noMap = g_settings.mapSource == 2;    // no map under the layers: plain white, or black with the night colours
-    const bool sat = satImg || g_settings.mapDark;   // a dark map under everything: light ink, as on the imagery
+    // how dark the street map is: Dark 1, Light 0; Auto with the daylight (0 with the sun up, 1 once it is 8 degrees below, as auto dim)
+    const float night = g_settings.mapDarkAuto ? std::max(0.0f, std::min(1.0f, (1.0f - s.autoDimLevel) / 0.55f)) : g_settings.mapDark ? 1.0f : 0.0f;
+    const bool darkMap = night >= 0.5f;
+    const bool sat = satImg || darkMap;   // a dark map under everything: light ink, as on the imagery
     dl->PushClipRect(r0, r1, true);
-    dl->AddRectFilled(r0, r1, noMap ? (g_settings.mapDark ? IM_COL32(8, 10, 14, 255) : IM_COL32(250, 250, 250, 255)) : sat ? IM_COL32(18, 24, 30, 255) : IM_COL32(232, 228, 220, 255));
+    dl->AddRectFilled(r0, r1, noMap ? mixCol(IM_COL32(250, 250, 250, 255), IM_COL32(8, 10, 14, 255), night) : satImg ? IM_COL32(18, 24, 30, 255) : mixCol(IM_COL32(232, 228, 220, 255), IM_COL32(18, 24, 30, 255), night));
 
     // ---- input: drag to move, the wheel to zoom (about the pointer); bubbles drawn later sit on top of it
     ImGui::SetCursorScreenPos(r0);
@@ -3184,7 +3187,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     latLonOf(g_mapCenter, cLat, cLon);
 
     // ---- the tiles: the zoom level that gives about one tile pixel per screen pixel, nearest the middle first
-    const int src = satImg ? 1 : g_settings.mapDark ? 2 : 0;
+    // the street map's two sets: the light one, and the dark one over it as the night comes (both while it fades)
+    int srcs[2] = {satImg ? 1 : night < 1.0f ? 0 : 2, (!satImg && night > 0.0f && night < 1.0f) ? 2 : -1};
     const double pxPer = std::max(1.0f, s.pixelScale);
     const int tz = std::max(1, std::min(19, (int)std::floor(g_mapZoom + std::log2(pxPer) + 0.3)));
     const int nT = 1 << tz;
@@ -3202,6 +3206,10 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             }
     std::sort(want.begin(), want.end(), [](const TileAt& a, const TileAt& b) { return a.d < b.d; });
     int missing = 0;
+    for (int layer = 0; layer < 2; ++layer) {
+    const int src = srcs[layer];
+    if (src < 0) break;
+    const ImU32 tint = layer == 0 ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 255, 255, (int)std::lround(255 * night));
     for (const TileAt& t : want) {
         const int wx = ((t.x % nT) + nT) % nT;
         const MercPt q0{(double)t.x / nT, (double)t.y / nT}, q1{(double)(t.x + 1) / nT, (double)(t.y + 1) / nT};
@@ -3217,14 +3225,15 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 u1 = ImVec2(u0.x + k, u0.y + k);
             }
         }
-        if (tex) dl->AddImageQuad(tex, p00, p10, p11, p01, u0, ImVec2(u1.x, u0.y), u1, ImVec2(u0.x, u1.y));
-        else {
+        if (tex) dl->AddImageQuad(tex, p00, p10, p11, p01, u0, ImVec2(u1.x, u0.y), u1, ImVec2(u0.x, u1.y), tint);
+        else if (layer == 0) {
             ++missing;
             if (!m.tile) {   // the off-line test: a quiet checkerboard where the tiles would be
                 const ImU32 c = ((t.x + t.y) & 1) ? (sat ? IM_COL32(40, 52, 44, 255) : IM_COL32(222, 218, 208, 255)) : (sat ? IM_COL32(34, 46, 38, 255) : IM_COL32(236, 232, 224, 255));
                 dl->AddQuadFilled(p00, p10, p11, p01, c);
             }
         }
+    }
     }
 
     // ---- the outlines: coastlines, borders, states and provinces (lakes as coast)
@@ -6780,10 +6789,20 @@ void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         y += 46;   // under the favorites bar
         choice("##chclk", lx, y, colW, "Clock zone (tap the clock in the status bar too)", clockNames, clk, true);
         if (clk != (g_settings.statusLocalTime ? 1 : 0)) g_settings.statusLocalTime = clk == 1;
-        const char* mapNames[2] = {"Light", "Dark"};
-        int md = g_settings.mapDark ? 1 : 0;
-        choice("##chmapd", lx, y, colW, "Map display (the street map; Satellite is set on the map)", mapNames, md, true);
-        g_settings.mapDark = md == 1;
+        {   // the street map: Light, Dark, or Auto (it fades to Dark with the daylight, as auto dim does)
+            textAt(dl, f.bold, lx, y, kInk, "Map display (the street map; Satellite is set on the map)");
+            y += 24;
+            static const char* names[3] = {"Light", "Dark", "Auto"};
+            const int cur = g_settings.mapDarkAuto ? 2 : g_settings.mapDark ? 1 : 0;
+            const float third = std::floor((colW - 16) / 3);
+            for (int i = 0; i < 3; ++i) {
+                char bid[16]; std::snprintf(bid, sizeof bid, "##chmapd%d", i);
+                if (pill(dl, f, bid, names[i], ImVec2(lx + i * (third + 8), y), ImVec2(lx + i * (third + 8) + third, y + 30), cur == i, true) && cur != i) {
+                    g_settings.mapDarkAuto = i == 2; if (i < 2) g_settings.mapDark = i == 1; g_settingsChanged = true;
+                }
+            }
+            y += 42;
+        }
         const char* keyNames[2] = {"On-screen keys", "Physical keyboard"};
         int pk = g_settings.physicalKeys ? 1 : 0;
         choice("##chkeys", lx, y, colW, "Typing in a text box", keyNames, pk, true);
@@ -7951,6 +7970,7 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
+    out += std::string("map_dark_auto=") + (g_settings.mapDarkAuto ? "1" : "0") + "\n";
     out += std::string("cabin_auto=") + (g_settings.cabinAuto ? "1" : "0") + "\n";
     out += std::string("map_vatsim_atc=") + (g_settings.mapVatsimAtc ? "1" : "0") + "\nvatsim_atc_notes=" + (g_settings.vatsimAtcNotes ? "1" : "0") + "\n";
     for (int i = 0; i < 3; ++i) {   // the Customs: colours, and the picture's file name
@@ -8056,6 +8076,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_timezones") g_settings.mapTimeZones = v != 0;
         else if (key == "map_heading_up") g_settings.mapHeadingUp = v != 0;
         else if (key == "map_dark") g_settings.mapDark = v != 0;
+        else if (key == "map_dark_auto") g_settings.mapDarkAuto = v != 0;
         else if (key == "map_local_time") g_settings.mapLocalTime = v != 0;
         else if (key == "map_traffic") g_settings.mapTraffic = v != 0;
         else if (key == "map_outlines") g_settings.mapOutlines = v != 0;

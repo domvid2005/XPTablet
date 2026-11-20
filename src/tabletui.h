@@ -45,6 +45,7 @@ struct Settings {
     // the Map page
     int mapSource = 0;            // 0 OpenStreetMap, 1 satellite imagery
     bool mapDark = false;         // Display: the street map in night colours (light labels)
+    bool mapDarkAuto = false;     // Display: the street map fades to its night colours with the daylight (as auto dim)
     bool mapAirports = true;      // X-Plane's airport layouts (apt.dat) over the map
     bool mapTimeZones = false;    // the time zone boundaries
     bool mapHeadingUp = false;    // Heading Lock (else North Lock)
