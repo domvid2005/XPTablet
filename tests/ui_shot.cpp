@@ -529,6 +529,19 @@ int main(int argc, char** argv) {
                 bool onPage = false; for (int x : settings().order) if (x == kWidget0 + W_VOLANTA) onPage = true;
                 if (!settings().favorites.empty() || !onPage) { std::printf("FAIL: Volanta's overlay leaves a 3-place bar for a page\n"); ++failures; }
             }
+            {   // Add Widget: at the top of the page, the icons there pushed down (and on), none lost
+                settings() = keep; layoutHome();
+                std::vector<int> before; for (int x : settings().order) if (x >= 0 && x < APP_COUNT) before.push_back(x);
+                const int cap = (int)settings().order.size() / std::max(1, settings().homePages);
+                for (int& x : settings().order) if (x == kWidget0 + W_WEATHER) x = -1;
+                pushInWidget(kWidget0 + W_WEATHER, 0, cap); layoutHome();
+                std::vector<int> after; for (int x : settings().order) if (x >= 0 && x < APP_COUNT) after.push_back(x);
+                if (settings().order[0] != kWidget0 + W_WEATHER) { std::printf("FAIL: Add Widget puts it at the top of the page\n"); ++failures; }
+                std::vector<int> b2 = before, a2 = after; std::sort(b2.begin(), b2.end()); std::sort(a2.begin(), a2.end());
+                if (b2 != a2) { std::printf("FAIL: Add Widget lost or doubled an app (%zu, %zu)\n", before.size(), after.size()); ++failures; }
+                if (!before.empty() && !after.empty() && before.front() != after.front()) { std::printf("FAIL: Add Widget keeps the icons in their order\n"); ++failures; }
+                shot(hw, APP_HOME, "home_widget_pushed");
+            }
             settings() = keep;
             layoutHome();
         }

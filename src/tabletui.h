@@ -484,7 +484,8 @@ const char* appName(int app);                // the icon's label (Charts and Liv
 constexpr int kFolder0 = 1000, kWidget0 = 2000;
 enum WidgetKind { W_WEATHER, W_FLIGHT, W_MEDIA, W_FPS, W_VOLANTA, W_COUNT };
 bool appInstalled(int app);
-void layoutHome();                       // the home screen's places put in order (as it is drawn)               // an App Store app is on the home screen only once installed
+void layoutHome();
+void pushInWidget(int widget, int start, int cap);   // a widget at the start of a page, what was there moved on after it (the + menu's Add Widget)                       // the home screen's places put in order (as it is drawn)               // an App Store app is on the home screen only once installed
 bool appVisible(int app);                 // on the home screen (web app icons can be switched off)
 std::vector<std::pair<int, int>> wrapLines(struct ImFont* font, float px, const std::string& v, float wrapW);   // a typed text's lines (the tests)
 void mapSelect(int kind, const std::string& key);

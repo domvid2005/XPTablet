@@ -780,6 +780,7 @@ std::vector<int> coverOf(int cap) {
     return cover;
 }
 // the widgets the favorites bar takes (one row high): Frame Rate (one place) and Volanta's overlay (all seven)
+void pushInWidgetAt(int widget, int start, int cap);   // (below)
 bool dockWidget(int e) { return isWidget(e) && (e - kWidget0 == W_FPS || e - kWidget0 == W_VOLANTA); }
 int favSpan(int e) { return dockWidget(e) && e - kWidget0 == W_VOLANTA ? 7 : 1; }
 void normalizeLayout(int capacity) {
@@ -857,6 +858,36 @@ void normalizeLayout(int capacity) {
     for (int k = 0; k < (int)folders.size(); ++k) if (!folderSeen[k]) place(kFolder0 + k);
 }
 void normalizeLayout() { normalizeLayout(g_gridCols * g_gridRows); }
+// a widget put at the start of a page (start: that page's first place): what was there from then on, in its order, is laid
+// again after it, each in the next place free (a widget in the next block free), pages added as needed
+void pushInWidgetAt(int widget, int start, int cap) {
+    auto& order = g_settings.order;
+    std::vector<int> rest;
+    for (int i = start; i < (int)order.size(); ++i) if (order[i] >= 0) { rest.push_back(order[i]); order[i] = -1; }
+    std::vector<int> cv(order.size(), -1);
+    for (int i = 0; i < start && i < (int)order.size(); ++i) if (isWidget(order[i])) markWidget(i, order[i] - kWidget0, cap, cv);
+    auto put = [&](int e) {
+        for (;;) {
+            for (int i = start; i < (int)order.size(); ++i) {
+                if (order[i] >= 0 || cv[i] >= 0) continue;
+                if (isWidget(e)) {
+                    if (!widgetFits(i, e - kWidget0, cap, cv, -1)) continue;
+                    int wc, wr; widgetCells(e - kWidget0, wc, wr);
+                    const int slot = i % cap, col = slot % g_gridCols, row = slot / g_gridCols;
+                    bool clear = true;
+                    for (int r = 0; r < wr && clear; ++r) for (int c = 0; c < wc; ++c) { const int j = i - slot + (row + r) * g_gridCols + col + c; if (j >= (int)order.size() || order[j] >= 0) { clear = false; break; } }
+                    if (!clear) continue;
+                    order[i] = e; markWidget(i, e - kWidget0, cap, cv);
+                } else order[i] = e;
+                return;
+            }
+            g_settings.homePages++; order.resize((size_t)(g_settings.homePages * cap), -1); cv.resize(order.size(), -1);
+        }
+    };
+    put(widget);
+    for (int e : rest) put(e);
+    g_settingsChanged = true;
+}
 int g_gridCapacity = 21;
 // the pages after the last one that holds anything go (one page always stays)
 void trimPages() {
@@ -1331,10 +1362,9 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
             char lab[64]; std::snprintf(lab, sizeof lab, "%s   %d x %d", widgetName(k), wc, wr);
             char id[24]; std::snprintf(id, sizeof id, "##addw%d", k);
             if (pill(dl, f, id, there ? (std::string(widgetName(k)) + "  (on the home screen)").c_str() : lab, ImVec2(a.x + 18, y), ImVec2(b.x - 18, y + 32), false, !there)) {
-                // onto the page shown, where it fits, else the next page that has room
-                bool put = false;
-                for (int i = g_homePage * cap; i < (int)order.size() && !put; ++i) if (order[i] < 0 && cover[i] < 0 && widgetCanGo(i, k, -1)) { order[i] = kWidget0 + k; put = true; }
-                if (!put) order.push_back(kWidget0 + k);
+                // at the top of the page shown, and everything on it (and after it) moves down as many rows as it takes, as on an
+                // iPad: what no longer fits flows onto the next page (a new one if need be)
+                pushInWidgetAt(kWidget0 + k, g_homePage * cap, cap);
                 normalizeLayout(cap);
                 for (int i = 0; i < (int)order.size(); ++i) if (order[i] == kWidget0 + k) g_homePage = i / cap;
                 g_widgetPicker = false;
@@ -8465,6 +8495,7 @@ bool appVisible(int app) {
 }
 bool appInstalled(int app) { return installed(app); }
 void layoutHome() { normalizeLayout(); }
+void pushInWidget(int widget, int start, int cap) { pushInWidgetAt(widget, start, cap); }
 
 // Charts, Live Map, SimBrief and ForeFlight are sites shown as pages of their own. The Browser icon opens the full browser.
 void openApp(int app) {
