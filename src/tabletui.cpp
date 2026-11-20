@@ -2262,6 +2262,11 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         dl->AddRectFilled(ImVec2(w * t - w * 0.25f, pageTop - 2), ImVec2(w * t, pageTop + 1), IM_COL32(90, 160, 255, 255));
     }
     // the keys sit over the page (the page keeps its size: it is not laid out again for them); taps on them stay theirs
+    {   // the last tab closed: its keys go too (the on-screen keyboard, or the physical keyboard's bar)
+        static size_t hadTabs = 0;
+        if (g_webGroup == 0 && tabs.empty() && hadTabs > 0 && g_kbd && (g_kbdTarget == 0 || g_kbdTarget == 1)) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; }
+        if (g_webGroup == 0) hadTabs = tabs.size();
+    }
     float kbH = 0;
     if (g_kbd) kbH = keyboardHeight();
     if (g_webGroup == 0 && tabs.empty() && g_browserNoTabs) {   // every tab closed: a big + to start a new one

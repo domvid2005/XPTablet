@@ -1140,6 +1140,23 @@ int main(int argc, char** argv) {
             if (settings().installed != before || currentApp() != APP_APPSTORE) { std::printf("FAIL: a drag on the App Store pressed an app\n"); ++failures; }
             openApp(APP_HOME);
         }
+        {   // typing in the Browser's address bar, then its last tab closed: the keys go too
+            SimState bs = s; bs.browser.status = 1; bs.browser.tabs = {{1, "Example", "https://example.com", false, 0}}; bs.browser.activeTab = 1; bs.browser.url = "https://example.com";
+            openApp(APP_BROWSER);
+            auto bf = [&](const SimState& st, int n) { for (int i = 0; i < n; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; pumpPointer(); ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); } };
+            bf(bs, 10);
+            for (float yy = 30; yy < 110 && !tabletTyping(); yy += 6) for (float xx = 200; xx < 600 && !tabletTyping(); xx += 40) {
+                queuePointer(xx, yy, -1); queuePointer(xx, yy, 1); bf(bs, 2); queuePointer(xx, yy, 0); bf(bs, 3);
+            }
+            if (!tabletTyping()) { std::printf("FAIL: could not type in the Browser's address bar\n"); ++failures; }
+            else {
+                SimState none = bs; none.browser.tabs.clear(); none.browser.activeTab = 0;
+                bf(none, 5);
+                if (tabletTyping()) { std::printf("FAIL: the keyboard stays up with every tab closed\n"); ++failures; }
+            }
+            queuePointer(-1000, -1000, -1); bf(bs, 3);
+            openApp(APP_HOME);
+        }
         for (int same = 0; same < 2; ++same) {
             openApp(APP_HOME); frames(30);
             tap(88, 75, same != 0);
