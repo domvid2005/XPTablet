@@ -5885,16 +5885,11 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     else planeTopDown(dl, nose, px, spec, IM_COL32(246, 247, 249, 255), IM_COL32(128, 132, 140, 255));
     const float hw0 = shape ? fuselageHalf(*shape, 0.25f, 0) : -1;   // the fuselage's half-width forward of the wing, drawing metres
     const float hwPx = (shape && hw0 > 0 ? hw0 * kx : spec.fus * 0.5f) * px;
-    // with nothing connected and two doors or more within a jetway's reach: one Connect bubble; its menu has each door, and both
-    static bool jwMenu = false;
-    int reach = 0;
-    bool anyMoving = false;
-    if (doors) {
-        const int pairs = (g.paxDoors + 1) / 2;
-        for (int k = 0; k < jwDoors && k < 3; ++k) { if (paxDoorAt(s.acfIcao, g.jwDoorPax[k] / 2, std::max(1, pairs)) <= 0.45f) ++reach; anyDocked = anyDocked || g.jwDocked[k]; anyMoving = anyMoving || g.jwMoving[k]; }
-    }
-    const bool chooser = doors && reach > 1 && !anyDocked && !anyMoving;
-    if (!chooser) jwMenu = false;
+    // each door keeps its bubble; with two jetways or more at the stand, a door's Connect opens a menu of the jetways that can serve it
+    static int jwMenuDoor = -1;   // the door whose menu is open, -1 none
+    const bool chooser = doors && jwDoors > 1;
+    if (!chooser) jwMenuDoor = -1;
+    float menuBy = -1;
     if (doors) {
         const int pairs = (g.paxDoors + 1) / 2;
         float lastBy = -1e9f;   // the bubble above's place: bubbles keep apart (their door's block stays on the door)
@@ -5916,8 +5911,8 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             const float bw = 108, bx = a.x + 12;
             const float by = std::max(y, lastBy + 54);   // under the one above and its line of text (the leader angles to the door)
             lastBy = by;
-            if (chooser && firstBy >= 0) continue;   // (one bubble for them all: the first door's)
             if (firstBy < 0) firstBy = by;
+            if (jwMenuDoor == k) menuBy = by;
             dl->AddLine(ImVec2(bx + bw, by), ImVec2(bx + bw + 14, by), IM_COL32(255, 255, 255, 46), 1.0f);
             dl->AddLine(ImVec2(bx + bw + 14, by), ImVec2(side - 9, y), IM_COL32(255, 255, 255, 46), 1.0f);
             char id[16], lbl[16];
@@ -5926,9 +5921,9 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             const bool moving = g.jwMoving[k];
             const bool canPress = gnd && !moving && (!g.openSam || g.jetway == 1 || g.jetway == 2);
             dl->AddRectFilled(ImVec2(bx, by - 14), ImVec2(bx + bw, by + 14), themeTone(16, 30, 56, 255), 14.0f);
-            if (pill(dl, f, id, lbl, ImVec2(bx, by - 14), ImVec2(bx + bw, by + 14), docked || (chooser && jwMenu), canPress)) {
-                if (chooser) jwMenu = !jwMenu;   // (several jetways: which one, from the menu)
-                else { act.ground = GA_JETWAY_DOOR; act.groundIndex = k; }
+            if (pill(dl, f, id, lbl, ImVec2(bx, by - 14), ImVec2(bx + bw, by + 14), docked || jwMenuDoor == k, canPress)) {
+                if (chooser && !docked) jwMenuDoor = jwMenuDoor == k ? -1 : k;   // (several jetways: which one, from its menu)
+                else { act.ground = GA_JETWAY_DOOR; act.groundIndex = k; jwMenuDoor = -1; }
             }
             // under the bubble: the door's name and what the jetway is doing
             // as openSAM shows it: connected only once the jetway is there, "jetway moving" until then (both kinds of jetway)
@@ -5937,28 +5932,31 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             const char* st = moving ? "Jetway moving"
                            : !g.openSam ? (docked ? (g.toliss ? "Connected, door open" : "Connected") : planeNotReady ? "Check status" : "X-Plane jetway")
                            : docked ? (g.toliss ? "Docked, door open" : "Docked") : planeNotReady ? "Check status" : g.jetway == 1 ? "Jetway ready" : g.jetway == 0 ? "No jetway here" : g.jetway == 2 ? "Jetway at the other door" : "Jetway moving";
-            if (chooser) std::snprintf(b, sizeof b, "%d jetways  \xC2\xB7  %s", reach, st);
-            else std::snprintf(b, sizeof b, "%d%c  \xC2\xB7  %s", pax / 2 + 1, 'L', st);
+            std::snprintf(b, sizeof b, "%d%c  \xC2\xB7  %s", pax / 2 + 1, 'L', st);
             textAt(dl, f.small, bx + 4, by + 17, docked ? kGood : moving ? kWarn : kMuted, b);
         }
         // the menu: a bubble beside Connect, one row a door (its jetway), then both; it grows out of Connect
-        const float mT = openness("##jwmenuopen", jwMenu && chooser);
-        if (mT > 0.01f && firstBy >= 0) {
+        static int menuShownFor = -1;
+        if (jwMenuDoor >= 0) menuShownFor = jwMenuDoor;
+        const float mT = openness("##jwmenuopen", jwMenuDoor >= 0);
+        if (mT < 0.01f && jwMenuDoor < 0) menuShownFor = -1;
+        if (mT > 0.01f && menuShownFor >= 0 && (menuBy >= 0 || jwMenuDoor < 0)) {
+            static float lastMenuBy = 0;
+            if (menuBy >= 0) lastMenuBy = menuBy;
+            const float firstBy = lastMenuBy;   // (the menu beside its door's bubble)
             const int v0 = dl->VtxBuffer.Size;
-            ImGui::BeginDisabled(!jwMenu);
-            std::vector<std::pair<std::string, int>> rows;   // its label and the doors (a mask)
-            int all = 0;
-            for (int k = 0; k < jwDoors && k < 3; ++k) {
-                if (paxDoorAt(s.acfIcao, g.jwDoorPax[k] / 2, std::max(1, pairs)) > 0.45f) continue;
-                char lb[32]; std::snprintf(lb, sizeof lb, "Jetway to %dL", g.jwDoorPax[k] / 2 + 1);
-                rows.push_back({lb, 1 << k}); all |= 1 << k;
+            ImGui::BeginDisabled(jwMenuDoor < 0);
+            const int door = menuShownFor;
+            std::vector<std::pair<std::string, int>> rows;   // its label, and the door it connects
+            for (int j = 0; j < jwDoors && j < 3; ++j) {   // the stand's jetways, nearest the nose first (openSAM moves the ones it gave the doors)
+                char lb[40]; std::snprintf(lb, sizeof lb, "Jetway %d%s", j + 1, j == door ? "  (this door's)" : "");
+                rows.push_back({lb, door});
             }
-            rows.push_back({reach == 2 ? "Both jetways" : "All jetways", all});
-            const float mx = a.x + 128, mw = 170, rh = 34, mh = rows.size() * rh + 16;
+            const float mx = a.x + 128, mw = 200, rh = 34, mh = rows.size() * rh + 16;
             const float my0 = std::min(firstBy - 14, e.y - 8 - mh);
             ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
             ImGui::SetNextItemAllowOverlap();
-            if (ImGui::InvisibleButton("##jwmenucatch", ImVec2(w, h - kStatusH))) jwMenu = false;   // (a press beside it: closed)
+            if (ImGui::InvisibleButton("##jwmenucatch", ImVec2(w, h - kStatusH))) jwMenuDoor = -1;   // (a press beside it: closed)
             ImGui::SetCursorScreenPos(ImVec2(mx, my0));
             ImGui::SetNextItemAllowOverlap();
             ImGui::InvisibleButton("##jwmenubg", ImVec2(mw, mh));
@@ -5969,13 +5967,13 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
                 char id[16]; std::snprintf(id, sizeof id, "##jwm%zu", i);
                 const float ry = my0 + 8 + i * rh;
                 if (pill(dl, f, id, rows[i].first.c_str(), ImVec2(mx + 8, ry), ImVec2(mx + mw - 8, ry + rh - 6), false, true)) {
-                    act.ground = GA_JETWAY_SET; act.groundIndex = rows[i].second; jwMenu = false;
+                    act.ground = GA_JETWAY_DOOR; act.groundIndex = rows[i].second; jwMenuDoor = -1;
                 }
             }
             ImGui::EndDisabled();
             popIn(dl, v0, ImVec2(mx, firstBy), mT);
         }
-        if (jwDoors > 1) textCentered(dl, f.small, (a.x + e.x) * 0.5f, e.y - 24, kMuted, chooser ? "Connect: choose the jetway (only its door opens)." : "Each door connects on its own; the jetways leave with the last door.");
+        if (jwDoors > 1) textCentered(dl, f.small, (a.x + e.x) * 0.5f, e.y - 24, kMuted, chooser ? "Connect: choose the door's jetway. Each door opens on its own." : "Each door connects on its own; the jetways leave with the last door.");
     }
 
     // ---- the right side: the cabin (top two thirds) and whether a jetway can connect (bottom third)
