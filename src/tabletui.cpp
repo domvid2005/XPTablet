@@ -5631,10 +5631,12 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         textAt(dl, f.bold, cx0 + 112, y + 4, pct > 0 ? kInk : kMuted, lv);
         if (g.cabinLight >= 0) {
             const float bw = 64;
-            const bool autoOn = g.cabinAuto == 1;
-            if (pill(dl, f, "##clon", "On", ImVec2(cx1 - 2 * bw - 8, y), ImVec2(cx1 - bw - 8, y + 30), pct > 0 && !autoOn, true) && (pct <= 0 || autoOn)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = pct > 0 ? pct : lastOn; }
-            if (pill(dl, f, "##cloff", "Off", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), pct == 0 && !autoOn, true) && (pct != 0 || autoOn)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = 0; }
-            if (g.cabinAuto >= 0 && pill(dl, f, "##clauto", "Auto", ImVec2(cx1 - 3 * bw - 16, y), ImVec2(cx1 - 2 * bw - 16, y + 30), autoOn, true)) act.ground = GA_CABIN_AUTO;
+            // Auto: XPTablet dims and brightens them with the daylight, as the tablet's own auto dim (100 % by day, 0 % at full night);
+            // On, Off or the slider take it off Auto
+            const bool autoOn = g_settings.cabinAuto;
+            if (pill(dl, f, "##clon", "On", ImVec2(cx1 - 2 * bw - 8, y), ImVec2(cx1 - bw - 8, y + 30), pct > 0 && !autoOn, true) && (pct <= 0 || autoOn)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = pct > 0 ? pct : lastOn; g_settings.cabinAuto = false; g_settingsChanged = true; }
+            if (pill(dl, f, "##cloff", "Off", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), pct == 0 && !autoOn, true) && (pct != 0 || autoOn)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = 0; g_settings.cabinAuto = false; g_settingsChanged = true; }
+            if (pill(dl, f, "##clauto", "Auto", ImVec2(cx1 - 3 * bw - 16, y), ImVec2(cx1 - 2 * bw - 16, y + 30), autoOn, true)) { g_settings.cabinAuto = !g_settings.cabinAuto; g_settingsChanged = true; }
         }
         y += 36;
         if (g.cabinLight >= 0) {
@@ -5649,7 +5651,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
                 const float t = std::max(0.0f, std::min(1.0f, (ImGui::GetIO().MousePos.x - tx0) / (tx1 - tx0)));
                 const int want = (int)std::lround(t * 10) * 10;
                 target = want / 100.0f;
-                if (want != pct) { act.ground = GA_CABIN_LIGHT; act.groundIndex = want; }
+                if (want != pct) { act.ground = GA_CABIN_LIGHT; act.groundIndex = want; g_settings.cabinAuto = false; g_settingsChanged = true; }
                 if (knob < 0) knob = t;
                 knob += (t - knob) * (1.0f - std::exp(-dt * 30.0f));
             } else {
@@ -5666,7 +5668,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             dl->AddCircleFilled(ImVec2(hx, ty), 10.0f, IM_COL32(245, 248, 255, 255), 0);
             dl->AddCircle(ImVec2(hx, ty), 10.0f, IM_COL32(255, 214, 120, 255), 0, 2.0f);
             y += 32;
-            textAt(dl, f.small, cx0, y, kMuted, "Leave ToLiss Cabin Lights on Auto");
+            textAt(dl, f.small, cx0, y, kMuted, g_settings.cabinAuto ? "Auto: with the daylight, 100 % by day to 0 % at full night" : "Auto dims and brightens them with the daylight");
             y += 20;
         } else {
             textAt(dl, f.small, cx0, y, kMuted, "This aircraft does not offer its cabin lights.");
@@ -7808,6 +7810,7 @@ std::string settingsToText() {
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
+    out += std::string("cabin_auto=") + (g_settings.cabinAuto ? "1" : "0") + "\n";
     out += std::string("map_vatsim_atc=") + (g_settings.mapVatsimAtc ? "1" : "0") + "\nvatsim_atc_notes=" + (g_settings.vatsimAtcNotes ? "1" : "0") + "\n";
     { char cb[64]; std::snprintf(cb, sizeof cb, "custom_bg=%06X\ncustom_accent=%06X\n", g_settings.customBg & 0xFFFFFF, g_settings.customAccent & 0xFFFFFF); out += cb; }
     {   // the home screen: its pages, folders (name, a tab, then the apps) and Volanta's overlay address
@@ -7921,6 +7924,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_traffic_trails") g_settings.mapTrafficTrails = v != 0;
         else if (key == "map_traffic_route") g_settings.mapTrafficRoute = v != 0;
         else if (key == "map_vatsim_atc") g_settings.mapVatsimAtc = v != 0;
+        else if (key == "cabin_auto") g_settings.cabinAuto = v != 0;
         else if (key == "vatsim_atc_notes") g_settings.vatsimAtcNotes = v != 0;
         else if (key == "map_traffic_range") g_settings.mapTrafficRangeNm = std::max(0.0f, std::min(2000.0f, (float)std::atof(val.c_str())));
         else if (key == "map_traffic_alt") g_settings.mapTrafficAltFt = std::max(0.0f, std::min(60000.0f, (float)std::atof(val.c_str())));

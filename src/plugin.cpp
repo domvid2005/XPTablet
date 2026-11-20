@@ -2289,6 +2289,24 @@ bool g_slidesAuto = false;
 // with the doors shut), 0 none (Auto, or the aircraft's way). Checked every frame, straight from the slides' dataref, so a slide
 // the aircraft arms is disarmed again before it is drawn (checked every few frames, it flickered).
 int g_slidesHold = 0;
+// XPTablet's cabin light Auto: the level follows the sun as the tablet's auto dim does, all the way down: 100 % with the sun up,
+// 0 % once it is 18 degrees below the horizon (full night), in 10 % steps; written only when the step changes (a few times a dusk)
+void cabinAutoStep() {
+    const SimRefs& r = g_refs;
+    if (!xpt::settings().cabinAuto || !g_sim.ground.toliss || (!r.cabinPerc && !r.cabinLevel)) return;
+    static double lastAt = -100;
+    if (XPLMGetElapsedTime() - lastAt < 2.0) return;
+    lastAt = XPLMGetElapsedTime();
+    static XPLMDataRef sun = XPLMFindDataRef("sim/graphics/scenery/sun_pitch_degrees");
+    if (!sun) return;
+    const float t = std::max(0.0f, std::min(1.0f, -XPLMGetDataf(sun) / 18.0f));
+    const int pct = (int)std::lround((1.0f - t) * 10.0f) * 10;
+    const int now = r.cabinPerc ? (int)std::lround(readNum(r.cabinPerc)) : -1;
+    if (now == pct) return;
+    if (r.cabinAuto && XPLMCanWriteDataRef(r.cabinAuto)) writeNum(r.cabinAuto, 0.0f);   // (ToLiss's own auto would fight it)
+    if (r.cabinLevel && XPLMCanWriteDataRef(r.cabinLevel)) writeNum(r.cabinLevel, pct == 0 ? 0.0f : pct <= 50 ? 1.0f : 2.0f);
+    if (r.cabinPerc && XPLMCanWriteDataRef(r.cabinPerc)) writeNum(r.cabinPerc, (float)pct);
+}
 void slidesHoldStep() {
     const SimRefs& r = g_refs;
     const xpt::GroundState& g = g_sim.ground;
@@ -2403,6 +2421,7 @@ float flightLoop(float dt, float, int, void*) {
     findSimRefs();
     if ((XPLMGetCycleNumber() & 7) == 0) { readSimState(); g_sim.ground.slidesAuto = g_slidesAuto; followJetways(); slidesAutoStep(); readMapState(); }
     slidesHoldStep();
+    cabinAutoStep();
     jetwayUndockStep();
     {   // the METAR search's answer
         xpt::MetarAnswer a;

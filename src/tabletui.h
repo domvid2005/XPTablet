@@ -64,6 +64,7 @@ struct Settings {
     bool mapStands = true;        // parking spaces (stands and gates) on the airport layouts
     bool mapBestRunway = true;    // the runway most into the wind outlined in green on the airport layouts
     bool mapDaylight = false;     // day and night across the map (the sun's height where it is, from the sim's time)
+    bool cabinAuto = false;       // the cabin lights follow the daylight, as the tablet's auto dim: 100 % by day, down to 0 % at full night
     bool mapVatsimAtc = false;    // the Map shows VATSIM's controllers online round their airports
     bool vatsimAtcNotes = true;   // a notification when a controller comes online at the flight's airports
     int mapTrafficSource = 0;     // 0 nearby (X-Plane's TCAS: AI and multiplayer), 1 nearby and VATSIM worldwide
@@ -147,7 +148,7 @@ struct GroundState {
     bool beacon = false, enginesRunning = false, parkBrake = false;
     float groundSpeedKt = 0;
     float cabinLight = -1;        // ToLiss: the cabin lights, 0..1, -1 unknown
-    int cabinAuto = -1;           // ToLiss: the cabin lights' auto setting, 1 on, 0 off, -1 the aircraft has none
+    int cabinAuto = -1;           // ToLiss: the cabin lights' auto setting, 1 on, 0 off, -1 the aircraft has none (XPTablet's own Auto: Settings::cabinAuto)
     bool cabinReady = false;      // ToLiss: Cabin Ready was given (AirbusFBW/CheckCabin) for this phase; again after takeoff or landing
     bool jwMoving[3] = {false, false, false};   // a jetway is still moving to or from this door (not connected until it is there)
     bool slidesAuto = false;      // ToLiss: the slides follow the aircraft's own rule (armed once the beacon is on and the doors shut, disarmed parked)
