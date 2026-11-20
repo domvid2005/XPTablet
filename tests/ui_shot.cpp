@@ -1132,6 +1132,13 @@ int main(int argc, char** argv) {
                   if (!cabin) { std::printf("FAIL: Push Back (Close) puts the panel away\n"); ++failures; }
               }
           }
+          {   // the tug on its way (a push started, not connected yet): yellow "Tug Connecting"
+              SimState p3 = g3; p3.ground.pushSource = 1; p3.ground.bpStarted = true; p3.ground.bpConnected = false;
+              press(p3, 735, 405);
+              for (int k = 0; k < 10; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, p3, 800, kLogicalH, act); ImGui::Render(); }
+              shot(p3, APP_GROUND, "ground_pushback_connecting");
+              press(p3, 735, 405);
+          }
           { SimState g4 = g3; g4.ground.slidesAuto = true; g4.ground.slides = 1; settings().cabinAuto = true; shot(g4, APP_GROUND, "ground_slides_auto"); settings().cabinAuto = false; }
           openApp(APP_GROUND); }
         // not a ToLiss: an airliner still gets the 1L bubble (X-Plane's own jetways, or openSAM's)

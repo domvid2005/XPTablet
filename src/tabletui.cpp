@@ -6300,10 +6300,26 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             textAt(dl, f.small, x0, qa.y + 12, kMuted, "PUSHBACK");
             textRight(dl, f.small, x1, qa.y + 12, kMuted, bp ? "BetterPushback" : "X-Plane's tug");
             float y = qa.y + 36;
+            // the tug's way there and back: yellow "Tug Connecting" from the press (or the push's start) until it is on, yellow
+            // "Tug Disconnecting" from Disconnect or Stop until it is off (BetterPushback only says connected or not)
+            static double connAsked = -1, discAsked = -1;
+            static bool handSignals = false;   // disconnected on purpose during a push: it waits, not connecting
+            const double nowT = ImGui::GetTime();
+            if (g.bpConnected || nowT - connAsked > 180) connAsked = -1;
+            if (!g.bpConnected || nowT - discAsked > 180) discAsked = -1;
+            if (!g.bpStarted && !g.bpConnected) handSignals = false;
             const bool lightsStop = bp && g.bpStarted && g.bpConnected && (g.landingLights || g.taxiLight);
-            const char* state = bp ? (lightsStop ? "Stopped: the lights blind the driver" : g.bpStarted ? (g.bpConnected ? "Pushing back" : "The tug is on its way") : g.bpConnected ? "Tug connected" : "Tug not connected")
-                                   : "Steer with the rudder while it pushes";
-            textAt(dl, f.bold, x0, y, g.bpStarted || g.bpConnected ? kGood : kInk, state);
+            const bool disconnecting = bp && discAsked >= 0 && g.bpConnected;
+            const bool connecting = bp && !g.bpConnected && !handSignals && (connAsked >= 0 || g.bpStarted);
+            const char* state = !bp ? "Steer with the rudder while it pushes"
+                              : lightsStop ? "Stopped: the lights blind the driver"
+                              : disconnecting ? "Tug Disconnecting"
+                              : connecting ? "Tug Connecting"
+                              : g.bpStarted && g.bpConnected ? "Pushing back"
+                              : g.bpConnected ? "Tug connected"
+                              : handSignals ? "Tug disconnected: hand signals" : "Tug not connected";
+            const ImU32 stateCol = lightsStop || disconnecting || connecting ? kWarn : g.bpConnected ? kGood : kInk;
+            textAt(dl, f.bold, x0, y, stateCol, state);
             y += 28;
             // the buttons, at the bottom (the list above them, as much as fits: the rest counted)
             const float rowH = 36, by1 = qb.y - 12 - rowH, by0 = by1 - rowH - 4;
@@ -6323,11 +6339,14 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
                 // the tug: connected (or on its way, or waiting at the aircraft disconnected) it can be disconnected; else connected
                 const bool tugOn = g.bpConnected;
                 const char* tugLbl = tugOn ? "Disconnect the tug" : g.bpStarted ? "Reconnect the tug" : "Connect the tug";
+                const bool tugBusy = connecting || disconnecting;   // (on its way, or leaving: wait for it)
                 if (pill(dl, f, "##bpplan", "Plan route", ImVec2(x0, by0), ImVec2(x0 + hwB, by0 + rowH - 6), false, gnd && !g.bpStarted)) act.ground = GA_BP_PLAN;
-                if (pill(dl, f, "##bpconn", tugLbl, ImVec2(x1 - hwB, by0), ImVec2(x1, by0 + rowH - 6), tugOn, gnd))
+                if (pill(dl, f, "##bpconn", tugLbl, ImVec2(x1 - hwB, by0), ImVec2(x1, by0 + rowH - 6), tugOn && !tugBusy, gnd && !tugBusy)) {
                     act.ground = tugOn ? GA_BP_DISCONNECT : g.bpStarted ? GA_BP_RECONNECT : GA_BP_CONNECT;
-                if (pill(dl, f, "##bpstart", "Start", ImVec2(x0, by1), ImVec2(x0 + hwB, by1 + rowH - 6), g.bpStarted, gnd && !g.bpStarted)) act.ground = GA_BP_START;
-                if (pill(dl, f, "##bpstop", "Stop", ImVec2(x1 - hwB, by1), ImVec2(x1, by1 + rowH - 6), false, g.bpStarted)) act.ground = GA_BP_STOP;
+                    if (tugOn) { discAsked = nowT; if (g.bpStarted) handSignals = true; } else { connAsked = nowT; handSignals = false; }
+                }
+                if (pill(dl, f, "##bpstart", "Start", ImVec2(x0, by1), ImVec2(x0 + hwB, by1 + rowH - 6), g.bpStarted, gnd && !g.bpStarted)) { act.ground = GA_BP_START; if (!g.bpConnected) connAsked = nowT; handSignals = false; }
+                if (pill(dl, f, "##bpstop", "Stop", ImVec2(x1 - hwB, by1), ImVec2(x1, by1 + rowH - 6), false, g.bpStarted)) { act.ground = GA_BP_STOP; if (g.bpConnected) discAsked = nowT; }
             } else {
                 const float tw = std::floor((x1 - x0 - 16) / 3.0f);
                 if (pill(dl, f, "##pbl", "Left", ImVec2(x0, by0), ImVec2(x0 + tw, by0 + rowH - 6), false, gnd)) act.ground = GA_PUSH_LEFT;
