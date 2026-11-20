@@ -1,6 +1,7 @@
 #include "tabletui.h"
 #include "airspace_parse.h"
 #include "airlines.h"
+#include "imgui_internal.h"
 
 #include <algorithm>
 #include <map>
@@ -45,6 +46,19 @@ const float kPi = 3.14159265f;
 void normalizeLayout();   // the home screen's places
 float itemHover();                                          // the last item's hover, eased
 float openness(const char* id, bool open, float rate = 14.0f);   // a menu opening and closing, eased
+// a finger's drag up or down over a list scrolls it, even begun on one of its rows (whose tap is then let go); the mouse's too
+bool g_touchScrolling = false;
+void touchScroll(float& scroll, ImVec2 a, ImVec2 b) {
+    ImGuiIO& io = ImGui::GetIO();
+    if (!io.MouseDown[0]) return;
+    const ImVec2 c = io.MouseClickedPos[0];
+    if (c.x < a.x || c.x > b.x || c.y < a.y || c.y > b.y) return;
+    const float dx = io.MousePos.x - c.x, dy = io.MousePos.y - c.y;
+    if (!g_touchScrolling && std::fabs(dy) > 8 && std::fabs(dy) > std::fabs(dx) * 1.2f) g_touchScrolling = true;
+    if (!g_touchScrolling) return;
+    scroll -= io.MouseDelta.y;
+    if (ImGui::GetActiveID() != 0) ImGui::ClearActiveID();   // (the row pressed: no tap when the finger lifts)
+}
 void popIn(ImDrawList* dl, int vtx0, ImVec2 origin, float t);  // drawn since vtx0: grown and faded in with t
 bool pill(ImDrawList* dl, const Fonts& f, const char* id, const char* label, ImVec2 a, ImVec2 b, bool on, bool enabled);
 double distNmLL(double la1, double lo1, double la2, double lo2, double* brgOut);
@@ -2274,6 +2288,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         ImGui::SetNextItemAllowOverlap();
         ImGui::InvisibleButton("##histbg", ImVec2(e.x - a.x, e.y - a.y));
         if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_historyScroll -= ImGui::GetIO().MouseWheel * 40;
+        touchScroll(g_historyScroll, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
         {   // a tap on the page closes it (not the tap that opened it)
             static int frames = 0;
             const ImVec2 mp = ImGui::GetIO().MousePos;
@@ -3159,8 +3174,9 @@ bool drawCardBody(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L
             g_cardPinned = true;
             g_cardFx = r1.x - r0.x - W > 1 ? (a.x - r0.x) / (r1.x - r0.x - W) : 0.0f;
             g_cardFy = r1.y - r0.y - H > 1 ? (a.y - r0.y) / (r1.y - r0.y - H) : 0.0f;
-        } else g_cardScroll -= ImGui::GetIO().MouseDelta.y;
+        } else if (!g_touchScrolling) g_cardScroll -= ImGui::GetIO().MouseDelta.y;
     }
+    if (!(ImGui::IsItemActive() && g_cardMoving)) touchScroll(g_cardScroll, ImVec2(a.x, a.y + 40), e);   // (begun on its rows too)
     g_cardScroll = std::max(0.0f, std::min(g_cardScroll, full - H));
     dl->AddRectFilled(ImVec2(a.x + 2, a.y + 4), ImVec2(e.x + 2, e.y + 4), IM_COL32(0, 0, 0, 70), 14.0f);
     dl->AddRectFilled(a, e, themeTone(14, 26, 48, 246), 14.0f);
@@ -5027,7 +5043,7 @@ void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##aptpanel", ImVec2(rb.x - ra.x, rb.y - ra.y));
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_aptScroll -= ImGui::GetIO().MouseWheel * 40;
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_aptScroll -= ImGui::GetIO().MouseDelta.y;
+    touchScroll(g_aptScroll, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     static float aptMax = 1e9f;   // (last frame's end: the list is never drawn past it)
     g_aptScroll = std::max(0.0f, std::min(g_aptScroll, aptMax));
     dl->PushClipRect(ImVec2(ra.x + 2, ra.y + 2), ImVec2(rb.x - 2, rb.y - 2), true);
@@ -5272,7 +5288,7 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##doclist", ImVec2(lb.x - la.x, lb.y - la.y));
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_docListScroll -= ImGui::GetIO().MouseWheel * 40;
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_docListScroll -= ImGui::GetIO().MouseDelta.y;
+    touchScroll(g_docListScroll, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     g_docListScroll = std::max(0.0f, g_docListScroll);
     // the list's height first (for the scroll bar, and the rows' width beside it)
     float contentH = 8;
@@ -5725,7 +5741,7 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##fplog", ImVec2(lb.x - la.x, lb.y - la.y));
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_fplScroll -= ImGui::GetIO().MouseWheel * 44;
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_fplScroll -= ImGui::GetIO().MouseDelta.y;
+    touchScroll(g_fplScroll, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     // a fix with a SID's or STAR's crossing restriction takes a second line (in the theme's colour) under it
     const float rowH = 22, crossH = 15, listTop = y0 + 50;
     float total = 0;
@@ -6197,7 +6213,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
     ImGui::SetNextItemAllowOverlap();   // (the scroll bar drawn over it takes its own presses)
     ImGui::InvisibleButton("##credits", ImVec2(cb.x - ca.x, cb.y - ca.y));
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_creditsScroll -= ImGui::GetIO().MouseWheel * 40;
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_creditsScroll -= ImGui::GetIO().MouseDelta.y;
+    touchScroll(g_creditsScroll, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     static float credMax = 1e9f;
     g_creditsScroll = std::max(0.0f, std::min(g_creditsScroll, credMax));
     dl->PushClipRect(ImVec2(ca.x, ca.y + 30), ImVec2(cb.x, cb.y - 2), true);
@@ -6833,6 +6849,7 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     dl->PopClipRect();
     g_ccScroll = scrollBar(dl, "##ccbarscroll", nx1 + 8, listTop, listBot, g_ccScroll, content, listBot - listTop);   // (draggable)
     // the wheel anywhere over the list (the cards on it take the hover, so the pull-down's own catch-all does not see it there)
+    { float sc = g_ccScroll; touchScroll(sc, ImVec2(nx0, listTop), ImVec2(nx1 + 16, listBot)); g_ccScroll = std::max(0.0f, std::min(std::max(0.0f, content - (listBot - listTop)), sc)); }
     if (ImGui::IsMouseHoveringRect(ImVec2(nx0, listTop), ImVec2(nx1 + 16, listBot), false) && io.MouseWheel != 0)
         g_ccScroll = std::max(0.0f, std::min(std::max(0.0f, content - (listBot - listTop)), g_ccScroll - io.MouseWheel * 40));
     // the bar to push it back up
@@ -7405,6 +7422,7 @@ void applyStyle() {
 
 void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act, int app);
 void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    if (!ImGui::GetIO().MouseDown[0]) g_touchScrolling = false;
     {   // a Custom theme's picture: the one the theme shown (or being edited) wants; its average colour becomes its background once
         g_bgTex = s.bgTex; g_bgW = s.bgW; g_bgH = s.bgH; g_bgPic = s.bgPicture;
         const int slot = g_customEdit >= 0 ? g_customEdit : (g_settings.wallpaper >= 7 && g_settings.wallpaper <= 9 ? g_settings.wallpaper - 7 : -1);
@@ -7669,7 +7687,7 @@ void navSearchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##navlist", ImVec2(w - 24, ly1 - ly0));
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_navScroll -= ImGui::GetIO().MouseWheel * 40;
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_navScroll -= ImGui::GetIO().MouseDelta.y;
+    touchScroll(g_navScroll, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     const float rowH = 44, content = s.navHits.size() * rowH + 12;
     g_navScroll = std::max(0.0f, std::min(g_navScroll, std::max(0.0f, content - (ly1 - ly0))));
     if (s.navHits.empty() && g_navQuery.size() < 2) textAt(dl, f.small, 28, ly0 + 16, kMuted, "Type two letters or more.");
@@ -7867,7 +7885,7 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
     ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##storelist", ImVec2(w, ly1 - ly0));
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_storeScroll -= ImGui::GetIO().MouseWheel * 40;
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_storeScroll -= ImGui::GetIO().MouseDelta.y;
+    touchScroll(g_storeScroll, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     g_storeScroll = std::max(0.0f, std::min(g_storeScroll, std::max(0.0f, content - (ly1 - ly0))));
     dl->PushClipRect(ImVec2(0, ly0), ImVec2(w, ly1), true);
     for (size_t i = 0; i < shown.size(); ++i) {
@@ -8639,6 +8657,32 @@ void settingsFromText(const std::string& text) {
         if (oldPlan == 1) { g_settings.showSkyvector = g_settings.showForeflight; g_settings.showForeflight = false; }
     }
     normalizeLayout();
+}
+
+// A finger lands without hovering first: the tablet's buttons that let others overlap them (the home screen, the pages' rows)
+// only take a press on a spot the pointer was already over the frame before (Dear ImGui's rule). So the queued pointer is fed a
+// frame at a time: a press that comes with a move moves the pointer this frame and presses on the next, and a press and its
+// release (a quick tap) never fall in one frame.
+namespace { struct MouseEv { float x, y; int down; }; std::vector<MouseEv> g_mouseQ; }
+void queuePointer(float x, float y, int down) { g_mouseQ.push_back({x, y, down}); }
+void pumpPointer() {
+    static ImVec2 shown(-1000, -1000);   // where the pointer was last frame
+    static bool movedThisFrame = false;
+    ImGuiIO& io = ImGui::GetIO();
+    movedThisFrame = false;
+    size_t i = 0;
+    for (; i < g_mouseQ.size(); ++i) {
+        const MouseEv& e = g_mouseQ[i];
+        const bool moves = e.x != shown.x || e.y != shown.y;
+        if (e.down >= 0 && movedThisFrame) break;   // (a press or release after a move: next frame, the pointer there first)
+        if (moves) {
+            io.AddMousePosEvent(e.x, e.y); shown = ImVec2(e.x, e.y); movedThisFrame = true;
+            if (e.down >= 0) { g_mouseQ[i].down = e.down; break; }   // moved now; this event's press waits for the next frame
+        }
+        if (e.down >= 0) { io.AddMouseButtonEvent(0, e.down != 0); ++i; break; }   // one press or release a frame
+    }
+    // a press kept back above stays queued (its move done): drop what was used
+    if (i > 0) g_mouseQ.erase(g_mouseQ.begin(), g_mouseQ.begin() + i);
 }
 
 } // namespace xpt

@@ -431,6 +431,9 @@ void setBattery(float pct);
 std::string checklistFor(const std::string& text, const std::string& icao, const std::string& engine);   // the tablet's battery level (the emulators' test controls)   // a drawing for this type (its own, or its family's)
 
 int currentApp();
+// A touch screen's pointer (no hover before a press): queued, and fed to Dear ImGui a step a frame (call pumpPointer before NewFrame)
+void queuePointer(float x, float y, int down);   // down: -1 a move, 1 pressed, 0 released
+void pumpPointer();
 // The browser's address bar is taking typed keys (the floating window's keyboard goes there instead of to the page).
 bool webTypingAddress();
 bool webTyping();

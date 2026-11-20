@@ -1112,6 +1112,42 @@ int main(int argc, char** argv) {
         if (r.ground != GA_NONE) { std::printf("FAIL: no jetway in the air\n"); ++failures; }
         openApp(APP_HOME);
     }
+    {   // a phone's tap: the finger was nowhere, then down and up at once (no hover before it); one tap opens an app
+        ImGuiIO& io = ImGui::GetIO();
+        SimState ph = s;
+        auto frames = [&](int n) { for (int i = 0; i < n; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; ImGui::NewFrame(); Actions act; build(fonts, ph, 800, kLogicalH, act); ImGui::Render(); } };
+        auto tap = [&](float x, float y, bool sameFrame) {   // as the emulator feeds a touch: through queuePointer / pumpPointer
+            auto pf = [&](int n) { for (int i = 0; i < n; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; pumpPointer(); ImGui::NewFrame(); Actions act; build(fonts, ph, 800, kLogicalH, act); ImGui::Render(); } };
+            queuePointer(-1000, -1000, -1); pf(3);
+            queuePointer(x, y, -1); queuePointer(x, y, 1);
+            if (!sameFrame) pf(1);
+            queuePointer(x, y, -1); queuePointer(x, y, 0); pf(4);
+            queuePointer(-1000, -1000, -1); pf(20);
+        };
+        {   // the same place with the finger there a frame first (as a mouse): does it open?
+            openApp(APP_HOME); frames(30);
+            io.AddMousePosEvent(88, 75); frames(2); io.AddMouseButtonEvent(0, true); frames(1); io.AddMouseButtonEvent(0, false); frames(1); io.AddMousePosEvent(-1000, -1000); frames(20);
+            std::printf("mouse tap: app %d\n", currentApp());
+        }
+        {   // a finger drags the App Store's list up, begun on an app: it scrolls, and nothing is installed or opened
+            openApp(APP_APPSTORE);
+            auto pf = [&](int n) { for (int i = 0; i < n; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; pumpPointer(); ImGui::NewFrame(); Actions act; build(fonts, ph, 800, kLogicalH, act); ImGui::Render(); } };
+            pf(20);
+            const auto before = settings().installed;
+            queuePointer(400, 300, -1); queuePointer(400, 300, 1); pf(2);
+            for (int k = 1; k <= 20; ++k) { queuePointer(400, 300 - k * 8.0f, -1); pf(1); }
+            queuePointer(400, 140, 0); pf(2); queuePointer(-1000, -1000, -1); pf(10);
+            if (settings().installed != before || currentApp() != APP_APPSTORE) { std::printf("FAIL: a drag on the App Store pressed an app\n"); ++failures; }
+            openApp(APP_HOME);
+        }
+        for (int same = 0; same < 2; ++same) {
+            openApp(APP_HOME); frames(30);
+            tap(88, 75, same != 0);
+            std::printf("phone tap (%s): app %d\n", same ? "down and up in one frame" : "down, then up", currentApp());
+            if (currentApp() == APP_HOME) { std::printf("FAIL: one phone tap does not open an app (%s)\n", same ? "down and up in one frame" : "down, then up"); ++failures; }
+            if (currentApp() != APP_HOME) { tap(30, 50, same != 0); if (currentApp() != APP_HOME) { std::printf("FAIL: one phone tap on Home does not go home (%d)\n", currentApp()); ++failures; openApp(APP_HOME); } }
+        }
+    }
     {   // ImGui's recoverable errors (a Push without its Pop, an item before Begin...): in the sim each one is a "Dear ImGui" pop-up
         const ImGuiContext& g = *ImGui::GetCurrentContext();
         const char* log = g.DebugLogBuf.c_str();
