@@ -645,19 +645,16 @@ void drawTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, boo
     } else if (storeApp(app) || app == APP_APPSTORE || app == APP_GAMES) {   // (until their logos come: a mark of their own)
         const float r = tile * 0.32f * scale;
         const ImU32 wcol = IM_COL32(255, 255, 255, 255);
-        if (app == APP_APPSTORE) {   // a white shopping bag, a download arrow cut into it (one white glyph, as the other icons)
-            const float tt = std::max(1.5f, r * 0.14f);
+        if (app == APP_APPSTORE) {   // a storefront (Material's "store" pictogram, 24 units: its sign, the awning, the shop with its window and door)
+            const float k = r * 2.0f / 18.0f;
+            auto P = [&](float x, float y) { return ImVec2(c.x + (x - 12) * k, c.y + (y - 12) * k); };
             const ImU32 cut = shade(appColor(app), shadeK);
-            dl->PathArcTo(ImVec2(c.x, c.y - r * 0.36f), r * 0.32f, 3.14159f, 2 * 3.14159f, 16);   // the handle
-            dl->PathStroke(wcol, 0, tt);
-            dl->AddLine(ImVec2(c.x - r * 0.32f, c.y - r * 0.36f), ImVec2(c.x - r * 0.32f, c.y - r * 0.22f), wcol, tt);
-            dl->AddLine(ImVec2(c.x + r * 0.32f, c.y - r * 0.36f), ImVec2(c.x + r * 0.32f, c.y - r * 0.22f), wcol, tt);
-            const float rb = r * 0.16f;   // the bag, its corners rounded
-            dl->AddRectFilled(ImVec2(c.x - r * 0.76f, c.y - r * 0.26f), ImVec2(c.x + r * 0.76f, c.y + r * 0.82f), wcol, rb);
-            const float at = std::max(1.5f, r * 0.15f);   // the arrow, in the tile's colour
-            dl->AddLine(ImVec2(c.x, c.y - r * 0.04f), ImVec2(c.x, c.y + r * 0.50f), cut, at);
-            dl->AddLine(ImVec2(c.x - r * 0.25f, c.y + r * 0.27f), ImVec2(c.x, c.y + r * 0.52f), cut, at);
-            dl->AddLine(ImVec2(c.x + r * 0.25f, c.y + r * 0.27f), ImVec2(c.x, c.y + r * 0.52f), cut, at);
+            dl->AddRectFilled(P(4, 4), P(20, 6), wcol);   // the sign
+            const ImVec2 aw[6] = {P(4, 7), P(20, 7), P(21, 12), P(21, 14), P(3, 14), P(3, 12)};   // the awning
+            dl->AddConvexPolyFilled(aw, 6, wcol);
+            dl->AddRectFilled(P(4, 14), P(14, 20), wcol);   // the shop front, its window cut out
+            dl->AddRectFilled(P(6, 14), P(12, 18), cut);
+            dl->AddRectFilled(P(18, 14), P(20, 20), wcol);   // the door's side
         } else if (app == APP_GAMES) {   // a game pad
             dl->AddRectFilled(ImVec2(c.x - r * 0.86f, c.y - r * 0.40f), ImVec2(c.x + r * 0.86f, c.y + r * 0.46f), wcol, r * 0.40f);
             const ImU32 k = shade(appColor(app), shadeK);
@@ -6320,7 +6317,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"Weather page with WXPlane installed", "WXPlane by Alpine Aviation", ""},
         {"Airbus checklists", "FlightGear A320-family by Josh Davidson (Octal450), Jonathan Redpath and contributors (github.com/legoboyvdlp/A320-family), adapted", "GPL-2.0"},
         {"Icons and logos", "Provided through creatorsrepo.com", ""},
-        {"App icons", "Material Design Icons by Pictogrammers (pictogrammers.com): cog, check-bold, file-document, star-four-points, airplane, airport, web, power, weather-partly-snowy-rainy", "Apache 2.0"},
+        {"App icons", "Material Design Icons by Pictogrammers (pictogrammers.com): cog, check-bold, file-document, star-four-points, airplane, airport, web, power, weather-partly-snowy-rainy; and Google's Material Icons \"store\" (the App Store)", "Apache 2.0"},
         {"ForeFlight icon", "The ForeFlight logo is a trademark of ForeFlight LLC, used only to show their web app", "Trademark"},
         {"Navigraph icon", "The Navigraph logo is a trademark of Navigraph, used only to show their charts web app", "Trademark"},
         {"SkyVector icon", "The SkyVector logo is a trademark of SkyVector (Seattle Avionics), used only to show their web app", "Trademark"},

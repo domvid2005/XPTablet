@@ -549,7 +549,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 App icons (provided through creatorsrepo.com)
   * Pictograms: Material Design Icons by Pictogrammers (https://pictogrammers.com/library/mdi/), Apache License 2.0:
-    cog, check-bold, power, weather-partly-snowy-rainy, file-document, star-four-points, airplane, airport, web. Drawn from their vector paths by
+    cog, check-bold, power, weather-partly-snowy-rainy, file-document, star-four-points, airplane, airport, web; and the "store" icon of Google's Material Icons (Apache License 2.0), on the App Store. Drawn from their vector paths by
     tools/make_icons_rgba.py into assets/icons.rgba.
   * Service logos (assets/brands): ForeFlight (ForeFlight LLC), Navigraph (Navigraph), SkyVector (SkyVector / Seattle Avionics) and
     Volanta (Orbx), ChartFox (chartfox.org), SimBrief (Navigraph), VATSIM Radar (vatsim-radar.com), VATSIM (VATSIM, Inc.), natTrak (VATSIM),
