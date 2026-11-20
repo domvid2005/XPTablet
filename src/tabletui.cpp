@@ -1504,6 +1504,20 @@ namespace {
 float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y);
 float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
     if (g_settings.physicalKeys && !g_kbdKeysShown) return keyboardBar(dl, f, w, y);
+    {   // capitals where a sentence starts (notes, a folder's name): Shift comes on by itself, as on an iPad (tapped, it goes off)
+        static const std::string* lastInto = nullptr;
+        static size_t lastLen = (size_t)-1;
+        bool prose = g_kbdTarget == 2 && g_typeInto && g_typeMultiline;
+        for (const auto& fo : g_settings.folders) if (g_typeInto == &fo.name) prose = true;
+        if (prose && (g_typeInto != lastInto || g_typeInto->size() != lastLen) && !g_kbdCaps && !g_kbdSymbols) {
+            const std::string& t = *g_typeInto;
+            size_t i = t.size();
+            while (i > 0 && t[i - 1] == ' ') --i;
+            g_kbdShift = i == 0 || t[i - 1] == '\n' || ((t[i - 1] == '.' || t[i - 1] == '!' || t[i - 1] == '?') && i < t.size());
+        }
+        lastInto = prose ? g_typeInto : nullptr;
+        lastLen = prose ? g_typeInto->size() : (size_t)-1;
+    }
     const float pad = 8, gap = 5, kh = 34, H = 5 * kh + 4 * gap + 2 * pad;
     dl->AddRectFilled(ImVec2(0, y), ImVec2(w, y + H), themeTone(20, 26, 38, 250));
     dl->AddLine(ImVec2(0, y), ImVec2(w, y), IM_COL32(255, 255, 255, 40));
@@ -4494,7 +4508,8 @@ void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     ImGui::InvisibleButton("##aptpanel", ImVec2(rb.x - ra.x, rb.y - ra.y));
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_aptScroll -= ImGui::GetIO().MouseWheel * 40;
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_aptScroll -= ImGui::GetIO().MouseDelta.y;
-    g_aptScroll = std::max(0.0f, g_aptScroll);
+    static float aptMax = 1e9f;   // (last frame's end: the list is never drawn past it)
+    g_aptScroll = std::max(0.0f, std::min(g_aptScroll, aptMax));
     dl->PushClipRect(ImVec2(ra.x + 2, ra.y + 2), ImVec2(rb.x - 2, rb.y - 2), true);
     const float x0 = rx + 18, x1 = rx + rw - 18;
     float y = top + 14 - g_aptScroll;
@@ -4602,7 +4617,8 @@ void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         y += sz.y + 10;
     }
     const float contentH = y + g_aptScroll - (top + 14);
-    g_aptScroll = std::min(g_aptScroll, std::max(0.0f, contentH - (rb.y - ra.y) + 30));
+    aptMax = std::max(0.0f, contentH - (rb.y - ra.y) + 30);
+    g_aptScroll = std::min(g_aptScroll, aptMax);
     dl->PopClipRect();
     pageKeyboard(dl, f, w, h, act);
 }
@@ -4676,7 +4692,7 @@ void pdfView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float 
     g_webHold = !(tab && b.activeTab == tab && asked[group] == want);
     webView(dl, f, s, x0, y0, w, h, act, true);
 }
-std::string g_docFilter;   // one folder ("This aircraft"...), or "" for all
+std::string g_docFilter;   // one folder ("XPTablet docs", "AviTab charts"), or "" for all
 
 void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const DocsState& d = s.docs;
@@ -4684,12 +4700,12 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     const float top = kStatusH + kHeaderH + 8, lw = 290;
     if (iconButton("##docref", ImVec2(12, top), ImVec2(48, top + 30), true)) act.docsList = true;   // look again
     reloadIcon(dl, ImVec2(30, top + 15), kInk);
-    {   // which folders: all of them, the aircraft's own, or XPTablet's Documents folder
+    {   // which folders: all of them, XPTablet's docs folder, or AviTab's charts
         struct Flt { const char* id; const char* name; const char* folder; float x0, x1; };
-        const Flt flts[] = {{"##docall", "All", "", 54, 104}, {"##docacf", "Aircraft", "This aircraft", 108, 198}, {"##docxpt", "XPTablet", "XPTablet's Documents", 202, 302}};
+        const Flt flts[] = {{"##docall", "All", "", 54, 104}, {"##docxpt", "XPTablet", "XPTablet docs", 108, 198}, {"##docavi", "AviTab", "AviTab charts", 202, 302}};
         for (const Flt& fl : flts)
             if (pill(dl, f, fl.id, fl.name, ImVec2(fl.x0, top), ImVec2(fl.x1, top + 30), g_docFilter == fl.folder, true) && g_docFilter != fl.folder) { g_docFilter = fl.folder; g_docListScroll = 0; }
-        if (!g_docFilter.empty() && g_docFilter != "This aircraft" && g_docFilter != "XPTablet's Documents") g_docFilter.clear();
+        if (!g_docFilter.empty() && g_docFilter != "XPTablet docs" && g_docFilter != "AviTab charts") g_docFilter.clear();
     }
     const ImVec2 la(12, top + 40), lb(12 + lw, h - 12);
     card(dl, la, lb, f, nullptr);
@@ -4716,7 +4732,7 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
             contentH += 36; ++n;
         }
         contentH += 12;
-        if (n == 0 && !d.files.empty()) textAt(dl, f.small, la.x + 14, la.y + 14, kMuted, g_docFilter == "This aircraft" ? "No documents in this aircraft's folder." : "No documents in XPTablet's Documents folder.");
+        if (n == 0 && !d.files.empty()) textAt(dl, f.small, la.x + 14, la.y + 14, kMuted, g_docFilter == "AviTab charts" ? "No charts in AviTab's charts folder." : "No documents in XPTablet's docs folder.");
     }
     const float shownH = lb.y - la.y;
     const bool scrolls = contentH > shownH + 1;
@@ -5547,7 +5563,8 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
     ImGui::InvisibleButton("##credits", ImVec2(cb.x - ca.x, cb.y - ca.y));
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_creditsScroll -= ImGui::GetIO().MouseWheel * 40;
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_creditsScroll -= ImGui::GetIO().MouseDelta.y;
-    g_creditsScroll = std::max(0.0f, g_creditsScroll);
+    static float credMax = 1e9f;
+    g_creditsScroll = std::max(0.0f, std::min(g_creditsScroll, credMax));
     dl->PushClipRect(ImVec2(ca.x, ca.y + 30), ImVec2(cb.x, cb.y - 2), true);
     struct Credit { const char* what; const char* who; const char* licence; };
     static const Credit kCredits[] = {
@@ -5591,7 +5608,8 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
     textAt(dl, f.small, x0, y + 2, kMuted, "Full licence texts: LICENSES.txt and shapes/LICENSE-GPL-3.0.txt in the XPTablet folder.");
     dl->PopClipRect();
     const float content = y + 30 + g_creditsScroll - (top + 38);
-    g_creditsScroll = std::min(g_creditsScroll, std::max(0.0f, content - (cb.y - ca.y - 40)));
+    credMax = std::max(0.0f, content - (cb.y - ca.y - 40));
+    g_creditsScroll = std::min(g_creditsScroll, credMax);
     g_creditsScroll = scrollBar(dl, "##credbar", cb.x - 9, ca.y + 34, cb.y - 8, g_creditsScroll, content, cb.y - ca.y - 40);   // (draggable)
 }
 

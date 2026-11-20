@@ -1141,7 +1141,7 @@ void airportsStep(const xpt::Actions& act) {
 }
 
 // ---- the Documents page ------------------------------------------------------------------------------------------------------------
-// PDFs and pictures from Output/XPTablet/Documents, the aircraft's folder and AviTab's charts folder. Pictures are read on a thread.
+// PDFs and pictures from plugins/XPTablet/docs, Output/XPTablet/Documents and AviTab's charts folder. Pictures are read on a thread.
 std::mutex g_docMx;
 bool g_docReady = false;
 std::string g_docPath, g_docError;
@@ -1159,9 +1159,11 @@ void listDocuments() {
     const std::string mine = root + "Output/XPTablet/Documents";
     makeDirs(mine + "/");
     struct Where { std::string path, label; int depth; };
-    std::vector<Where> where = {{mine, "XPTablet's Documents", 4}};
-    const std::string acf = aircraftDir();
-    if (!acf.empty()) where.push_back({acf, "This aircraft", 3});
+    // the docs folder in XPTablet's own folder first (made when missing), then the older Output one; the aircraft's folder is no
+    // longer looked in (its manuals filled the list)
+    const std::string docs = pluginFolder() + "/docs";
+    makeDirs(docs + "/");
+    std::vector<Where> where = {{docs, "XPTablet docs", 4}, {mine, "XPTablet docs", 4}};
     if (fs::exists(fs::u8path(root + "Resources/plugins/AviTab/charts"))) where.push_back({root + "Resources/plugins/AviTab/charts", "AviTab charts", 4});
     for (const Where& w : where) {
         d.folders.push_back(w.path);

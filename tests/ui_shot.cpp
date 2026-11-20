@@ -783,8 +783,8 @@ int main(int argc, char** argv) {
             SimState d = t;
             d.docs.listed = true;
             d.docs.folders = {"E:/X-Plane 12/Output/XPTablet/Documents"};
-            d.docs.files = {{"A320 FCOM.pdf", "/x/A320 FCOM.pdf", "This aircraft", true, 31457280}, {"Normal checklist.pdf", "/x/n.pdf", "This aircraft", true, 204800},
-                            {"KSBN airport diagram.png", "/x/ksbn.png", "XPTablet's Documents", false, 880000}, {"KORD 10-9.jpg", "/x/kord.jpg", "AviTab charts", false, 1200000}};
+            d.docs.files = {{"A320 FCOM.pdf", "/x/A320 FCOM.pdf", "XPTablet docs", true, 31457280}, {"Normal checklist.pdf", "/x/n.pdf", "XPTablet docs", true, 204800},
+                            {"KSBN airport diagram.png", "/x/ksbn.png", "XPTablet docs", false, 880000}, {"KORD 10-9.jpg", "/x/kord.jpg", "AviTab charts", false, 1200000}};
             shot(d, APP_DOCUMENTS, "documents");
             // a PDF opens in the page itself (its own browser tab, in the Documents' group), not in the Browser
             d.browser.status = 1;
