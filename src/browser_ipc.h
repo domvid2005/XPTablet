@@ -11,7 +11,7 @@ namespace xptb {
 constexpr const char* kStartPage = "https://duckduckgo.com/";   // a new tab, and the one left when the last is closed
 
 constexpr uint32_t kMagic = 0x58505442;   // "XPTB"
-constexpr uint32_t kVersion = 4;         // 2: tabs; 3: tab groups (the Browser's, and each web app's), zoom; 4: zoom to fit, wheel across
+constexpr uint32_t kVersion = 5;         // 2: tabs; 3: tab groups (the Browser's, and each web app's), zoom; 4: zoom to fit, wheel across; 5: media volume, the Browser may have no tabs
 constexpr int kMaxW = 2048, kMaxH = 1536;  // the largest page picture, pixels
 constexpr int kCmds = 64;                  // commands the ring holds
 constexpr int kTextLen = 2048;             // a URL, or a few typed characters
@@ -22,7 +22,7 @@ enum CmdType : int32_t {
     CMD_RESIZE,       // a: width, b: height (the view, in device-independent pixels); f: screen pixels per one of them
     CMD_MOUSE_MOVE,   // a, b: where, in the view
     CMD_MOUSE_DOWN, CMD_MOUSE_UP, CMD_MOUSE_LEAVE,
-    CMD_WHEEL,        // a, b: where; c: how far down (negative) or up, in pixels; d: left (negative) or right
+    CMD_WHEEL,        // a, b: where; c: how far down (negative) or up, in pixels; d: left (negative) or right; f 1: Ctrl held (zooms)
     CMD_CHAR,         // c: the character (UTF-16)
     CMD_KEY,          // c: Windows key code (VK_BACK 8, VK_RETURN 13, VK_TAB 9, arrows 37-40, VK_DELETE 46); d: 1 down, 0 up
     CMD_FOCUS,        // a: 1 the page has the keyboard, 0 not
@@ -31,7 +31,8 @@ enum CmdType : int32_t {
     CMD_TAB_CLOSE,    // a: the tab's id
     CMD_TAB_SELECT,   // a: the tab's id
     CMD_ZOOM,         // a: +1 closer, -1 farther (the shown tab's own zoom, kept), 0 back to fitting the page to the view
-    CMD_EXIT_FULLSCREEN   // the shown page leaves full screen (a video's)
+    CMD_EXIT_FULLSCREEN,  // the shown page leaves full screen (a video's)
+    CMD_MEDIA_VOLUME      // a: 0..100, the volume of the Browser's videos and sounds (its own tabs, not the web apps')
 };
 // Navigation, pointer and keys always go to the tab shown.
 

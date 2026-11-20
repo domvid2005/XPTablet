@@ -190,6 +190,8 @@ struct Tab {
     std::vector<double> fitChecks;   // when to measure the page again (seconds, on g_clock), soonest first
     int fitRounds = 0;               // corrections since the page loaded (a page that keeps growing is not chased for ever)
     std::string host;                // the page's site: a new one starts fitting again from 100 %
+    double base = 0;                 // a site with a zoom of its own (shown as 100 %): ForeFlight and VATSIM Radar 65 %, ChartFox 70 %,
+                                     // SimBrief 50 %; there the zoom is that, not fitted (0: none, the page is fitted to the width)
     std::vector<uint8_t> view;       // the newest picture of the page
     int vw = 0, vh = 0;
     std::vector<uint8_t> popup;      // a drop-down list open on the page, drawn over it
@@ -205,6 +207,15 @@ struct OpenReq { std::string url; int group; };
 std::vector<OpenReq> g_openQueue;   // pages asked for in a new window: opened as tabs (in the opener's group) by the loop
 
 double nowS() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+// the sites whose own zoom is kept (as a level: 1.2 to its power), shown as 100 %
+double siteBase(const std::string& host) {
+    auto has = [&](const char* d) { return host.find(d) != std::string::npos; };
+    double pct = 0;
+    if (has("foreflight.com") || has("vatsim-radar.com")) pct = 0.65;
+    else if (has("chartfox.org")) pct = 0.70;
+    else if (has("simbrief.com")) pct = 0.50;
+    return pct > 0 ? std::log(pct) / std::log(1.2) : 0.0;
+}
 std::string hostPart(const std::string& u) {
     const size_t s = u.find("://");
     if (s == std::string::npos) return u;
@@ -239,12 +250,28 @@ void publishInfo() {
         copyTo(g_shm->title, sizeof g_shm->title, t.title);
         g_shm->loading = t.loading; g_shm->canBack = t.back; g_shm->canForward = t.fwd;
         g_shm->fullscreen = t.fullscreen;
-        g_shm->zoomPct = (int32_t)std::lround(100.0 * std::pow(1.2, t.zoom));
+        g_shm->zoomPct = (int32_t)std::lround(100.0 * std::pow(1.2, t.zoom - t.base));   // (a site's own zoom shows as 100 %)
         g_shm->zoomAuto = t.manual ? 0 : 1;
     }
     g_shm->infoSeq.fetch_add(1);
 }
 template <class T> void unref(T* p);   // (below)
+// the Browser's media volume (its own tabs: group 0), set on every video and sound on the page, and again on what comes later
+int g_mediaVol = 100;
+void applyVolume(Tab& t) {
+    if (!t.br || t.group != 0) return;
+    cef_frame_t* f = t.br->get_main_frame(t.br);
+    if (!f) return;
+    char js[400];
+    std::snprintf(js, sizeof js, "(function(v){window.__xptVol=v;document.querySelectorAll('video,audio').forEach(function(e){e.volume=v;});"
+                                 "if(!window.__xptVolObs){window.__xptVolObs=1;document.addEventListener('play',function(e){if(e.target&&e.target.volume!==undefined)e.target.volume=window.__xptVol;},true);}})(%.2f)",
+                  g_mediaVol / 100.0);
+    cef_string_t s = {}, u = {};
+    setStr(&s, js);
+    f->execute_java_script(f, &s, &u, 0);
+    cef.utf16_clear(&s);
+    unref(f);
+}
 void applyZoom(Tab& t) {
     if (!t.br) return;
     cef_browser_host_t* h = t.br->get_host(t.br);
@@ -368,9 +395,12 @@ void CEF_CALLBACK onAddressChange(cef_display_handler_t*, cef_browser_t* b, cef_
     if (!t || !frame || !frame->is_main(frame)) return;
     t->url = toUtf8(url);
     const std::string host = hostPart(t->url);
-    if (host != t->host) {   // another site: its own fit, from 100 % (a zoom chosen for the tab stays)
+    if (host != t->host) {   // another site: its own fit, from 100 % (or the site's own zoom); a zoom chosen for the tab stays
         t->host = host;
-        if (!t->manual && t->zoom != 0) { t->zoom = 0; applyZoom(*t); }
+        const double was = t->base;
+        t->base = siteBase(host);
+        if (t->manual) t->zoom += t->base - was;   // (chosen: kept against the site's own)
+        else if (t->zoom != t->base) { t->zoom = t->base; t->fitChecks.clear(); applyZoom(*t); }
         t->fitRounds = 0;
     }
     publishInfo();
@@ -387,7 +417,7 @@ int CEF_CALLBACK onConsole(cef_display_handler_t*, cef_browser_t* b, cef_log_sev
         if (m.compare(0, 9, "__xptfit ") == 0) {
             Tab* t = tabOf(b);
             double sw = 0, iw = 0;
-            if (t && !t->manual && std::sscanf(m.c_str() + 9, "%lf %lf", &sw, &iw) == 2 && iw > 50 && sw > iw + 4 && t->fitRounds < 8) {
+            if (t && !t->manual && t->base == 0 && std::sscanf(m.c_str() + 9, "%lf %lf", &sw, &iw) == 2 && iw > 50 && sw > iw + 4 && t->fitRounds < 8) {
                 const double factor = std::max(0.30, std::pow(1.2, t->zoom) * iw / sw);
                 t->zoom = std::log(factor) / std::log(1.2);
                 ++t->fitRounds;
@@ -421,7 +451,9 @@ void CEF_CALLBACK onLoadingState(cef_load_handler_t*, cef_browser_t* b, int load
     if (!t) return;
     const bool was = t->loading;
     t->loading = loading != 0; t->back = back != 0; t->fwd = fwd != 0;
-    if (was && !t->loading && !t->manual) { t->fitRounds = 0; scheduleFit(*t, {0.15, 1.0, 2.5, 5.0}); }   // loaded: fitted (and again as it settles)
+    if (was && !t->loading && !t->manual && t->base == 0) { t->fitRounds = 0; scheduleFit(*t, {0.15, 1.0, 2.5, 5.0}); }
+    if (was && !t->loading && !t->manual && t->base != 0) applyZoom(*t);
+    if (was && !t->loading && g_mediaVol != 100) applyVolume(*t);   // (a new page: its media at the Browser's volume)   // (the site's own zoom, again: Chromium keeps one per site)   // loaded: fitted (and again as it settles)
     publishInfo();
 }
 // A page's process that stopped (a crash, or out of memory on a heavy map) leaves a white page: it is loaded again
@@ -538,8 +570,8 @@ void closeTab(int id) {
         g_tabs.erase(g_tabs.begin() + (long)i);
         bool groupLeft = false;
         for (const Tab& t : g_tabs) if (t.group == group) groupLeft = true;
-        // the Browser never has no tabs: its last one closed comes back as a fresh search page (a web app's group the plugin refills)
-        if (!groupLeft && group == 0) { g_active = -1; openTab("", 0); return; }
+        // (the Browser's last tab closed: none is left; the tablet shows its New Tab page)
+        (void)groupLeft;
         if (g_tabs.empty()) { g_active = -1; publishInfo(); return; }
         int next = g_active;
         if ((int)i < g_active) --next;
@@ -580,6 +612,10 @@ void runCommand(const xptb::Cmd& c) {
     case xptb::CMD_RELOAD: if (br) br->reload(br); break;
     case xptb::CMD_STOP: if (br) br->stop_load(br); break;
     case xptb::CMD_TAB_NEW: openTab(c.text, c.b); break;
+    case xptb::CMD_MEDIA_VOLUME:
+        g_mediaVol = std::max(0, std::min(100, c.a));
+        for (Tab& t : g_tabs) applyVolume(t);
+        break;
     case xptb::CMD_EXIT_FULLSCREEN:   // (this Chromium has no call for it: the page is asked, as its own Esc would)
         if (br) {
             cef_frame_t* f = br->get_main_frame(br);
@@ -595,7 +631,8 @@ void runCommand(const xptb::Cmd& c) {
     case xptb::CMD_ZOOM:   // Chromium's zoom levels: 1.2 to the power of the level (0.5 a step: about 10 %)
         if (g_active >= 0 && g_active < (int)g_tabs.size()) {
             Tab& t = g_tabs[g_active];
-            if (c.a == 0) { t.manual = false; t.zoom = 0; t.fitRounds = 0; scheduleFit(t, {0.15, 1.0}); }   // back to fitting
+            if (c.a == 0) { t.manual = false; t.zoom = t.base; t.fitRounds = 0; if (t.base == 0) scheduleFit(t, {0.15, 1.0}); }   // back to fitting (or the site's own)
+            else if (c.a == 3) { t.manual = true; t.fitChecks.clear(); t.zoom = t.base + std::log(std::max(25, std::min(300, c.b)) / 100.0) / std::log(1.2); }   // a percentage typed
             else { t.manual = true; t.fitChecks.clear(); t.zoom = std::max(-6.0, std::min(4.0, t.zoom + 0.5 * c.a)); }
             applyZoom(t);
             publishInfo();
@@ -615,7 +652,7 @@ void runCommand(const xptb::Cmd& c) {
         while (g_viewW * g_scale > xptb::kMaxW || g_viewH * g_scale > xptb::kMaxH) g_scale *= 0.9f;
         for (Tab& t : g_tabs) {   // (a page fitted to the old size fits again: wider, it may need less zooming out)
             hostDo(t.br, [](cef_browser_host_t* hh) { hh->notify_screen_info_changed(hh); hh->was_resized(hh); });
-            if (!t.manual) { if (t.zoom != 0) { t.zoom = 0; applyZoom(t); } t.fitRounds = 0; scheduleFit(t, {0.3, 1.2}); }
+            if (!t.manual && t.base == 0) { if (t.zoom != 0) { t.zoom = 0; applyZoom(t); } t.fitRounds = 0; scheduleFit(t, {0.3, 1.2}); }
         }
         publishInfo();
         break;
@@ -630,7 +667,7 @@ void runCommand(const xptb::Cmd& c) {
         g_buttonDown = false;
         withHost([](cef_browser_host_t* h, const xptb::Cmd& c) { cef_mouse_event_t m = mouseAt(c); h->send_mouse_click_event(h, &m, MBT_LEFT, 1, 1); }, c);
         break;
-    case xptb::CMD_WHEEL: withHost([](cef_browser_host_t* h, const xptb::Cmd& c) { cef_mouse_event_t m = mouseAt(c); h->send_mouse_wheel_event(h, &m, c.d, c.c); }, c); break;
+    case xptb::CMD_WHEEL: withHost([](cef_browser_host_t* h, const xptb::Cmd& c) { cef_mouse_event_t m = mouseAt(c); if (c.f > 0.5f) m.modifiers |= EVENTFLAG_CONTROL_DOWN; h->send_mouse_wheel_event(h, &m, c.d, c.c); }, c); break;
     case xptb::CMD_CHAR:
         withHost([](cef_browser_host_t* h, const xptb::Cmd& c) {
             cef_key_event_t k;

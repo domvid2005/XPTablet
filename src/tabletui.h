@@ -32,6 +32,8 @@ struct Settings {
     int favoriteSlots = 4;        // how many icons the favorites bar holds, 0 (no bar) to kMaxFavorites
     std::vector<int> favorites = {APP_MAP, APP_CHARTS, APP_WEATHER, APP_SIMBRIEF};   // the icons in the bar along the bottom (they leave the grid)
     std::vector<std::pair<std::string, std::string>> bookmarks;   // the browser's own bookmarks: title, address
+    std::vector<std::pair<std::string, std::string>> history;     // the Browser's pages, newest last (not the web apps'): title, address
+    float browserVolume = 1.0f;   // the Browser's videos and sounds, 0..1 (not the web apps')
     // the Map page
     int mapSource = 0;            // 0 OpenStreetMap, 1 satellite imagery
     bool mapDark = false;         // Display: the street map in night colours (light labels)
@@ -308,7 +310,7 @@ struct Actions {
     int groundIndex = 0;          // which door (GA_PAX_DOOR, GA_CARGO_DOOR, GA_JETWAY_DOOR); GA_CABIN_LIGHT: the level, 0-100 %
     std::string metarSearch;      // look this airport's METAR up (the Weather page's search)
     // the browser: shown this frame (start it if it is not running), where the page is (layout units) and what to send it
-    struct WebEvent { int type; float x, y; int code; int code2 = 0; };   // type: an xptb::CmdType (mouse, wheel, char, key); a wheel's code2: across
+    struct WebEvent { int type; float x, y; int code; int code2 = 0; int ctrl = 0; };   // type: an xptb::CmdType (mouse, wheel, char, key); a wheel's code2: across, ctrl: Ctrl held (a PDF zooms)
     bool webShown = false, webRetry = false;
     float webX = 0, webY = 0, webW = 0, webH = 0;
     std::vector<WebEvent> web;
@@ -316,7 +318,9 @@ struct Actions {
     int webNav = 0;               // 1 back, 2 forward, 3 reload, 4 stop
     bool webTabNew = false;       // open a tab (at webTabUrl, or blank) in group webTabGroup, and show it
     int webTabGroup = 0;
-    int webZoom = 0;              // the shown page: +1 closer, -1 farther, 2 back to 100 %
+    int webZoom = 0;              // the shown page: +1 closer, -1 farther, 2 back to 100 %, 3 to webZoomPct
+    int webZoomPct = 100;
+    int webVolume = -1;           // the Browser's media volume, 0..100, when changed (-1 none)
     bool webExitFullscreen = false;
     std::string webTabUrl;
     int webTabSelect = 0, webTabClose = 0;   // a tab's id: show it, close it (0: none)

@@ -610,7 +610,7 @@ void browserStep(const xpt::Actions& act) {
     for (const xpt::Actions::WebEvent& e : act.web) {
         if (e.type == xptb::CMD_KEY) br::push(e.type, 0, 0, e.code, (int)e.x);
         else if (e.type == xptb::CMD_CHAR) br::push(e.type, 0, 0, e.code);
-        else br::push(e.type, (int)e.x, (int)e.y, e.code, e.code2);
+        else br::push(e.type, (int)e.x, (int)e.y, e.code, e.code2, e.ctrl ? 1.0f : 0.0f);
     }
     if (!act.webNavigate.empty()) br::push(xptb::CMD_NAVIGATE, 0, 0, 0, 0, 0, act.webNavigate);
     switch (act.webNav) {
@@ -621,7 +621,14 @@ void browserStep(const xpt::Actions& act) {
     default: break;
     }
     if (act.webTabNew) br::push(xptb::CMD_TAB_NEW, 0, act.webTabGroup, 0, 0, 0, act.webTabUrl);
-    if (act.webZoom) br::push(xptb::CMD_ZOOM, act.webZoom == 2 ? 0 : act.webZoom);
+    if (act.webZoom == 3) br::push(xptb::CMD_ZOOM, 3, act.webZoomPct);
+    else if (act.webZoom) br::push(xptb::CMD_ZOOM, act.webZoom == 2 ? 0 : act.webZoom);
+    {   // the Browser's media volume: as set, and once again each time the browser has started
+        static bool sent = false;
+        if (g_sim.browser.status != 1) sent = false;
+        else if (!sent) { sent = true; br::push(xptb::CMD_MEDIA_VOLUME, (int)std::lround(xpt::settings().browserVolume * 100)); }
+        if (act.webVolume >= 0) br::push(xptb::CMD_MEDIA_VOLUME, act.webVolume);
+    }
     if (act.webExitFullscreen) br::push(xptb::CMD_EXIT_FULLSCREEN);
     if (act.webTabSelect) br::push(xptb::CMD_TAB_SELECT, act.webTabSelect);
     if (act.webTabClose) br::push(xptb::CMD_TAB_CLOSE, act.webTabClose);

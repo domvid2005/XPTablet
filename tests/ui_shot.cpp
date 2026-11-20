@@ -838,10 +838,20 @@ int main(int argc, char** argv) {
             for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, wb, 800, kLogicalH, act); ImGui::Render(); if (act.webTabSelect || act.webTabNew) got = act; }
             if (got.webTabNew || (got.webTabSelect && got.webTabSelect != 1)) { std::printf("FAIL: the Browser keeps to its own tab (select %d, new %d)\n", got.webTabSelect, got.webTabNew ? 1 : 0); ++failures; } }
           openApp(APP_BROWSER); shot(wb, APP_BROWSER, "browser_tabs");
+          {   // the History over the page; the volume card; every tab closed: the New Tab page
+              settings().history = {{"ChartFox", "https://chartfox.org/"}, {"SkyVector Aeronautical Charts", "https://skyvector.com/"}, {"VATSIM", "https://vatsim.net/"}};
+              auto tapAt = [&](SimState& st, float x, float y) {
+                  for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1);
+                                                ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); } };
+              tapAt(wb, 800 - 89, 162); shot(wb, APP_BROWSER, "browser_history"); tapAt(wb, 800 - 89, 162);
+              tapAt(wb, 800 - 29, 126); shot(wb, APP_BROWSER, "browser_volume"); tapAt(wb, 400, 400);
+              SimState nt = wb; tapAt(nt, 182, 92); nt.browser.tabs.clear(); nt.browser.activeTab = 0; shot(nt, APP_BROWSER, "browser_newtab");
+              settings().history.clear();
+          }
           { openApp(APP_SIMBRIEF); SimState w3 = wb; w3.browser.zoomPct = 125; shot(w3, APP_SIMBRIEF, "webapp_header"); openApp(APP_SIMBRIEF);
             // its Home button: back to SimBrief's own start page
             Actions got;
-            for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(800 - 154, 28.0f + 23.0f); io.AddMouseButtonEvent(0, k == 1);
+            for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(800 - 114, 28.0f + 23.0f); io.AddMouseButtonEvent(0, k == 1);
                                           ImGui::NewFrame(); Actions act; build(fonts, w3, 800, kLogicalH, act); ImGui::Render(); if (!act.webNavigate.empty()) got = act; }
             if (got.webNavigate.find("dispatch.simbrief.com") == std::string::npos) { std::printf("FAIL: the web app Home button goes to its start page (%s)\n", got.webNavigate.c_str()); ++failures; } }
           openApp(APP_BROWSER);
