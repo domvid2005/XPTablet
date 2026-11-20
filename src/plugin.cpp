@@ -1470,6 +1470,45 @@ void ensureFrame() {
     xpt::build(g_fonts, g_sim, g_logW, xpt::kLogicalH, act);
     ImGui::Render();
     xpt::clipDrawData(ImGui::GetDrawData(), g_batches);
+    {   // the Navigation page's search: X-Plane's navaids, fixes and airports whose code starts with it, or whose name holds it
+        static std::string last;
+        if (act.navSearch != last) {
+            last = act.navSearch;
+            g_sim.navHits.clear();
+            if (last.size() >= 2) {
+                struct Hit { xpt::SimState::NavHit h; int rank; double d; };
+                std::vector<Hit> hits;
+                const int want = xplm_Nav_Airport | xplm_Nav_NDB | xplm_Nav_VOR | xplm_Nav_ILS | xplm_Nav_Localizer | xplm_Nav_Fix | xplm_Nav_DME;
+                for (XPLMNavRef r = XPLMGetFirstNavAid(); r != XPLM_NAV_NOT_FOUND; r = XPLMGetNextNavAid(r)) {
+                    XPLMNavType type = xplm_Nav_Unknown;
+                    float la = 0, lo = 0, hgt = 0, hdg = 0;
+                    int freq = 0;
+                    char id[32] = "", name[256] = "";
+                    XPLMGetNavAidInfo(r, &type, &la, &lo, &hgt, &freq, &hdg, id, name, nullptr);
+                    if (!(type & want)) continue;
+                    const std::string ids = id;
+                    int rank = -1;
+                    if (ids == last) rank = 0;
+                    else if (ids.compare(0, last.size(), last) == 0) rank = 1;
+                    else if (last.size() >= 3) {
+                        std::string up = name;
+                        for (char& c : up) c = (char)std::toupper((unsigned char)c);
+                        if (up.find(last) != std::string::npos) rank = 2;
+                    }
+                    if (rank < 0) continue;
+                    Hit h;
+                    h.h.type = (int)type; h.h.ident = ids; h.h.name = name; h.h.lat = la; h.h.lon = lo; h.h.freq = (float)freq;
+                    h.rank = rank;
+                    const double dl = (la - g_sim.map.lat), dlo = (lo - g_sim.map.lon) * std::cos(g_sim.map.lat * 0.0174533);
+                    h.d = g_sim.map.havePos ? dl * dl + dlo * dlo : 0;
+                    hits.push_back(std::move(h));
+                    if (hits.size() > 4000) break;
+                }
+                std::sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) { return a.rank != b.rank ? a.rank < b.rank : a.d < b.d; });
+                for (size_t i = 0; i < hits.size() && i < 60; ++i) g_sim.navHits.push_back(hits[i].h);
+            }
+        }
+    }
     if (act.com1Standby > 0) {   // the headset on the Airports page: that frequency into COM1's standby (8.33 kHz steps, in kHz)
         static XPLMDataRef c = XPLMFindDataRef("sim/cockpit2/radios/actuators/com1_standby_frequency_hz_833");
         if (c) XPLMSetDatai(c, (int)std::lround(act.com1Standby * 1000.0));

@@ -437,6 +437,9 @@ int main(int argc, char** argv) {
           settings().wallpaper = 7; settings().customBg = 0x2E5A3A; settings().customAccent = 0xF0A030; shot(t, APP_HOME, "home_custom");
           settings().wallpaper = keep; }
         shot(t, APP_GAMES, "games");
+        { SimState nv = t;
+          nv.navHits = {{4, "GIJ", "GIPPER VORTAC", 41.77, -86.32, 11580}, {1, "KSBN", "South Bend Intl", 41.70, -86.32, 0}, {2, "SB", "SOUTH BEND NDB", 41.6, -86.2, 356}, {512, "SBNAP", "SBNAP", 41.5, -86.4, 0}};
+          shot(nv, APP_NAVSEARCH, "navsearch"); }
         shot(t, APP_VATSIMHUB, "vatsimhub");
         {
             const Settings keep = settings();

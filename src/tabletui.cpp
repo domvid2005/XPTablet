@@ -65,6 +65,7 @@ const AppDef kApps[APP_COUNT] = {
     {"skyvector", "SkyVector", IM_COL32(32, 132, 108, 255), "https://skyvector.com"},
     {"music", "Media", IM_COL32(250, 45, 85, 255), nullptr},   // (its id stays "music": saved home screens keep it)
     {"dispatch", "Dispatch", IM_COL32(58, 110, 200, 255), nullptr},   // the SimBrief briefing (its PDF)
+    {"navsearch", "Navigation", IM_COL32(24, 150, 170, 255), nullptr},   // X-Plane's navaids, fixes and airports, searched
     {"appstore", "App Store", IM_COL32(30, 140, 250, 255), nullptr},
     {"games", "Games", IM_COL32(236, 72, 120, 255), nullptr},
     {"datis", "D-ATIS", IM_COL32(40, 160, 140, 255), "https://datis.clowd.io"},
@@ -358,6 +359,12 @@ void icon(ImDrawList* dl, int app, ImVec2 c, float r, ImU32 col) {
         dl->AddLine(c, P(0.58f, -0.58f), col, t);
         dl->AddCircleFilled(P(-0.34f, -0.48f), r * 0.11f, col, 0);
         dl->AddCircleFilled(P(0.30f, 0.52f), r * 0.11f, col, 0);
+        break;
+    case APP_NAVSEARCH:   // a compass rose with a magnifier
+        dl->AddCircle(P(-0.14f, -0.14f), r * 0.56f, col, 0, t);
+        dl->AddTriangleFilled(P(-0.14f, -0.58f), P(-0.28f, -0.14f), P(0.0f, -0.14f), col);
+        dl->AddTriangleFilled(P(-0.14f, 0.30f), P(-0.28f, -0.14f), P(0.0f, -0.14f), IM_COL32(255, 255, 255, 120));
+        dl->AddLine(P(0.28f, 0.28f), P(0.80f, 0.80f), col, t * 1.6f);
         break;
     case APP_DISPATCH:   // a page with lines (the briefing)
         dl->AddRect(P(-0.62f, -0.80f), P(0.62f, 0.80f), col, r * 0.10f, 0, t);
@@ -7103,6 +7110,56 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
 }
 
 namespace {
+
+// ---- Navigation: X-Plane's navaids, fixes and airports, found by their code or name; tapped, shown on the map -------------------------
+std::string g_navQuery;
+float g_navScroll = 0;
+void navSearchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const float top = kStatusH + kHeaderH + 10;
+    textField(dl, f, "##navq", g_navQuery, ImVec2(12, top), ImVec2(w - 12, top + 40), "Search: a VOR, NDB, ILS, fix or airport (code or name)", false, 0);
+    for (char& c : g_navQuery) c = (char)std::toupper((unsigned char)c);
+    act.navSearch = g_navQuery;
+    const float ly0 = top + 52, ly1 = (g_kbd && g_kbdTarget == 2) ? h - 230 : h - 12;
+    card(dl, ImVec2(12, ly0), ImVec2(w - 12, ly1), f, nullptr);
+    ImGui::SetCursorScreenPos(ImVec2(12, ly0));
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("##navlist", ImVec2(w - 24, ly1 - ly0));
+    if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_navScroll -= ImGui::GetIO().MouseWheel * 40;
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 3.0f)) g_navScroll -= ImGui::GetIO().MouseDelta.y;
+    const float rowH = 44, content = s.navHits.size() * rowH + 12;
+    g_navScroll = std::max(0.0f, std::min(g_navScroll, std::max(0.0f, content - (ly1 - ly0))));
+    if (s.navHits.empty() && g_navQuery.size() < 2) textAt(dl, f.small, 28, ly0 + 16, kMuted, "Type two letters or more.");
+    else if (s.navHits.empty()) textAt(dl, f.small, 28, ly0 + 16, kMuted, "Nothing found in X-Plane's navigation data.");
+    dl->PushClipRect(ImVec2(14, ly0 + 2), ImVec2(w - 14, ly1 - 2), true);
+    for (size_t i = 0; i < s.navHits.size(); ++i) {
+        const auto& n = s.navHits[i];
+        const float y = ly0 + 6 + i * rowH - g_navScroll;
+        if (y + rowH < ly0 || y > ly1) continue;
+        char id[24]; std::snprintf(id, sizeof id, "##navh%zu", i);
+        ImGui::SetCursorScreenPos(ImVec2(18, y));
+        if (ImGui::InvisibleButton(id, ImVec2(w - 36 - 10, rowH - 4)) && !ImGui::IsMouseDragging(0, 3.0f)) { g_kbd = false; g_typeInto = nullptr; showOnMap(n.lat, n.lon); }
+        if (ImGui::IsItemHovered()) dl->AddRectFilled(ImVec2(18, y), ImVec2(w - 28, y + rowH - 4), IM_COL32(255, 255, 255, 16), 8.0f);
+        const char* kind = n.type == 1 ? "AIRPORT" : n.type == 2 ? "NDB" : n.type == 4 ? "VOR" : n.type == 8 ? "ILS" : n.type == 16 ? "LOC" : n.type == 512 ? "FIX" : n.type == 1024 ? "DME" : "NAV";
+        const ImU32 kc = n.type == 1 ? IM_COL32(80, 150, 255, 255) : n.type == 2 ? IM_COL32(200, 120, 220, 255) : n.type == 4 || n.type == 1024 ? IM_COL32(80, 200, 170, 255) : n.type == 512 ? IM_COL32(200, 200, 210, 255) : IM_COL32(255, 190, 90, 255);
+        dl->AddRectFilled(ImVec2(28, y + 11), ImVec2(96, y + 31), (kc & 0x00FFFFFF) | (60u << 24), 6.0f);
+        textCentered(dl, f.small, 62, y + 12, kc, kind);
+        textAt(dl, f.bold, 110, y + 11, kInk, n.ident.c_str());
+        textAt(dl, f.small, 190, y + 13, kMuted, fitText(f.small, n.name, w - 190 - 260).c_str());
+        char rt[64] = "";
+        if (n.freq > 0) std::snprintf(rt, sizeof rt, n.type == 2 ? "%.0f kHz" : "%.2f", n.type == 2 ? n.freq : n.freq / 100.0f);
+        textAt(dl, f.mono, w - 250, y + 13, kInk, rt);
+        if (s.map.havePos) {
+            const double d = nmBetween(s.map.lat, s.map.lon, n.lat, n.lon);
+            const double brg = std::fmod(std::atan2(std::sin((n.lon - s.map.lon) * 0.0174533) * std::cos(n.lat * 0.0174533),
+                std::cos(s.map.lat * 0.0174533) * std::sin(n.lat * 0.0174533) - std::sin(s.map.lat * 0.0174533) * std::cos(n.lat * 0.0174533) * std::cos((n.lon - s.map.lon) * 0.0174533)) * 57.2958 + 360.0, 360.0);
+            char dt[32]; std::snprintf(dt, sizeof dt, "%.0f nm %03.0f\xC2\xB0", d, brg);
+            textRight(dl, f.small, w - 34, y + 13, kMuted, dt);
+        }
+    }
+    dl->PopClipRect();
+    pageKeyboard(dl, f, w, h, act);
+}
+
 // ---- the home screen's widgets ------------------------------------------------------------------------------------------------------
 void drawWidget(ImDrawList* dl, const Fonts& f, const SimState& s, int kind, ImVec2 a, ImVec2 b, Actions& act, bool live) {
     const float W = b.x - a.x, H = b.y - a.y;
@@ -7480,6 +7537,7 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
         else if (app == APP_MUSIC) musicPage(dl, f, s, w, h, act);
         else if (app == APP_DISPATCH) dispatchPage(dl, f, s, w, h, act);
         else if (app == APP_APPSTORE) storePage(dl, f, w, h);
+        else if (app == APP_NAVSEARCH) navSearchPage(dl, f, s, w, h, act);
         else if (app == APP_GAMES) gamesPage(dl, f, w, h);
         else if (app == APP_VATSIMHUB) vatsimHubPage(dl, f, w, h);
         else placeholderPage(dl, f, app, w, h);

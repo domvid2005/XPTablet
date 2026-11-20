@@ -18,7 +18,7 @@ constexpr float kLogicalH = 480.0f;   // the tablet is always laid out 480 units
 // as the settings file keeps the home screen by these numbers.
 enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_ROUTES, APP_WEATHER, APP_GROUND, APP_CHECKLISTS,
            APP_PERFORMANCE, APP_TRAFFIC, APP_NOTES, APP_SIMBRIEF, APP_LIVEMAP, APP_FOREFLIGHT, APP_BROWSER, APP_SETTINGS,
-           APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_MUSIC, APP_DISPATCH,
+           APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_MUSIC, APP_DISPATCH, APP_NAVSEARCH,
            // the App Store and what it offers (web apps, installed or not), and Games
            APP_APPSTORE, APP_GAMES, APP_DATIS, APP_SPOTIFY, APP_YTMUSIC, APP_APPLEMUSIC, APP_SOUNDCLOUD, APP_YOUTUBE, APP_VATSIMHUB, APP_NATTRAK, APP_IVAO,
            APP_COUNT };
@@ -320,6 +320,8 @@ struct SimState {
     bool mac = false;             // macOS: no media controls (no Music app, no Media settings)
     MediaState media;
     float fps = 0;                // X-Plane's frame rate
+    struct NavHit { int type = 0; std::string ident, name; double lat = 0, lon = 0; float freq = 0; };   // type: XPLMNavType
+    std::vector<NavHit> navHits;  // what the Navigation page's search found
     std::vector<VatsimController> vatsimAtc;   // VATSIM's controllers and ATIS online (when fetched; empty otherwise)
     bool vatsimAtcHave = false;   // the list is from a fetch (else it is not known)
     int engineType = -1;          // the first engine's kind (X-Plane's acf_en_type: 0/1 piston, 2/8 turboprop, 3 electric, 4/5 jet), -1 unknown
@@ -364,6 +366,7 @@ struct Actions {
     double com1Standby = 0;       // tune COM1's standby to this (MHz), 0 none
     std::string airportSearch;    // sent when it changes
     std::string airportOpen;      // the airport to show
+    std::string navSearch;        // the Navigation page's search (sent each frame while it is shown; the host looks when it changes)
     // the Documents page: list the folders (again), show a picture
     bool docsList = false;
     std::string trafficSelected;  // the Map's traffic card is open on this call sign (look it up on VATSIM)
