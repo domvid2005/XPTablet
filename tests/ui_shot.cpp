@@ -555,9 +555,20 @@ int main(int argc, char** argv) {
                         ImGui::NewFrame(); Actions act; build(fonts, em, 800, kLogicalH, act); ImGui::Render(); if (!act.airportOpen.empty()) got = act.airportOpen; }
                 };
                 openApp(APP_MAP); for (int i = 0; i < 9; ++i) mapCommand(1); shot(em, APP_MAP, "map_airport_dots");
-                for (float yy = 150; yy < 400 && got.empty(); yy += 5) for (float xx = 280; xx < 560 && got.empty(); xx += 5) tapAt(xx, yy);
+                float fx = -1, fy = -1;
+                for (float yy = 150; yy < 400 && got.empty(); yy += 5) for (float xx = 280; xx < 560 && got.empty(); xx += 5) { tapAt(xx, yy); if (!got.empty()) { fx = xx; fy = yy; } }
                 if (got.empty()) { std::printf("FAIL: an airport's dot on the map cannot be tapped\n"); ++failures; }
-                else shot(em, APP_MAP, "map_airport_dot_card");
+                else {
+                    shot(em, APP_MAP, "map_airport_dot_card");
+                    // by finger: one tap on the dot opens nothing, a double tap opens its card
+                    mapSelect(0, ""); setTouchInput(true); got.clear();
+                    for (int k = 0; k < 10; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.1f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, em, 800, kLogicalH, act); ImGui::Render(); }   // (no double tap left over)
+                    got.clear(); tapAt(fx, fy);
+                    if (!got.empty()) { std::printf("FAIL: one finger tap on the map opened a card\n"); ++failures; }
+                    tapAt(fx, fy);
+                    if (got.empty()) { std::printf("FAIL: a finger double tap on the map opened no card\n"); ++failures; }
+                    setTouchInput(false);
+                }
                 {   // its VATSIM ATC badge: tapped, the card (with the controllers)
                     mapSelect(0, ""); got.clear();
                     em.vatsimAtc = {{"SBN_TWR", "118.950", "South Bend Tower", "", 4}, {"KSBN_ATIS", "135.200", "", "INFO B", 7}}; em.vatsimAtcHave = true;

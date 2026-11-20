@@ -434,6 +434,7 @@ int currentApp();
 // A touch screen's pointer (no hover before a press): queued, and fed to Dear ImGui a step a frame (call pumpPointer before NewFrame)
 void queuePointer(float x, float y, int down);   // down: -1 a move, 1 pressed, 0 released
 void pumpPointer();
+void setTouchInput(bool on);   // the pointer is a finger (the map's cards then open on a double tap)
 // The browser's address bar is taking typed keys (the floating window's keyboard goes there instead of to the page).
 bool webTypingAddress();
 bool webTyping();

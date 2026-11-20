@@ -48,6 +48,7 @@ float itemHover();                                          // the last item's h
 float openness(const char* id, bool open, float rate = 14.0f);   // a menu opening and closing, eased
 // a finger's drag up or down over a list scrolls it, even begun on one of its rows (whose tap is then let go); the mouse's too
 bool g_touchScrolling = false;
+bool g_touchInput = false;   // the last press came from a finger (a phone or tablet browser): the map opens its cards on a double tap
 void touchScroll(float& scroll, ImVec2 a, ImVec2 b) {
     ImGuiIO& io = ImGui::GetIO();
     if (!io.MouseDown[0]) return;
@@ -3409,7 +3410,17 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     ImGui::InvisibleButton("##map", ImVec2(r1.x - r0.x, r1.y - r0.y));
     const ImGuiIO& io = ImGui::GetIO();
     if (ImGui::IsItemActivated()) g_mapPressPos = io.MousePos;
-    const bool mapClick = ImGui::IsItemDeactivated() && std::fabs(io.MousePos.x - g_mapPressPos.x) + std::fabs(io.MousePos.y - g_mapPressPos.y) < 6;
+    const bool mapTap = ImGui::IsItemDeactivated() && std::fabs(io.MousePos.x - g_mapPressPos.x) + std::fabs(io.MousePos.y - g_mapPressPos.y) < 6;
+    // by finger, a single tap is often the start of a drag or a pinch: a card opens (or closes) on a double tap there; one tap
+    // still closes an open menu. With a mouse one click does it all.
+    bool mapClick = mapTap;
+    if (mapTap && g_touchInput && !g_mapMenu) {
+        static double lastTapT = -10; static ImVec2 lastTapP(-1000, -1000);
+        const double now = ImGui::GetTime();
+        const bool second = now - lastTapT < 0.40 && std::fabs(io.MousePos.x - lastTapP.x) + std::fabs(io.MousePos.y - lastTapP.y) < 30;
+        mapClick = second;
+        lastTapT = second ? -10 : now; lastTapP = io.MousePos;
+    }
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0) && g_settings.mapRoute && m.route.size() >= 2) {   // the route, tapped twice: its Flight Plan
         const ImVec2 p = io.MousePos;
         float best = 1e9f;
@@ -8667,6 +8678,7 @@ void settingsFromText(const std::string& text) {
     normalizeLayout();
 }
 
+void setTouchInput(bool on) { g_touchInput = on; }
 // A finger lands without hovering first: the tablet's buttons that let others overlap them (the home screen, the pages' rows)
 // only take a press on a spot the pointer was already over the frame before (Dear ImGui's rule). So the queued pointer is fed a
 // frame at a time: a press that comes with a move moves the pointer this frame and presses on the next, and a press and its
