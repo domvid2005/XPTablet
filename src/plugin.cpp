@@ -24,6 +24,9 @@
 #include <string>
 #include <vector>
 
+#include <sstream>
+#include <unordered_set>
+
 #include "XPLMDataAccess.h"
 #include "XPLMDisplay.h"
 #include "XPLMGraphics.h"
@@ -33,6 +36,7 @@
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
 #include "XPLMSound.h"
+#include "XPLMNavigation.h"
 
 #include "aptdat.h"
 #include "navdata.h"
@@ -706,11 +710,23 @@ void mapStop() {
 
 // After each UI build: what the map asked for, and the tiles that arrived (a few per frame, so no frame takes long)
 void mapStep(const xpt::Actions& act) {
-    if (act.mapShown) mapStart();
+    // the airports' runways round the aircraft are wanted for the runway collision alert, map or no map: on the ground or
+    // low (under 3000 ft above it), the airport index starts, and when the map is not on screen its view is the aircraft
+    const xpt::MapState& ms = g_sim.map;
+    const bool nearGround = ms.havePos && (ms.onGround || ms.aglFt < 3000) && xpt::settings().notifyTcas;
+    if (act.mapShown || (nearGround && XPLMGetElapsedTime() > 20)) mapStart();
     if (!g_mapStarted) return;
+    if (!act.mapShown && nearGround) {
+        xpt::aptdat::setView(ms.lat, ms.lon, 4.0, 0.0, true);
+        if ((XPLMGetCycleNumber() & 31) == 0) {
+            int n = 0;
+            std::vector<xpt::AptPoint> pts;
+            xpt::aptdat::get(g_sim.map.airports, pts, g_sim.map.aptIndexing, n);
+        }
+    }
     if (act.mapShown) {
         xpt::tiles::want(g_tileWants);
-        xpt::aptdat::setView(act.mapLat, act.mapLon, act.mapLayoutNm, act.mapPointNm, act.mapLayouts);
+        xpt::aptdat::setView(act.mapLat, act.mapLon, act.mapLayoutNm, act.mapPointNm, act.mapLayouts, act.mapPointMinFt);
         xpt::navdata::setView(act.mapLat, act.mapLon, act.mapNavNm, act.mapFixNm);
         if ((XPLMGetCycleNumber() & 7) == 0) {
             int n = 0;
@@ -860,6 +876,46 @@ void clearTileCache() {
 }
 
 
+std::vector<xpt::MapState::Traffic> g_vatsimTraffic;   // VATSIM's pilots as traffic (refreshed every few seconds while wanted)
+
+// A VATSIM filed route's fixes, found in X-Plane's nav data one after another (each the nearest of its name to the one before):
+// airways, speed and level groups, DCT and procedure names are left out (they are not fixes, or not on their own)
+std::vector<xpt::MapState::RoutePoint> resolveRoute(const xpt::VatsimPilot& v) {
+    std::vector<xpt::MapState::RoutePoint> out;
+    auto find = [&](const std::string& id, XPLMNavType types, float nearLat, float nearLon, bool nearOk, xpt::MapState::RoutePoint& rp) {
+        float la = nearLat, lo = nearLon;
+        const XPLMNavRef r = XPLMFindNavAid(nullptr, id.c_str(), nearOk ? &la : nullptr, nearOk ? &lo : nullptr, nullptr, types);
+        if (r == XPLM_NAV_NOT_FOUND) return false;
+        float rla = 0, rlo = 0;
+        char outId[32] = {};
+        XPLMGetNavAidInfo(r, nullptr, &rla, &rlo, nullptr, nullptr, nullptr, outId, nullptr, nullptr);
+        if (id != outId) return false;   // (a partial match)
+        rp.lat = rla; rp.lon = rlo; rp.ident = id;
+        return true;
+    };
+    xpt::MapState::RoutePoint rp;
+    float la = (float)v.lat, lo = (float)v.lon;
+    if (!v.departure.empty() && find(v.departure, xplm_Nav_Airport, la, lo, false, rp)) { out.push_back(rp); la = (float)rp.lat; lo = (float)rp.lon; }
+    std::string tok;
+    std::istringstream in(v.route);
+    while (in >> tok && out.size() < 200) {
+        const size_t slash = tok.find('/');
+        if (slash != std::string::npos) tok = tok.substr(0, slash);   // "KORD/09L", "WAYPT/N0450F350"
+        if (tok.empty() || tok == "DCT" || tok == v.departure || tok == v.arrival) continue;
+        // fixes and navaids are 2 to 5 letters; anything with a figure is an airway (J146), a procedure (FLMGO2) or a group
+        bool allLetters = tok.size() >= 2 && tok.size() <= 5;
+        for (char c : tok) if (c < 'A' || c > 'Z') allLetters = false;
+        if (!allLetters) continue;
+        if (find(tok, (XPLMNavType)(xplm_Nav_Fix | xplm_Nav_VOR | xplm_Nav_NDB), la, lo, true, rp)) {
+            const double d = std::hypot((rp.lat - la) * 60.0, (rp.lon - lo) * 60.0 * std::cos(la * 3.14159265 / 180.0));
+            if (d > 1500) continue;   // (the same name somewhere else in the world)
+            out.push_back(rp); la = (float)rp.lat; lo = (float)rp.lon;
+        }
+    }
+    if (!v.arrival.empty() && find(v.arrival, xplm_Nav_Airport, la, lo, false, rp)) out.push_back(rp);
+    return out;
+}
+
 // The aircraft and the time, for the map (a few times a second)
 void readMapState() {
     static XPLMDataRef lat = XPLMFindDataRef("sim/flightmodel/position/latitude"), lon = XPLMFindDataRef("sim/flightmodel/position/longitude");
@@ -908,6 +964,12 @@ void readMapState() {
             if (t.callsign.empty()) t.callsign = t.type.empty() ? "TFC" : t.type;
             m.traffic.push_back(t);
         }
+    }
+    // and VATSIM's world (the Map's Traffic: Nearby + VATSIM World): every pilot not already in X-Plane's own list
+    if (xpt::settings().mapTrafficSource == 1 && !g_vatsimTraffic.empty()) {
+        std::unordered_set<std::string> have;
+        for (const auto& t : m.traffic) have.insert(t.callsign);
+        for (const auto& t : g_vatsimTraffic) if (!have.count(t.callsign)) m.traffic.push_back(t);
     }
     // the sim's moment: this year (X-Plane keeps no year), its day of the year and its UTC time of day
     if (zulu) {
@@ -1339,11 +1401,30 @@ void ensureFrame() {
     mapStep(act);
     planStep(act);
     mediaStep(act);
-    {   // the Map's traffic card: its aircraft on VATSIM
-        xpt::vatsim::want(act.mapShown && !act.trafficSelected.empty());
+    {   // the Map's traffic card: its aircraft on VATSIM (and its filed route); VATSIM's world as traffic when chosen
+        const bool world = act.mapShown && xpt::settings().mapTraffic && xpt::settings().mapTrafficSource == 1;
+        xpt::vatsim::want((act.mapShown && !act.trafficSelected.empty()) || world);
+        if ((act.mapShown && !act.trafficSelected.empty()) || world) xpt::vatsim::start();
         if (act.mapShown && !act.trafficSelected.empty()) {
-            xpt::vatsim::start();
             g_sim.map.vatsim = xpt::vatsim::lookup(act.trafficSelected, g_sim.map.vatsimStatus);
+            static std::string routeKey;
+            const xpt::VatsimPilot& v = g_sim.map.vatsim;
+            const std::string key = v.found && v.hasPlan && xpt::settings().mapTrafficRoute ? v.callsign + "|" + v.departure + "|" + v.route + "|" + v.arrival : std::string();
+            if (key != routeKey) { routeKey = key; g_sim.map.trafficRoute = key.empty() ? std::vector<xpt::MapState::RoutePoint>() : resolveRoute(v); }
+        } else g_sim.map.trafficRoute.clear();
+        static double lastWorld = -100;
+        if (!world) g_vatsimTraffic.clear();
+        else if (XPLMGetElapsedTime() - lastWorld > 3.0) {
+            lastWorld = XPLMGetElapsedTime();
+            g_vatsimTraffic.clear();
+            for (const xpt::VatsimPilot& p : xpt::vatsim::allPilots()) {
+                if (p.lat == 0 && p.lon == 0) continue;
+                xpt::MapState::Traffic t;
+                t.lat = p.lat; t.lon = p.lon; t.altFt = (float)p.altitudeFt; t.hdg = (float)p.heading; t.gsKt = (float)p.groundspeedKt;
+                t.onGround = p.groundspeedKt < 40 && p.altitudeFt < 15000;   // (VATSIM gives no ground flag: slow is taken as on the ground)
+                t.callsign = p.callsign; t.type = p.aircraft;
+                g_vatsimTraffic.push_back(t);
+            }
         }
     }
     if (act.clearTileCache) clearTileCache();

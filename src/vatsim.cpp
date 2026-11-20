@@ -70,6 +70,13 @@ void stop() {
     g_pilots.clear(); g_have = false; g_status = "Asking VATSIM...";
 }
 void want(bool on) { g_want = on; }
+std::vector<VatsimPilot> allPilots() {
+    std::lock_guard<std::mutex> lk(g_mx);
+    std::vector<VatsimPilot> out;
+    out.reserve(g_pilots.size());
+    for (const auto& pr : g_pilots) out.push_back(pr.second);
+    return out;
+}
 VatsimPilot lookup(const std::string& callsign, std::string& status) {
     std::lock_guard<std::mutex> lk(g_mx);
     status = g_status;

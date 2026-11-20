@@ -21,6 +21,7 @@ void readPilots(const wx::Json& feed, std::unordered_map<std::string, VatsimPilo
             v.altitudeFt = (int)num(&p, "altitude");
             v.groundspeedKt = (int)num(&p, "groundspeed");
             v.heading = (int)num(&p, "heading");
+            v.lat = num(&p, "latitude"); v.lon = num(&p, "longitude");
             v.qnhMb = (int)num(&p, "qnh_mb");
             v.logon = str(&p, "logon_time");
             if (v.logon.size() >= 16) v.logon = v.logon.substr(11, 5) + "Z";   // "2026-11-18T05:12:33..." -> "05:12Z"

@@ -55,7 +55,7 @@ struct AptGeo {
 };
 
 // An airport in the index: where it is, without its layout.
-struct AptPoint { std::string icao; double lat = 0, lon = 0; int kind = 1; std::string name; };   // kind: 1 land, 16 seaplane base, 17 heliport
+struct AptPoint { std::string icao; double lat = 0, lon = 0; int kind = 1; std::string name; float rwyFt = 0; };   // kind: 1 land, 16 seaplane base, 17 heliport; its longest runway
 
 // Reads one airport's rows (from its header row to before the next airport) into its layout. False if it has nothing to draw.
 bool parseAirport(const std::string& rows, AptGeo& out);

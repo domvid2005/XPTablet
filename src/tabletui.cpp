@@ -1825,6 +1825,7 @@ void drawShape(ImDrawList* dl, const Shape& sh, ImVec2 nose, float pxX, float px
 // ---- the map ---------------------------------------------------------------------------------------------------------------------
 // OpenStreetMap or satellite tiles (the host fetches them), X-Plane's airport layouts over them, the aircraft, and WXPlane's map
 // bubbles: the time (Zulu or local, with the zone) at the top left; Center On Aircraft and North / Heading Lock at the top right.
+int g_mapMenu = 0;                   // the map's open menu: 0 none, 1 Navigation, 2 Traffic, 3 Features
 double g_mapZoom = 14.0;             // Web Mercator zoom: the world is 256 * 2^zoom layout units across (from the range below)
 // The range (the middle to the top or bottom edge): WXPlane's steps, with two closer ones for taxiing; the shown range eases to
 // the chosen one in log space, as WXPlane's does.
@@ -1943,6 +1944,40 @@ float bubbleW(const Fonts& f, const char* label, const char* text) {
     const float lw = label ? f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, label).x + 7 : 0;
     return lw + f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, text).x + 20;
 }
+// ---- the map's pop-out menus (Navigation, Traffic, Features): a row with a check box; a row with a value stepped by < >
+bool menuCheck(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, float w, const char* label, bool on, bool enabled = true) {
+    ImGui::SetCursorScreenPos(a);
+    ImGui::BeginDisabled(!enabled);
+    const bool hit = ImGui::InvisibleButton(id, ImVec2(w, 28)) && enabled;
+    const Ease e = eased(id, on && enabled, ImGui::IsItemHovered() && enabled, ImGui::IsItemActive() && enabled);
+    ImGui::EndDisabled();
+    if (e.hot > 0.01f) dl->AddRectFilled(a, ImVec2(a.x + w, a.y + 28), IM_COL32(255, 255, 255, (int)(16 * e.hot)), 7.0f);
+    const ImVec2 b0(a.x + 8, a.y + 6), b1(a.x + 24, a.y + 22);   // the box: the accent with a tick when on
+    dl->AddRectFilled(b0, b1, mixCol(themeTone(10, 18, 32, 255), accentCol(255), e.on), 4.0f);
+    dl->AddRect(b0, b1, mixCol(IM_COL32(255, 255, 255, 110), accentLite(255), e.on), 4.0f, 0, 1.4f);
+    if (e.on > 0.02f) {
+        const ImU32 tc = IM_COL32(255, 255, 255, (int)(255 * e.on));
+        dl->AddLine(ImVec2(b0.x + 3.5f, b0.y + 8.5f), ImVec2(b0.x + 6.5f, b0.y + 11.5f), tc, 2.0f);
+        dl->AddLine(ImVec2(b0.x + 6.5f, b0.y + 11.5f), ImVec2(b0.x + 12.5f, b0.y + 4.5f), tc, 2.0f);
+    }
+    textAt(dl, f.body, a.x + 32, std::floor(a.y + (28 - fontPx(f.body)) * 0.5f), enabled ? kInk : kMuted, label);
+    return hit;
+}
+// returns -1 or +1 when a side is tapped
+int menuStepper(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, float w, const char* label, const char* value, bool canDown, bool canUp) {
+    textAt(dl, f.body, a.x + 8, std::floor(a.y + (28 - fontPx(f.body)) * 0.5f), kInk, label);
+    int r = 0;
+    char bid[32];
+    const float bw = 26, vx1 = a.x + w - 4, vx0 = vx1 - 2 * bw - 78;
+    std::snprintf(bid, sizeof bid, "%s-", id);
+    if (iconButton(bid, ImVec2(vx0, a.y + 1), ImVec2(vx0 + bw, a.y + 27), canDown)) r = -1;
+    arrow(dl, ImVec2(vx0 + bw * 0.5f + 1, a.y + 14), true, canDown ? kInk : kMuted);
+    textCentered(dl, f.small, vx0 + bw + 39, std::floor(a.y + (28 - fontPx(f.small)) * 0.5f), accentLite(255), value);
+    std::snprintf(bid, sizeof bid, "%s+", id);
+    if (iconButton(bid, ImVec2(vx1 - bw, a.y + 1), ImVec2(vx1, a.y + 27), canUp)) r = 1;
+    arrow(dl, ImVec2(vx1 - bw * 0.5f - 1, a.y + 14), false, canUp ? kInk : kMuted);
+    return r;
+}
 
 // A concave polygon filled whatever way its points go round (ImGui's filler wants them clockwise on the screen, y down)
 void fillConcave(ImDrawList* dl, std::vector<ImVec2> v, ImU32 col) {
@@ -1998,33 +2033,97 @@ void dashed(ImDrawList* dl, const std::vector<ImVec2>& p, ImU32 col, float thick
     }
 }
 
-// ---- TCAS: is this traffic in resolution-advisory range (or about to collide)? TCAS II v7.1's thresholds for our height above the
-// ground: the time to the closest point (tau) and its distance (DMOD) across, and the height apart (ZTHR) or the time to the same height.
-// No advisories on the ground or below 1000 ft above it, as TCAS itself.
-bool tcasRA(const MapState& m, const MapState::Traffic& t) {
-    if (!m.havePos || t.onGround) return false;
+// ---- TCAS: how close is this traffic? TCAS II v7.1's thresholds for our height above the ground: the time to the closest point (tau)
+// and its distance (DMOD) across, and the height apart (ZTHR) or the time to the same height. A traffic advisory (TA) from 2 nm (or
+// TCAS's TA tau) within 850 ft; a resolution advisory (RA) at v7.1's own. No TCAS on the ground or below 1000 ft above it, as TCAS
+// itself: on the ground, the runway collision check instead (below).
+struct Geom { double range, dz, closing, vClose; };
+Geom geomOf(const MapState& m, const MapState::Traffic& t) {
     const double kLat = 60.0, kLon = 60.0 * std::cos(m.lat * kPi / 180.0);
     const double ex = (t.lon - m.lon) * kLon, ny = (t.lat - m.lat) * kLat;   // nm: east, north
-    const double range = std::sqrt(ex * ex + ny * ny);
-    const double dz = t.altFt - m.altFt;
-    if (range < 0.15 && std::fabs(dz) < 300) return true;   // as good as touching (on the ground too)
-    if (m.onGround || m.aglFt < 1000) return false;
-    float tauS, dmod, zthr;
-    if (m.aglFt < 2350) { tauS = 15; dmod = 0.20f; zthr = 600; }
-    else if (m.altFt < 5000) { tauS = 20; dmod = 0.35f; zthr = 600; }
-    else if (m.altFt < 10000) { tauS = 25; dmod = 0.55f; zthr = 600; }
-    else if (m.altFt < 20000) { tauS = 30; dmod = 0.80f; zthr = 600; }
-    else if (m.altFt < 42000) { tauS = 35; dmod = 1.10f; zthr = 700; }
-    else { tauS = 35; dmod = 1.10f; zthr = 800; }
-    // closing: the speeds (kt) along each track
+    Geom g;
+    g.range = std::sqrt(ex * ex + ny * ny);
+    g.dz = t.altFt - m.altFt;
     const double ha = m.hdgTrue * kPi / 180.0, ta = t.hdg * kPi / 180.0;
     const double vx = t.gsKt * std::sin(ta) - m.gsKt * std::sin(ha), vy = t.gsKt * std::cos(ta) - m.gsKt * std::cos(ha);
-    const double closing = -(ex * vx + ny * vy) / std::max(1e-6, range);   // kt, + when getting closer
-    // a resolution advisory from 2 nm in (and sooner when closing fast, by TCAS II's time to closest approach)
-    const bool horiz = range < std::max(2.0, (double)dmod) || (closing > 0 && range / closing * 3600.0 < tauS);
-    const double vClose = -(dz > 0 ? 1 : -1) * (t.vsFpm - m.vsFpm);         // ft/min, + when the heights come together
-    const bool vert = std::fabs(dz) < zthr || (vClose > 0 && std::fabs(dz) / vClose * 60.0 < tauS);
-    return horiz && vert;
+    g.closing = -(ex * vx + ny * vy) / std::max(1e-6, g.range);   // kt, + when getting closer
+    g.vClose = -(g.dz > 0 ? 1 : -1) * (t.vsFpm - m.vsFpm);          // ft/min, + when the heights come together
+    return g;
+}
+int tcasLevel(const MapState& m, const MapState::Traffic& t) {   // 0 none, 1 TA, 2 RA
+    if (!m.havePos || t.onGround || m.onGround || m.aglFt < 1000) return 0;
+    const Geom g = geomOf(m, t);
+    float tauS, dmod, zthr, taTau;
+    if (m.aglFt < 2350) { tauS = 15; dmod = 0.20f; zthr = 600; taTau = 25; }
+    else if (m.altFt < 5000) { tauS = 20; dmod = 0.35f; zthr = 600; taTau = 30; }
+    else if (m.altFt < 10000) { tauS = 25; dmod = 0.55f; zthr = 600; taTau = 40; }
+    else if (m.altFt < 20000) { tauS = 30; dmod = 0.80f; zthr = 600; taTau = 45; }
+    else if (m.altFt < 42000) { tauS = 35; dmod = 1.10f; zthr = 700; taTau = 48; }
+    else { tauS = 35; dmod = 1.10f; zthr = 800; taTau = 48; }
+    const double tau = g.closing > 0 ? g.range / g.closing * 3600.0 : 1e9;
+    const auto vertWithin = [&](double z, double tt) { return std::fabs(g.dz) < z || (g.vClose > 0 && std::fabs(g.dz) / g.vClose * 60.0 < tt); };
+    if ((g.range < dmod || tau < tauS) && vertWithin(zthr, tauS)) return 2;
+    if ((g.range < 2.0 || tau < taTau) && vertWithin(850, taTau)) return 1;
+    return 0;
+}
+bool tcasRA(const MapState& m, const MapState::Traffic& t) { return tcasLevel(m, t) == 2; }
+
+// ---- runway collision: on a runway with traffic coming in to land on it, or about to land (within 0.5 nm) on a runway with traffic on it.
+// The runways are those of the airport layouts read round the aircraft (m.airports).
+struct RwyFrame { double ux, uy, len, halfW; double ox, oy; };   // along (unit, nm east/north), length and half width (nm), its end A
+bool rwyFrame(const MapState& m, const AptGeo::Runway& r, RwyFrame& f) {
+    double la1, lo1, la2, lo2;
+    latLonOf(r.a, la1, lo1); latLonOf(r.b, la2, lo2);
+    const double kLat = 60.0, kLon = 60.0 * std::cos(m.lat * kPi / 180.0);
+    f.ox = (lo1 - m.lon) * kLon; f.oy = (la1 - m.lat) * kLat;
+    const double bx = (lo2 - m.lon) * kLon, by = (la2 - m.lat) * kLat;
+    f.len = std::sqrt((bx - f.ox) * (bx - f.ox) + (by - f.oy) * (by - f.oy));
+    if (f.len < 0.05) return false;
+    f.ux = (bx - f.ox) / f.len; f.uy = (by - f.oy) / f.len;
+    f.halfW = std::max(0.02, r.widthM / 1852.0 * 0.5 + 0.01);
+    return true;
+}
+// where a point (nm east/north of us) is against the runway: along from end A, and across
+void rwyPos(const RwyFrame& f, double x, double y, double& along, double& across) {
+    along = (x - f.ox) * f.ux + (y - f.oy) * f.uy;
+    across = -(x - f.ox) * f.uy + (y - f.oy) * f.ux;
+}
+// heading (degrees true) lined up with the runway, either way; +1 toward end B, -1 toward end A, 0 not lined up
+int rwyAligned(const RwyFrame& f, float hdg) {
+    const double rh = std::atan2(f.ux, f.uy) * 180.0 / kPi;
+    double d = std::fmod(hdg - rh + 720.0, 360.0);
+    if (d > 180) d -= 360;
+    if (std::fabs(d) < 30) return 1;
+    if (std::fabs(d) > 150) return -1;
+    return 0;
+}
+bool runwayConflict(const MapState& m, const MapState::Traffic& t) {
+    if (!m.havePos) return false;
+    const double kLat = 60.0, kLon = 60.0 * std::cos(m.lat * kPi / 180.0);
+    const double tx = (t.lon - m.lon) * kLon, ty = (t.lat - m.lat) * kLat;
+    if (tx * tx + ty * ty > 36.0) return false;   // over 6 nm away
+    for (const auto& ap : m.airports)
+        for (const AptGeo::Runway& r : ap->runways) {
+            if (r.water) continue;
+            RwyFrame f;
+            if (!rwyFrame(m, r, f)) continue;
+            double oA, oX, tA, tX;
+            rwyPos(f, 0, 0, oA, oX);
+            rwyPos(f, tx, ty, tA, tX);
+            const bool weOn = std::fabs(oX) < f.halfW && oA > -0.03 && oA < f.len + 0.03;
+            const bool theyOn = std::fabs(tX) < f.halfW && tA > -0.03 && tA < f.len + 0.03;
+            if (m.onGround && weOn && !t.onGround) {   // on it, and traffic coming in to it (lined up, low, within 4 nm of its end)
+                const int dir = rwyAligned(f, t.hdg);
+                const double toEnd = dir > 0 ? -tA : dir < 0 ? tA - f.len : -1;   // nm still to go before the runway
+                if (dir && std::fabs(tX) < 0.35 && toEnd > -0.1 && toEnd < 4.0 && t.altFt - m.altFt < 1500 && t.vsFpm < 300) return true;
+            }
+            if (!m.onGround && t.onGround && theyOn && m.aglFt < 700 && m.vsFpm < 200) {   // about to land on it, with traffic on it
+                const int dir = rwyAligned(f, m.hdgTrue);
+                const double toEnd = dir > 0 ? -oA : dir < 0 ? oA - f.len : -1;
+                if (dir && std::fabs(oX) < 0.25 && toEnd > -0.2 && toEnd < 0.5) return true;
+            }
+        }
+    return false;
 }
 
 // ---- the map's labels: placed after everything is drawn, most important first, each where it touches no other label or symbol
@@ -2072,6 +2171,9 @@ ImVec2 g_mapPressPos;
 ImVec2 g_mapFree0, g_mapFree1;   // the map's area clear of its buttons (cards stay inside it)
 float g_cardScroll = 0;   // a card taller than the map scrolls
 std::string g_cardFor;    // the card it is for (a new card starts at its top)
+bool g_cardPinned = false; // the card was dragged by its top: cards open there (where it was left in the map's free area, as fractions,
+float g_cardFx = 0, g_cardFy = 0;   // so it keeps its place when the map changes size)
+bool g_cardMoving = false;
 struct CardLine { int style; std::string a, b; };   // 0 title (a) and subtitle (b), 1 label and value, 2 text (b: its label), 3 Morse, 4 heading, 5 a button
 const char* morseLetter(char c) {
     static const char* az[26] = {".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--", "-.", "---", ".--.", "--.-", ".-.", "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--.."};
@@ -2108,21 +2210,34 @@ bool drawCard(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L, Im
     H = std::min(H, r1.y - r0.y);
     ImVec2 a(at.x + 18, at.y - 30);
     if (a.x + W > r1.x - 8) a.x = at.x - 18 - W;
+    if (g_cardPinned) { a.x = r0.x + g_cardFx * std::max(0.0f, r1.x - r0.x - W); a.y = r0.y + g_cardFy * std::max(0.0f, r1.y - r0.y - H); }
     a.x = std::max(r0.x, std::min(a.x, r1.x - W));
     a.y = std::max(r0.y, std::min(a.y, r1.y - H));
-    const ImVec2 e(a.x + W, a.y + H);
-    // the card takes its own presses (so they do not reach the map under it)
+    ImVec2 e(a.x + W, a.y + H);
+    // the card takes its own presses (so they do not reach the map under it): dragged by its top it moves (and stays there,
+    // for the next cards too); dragged lower down, a tall card scrolls
     ImGui::SetCursorScreenPos(a);
     ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##cardbody", ImVec2(W, H));
     const std::string me = std::to_string(g_selKind) + g_selKey;
     if (me != g_cardFor) { g_cardFor = me; g_cardScroll = 0; }
+    if (ImGui::IsItemActivated()) g_cardMoving = ImGui::GetIO().MousePos.y < a.y + 40;
     if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_cardScroll -= ImGui::GetIO().MouseWheel * 36;
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 2.0f)) g_cardScroll -= ImGui::GetIO().MouseDelta.y;
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 2.0f)) {
+        if (g_cardMoving) {
+            a.x = std::max(r0.x, std::min(a.x + ImGui::GetIO().MouseDelta.x, r1.x - W));
+            a.y = std::max(r0.y, std::min(a.y + ImGui::GetIO().MouseDelta.y, r1.y - H));
+            e = ImVec2(a.x + W, a.y + H);
+            g_cardPinned = true;
+            g_cardFx = r1.x - r0.x - W > 1 ? (a.x - r0.x) / (r1.x - r0.x - W) : 0.0f;
+            g_cardFy = r1.y - r0.y - H > 1 ? (a.y - r0.y) / (r1.y - r0.y - H) : 0.0f;
+        } else g_cardScroll -= ImGui::GetIO().MouseDelta.y;
+    }
     g_cardScroll = std::max(0.0f, std::min(g_cardScroll, full - H));
     dl->AddRectFilled(ImVec2(a.x + 2, a.y + 4), ImVec2(e.x + 2, e.y + 4), IM_COL32(0, 0, 0, 70), 14.0f);
     dl->AddRectFilled(a, e, themeTone(14, 26, 48, 246), 14.0f);
     dl->AddRect(a, e, IM_COL32(255, 255, 255, 40), 14.0f);
+    dl->AddRectFilled(ImVec2((a.x + e.x) * 0.5f - 18, a.y + 5), ImVec2((a.x + e.x) * 0.5f + 18, a.y + 9), IM_COL32(255, 255, 255, 60), 2.0f);   // its grip
     bool pressed = false;
     dl->PushClipRect(ImVec2(a.x, a.y + 2), ImVec2(e.x, e.y - 2), true);
     float y = a.y + pad - g_cardScroll;
@@ -2198,6 +2313,64 @@ bool drawCard(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L, Im
     return pressed;
 }
 
+// the runway most into the wind (the most headwind; calm, under 3 kt: the longest), and which way: end 0 lands from A toward B
+int bestRunway(const AptGeo& g, float windFrom, float windKt, int& end) {
+    int best = -1;
+    double bestScore = -1e9;
+    end = 0;
+    for (size_t i = 0; i < g.runways.size(); ++i) {
+        const AptGeo::Runway& r = g.runways[i];
+        if (r.water) continue;
+        double la1, lo1, la2, lo2;
+        latLonOf(r.a, la1, lo1); latLonOf(r.b, la2, lo2);
+        const double dy = (la2 - la1) * 60.0, dx = (lo2 - lo1) * 60.0 * std::cos(la1 * kPi / 180.0);
+        const double len = std::sqrt(dx * dx + dy * dy), hdg = std::atan2(dx, dy) * 180.0 / kPi;
+        for (int e = 0; e < 2; ++e) {
+            const double h = e == 0 ? hdg : hdg + 180.0;
+            const double head = windKt < 3 ? 0.0 : windKt * std::cos((windFrom - h) * kPi / 180.0);
+            const double score = head * 100.0 + len;   // the headwind first, the length to settle it
+            if (score > bestScore) { bestScore = score; best = (int)i; end = e; }
+        }
+    }
+    return best;
+}
+// the sun's height above the horizon (degrees) at a place and moment (seconds since 1970 UTC): the solar declination and hour angle
+double sunElevation(double lat, double lon, long long utc) {
+    const double days = utc / 86400.0 - 10957.5;   // from J2000
+    const double g = std::fmod(357.529 + 0.98560028 * days, 360.0) * kPi / 180.0;
+    const double q = std::fmod(280.459 + 0.98564736 * days, 360.0);
+    const double L = (q + 1.915 * std::sin(g) + 0.020 * std::sin(2 * g)) * kPi / 180.0;
+    const double e = (23.439 - 0.00000036 * days) * kPi / 180.0;
+    const double dec = std::asin(std::sin(e) * std::sin(L));
+    const double ra = std::atan2(std::cos(e) * std::sin(L), std::cos(L)) * 180.0 / kPi;
+    const double gmst = std::fmod(280.46061837 + 360.98564736629 * days, 360.0);
+    const double ha = (gmst + lon - ra) * kPi / 180.0;
+    const double la = lat * kPi / 180.0;
+    return std::asin(std::sin(la) * std::sin(dec) + std::cos(la) * std::cos(dec) * std::cos(ha)) * 180.0 / kPi;
+}
+// traffic shown on the map: within the Traffic menu's range and height of us (any, when not set)
+bool trafficShown(const MapState& m, const MapState::Traffic& t) {
+    if (g_settings.mapTrafficRangeNm > 0 && m.havePos && distNmLL(m.lat, m.lon, t.lat, t.lon, nullptr) > g_settings.mapTrafficRangeNm) return false;
+    if (g_settings.mapTrafficAltFt > 0 && m.havePos && std::fabs(t.altFt - m.altFt) > g_settings.mapTrafficAltFt) return false;
+    return true;
+}
+// each aircraft's recent track (kept from the traffic the host gives, every 5 s, the last 10 minutes)
+struct TrafficTrail { std::vector<std::pair<double, double>> pts; double seen = 0, added = -100; };
+std::map<std::string, TrafficTrail> g_tfcTrails;
+void trackTraffic(const MapState& m) {
+    const double now = ImGui::GetTime();
+    for (const MapState::Traffic& t : m.traffic) {
+        TrafficTrail& tr = g_tfcTrails[t.callsign];
+        tr.seen = now;
+        if (now - tr.added >= 5.0) {
+            tr.added = now;
+            tr.pts.push_back({t.lat, t.lon});
+            if (tr.pts.size() > 120) tr.pts.erase(tr.pts.begin());
+        }
+    }
+    for (auto it = g_tfcTrails.begin(); it != g_tfcTrails.end();) { if (now - it->second.seen > 120) it = g_tfcTrails.erase(it); else ++it; }
+}
+
 void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const MapState& m = s.map;
     const float top = kStatusH + kHeaderH;
@@ -2245,8 +2418,15 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         const double a = std::log(g_mapShownNm), b = std::log(target);
         g_mapShownNm = std::fabs(a - b) < 0.002 ? target : std::exp(a + (b - a) * k);
     }
-    // layout units per Mercator unit: the range fills half the map's height
-    const double mPerMercC = kEarthM * std::max(0.01, std::cos(cLat * kPi / 180.0));
+    // layout units per Mercator unit: the range fills half the map's height. (Past 60 degrees north or south the zoom stops
+    // following the latitude: Mercator stretches the map there, and a range true to the nautical mile zoomed the map in and out
+    // as it was moved toward a pole. The rings and distances stay true: they use the latitude itself.)
+    {
+        const double yMax = mercOf(82.0, 0).y, yMin = mercOf(-82.0, 0).y;   // (and no further than 82 degrees: no tiles beyond)
+        g_mapCenter.y = std::max(yMax, std::min(yMin, g_mapCenter.y));
+        latLonOf(g_mapCenter, cLat, cLon);
+    }
+    const double mPerMercC = kEarthM * std::max(0.5, std::cos(cLat * kPi / 180.0));
     double scale = (r1.y - r0.y) * 0.5 / (g_mapShownNm * 1852.0 / mPerMercC);
     g_mapZoom = std::log2(scale / 256.0);
     // the symbols' size follows the zoom (as a chart's would): large close in, small far out, and the real size once that is bigger
@@ -2266,9 +2446,10 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         return p;
     };
     const bool satImg = g_settings.mapSource == 1;
+    const bool noMap = g_settings.mapSource == 2;    // no map under the layers: plain white, or black with the night colours
     const bool sat = satImg || g_settings.mapDark;   // a dark map under everything: light ink, as on the imagery
     dl->PushClipRect(r0, r1, true);
-    dl->AddRectFilled(r0, r1, sat ? IM_COL32(18, 24, 30, 255) : IM_COL32(232, 228, 220, 255));
+    dl->AddRectFilled(r0, r1, noMap ? (g_settings.mapDark ? IM_COL32(8, 10, 14, 255) : IM_COL32(250, 250, 250, 255)) : sat ? IM_COL32(18, 24, 30, 255) : IM_COL32(232, 228, 220, 255));
 
     // ---- input: drag to move, the wheel to zoom (about the pointer); bubbles drawn later sit on top of it
     ImGui::SetCursorScreenPos(r0);
@@ -2277,6 +2458,20 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     const ImGuiIO& io = ImGui::GetIO();
     if (ImGui::IsItemActivated()) g_mapPressPos = io.MousePos;
     const bool mapClick = ImGui::IsItemDeactivated() && std::fabs(io.MousePos.x - g_mapPressPos.x) + std::fabs(io.MousePos.y - g_mapPressPos.y) < 6;
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0) && g_settings.mapRoute && m.route.size() >= 2) {   // the route, tapped twice: its Flight Plan
+        const ImVec2 p = io.MousePos;
+        float best = 1e9f;
+        ImVec2 prev = toS(mercOf(m.route[0].lat, m.route[0].lon));
+        for (size_t i = 1; i < m.route.size(); ++i) {
+            const ImVec2 q = toS(mercOf(m.route[i].lat, m.route[i].lon));
+            const float dx = q.x - prev.x, dy = q.y - prev.y, l2 = dx * dx + dy * dy;
+            const float t = l2 > 0 ? std::max(0.0f, std::min(1.0f, ((p.x - prev.x) * dx + (p.y - prev.y) * dy) / l2)) : 0.0f;
+            const float ex = prev.x + dx * t - p.x, ey = prev.y + dy * t - p.y;
+            best = std::min(best, ex * ex + ey * ey);
+            prev = q;
+        }
+        if (best < 12.0f * 12.0f) openApp(APP_ROUTES);   // (the page goes on drawing this frame)
+    }
     if (ImGui::IsItemActive() && (io.MouseDelta.x != 0 || io.MouseDelta.y != 0) && ImGui::IsMouseDragging(0, 2.0f)) {
         const double x = -io.MouseDelta.x, y = -io.MouseDelta.y;
         g_mapCenter.x += (x * cr - y * sr) / scale;
@@ -2300,7 +2495,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     const int tx0 = (int)std::floor(mx0 * nT), tx1 = (int)std::floor(mx1 * nT), ty0 = std::max(0, (int)std::floor(my0 * nT)), ty1 = std::min(nT - 1, (int)std::floor(my1 * nT));
     struct TileAt { int x, y; double d; };
     std::vector<TileAt> want;
-    if (tx1 - tx0 < 40 && ty1 - ty0 < 40)
+    if (!noMap && tx1 - tx0 < 40 && ty1 - ty0 < 40)
         for (int ty = ty0; ty <= ty1; ++ty)
             for (int tx = tx0; tx <= tx1; ++tx) {
                 const double cx = (tx + 0.5) / nT - g_mapCenter.x, cy = (ty + 0.5) / nT - g_mapCenter.y;
@@ -2383,6 +2578,29 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         }
     }
 
+    // ---- day and night: the sun's height across the view at the sim's time, as a shade (none in daylight, deepest past
+    // astronomical twilight, -12 degrees), on a grid of the screen so it follows the map however it is turned
+    if (g_settings.mapDaylight && m.utc > 0) {
+        const int nx = 24, ny = 16;
+        float al[(nx + 1) * (ny + 1)];
+        for (int j = 0; j <= ny; ++j)
+            for (int i = 0; i <= nx; ++i) {
+                const ImVec2 q(r0.x + (r1.x - r0.x) * i / nx, r0.y + (r1.y - r0.y) * j / ny);
+                double la, lo;
+                latLonOf(fromS(q), la, lo);
+                const double el = sunElevation(la, lo, m.utc);
+                al[j * (nx + 1) + i] = (float)std::max(0.0, std::min(1.0, -el / 12.0));
+            }
+        auto col = [&](float a) { return IM_COL32(6, 10, 34, (int)(165 * a)); };
+        for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i) {
+                const float a00 = al[j * (nx + 1) + i], a10 = al[j * (nx + 1) + i + 1], a01 = al[(j + 1) * (nx + 1) + i], a11 = al[(j + 1) * (nx + 1) + i + 1];
+                if (a00 + a10 + a01 + a11 < 0.001f) continue;
+                const ImVec2 q0(r0.x + (r1.x - r0.x) * i / nx, r0.y + (r1.y - r0.y) * j / ny), q1(r0.x + (r1.x - r0.x) * (i + 1) / nx, r0.y + (r1.y - r0.y) * (j + 1) / ny);
+                dl->AddRectFilledMultiColor(q0, q1, col(a00), col(a10), col(a11), col(a01));
+            }
+    }
+
     // ---- X-Plane's airports
     const double mPerMerc = kEarthM * std::cos(cLat * kPi / 180.0);
     const double halfDiagNm = std::sqrt((double)(w * w + (h - top) * (h - top))) * 0.5 / scale * mPerMerc / 1852.0;
@@ -2416,8 +2634,11 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                         dl->PrimWriteIdx((ImDrawIdx)(dl->_VtxCurrentIdx - 1));
                     }
                 }
-                // the runways: dark, with a dashed white centreline and the numbers at each end
-                for (const AptGeo::Runway& rw : g.runways) {
+                // the runways: dark, with a dashed white centreline and the numbers at each end; the one most into the wind outlined green
+                int bestEnd = 0;
+                const int best = g_settings.mapBestRunway && s.wx.valid ? bestRunway(g, s.wx.windDir, s.wx.windKt, bestEnd) : -1;
+                for (size_t ri = 0; ri < g.runways.size(); ++ri) {
+                    const AptGeo::Runway& rw = g.runways[ri];
                     const ImVec2 a = toS(rw.a), b = toS(rw.b);
                     const float len = std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
                     if (len < 1) continue;
@@ -2427,6 +2648,23 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     dl->AddQuadFilled(ImVec2(a.x + nrm.x * hw, a.y + nrm.y * hw), ImVec2(b.x + nrm.x * hw, b.y + nrm.y * hw),
                                       ImVec2(b.x - nrm.x * hw, b.y - nrm.y * hw), ImVec2(a.x - nrm.x * hw, a.y - nrm.y * hw), rc);
                     if (hw > 4 && !rw.water) dashed(dl, {a, b}, IM_COL32(255, 255, 255, 220), std::max(1.0f, hw * 0.08f), 30.0f * pxPerM, 20.0f * pxPerM);
+                    if ((int)ri == best) {
+                        const float ow = hw + 2.5f;
+                        const ImVec2 q[4] = {ImVec2(a.x + nrm.x * ow - d.x * 3, a.y + nrm.y * ow - d.y * 3), ImVec2(b.x + nrm.x * ow + d.x * 3, b.y + nrm.y * ow + d.y * 3),
+                                             ImVec2(b.x - nrm.x * ow + d.x * 3, b.y - nrm.y * ow + d.y * 3), ImVec2(a.x - nrm.x * ow - d.x * 3, a.y - nrm.y * ow - d.y * 3)};
+                        dl->AddPolyline(q, 4, IM_COL32(16, 20, 30, 160), ImDrawFlags_Closed, 4.5f);
+                        dl->AddPolyline(q, 4, IM_COL32(60, 220, 110, 255), ImDrawFlags_Closed, 2.5f);
+                        if (g_mapZoom >= 12.5) {   // which way: a chip at the end it is landed from
+                            const ImVec2 th = bestEnd == 0 ? a : b;
+                            const ImVec2 out = bestEnd == 0 ? ImVec2(-d.x, -d.y) : d;
+                            char bt[24];
+                            std::snprintf(bt, sizeof bt, "Wind %s", (bestEnd == 0 ? rw.idA : rw.idB).c_str());
+                            const ImVec2 ts = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, bt);
+                            const ImVec2 c(th.x + out.x * 34, th.y + out.y * 34);
+                            dl->AddRectFilled(ImVec2(c.x - ts.x * 0.5f - 5, c.y - ts.y * 0.5f - 2), ImVec2(c.x + ts.x * 0.5f + 5, c.y + ts.y * 0.5f + 2), IM_COL32(30, 140, 70, 235), 4.0f);
+                            dl->AddText(f.small, fontPx(f.small), ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), IM_COL32(255, 255, 255, 255), bt);
+                        }
+                    }
                     if (g_mapZoom >= 13) {
                         textCentered(dl, f.bold, a.x - d.x * 14, a.y - d.y * 14 - fontPx(f.bold) * 0.5f, sat ? kInk : IM_COL32(20, 24, 32, 255), rw.idA.c_str());
                         textCentered(dl, f.bold, b.x + d.x * 14, b.y + d.y * 14 - fontPx(f.bold) * 0.5f, sat ? kInk : IM_COL32(20, 24, 32, 255), rw.idB.c_str());
@@ -2444,7 +2682,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     dl->AddPolyline(pts.data(), (int)pts.size(), col, 0, th);
                 }
                 // the stands and the taxiway names, close in
-                if (close)
+                if (close && g_settings.mapStands)
                     for (size_t si = 0; si < g.stands.size(); ++si) {
                         const AptGeo::Stand& st = g.stands[si];
                         const ImVec2 q = toS(st.p);
@@ -2471,10 +2709,14 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     }
             }
         }
-        // further out: each airport as a dot with its code
+        // further out: each airport as a dot with its code; the further out, only the bigger ones (by the longest runway):
+        // 8000 ft and over from the start, 5000 ft from zoom 8, every airport (heliports and seaplane bases too) from 9
+        const float minFt = g_mapZoom >= 9.0 ? 0.0f : g_mapZoom >= 8.0 ? 5000.0f : 8000.0f;
+        act.mapPointMinFt = minFt;
         if (g_mapZoom >= 7.0) {
             for (const AptPoint& p : m.airportPoints) {
                 if (layouts && std::find(drawn.begin(), drawn.end(), p.icao) != drawn.end()) continue;
+                if (p.rwyFt < minFt && !(g_selKind == 4 && g_selKey == p.icao)) continue;
                 const ImVec2 q = toS(mercOf(p.lat, p.lon));
                 if (q.x < r0.x - 20 || q.x > r1.x + 20 || q.y < r0.y - 10 || q.y > r1.y + 10) continue;
                 const ImU32 dot = p.kind == 17 ? IM_COL32(180, 90, 220, 255) : p.kind == 16 ? IM_COL32(40, 140, 220, 255) : IM_COL32(32, 92, 200, 255);
@@ -2621,8 +2863,31 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     }
 
     // ---- other aircraft: a chevron along its heading, its call sign and its height against ours (hundreds of feet, TCAS style)
+    // the selected VATSIM aircraft's filed route: a strong dashed line, its fixes as small rings and their names
+    if (g_settings.mapTraffic && g_settings.mapTrafficRoute && g_selKind == 1 && m.trafficRoute.size() >= 2) {
+        std::vector<ImVec2> tp;
+        for (const MapState::RoutePoint& rp : m.trafficRoute) tp.push_back(toS(mercOf(rp.lat, rp.lon)));
+        dl->AddPolyline(tp.data(), (int)tp.size(), IM_COL32(16, 20, 30, 170), 0, 4.5f);
+        dashed(dl, tp, IM_COL32(120, 230, 255, 245), 2.4f, 12.0f, 6.0f);
+        for (size_t i = 0; i < tp.size(); ++i) {
+            dl->AddCircle(tp[i], 3.5f, IM_COL32(120, 230, 255, 255), 0, 1.6f);
+            if (g_mapZoom >= 7.5 || i == 0 || i + 1 == tp.size()) g_labels.push_back({3, tp[i], 6, m.trafficRoute[i].ident, "", IM_COL32(255, 255, 255, 255), 0, IM_COL32(10, 60, 80, 220)});
+        }
+    }
     if (g_settings.mapTraffic) {
+        if (g_settings.mapTrafficTrails)   // their trails first, under every aircraft: thin, in white over a dark edge
+            for (const MapState::Traffic& t : m.traffic) {
+                if (!trafficShown(m, t)) continue;
+                auto it = g_tfcTrails.find(t.callsign);
+                if (it == g_tfcTrails.end() || it->second.pts.size() < 2) continue;
+                std::vector<ImVec2> tp;
+                for (const auto& ll : it->second.pts) tp.push_back(toS(mercOf(ll.first, ll.second)));
+                tp.push_back(toS(mercOf(t.lat, t.lon)));
+                dl->AddPolyline(tp.data(), (int)tp.size(), IM_COL32(16, 20, 30, 110), 0, 3.0f);
+                dl->AddPolyline(tp.data(), (int)tp.size(), IM_COL32(255, 255, 255, 150), 0, 1.3f);
+            }
         for (const MapState::Traffic& t : m.traffic) {
+            if (!trafficShown(m, t) && !(g_selKind == 1 && g_selKey == t.callsign)) continue;
             const ImVec2 q = toS(mercOf(t.lat, t.lon));
             if (q.x < r0.x - 30 || q.x > r1.x + 30 || q.y < r0.y - 30 || q.y > r1.y + 30) continue;
             if (g_selKind == 1 && g_selKey == t.callsign) {   // its card open: a ring in the theme's colour round it
@@ -2633,10 +2898,16 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             const float sa = (float)std::sin(a), ca = (float)std::cos(a);
             auto P = [&](float x, float y) { return ImVec2(q.x + x * ca - y * sa, q.y + x * sa + y * ca); };
             const int rel = (int)std::lround((t.altFt - m.altFt) / 100.0f);
-            // above: cyan, within 1000 ft: amber, below: green; on the ground: grey
-            ImU32 col = t.onGround ? IM_COL32(200, 206, 216, 255) : std::abs(rel) <= 10 ? IM_COL32(255, 196, 60, 255) : rel > 0 ? IM_COL32(60, 220, 255, 255) : IM_COL32(110, 230, 140, 255);
-            const bool ra = tcasRA(m, t);
-            if (ra) {   // a resolution advisory (or a collision): red, pulsing twice a second, with a ring spreading out
+            // above: cyan, within 1000 ft: red, below: green; on the ground: grey
+            ImU32 col = t.onGround ? IM_COL32(200, 206, 216, 255) : std::abs(rel) <= 10 ? IM_COL32(255, 70, 70, 255) : rel > 0 ? IM_COL32(60, 220, 255, 255) : IM_COL32(110, 230, 140, 255);
+            const int level = tcasLevel(m, t);
+            const bool ra = level == 2 || runwayConflict(m, t);
+            if (level == 1 && !ra) {   // a traffic advisory: a red glow, breathing once a second
+                const float k = 0.5f + 0.5f * (float)std::cos(ImGui::GetTime() * 2.0 * kPi);
+                col = IM_COL32(255, 60, 60, 255);
+                dl->AddCircleFilled(q, 13.0f + 4.0f * k, IM_COL32(255, 30, 30, (int)(30 + 40 * k)), 0);
+            }
+            if (ra) {   // a resolution advisory (or a runway collision): red, pulsing twice a second, with a ring spreading out
                 const float ph = (float)std::fmod(ImGui::GetTime() * 2.0, 1.0);
                 const float k = 0.5f + 0.5f * std::cos(ph * 2.0f * (float)kPi);
                 col = IM_COL32(255, (int)(40 + 70 * (1 - k)), (int)(40 + 70 * (1 - k)), 255);
@@ -2778,36 +3049,89 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         x += rw + 4;
         if (mapBubble(dl, f, "##mzin", ImVec2(x, y), nullptr, "+", false, 34)) g_mapRange = std::max(0, g_mapRange - 1);
         x += 34 + 12;
-        if (mapBubble(dl, f, "##mosm", ImVec2(x, y), nullptr, "Map", !satImg)) { g_settings.mapSource = 0; g_settingsChanged = true; }
+        if (mapBubble(dl, f, "##mosm", ImVec2(x, y), nullptr, "Map", g_settings.mapSource == 0)) { g_settings.mapSource = 0; g_settingsChanged = true; }
         x += bubbleW(f, nullptr, "Map") + 4;
         if (mapBubble(dl, f, "##msat", ImVec2(x, y), nullptr, "Satellite", satImg)) { g_settings.mapSource = 1; g_settingsChanged = true; }
-        // the layers, down the left under the time
-        struct Layer { const char* id; const char* name; bool* v; };
-        const Layer layers[9] = {{"##mapt", "Airports", &g_settings.mapAirports}, {"##mnav", "Navaids", &g_settings.mapNavaids},
-                                 {"##mils", "ILS", &g_settings.mapIls}, {"##mfix", "Waypoints", &g_settings.mapWaypoints}, {"##mrte", "Route", &g_settings.mapRoute},
-                                 {"##mtraf", "Traffic", &g_settings.mapTraffic}, {"##mout", "Outlines", &g_settings.mapOutlines},
-                                 {"##mtz", "Time Zones", &g_settings.mapTimeZones}, {"##mring", "Rings", &g_settings.mapRings}};
-        float lwMax = 0;
-        for (const Layer& L : layers) lwMax = std::max(lwMax, bubbleW(f, nullptr, L.name));
-        const float step = std::min(36.0f, std::floor((y - 8 - (r0.y + 46)) / 9.0f));
-        for (int i = 0; i < 9; ++i)
-            if (mapBubble(dl, f, layers[i].id, ImVec2(r0.x + 10, r0.y + 46 + i * step), nullptr, layers[i].name, *layers[i].v, lwMax,
-                          layers[i].v != &g_settings.mapRoute || !m.route.empty())) {   // Route: greyed until a SimBrief plan is in
-                *layers[i].v = !*layers[i].v; g_settingsChanged = true;
+        x += bubbleW(f, nullptr, "Satellite") + 4;
+        if (mapBubble(dl, f, "##mnone", ImVec2(x, y), nullptr, "No Map", noMap)) { g_settings.mapSource = 2; g_settingsChanged = true; }
+        // the layers, down the left under the time: three bubbles, each opening its menu beside it (Navigation, Traffic, Features)
+        struct Item { const char* id; const char* name; bool* v; bool enabled; };
+        const Item nav[] = {{"##mapt", "Airports And Taxiways", &g_settings.mapAirports, true}, {"##mstand", "Parking Spaces", &g_settings.mapStands, g_settings.mapAirports},
+                            {"##mbest", "Best Runway (Wind)", &g_settings.mapBestRunway, g_settings.mapAirports}, {"##mils", "ILS", &g_settings.mapIls, true},
+                            {"##mnav", "Navaids", &g_settings.mapNavaids, true}, {"##mfix", "Waypoints (GPS)", &g_settings.mapWaypoints, true},
+                            {"##mrte", "Flight Plan Route", &g_settings.mapRoute, !m.route.empty()}, {"##mring", "Range Rings", &g_settings.mapRings, true}};
+        const Item tfc[] = {{"##mtraf", "Show Traffic", &g_settings.mapTraffic, true}, {"##mttrl", "Traffic Trails", &g_settings.mapTrafficTrails, g_settings.mapTraffic},
+                            {"##mtrte", "Filed Route When Selected", &g_settings.mapTrafficRoute, g_settings.mapTraffic}};
+        const Item fea[] = {{"##mtrail", "My Breadcrumbs", &g_settings.mapTrail, true}, {"##mout", "Coastlines And Borders", &g_settings.mapOutlines, true},
+                            {"##mtz", "Time Zones", &g_settings.mapTimeZones, true}, {"##mday", "Daylight", &g_settings.mapDaylight, true}};
+        const char* cats[3] = {"Navigation", "Traffic", "Features"};
+        float cw = 0;
+        for (const char* c : cats) cw = std::max(cw, bubbleW(f, nullptr, c));
+        for (int i = 0; i < 3; ++i) {
+            char id[16];
+            std::snprintf(id, sizeof id, "##mcat%d", i);
+            if (mapBubble(dl, f, id, ImVec2(r0.x + 10, r0.y + 46 + i * 36), nullptr, cats[i], g_mapMenu == i + 1, cw)) { g_mapMenu = g_mapMenu == i + 1 ? 0 : i + 1; if (g_mapMenu) { g_selKind = 0; g_selKey.clear(); } }   // (a menu and a card: one at a time)
+        }
+        if (g_mapMenu) {   // the open menu: All / Clear, then its rows
+            const Item* items = g_mapMenu == 1 ? nav : g_mapMenu == 2 ? tfc : fea;
+            const int n = g_mapMenu == 1 ? (int)(sizeof nav / sizeof nav[0]) : g_mapMenu == 2 ? (int)(sizeof tfc / sizeof tfc[0]) : (int)(sizeof fea / sizeof fea[0]);
+            const float pw = 262, extra = g_mapMenu == 2 ? 3 * 30.0f + 6 : 0.0f;
+            const float ph = 46 + n * 30 + extra + 8;
+            const float px = r0.x + 10 + cw + 8;
+            const float py = std::max(r0.y + 46, std::min(r0.y + 46 + (g_mapMenu - 1) * 36.0f, r1.y - 50 - ph));
+            const ImVec2 pa(px, py), pb(px + pw, py + ph);
+            ImGui::SetCursorScreenPos(pa);
+            ImGui::SetNextItemAllowOverlap();
+            ImGui::InvisibleButton("##mmenubg", ImVec2(pw, ph));   // (taps on the menu stay off the map)
+            dl->AddRectFilled(ImVec2(pa.x + 2, pa.y + 4), ImVec2(pb.x + 2, pb.y + 4), IM_COL32(0, 0, 0, 70), 12.0f);
+            dl->AddRectFilled(pa, pb, themeTone(12, 22, 40, 242), 12.0f);
+            dl->AddRect(pa, pb, IM_COL32(255, 255, 255, 46), 12.0f, 0, 1.0f);
+            textAt(dl, f.bold, pa.x + 12, pa.y + 12, kInk, cats[g_mapMenu - 1]);
+            if (pill(dl, f, "##mmall", "All", ImVec2(pb.x - 118, pa.y + 8), ImVec2(pb.x - 66, pa.y + 34), false, true))
+                for (int i = 0; i < n; ++i) if (items[i].enabled || items[i].v == &g_settings.mapRoute) { *items[i].v = true; g_settingsChanged = true; }
+            if (pill(dl, f, "##mmclr", "Clear", ImVec2(pb.x - 62, pa.y + 8), ImVec2(pb.x - 8, pa.y + 34), false, true))
+                for (int i = 0; i < n; ++i) { *items[i].v = false; g_settingsChanged = true; }
+            float ry = pa.y + 42;
+            for (int i = 0; i < n; ++i, ry += 30)
+                if (menuCheck(dl, f, items[i].id, ImVec2(pa.x + 4, ry), pw - 8, items[i].name, *items[i].v, items[i].enabled)) { *items[i].v = !*items[i].v; g_settingsChanged = true; }
+            if (g_mapMenu == 2) {   // where the traffic comes from, and how far and how high it is shown
+                ry += 4;
+                const bool world = g_settings.mapTrafficSource == 1;
+                const char* srcName = world ? "+ VATSIM World" : "Nearby";
+                const int ds = menuStepper(dl, f, "##mtsrc", ImVec2(pa.x + 4, ry), pw - 8, "Source", srcName, world, !world);
+                if (ds) { g_settings.mapTrafficSource = ds > 0 ? 1 : 0; g_settingsChanged = true; }
+                ry += 30;
+                static const float kRanges[] = {0, 5, 10, 25, 50, 100, 250, 500};
+                static const float kAlts[] = {0, 1000, 2000, 5000, 10000, 20000};
+                auto idxOf = [](const float* v, int nv, float x) { int k = 0; for (int i = 0; i < nv; ++i) if (std::fabs(v[i] - x) < 0.5f) k = i; return k; };
+                char vb[24];
+                int ri = idxOf(kRanges, 8, g_settings.mapTrafficRangeNm);
+                if (ri == 0) std::snprintf(vb, sizeof vb, "Any"); else std::snprintf(vb, sizeof vb, "%.0f nm", kRanges[ri]);
+                const int dr = menuStepper(dl, f, "##mtrng", ImVec2(pa.x + 4, ry), pw - 8, "Range", vb, ri > 0, ri < 7);
+                if (dr) { g_settings.mapTrafficRangeNm = kRanges[std::max(0, std::min(7, ri + dr))]; g_settingsChanged = true; }
+                ry += 30;
+                int ai = idxOf(kAlts, 6, g_settings.mapTrafficAltFt);
+                if (ai == 0) std::snprintf(vb, sizeof vb, "Any"); else std::snprintf(vb, sizeof vb, "\xC2\xB1%.0f ft", kAlts[ai]);
+                const int da = menuStepper(dl, f, "##mtalt", ImVec2(pa.x + 4, ry), pw - 8, "Altitude", vb, ai > 0, ai < 5);
+                if (da) { g_settings.mapTrafficAltFt = kAlts[std::max(0, std::min(5, ai + da))]; g_settingsChanged = true; }
             }
+        }
         // where the map comes from, and whether the airports are still being found
-        const char* attr = satImg ? "Imagery: Esri, Maxar, Earthstar Geographics" : "\xC2\xA9 OpenStreetMap contributors";
-        const ImVec2 as = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, attr);
-        dl->AddRectFilled(ImVec2(r1.x - as.x - 12, r1.y - as.y - 6), r1, IM_COL32(255, 255, 255, 190), 4.0f, ImDrawFlags_RoundCornersTopLeft);
-        dl->AddText(f.small, fontPx(f.small), ImVec2(r1.x - as.x - 6, r1.y - as.y - 3), IM_COL32(30, 36, 48, 255), attr);
+        const char* attr = noMap ? "" : satImg ? "Imagery: Esri, Maxar, Earthstar Geographics" : "\xC2\xA9 OpenStreetMap contributors";
+        if (*attr) {
+            const ImVec2 as = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, attr);
+            dl->AddRectFilled(ImVec2(r1.x - as.x - 12, r1.y - as.y - 6), r1, IM_COL32(255, 255, 255, 190), 4.0f, ImDrawFlags_RoundCornersTopLeft);
+            dl->AddText(f.small, fontPx(f.small), ImVec2(r1.x - as.x - 6, r1.y - as.y - 3), IM_COL32(30, 36, 48, 255), attr);
+        }
         if (g_settings.mapAirports && m.aptIndexing) textAt(dl, f.small, r0.x + 12, y - 22, sat ? kInk : IM_COL32(30, 36, 48, 255), "Finding X-Plane's airports...");
         (void)missing;
         // what is clear of the buttons: right of the layers, below the top row, above the bottom row
-        g_mapFree0 = ImVec2(r0.x + 10 + lwMax + 10, r0.y + 10 + 30 + 8);
+        g_mapFree0 = ImVec2(r0.x + 10 + cw + 10, r0.y + 10 + 30 + 8);
         g_mapFree1 = ImVec2(r1.x - 8, y - 8);
     }
     // ---- what was tapped: the nearest traffic, navaid, fix, route point or airport (as WXPlane's map), one card at a time
-    if (mapClick) {
+    if (mapClick && g_mapMenu) { g_mapMenu = 0; }   // a tap on the map closes the open menu (and only that)
+    else if (mapClick) {
         const ImVec2 p = io.MousePos;
         float best = 16.0f;
         int kind = 0;
@@ -2816,7 +3140,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             const float d = std::sqrt((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y));
             if (d <= reach && d < best + (k == 1 ? 4.0f : 0.0f)) { best = d; kind = k; key = kk; }   // traffic wins near-ties
         };
-        if (g_settings.mapTraffic) for (const MapState::Traffic& t : m.traffic) consider(toS(mercOf(t.lat, t.lon)), 1, t.callsign, 18);
+        if (g_settings.mapTraffic) for (const MapState::Traffic& t : m.traffic) if (trafficShown(m, t)) consider(toS(mercOf(t.lat, t.lon)), 1, t.callsign, 18);
         if ((g_settings.mapNavaids || g_settings.mapIls) && g_mapZoom >= 6.0)
             for (const MapState::Navaid& n : m.navaids) if ((n.type != 4 && n.type != 5) ? g_settings.mapNavaids : (g_settings.mapIls && g_mapZoom >= 9.5)) consider(toS(mercOf(n.lat, n.lon)), 2, n.ident + "|" + std::to_string(n.type), 16);
         if (g_settings.mapIls && g_mapZoom >= 9.5 && kind != 1) {   // a localizer's course: anywhere inside its triangle (as drawn)
@@ -2842,12 +3166,13 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             std::string aKey;
             if (g_mapZoom >= 7.0)
                 for (const AptPoint& a : m.airportPoints) {
+                    if (a.rwyFt < (g_mapZoom >= 9.0 ? 0.0f : g_mapZoom >= 8.0 ? 5000.0f : 8000.0f)) continue;   // (its dot is not drawn)
                     const ImVec2 q = toS(mercOf(a.lat, a.lon));
                     const float d = std::sqrt((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y));
                     if (d < aBest) { aBest = d; aKey = a.icao; }
                 }
             bool stand = false;
-            if (g_mapShownNm < 1.9)   // the stands are drawn
+            if (g_mapShownNm < 1.9 && g_settings.mapStands)   // the stands are drawn
                 for (const auto& ap : m.airports) {
                     float sBest = 11.0f;
                     int si = -1;
@@ -2859,7 +3184,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     if (si >= 0) { kind = 6; key = ap->icao + "|" + std::to_string(si); stand = true; break; }
                 }
             if (!stand && !aKey.empty()) { kind = 4; key = aKey; }
-            else if (!stand && g_mapZoom >= 11.5)   // close in: anywhere on an airport's layout
+            else if (!stand && kind == 0 && g_mapZoom >= 11.5)   // close in: anywhere on an airport's layout (a navaid, fix or ILS tapped on it wins)
                 for (const auto& ap : m.airports) {
                     const ImVec2 b0 = toS(ap->lo), b1 = toS(ap->hi);
                     if (p.x >= std::min(b0.x, b1.x) - 8 && p.x <= std::max(b0.x, b1.x) + 8 && p.y >= std::min(b0.y, b1.y) - 8 && p.y <= std::max(b0.y, b1.y) + 8) { kind = 4; key = ap->icao; break; }
@@ -2891,7 +3216,13 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 L.push_back({4, "VATSIM", ""});
                 if (!vat) L.push_back({2, m.vatsimStatus.empty() ? "Asking VATSIM..." : m.vatsimStatus, ""});
                 else {
-                    L.push_back({1, "Pilot", v.name + (v.cid.empty() ? "" : "  (" + v.cid + ")")});
+                    {   // the name as VATSIM has it (often the pilot's number again, or the name and a home airport), the number on its own line
+                        std::string nm = v.name;
+                        while (!nm.empty() && nm.back() == ' ') nm.pop_back();
+                        if (!v.cid.empty() && nm.size() > v.cid.size() && nm.compare(nm.size() - v.cid.size(), v.cid.size(), v.cid) == 0) { nm.resize(nm.size() - v.cid.size()); while (!nm.empty() && nm.back() == ' ') nm.pop_back(); }
+                        if (!nm.empty() && nm != v.cid) L.push_back({1, "Pilot", nm});
+                        if (!v.cid.empty()) L.push_back({1, "VATSIM ID", v.cid});
+                    }
                     if (!v.rating.empty()) L.push_back({1, "Rating", v.rating});
                     L.push_back({1, "Server", v.server + (v.logon.empty() ? "" : ", since " + v.logon)});
                     L.push_back({1, "Squawk", v.squawk + (!v.assignedSquawk.empty() && v.assignedSquawk != "0000" && v.assignedSquawk != v.squawk ? "  (assigned " + v.assignedSquawk + ")" : "")});
@@ -4719,18 +5050,25 @@ void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
 // notifications from what the host tells: traffic in TCAS RA range, a new SimBrief plan
 void watchForNotes(const SimState& s) {
     const double now = ImGui::GetTime();
+    trackTraffic(s.map);
     for (const MapState::Traffic& t : s.map.traffic) {
-        if (!tcasRA(s.map, t)) { continue; }
-        auto it = g_raSeen.find(t.callsign);
+        // the worst of: a runway collision (3), an RA (2), a TA (1); one notification each time it gets worse, and again after a minute
+        const int level = runwayConflict(s.map, t) ? 3 : tcasLevel(s.map, t);
+        if (!level) continue;
+        const std::string key = t.callsign + "#" + std::to_string(level);
+        auto it = g_raSeen.find(key);
         if (it != g_raSeen.end() && now - it->second < 60) { it->second = now; continue; }
-        g_raSeen[t.callsign] = now;
-        if (!g_settings.notifyTcas) continue;
+        bool worse = false;   // (a TA after its RA: no second note)
+        for (int l = level + 1; l <= 3; ++l) { auto w = g_raSeen.find(t.callsign + "#" + std::to_string(l)); if (w != g_raSeen.end() && now - w->second < 60) worse = true; }
+        g_raSeen[key] = now;
+        if (!g_settings.notifyTcas || worse) continue;
         double brg = 0;
         const double d = distNmLL(s.map.lat, s.map.lon, t.lat, t.lon, &brg);
         const int rel = (int)std::lround((t.altFt - s.map.altFt) / 100.0f) * 100;
         char b[160];
-        std::snprintf(b, sizeof b, "%s%s%s: %d ft %s, %.1f nm", t.callsign.c_str(), t.type.empty() ? "" : " ", t.type.c_str(), std::abs(rel), rel >= 0 ? "above" : "below", d);
-        postNote("TCAS alert", b, APP_MAP);
+        if (level == 3) std::snprintf(b, sizeof b, "%s%s%s %s, %.1f nm", t.callsign.c_str(), t.type.empty() ? "" : " ", t.type.c_str(), t.onGround ? "is on the runway" : "is landing on your runway", d);
+        else std::snprintf(b, sizeof b, "%s%s%s: %d ft %s, %.1f nm", t.callsign.c_str(), t.type.empty() ? "" : " ", t.type.c_str(), std::abs(rel), rel >= 0 ? "above" : "below", d);
+        postNote(level == 3 ? "Runway collision alert" : level == 2 ? "TCAS resolution advisory" : "TCAS traffic advisory", b, APP_MAP);
     }
     for (auto it = g_raSeen.begin(); it != g_raSeen.end();) { if (now - it->second > 120) it = g_raSeen.erase(it); else ++it; }
     if (g_planSeqSeen < 0) g_planSeqSeen = s.newPlanSeq;
@@ -5297,6 +5635,7 @@ void openWeb(const char* site, const char* url, bool chrome, int group) {
 
 } // namespace
 bool trafficInRA(const MapState& m, const MapState::Traffic& t) { return tcasRA(m, t); }
+int trafficThreat(const MapState& m, const MapState::Traffic& t) { return runwayConflict(m, t) ? 3 : tcasLevel(m, t); }
 void mapSelect(int kind, const std::string& key) { g_selKind = kind; g_selKey = key; }
 void openDispatchFromPlan() { openDispatch(true); }
 int powerState() { return g_power; }   // 0 on, 1 fading off, 2 off, 3 starting, 4 waking
@@ -5858,13 +6197,17 @@ std::string settingsToText() {
     out += buf;
     std::snprintf(buf, sizeof buf, "duck_rx=%.2f\nduck_tx=%.2f\nnotify_volume=%.2f\n", (double)g_settings.duckRx, (double)g_settings.duckTx, (double)g_settings.notifyVolume);
     out += buf;
+    std::snprintf(buf, sizeof buf, "map_stands=%d\nmap_best_runway=%d\nmap_daylight=%d\nmap_traffic_source=%d\nmap_traffic_trails=%d\nmap_traffic_route=%d\nmap_traffic_range=%.0f\nmap_traffic_alt=%.0f\n",
+                  g_settings.mapStands ? 1 : 0, g_settings.mapBestRunway ? 1 : 0, g_settings.mapDaylight ? 1 : 0, g_settings.mapTrafficSource, g_settings.mapTrafficTrails ? 1 : 0,
+                  g_settings.mapTrafficRoute ? 1 : 0, (double)g_settings.mapTrafficRangeNm, (double)g_settings.mapTrafficAltFt);
+    out += buf;
     {   // the SimBrief name, without line breaks
         std::string u = g_settings.simbriefUser;
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
     }
     std::snprintf(buf, sizeof buf, "map_source=%d\nmap_airports=%d\nmap_timezones=%d\nmap_heading_up=%d\nmap_local_time=%d\nmap_traffic=%d\nmap_outlines=%d\nmap_dark=%d\nmap_ils=%d\nmap_rings=%d\nmap_trail=%d\nphysical_keys=%d\nwallpaper=%d\naccent=%d\nbattery=%d\ncharger=%d\n",
-                  g_settings.mapSource == 1 ? 1 : 0, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
+                  g_settings.mapSource, g_settings.mapAirports ? 1 : 0, g_settings.mapTimeZones ? 1 : 0, g_settings.mapHeadingUp ? 1 : 0, g_settings.mapLocalTime ? 1 : 0,
                   g_settings.mapTraffic ? 1 : 0, g_settings.mapOutlines ? 1 : 0, g_settings.mapDark ? 1 : 0, g_settings.mapIls ? 1 : 0, g_settings.mapRings ? 1 : 0, g_settings.mapTrail ? 1 : 0, g_settings.physicalKeys ? 1 : 0, g_settings.wallpaper, g_settings.accent, (int)std::ceil(g_batt - 0.001f), g_charger ? 1 : 0);
     out += buf;
     auto list = [&](const char* key, const std::vector<int>& v) {
@@ -5916,7 +6259,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "show_navigraph") { g_settings.showNavigraph = v != 0; newStyle = true; }
         else if (key == "show_vatsim") g_settings.showVatsim = v != 0;
         else if (key == "show_skyvector") g_settings.showSkyvector = v != 0;
-        else if (key == "map_source") g_settings.mapSource = v == 1 ? 1 : 0;
+        else if (key == "map_source") g_settings.mapSource = v == 1 || v == 2 ? v : 0;
         else if (key == "map_airports") g_settings.mapAirports = v != 0;
         else if (key == "map_timezones") g_settings.mapTimeZones = v != 0;
         else if (key == "map_heading_up") g_settings.mapHeadingUp = v != 0;
@@ -5928,6 +6271,14 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_ils") g_settings.mapIls = v != 0;
         else if (key == "map_rings") g_settings.mapRings = v != 0;
         else if (key == "map_trail") g_settings.mapTrail = v != 0;
+        else if (key == "map_stands") g_settings.mapStands = v != 0;
+        else if (key == "map_best_runway") g_settings.mapBestRunway = v != 0;
+        else if (key == "map_daylight") g_settings.mapDaylight = v != 0;
+        else if (key == "map_traffic_source") g_settings.mapTrafficSource = v == 1 ? 1 : 0;
+        else if (key == "map_traffic_trails") g_settings.mapTrafficTrails = v != 0;
+        else if (key == "map_traffic_route") g_settings.mapTrafficRoute = v != 0;
+        else if (key == "map_traffic_range") g_settings.mapTrafficRangeNm = std::max(0.0f, std::min(2000.0f, (float)std::atof(val.c_str())));
+        else if (key == "map_traffic_alt") g_settings.mapTrafficAltFt = std::max(0.0f, std::min(60000.0f, (float)std::atof(val.c_str())));
         else if (key == "physical_keys") g_settings.physicalKeys = v != 0;
         else if (key == "wallpaper") { g_settings.wallpaper = std::max(0, std::min(4, v)); g_settings.accent = g_settings.wallpaper; }
         else if (key == "accent") g_settings.accent = std::max(0, std::min(4, v));

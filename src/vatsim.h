@@ -3,6 +3,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "tabletui.h"
 
@@ -14,6 +15,8 @@ void stop();
 void want(bool on);   // a traffic card is open: keep the data fresh
 // What VATSIM has for a call sign (found false: not connected), and how the data stands ("" when fresh).
 VatsimPilot lookup(const std::string& callsign, std::string& status);
+// Every pilot connected (the Map's VATSIM world traffic), as of the latest fetch.
+std::vector<VatsimPilot> allPilots();
 
 } // namespace vatsim
 } // namespace xpt

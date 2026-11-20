@@ -19,7 +19,7 @@ namespace xpt {
 namespace aptdat {
 namespace {
 
-struct Entry { std::string icao, name; double lat = 0, lon = 0; int kind = 1; int file = 0; long long offset = 0, length = 0; bool placed = false; };
+struct Entry { std::string icao, name; double lat = 0, lon = 0; int kind = 1; int file = 0; long long offset = 0, length = 0; bool placed = false; float rwyFt = 0; };
 
 std::mutex g_mx;
 std::condition_variable g_cv;
@@ -33,7 +33,7 @@ std::unordered_map<int, std::vector<int>> g_grid;   // 1-degree cells: entries
 std::atomic<bool> g_indexing{false};
 std::atomic<int> g_count{0};
 // the view asked for, and what is ready for it
-struct View { double lat = 0, lon = 0, layoutNm = 0, pointNm = 0; bool layouts = false; unsigned seq = 0; } g_view;
+struct View { double lat = 0, lon = 0, layoutNm = 0, pointNm = 0; bool layouts = false; unsigned seq = 0; float minRwyFt = 0; } g_view;
 std::vector<std::shared_ptr<const AptGeo>> g_readyLayouts;
 std::string g_wantAirport, g_doneAirportIcao;              // one airport asked for in full (the Airports page)
 std::shared_ptr<const AptGeo> g_doneAirport;
@@ -121,6 +121,14 @@ void indexFile(int fileIdx, std::unordered_map<std::string, int>& seen) {
         }
         if (cur < 0) return;
         Entry& en = g_entries[cur];
+        if (code == 100) {   // each land runway: the longest makes the airport's size (big ones show further out on the map)
+            const char* q = s; double v[20] = {}; int k = 0;
+            while (q < e && k < 20) { while (q < e && (*q == ' ' || *q == '\t')) ++q; if (q >= e) break; v[k++] = std::strtod(q, nullptr); while (q < e && *q != ' ' && *q != '\t') ++q; }
+            if (k >= 20) {
+                const double dlat = (v[18] - v[9]) * 60.0, dlon = (v[19] - v[10]) * 60.0 * std::cos(v[9] * 3.14159265358979 / 180.0);
+                en.rwyFt = std::max(en.rwyFt, (float)(std::sqrt(dlat * dlat + dlon * dlon) * 6076.12));
+            }
+        }
         if (en.placed && code != 1302) return;
         auto num = [&](int idx) {   // the idx-th word as a number
             const char* q = s;
@@ -244,7 +252,8 @@ void run() {
         for (const auto& pr : near) {
             if (pr.first > v.pointNm || points.size() >= 600) break;
             const Entry& en = g_entries[pr.second];
-            points.push_back({en.icao, en.lat, en.lon, en.kind, en.name});
+            if (en.rwyFt < v.minRwyFt) continue;   // (further out, only the bigger airports)
+            points.push_back({en.icao, en.lat, en.lon, en.kind, en.name, en.rwyFt});
         }
         std::vector<std::shared_ptr<const AptGeo>> layouts;
         if (v.layouts) {
@@ -292,13 +301,13 @@ void stop() {
     g_count = 0;
 }
 
-void setView(double lat, double lon, double layoutNm, double pointNm, bool wantLayouts) {
+void setView(double lat, double lon, double layoutNm, double pointNm, bool wantLayouts, float minRwyFt) {
     std::lock_guard<std::mutex> lk(g_mx);
     // a new request only when the view moved noticeably (the map is redrawn every frame)
     const double moved = distNm(lat, lon, g_view.lat, g_view.lon);
     if (moved < std::max(0.2, layoutNm * 0.15) && std::fabs(layoutNm - g_view.layoutNm) < 0.25 * std::max(1.0, layoutNm) &&
-        std::fabs(pointNm - g_view.pointNm) < 0.25 * std::max(1.0, pointNm) && wantLayouts == g_view.layouts && g_view.seq) return;
-    g_view.lat = lat; g_view.lon = lon; g_view.layoutNm = layoutNm; g_view.pointNm = pointNm; g_view.layouts = wantLayouts;
+        std::fabs(pointNm - g_view.pointNm) < 0.25 * std::max(1.0, pointNm) && wantLayouts == g_view.layouts && minRwyFt == g_view.minRwyFt && g_view.seq) return;
+    g_view.lat = lat; g_view.lon = lon; g_view.layoutNm = layoutNm; g_view.pointNm = pointNm; g_view.layouts = wantLayouts; g_view.minRwyFt = minRwyFt;
     ++g_view.seq;
     g_cv.notify_all();
 }
@@ -320,8 +329,8 @@ std::vector<AptPoint> search(const std::string& text, size_t max) {
         }
     }
     std::sort(codes.begin(), codes.end(), [](int a, int b) { return g_entries[a].icao.size() != g_entries[b].icao.size() ? g_entries[a].icao.size() < g_entries[b].icao.size() : g_entries[a].icao < g_entries[b].icao; });
-    for (int i : codes) { if (out.size() >= max) break; const Entry& e = g_entries[i]; out.push_back({e.icao, e.lat, e.lon, e.kind, e.name}); }
-    for (int i : names) { if (out.size() >= max) break; const Entry& e = g_entries[i]; out.push_back({e.icao, e.lat, e.lon, e.kind, e.name}); }
+    for (int i : codes) { if (out.size() >= max) break; const Entry& e = g_entries[i]; out.push_back({e.icao, e.lat, e.lon, e.kind, e.name, e.rwyFt}); }
+    for (int i : names) { if (out.size() >= max) break; const Entry& e = g_entries[i]; out.push_back({e.icao, e.lat, e.lon, e.kind, e.name, e.rwyFt}); }
     return out;
 }
 
@@ -342,7 +351,7 @@ std::vector<AptPoint> nearest(double lat, double lon, size_t max) {
             }
     }
     std::sort(near.begin(), near.end());
-    for (const auto& pr : near) { if (out.size() >= max) break; const Entry& e = g_entries[pr.second]; out.push_back({e.icao, e.lat, e.lon, e.kind, e.name}); }
+    for (const auto& pr : near) { if (out.size() >= max) break; const Entry& e = g_entries[pr.second]; out.push_back({e.icao, e.lat, e.lon, e.kind, e.name, e.rwyFt}); }
     return out;
 }
 

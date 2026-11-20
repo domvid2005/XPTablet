@@ -15,7 +15,8 @@ namespace aptdat {
 void start(const std::string& xplaneRoot);   // the X-Plane folder, with its trailing separator
 void stop();
 // What the map shows: layouts are read for airports within layoutNm of the point (when wanted), positions for those within pointNm.
-void setView(double lat, double lon, double layoutNm, double pointNm, bool wantLayouts);
+// Further out, minRwyFt leaves out the airports whose longest runway is shorter (heliports and seaplane bases have none).
+void setView(double lat, double lon, double layoutNm, double pointNm, bool wantLayouts, float minRwyFt = 0);
 // What is ready: the layouts and positions for the latest view, whether the index is still being built and how many it holds.
 void get(std::vector<std::shared_ptr<const AptGeo>>& layouts, std::vector<AptPoint>& points, bool& indexing, int& count);
 

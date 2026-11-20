@@ -49,7 +49,15 @@ struct Settings {
     bool mapIls = true;           // ILS and localizer courses (a layer of their own)
     bool mapWaypoints = false;    // fixes
     bool mapRoute = true;         // the SimBrief flight plan
-    bool mapTrail = true;         // the trail flown since the plan was imported (Display settings)
+    bool mapTrail = true;         // the trail flown since the plan was imported (the map's Features)
+    bool mapStands = true;        // parking spaces (stands and gates) on the airport layouts
+    bool mapBestRunway = true;    // the runway most into the wind outlined in green on the airport layouts
+    bool mapDaylight = false;     // day and night across the map (the sun's height where it is, from the sim's time)
+    int mapTrafficSource = 0;     // 0 nearby (X-Plane's TCAS: AI and multiplayer), 1 nearby and VATSIM worldwide
+    bool mapTrafficTrails = false;   // each aircraft's trail behind it
+    bool mapTrafficRoute = true;  // a VATSIM aircraft's filed route on the map while its card is open
+    float mapTrafficRangeNm = 0;  // traffic shown within this distance of us (0: any)
+    float mapTrafficAltFt = 0;    // and within this height of us (0: any)
     std::string simbriefUser;     // SimBrief user name or pilot ID (the Flight Plan page and the route on the map)
     bool autoDim = false;         // the screen dims itself as the daylight goes (WXPlane's curve); the brightness slider rests
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
@@ -167,6 +175,7 @@ struct VatsimPilot {
     bool found = false, hasPlan = false;
     std::string callsign, name, cid, server, rating, squawk, logon;
     int altitudeFt = 0, groundspeedKt = 0, heading = 0, qnhMb = 0;
+    double lat = 0, lon = 0;
     std::string rules, aircraft, aircraftFull, departure, arrival, alternate, cruiseAlt, cruiseTas, depTime, enroute, fuel, route, remarks, assignedSquawk;
 };
 
@@ -200,6 +209,7 @@ struct MapState {
     // the SimBrief flight plan
     struct RoutePoint { double lat = 0, lon = 0; std::string ident; };
     std::vector<RoutePoint> route;
+    std::vector<RoutePoint> trafficRoute;   // the selected VATSIM aircraft's filed route (its fixes found in X-Plane's nav data)
     std::string routeStatus;      // "KSBN to KORD, 12 fixes", or why there is none
     // the traffic card's aircraft on VATSIM (for Actions::trafficSelected)
     VatsimPilot vatsim;
@@ -312,6 +322,7 @@ struct Actions {
     int webTabSelect = 0, webTabClose = 0;   // a tab's id: show it, close it (0: none)
     // the Map page: shown this frame, its centre, and the airports to have ready around it
     bool mapShown = false, mapLayouts = false;
+    float mapPointMinFt = 0;      // the map's airport dots: only airports with a runway at least this long (the bigger ones further out)
     // the Airports page: list airports matching this text ("" with airportsShown: the nearest), or read one in full
     bool airportsShown = false;
     std::string airportSearch;    // sent when it changes
@@ -386,6 +397,7 @@ const char* browserUrl();                 // the address the web page shows
 bool browserChrome();                     // the full browser (address bar, bookmarks) rather than a web app's own page
 
 bool trafficInRA(const MapState& m, const MapState::Traffic& t);
+int trafficThreat(const MapState& m, const MapState::Traffic& t);   // 0 none, 1 TCAS TA, 2 TCAS RA, 3 runway collision (the tests)
 int powerState();
 void notify(const std::string& title, const std::string& body, int app);   // a notification (a banner, then the pull-down's list); tapping opens app
 int notificationCount();

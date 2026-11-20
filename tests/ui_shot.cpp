@@ -455,7 +455,7 @@ int main(int argc, char** argv) {
             mp.map.havePos = true; mp.map.lat = 41.7008; mp.map.lon = -86.3222; mp.map.hdgTrue = 92; mp.map.utc = 1795312200;   // 2026-11-23 13:10Z
             mp.map.haveLocalOffset = true; mp.map.localOffsetS = -5 * 3600;
             mp.map.airports.push_back(std::make_shared<AptGeo>(geo));
-            mp.map.airportPoints = {{"KXPT", 41.70, -86.32, 1, ""}, {"KSBN", 41.7087, -86.3173, 1, ""}, {"KGSH", 41.5264, -85.7922, 1, ""}, {"KEKM", 41.7194, -86.0003, 1, ""}};
+            mp.map.airportPoints = {{"KXPT", 41.70, -86.32, 1, "", 9000}, {"KSBN", 41.7087, -86.3173, 1, "", 8412}, {"KGSH", 41.5264, -85.7922, 1, "", 5500}, {"KEKM", 41.7194, -86.0003, 1, "", 6500}};
             settings().mapAirports = true; settings().mapSource = 0; settings().mapLocalTime = true;
             shot(mp, APP_MAP, "map_airport");
             {   // the frame's cost at every zoom step, from the farthest in to the closest, every layer on (a step costing
@@ -528,7 +528,7 @@ int main(int argc, char** argv) {
             v.cruiseAlt = "FL320"; v.cruiseTas = "450"; v.depTime = "0500"; v.enroute = "0105"; v.fuel = "0300"; v.route = "WYNDE2 ELX DORET KKISS"; v.remarks = "PBN/A1B1C1D1 /V/ SIMBRIEF";
             settings().mapTraffic = true; settings().mapNavaids = true; settings().mapAirports = false; settings().mapWaypoints = false;
             showOnMap(41.70, -86.30);
-            mapCommand(1); mapCommand(1);   // 5 nm
+            mapCommand(1); mapCommand(1); mapCommand(1); mapCommand(1);   // 5 nm (1, 1.5, 2, 3, 5)
             for (int k = 0; k < 20; ++k) tap(mp, -1000, -1000);   // the zoom settles
             const float cy = (28 + 46 + kLogicalH) * 0.5f, unitsPerNm = (kLogicalH - 28 - 46) * 0.5f / 5.0f;
             tap(mp, 400, cy - 4.5f * unitsPerNm);   // the traffic, 4.5 nm north
@@ -548,7 +548,33 @@ int main(int argc, char** argv) {
                 ra.map.aglFt = 2400; ra.map.altFt = 3000; ra.map.gsKt = 140; ra.map.hdgTrue = 0;
                 ra.map.traffic = {{41.70 + 0.5 / 60.0, -86.30, 3200, 180, 250, -300, false, "N555RA", "C172"}, {41.70 + 3.0 / 60.0, -86.33, 9000, 90, 250, 0, false, "FAR123", "B738"}};
                 if (!trafficInRA(ra.map, ra.map.traffic[0]) || trafficInRA(ra.map, ra.map.traffic[1])) { std::printf("FAIL: TCAS RA range\n"); ++failures; }
+                {   // a traffic advisory from 2 nm (1.8 nm out, level, not closing fast); none on the ground
+                    SimState ta = ra;
+                    ta.map.traffic = {{41.70 + 1.8 / 60.0, -86.30, 3300, 0, 140, 0, false, "N1TA", "C172"}};
+                    if (trafficThreat(ta.map, ta.map.traffic[0]) != 1) { std::printf("FAIL: TCAS TA at 2 nm (%d)\n", trafficThreat(ta.map, ta.map.traffic[0])); ++failures; }
+                    ta.map.onGround = true; ta.map.aglFt = 0;
+                    if (trafficThreat(ta.map, ta.map.traffic[0]) != 0) { std::printf("FAIL: no TCAS on the ground\n"); ++failures; }
+                }
+                {   // a runway collision: we are on runway 27 and traffic is 2 nm out on final for it; then we are on short final and it is on the runway
+                    SimState rc = mp;
+                    rc.map.lat = 41.70; rc.map.lon = -86.32; rc.map.onGround = true; rc.map.aglFt = 0; rc.map.altFt = 800; rc.map.gsKt = 0; rc.map.hdgTrue = 270;
+                    rc.map.traffic = {{41.70, -86.26, 1400, 270, 140, -700, false, "N2FIN", "B738"}};
+                    { AptGeo g; AptGeo::Runway r; r.a = mercOf(41.70, -86.335); r.b = mercOf(41.70, -86.305); r.widthM = 45.72; r.idA = "09"; r.idB = "27"; g.runways.push_back(r);
+                      rc.map.airports = {std::make_shared<AptGeo>(g)}; }
+                    if (trafficThreat(rc.map, rc.map.traffic[0]) != 3) { std::printf("FAIL: runway collision, traffic landing on our runway\n"); ++failures; }
+                    rc.map.traffic[0].hdg = 90;   // (going away from it: none)
+                    if (trafficThreat(rc.map, rc.map.traffic[0]) == 3) { std::printf("FAIL: runway collision, traffic leaving\n"); ++failures; }
+                    rc.map.lon = -86.30; rc.map.onGround = false; rc.map.aglFt = 150; rc.map.altFt = 950; rc.map.vsFpm = -700; rc.map.gsKt = 140;
+                    rc.map.traffic = {{41.70, -86.32, 800, 90, 0, 0, true, "N3RWY", "C172"}};
+                    if (trafficThreat(rc.map, rc.map.traffic[0]) != 3) { std::printf("FAIL: runway collision, landing on an occupied runway\n"); ++failures; }
+                }
                 shot(ra, APP_MAP, "map_traffic_ra");
+                // the map's menus: Navigation, then Traffic (its source, range and height); the night side of the day; no map under it
+                tap(mp, 60, 74 + 46 + 15); shot(mp, APP_MAP, "map_menu_navigation");
+                tap(mp, 60, 74 + 46 + 36 + 15); shot(mp, APP_MAP, "map_menu_traffic");
+                tap(mp, 700, 300);
+                { SimState dn = mp; dn.map.utc = 1795060800LL; settings().mapDaylight = true; settings().mapSource = 2; for (int k = 0; k < 6; ++k) mapCommand(1);
+                  shot(dn, APP_MAP, "map_daylight_nomap"); for (int k = 0; k < 6; ++k) mapCommand(0); settings().mapDaylight = false; settings().mapSource = 0; }
             }
             settings().mapAirports = true;
         }
