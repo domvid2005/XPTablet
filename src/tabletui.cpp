@@ -5887,7 +5887,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     const float hwPx = (shape && hw0 > 0 ? hw0 * kx : spec.fus * 0.5f) * px;
     // each door keeps its bubble; with two jetways or more at the stand, a door's Connect opens a menu of the jetways that can serve it
     static int jwMenuDoor = -1;   // the door whose menu is open, -1 none
-    const bool chooser = doors && jwDoors > 1;
+    const bool chooser = false;   // (the jetway menu: off for now; each door's Connect connects it)
     if (!chooser) jwMenuDoor = -1;
     float menuBy = -1;
     if (doors) {
@@ -5983,7 +5983,15 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     card(dl, ImVec2(rx, split + 5), ImVec2(rx + rw, bot), f, "JETWAY STATUS");
     const float cx0 = rx + 16, cx1 = rx + rw - 16;
     if (!g.toliss) {
-        dl->AddText(f.body, fontPx(f.body), ImVec2(cx0, top + 40), kMuted, "Cabin lights and slide arming are for ToLiss aircraft.", nullptr, cx1 - cx0);
+        // not a ToLiss: the same rows, each with a greyed "Not Available" bubble
+        float y = top + 38;
+        const char* rowsNA[3] = {"Cabin lights", "Slides", "Cabin Ready"};
+        for (int i = 0; i < 3; ++i) {
+            textAt(dl, f.bold, cx0, y + 4, kMuted, rowsNA[i]);
+            char id[16]; std::snprintf(id, sizeof id, "##cabna%d", i);
+            pill(dl, f, id, "Not Available", ImVec2(cx1 - 180, y), ImVec2(cx1, y + 30), false, false);
+            y += 48;
+        }
     } else {
         float y = top + 38;
         // the lights: On and Off beside the name (On lit while they are on, Off while off; On comes back to the level they had),
@@ -6012,7 +6020,10 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             // the track, its fill, ticks at every 10 % and the handle; pressing or dragging on it sets the level, in 10 % clicks
             const float tx0 = cx0 + 10, tx1 = cx1 - 10, ty = y + 14;
             ImGui::SetCursorScreenPos(ImVec2(cx0, y));
+            ImGui::BeginDisabled(g_settings.cabinAuto);   // (on Auto the daylight sets them: the slider is greyed)
             ImGui::InvisibleButton("##cablight", ImVec2(cx1 - cx0, 28));
+            ImGui::EndDisabled();
+            const float greyK = openness("##cabgrey", g_settings.cabinAuto);
             static float knob = -1;   // where the knob is drawn (0..1): it glides to the level, and follows the finger
             const float dt = ImGui::GetIO().DeltaTime;
             float target = std::max(0, pct) / 100.0f;
@@ -6036,6 +6047,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             }
             dl->AddCircleFilled(ImVec2(hx, ty), 10.0f, IM_COL32(245, 248, 255, 255), 0);
             dl->AddCircle(ImVec2(hx, ty), 10.0f, IM_COL32(255, 214, 120, 255), 0, 2.0f);
+            if (greyK > 0.01f) dl->AddRectFilled(ImVec2(cx0 - 2, y - 2), ImVec2(cx1 + 2, y + 30), IM_COL32(14, 18, 28, (int)(150 * greyK)), 8.0f);
             y += 32;
         } else {
             textAt(dl, f.small, cx0, y, kMuted, "This aircraft does not offer its cabin lights.");
@@ -6090,7 +6102,10 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             else if (g.jetway == -1 && !anyDocked) why.push_back("Jetway moving, or none within reach");
         }
         float y = split + 5 + 32;
-        if (why.empty()) {
+        if (!doors) {
+            textAt(dl, f.title, cx0, y, kMuted, "Not Available");
+            textAt(dl, f.small, cx0, y + 30, kMuted, "This aircraft does not use jetways");
+        } else if (why.empty()) {
             textAt(dl, f.title, cx0, y, kGood, anyDocked ? "Good  \xC2\xB7  connected" : "Good");
             textAt(dl, f.small, cx0, y + 30, kMuted, g.openSam ? "openSAM jetways" : "X-Plane's own jetways");
         } else {
