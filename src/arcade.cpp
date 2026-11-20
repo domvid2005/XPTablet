@@ -561,37 +561,351 @@ struct HangarClimb {
     }
 };
 
+
+// ================================================================================================================================
+// Cockpit 21: twenty-one against the dealer for air miles. Cards of four aviation suits (wings, propeller, compass, beacon);
+// the dealer draws to 16 and stands on 17; a natural pays 3 to 2; Double doubles the bet for one more card
+struct Cockpit21 {
+    static constexpr float W = 320, H = 240;
+    struct Card { int rank, suit; };   // rank 1 (ace) .. 13 (king); suit 0 wings, 1 propeller, 2 compass, 3 beacon
+    std::vector<Card> shoe, me, dealer;
+    int bank = 1000, bet = 100, phase = 0;   // 0 betting, 1 your turn, 2 the dealer's, 3 settled
+    float dealT = 0, t = 0;
+    std::string msg;
+    View view; bool viewSet = false;
+    bool doubled = false, started = false;
+    void refill() {
+        shoe.clear();
+        for (int d = 0; d < 6; ++d) for (int su = 0; su < 4; ++su) for (int r = 1; r <= 13; ++r) shoe.push_back({r, su});
+        std::shuffle(shoe.begin(), shoe.end(), rng());
+    }
+    Card draw1() { if (shoe.size() < 20) refill(); const Card c = shoe.back(); shoe.pop_back(); return c; }
+    static int total(const std::vector<Card>& h, bool* soft = nullptr) {
+        int s = 0, aces = 0;
+        for (const Card& c : h) { s += std::min(10, c.rank); if (c.rank == 1) ++aces; }
+        const bool sft = aces > 0 && s + 10 <= 21;
+        if (soft) *soft = sft;
+        return sft ? s + 10 : s;
+    }
+    void reset() { refill(); bank = 1000; bet = 100; phase = 0; me.clear(); dealer.clear(); msg = "Set your bet, then Deal"; started = true; }
+    void deal() {
+        if (bank < bet) bet = std::max(10, (bank / 10) * 10);
+        if (bank < 10) return;
+        me.clear(); dealer.clear(); doubled = false;
+        bank -= bet;
+        me.push_back(draw1()); dealer.push_back(draw1()); me.push_back(draw1()); dealer.push_back(draw1());
+        phase = 1; msg.clear();
+        if (total(me) == 21) { phase = 2; dealT = 0.5f; }
+    }
+    void settle() {
+        const int a = total(me), b = total(dealer);
+        const bool natural = me.size() == 2 && a == 21, dNatural = dealer.size() == 2 && b == 21;
+        if (a > 21) msg = "Over 21: the dealer takes it";
+        else if (natural && !dNatural) { bank += bet + bet * 3 / 2; msg = "Twenty-one! Paid 3 to 2"; }
+        else if (dNatural && !natural) msg = "The dealer has twenty-one";
+        else if (b > 21) { bank += bet * 2; msg = "The dealer is over: you win"; }
+        else if (a > b) { bank += bet * 2; msg = "You win"; }
+        else if (a == b) { bank += bet; msg = "A push: your miles back"; }
+        else msg = "The dealer wins";
+        if (doubled) bet /= 2;
+        phase = 3;
+        if (bank < 10) msg += "  -  out of miles";
+    }
+    void hit() { me.push_back(draw1()); if (total(me) > 21) settle(); else if (total(me) == 21) { phase = 2; dealT = 0.5f; } }
+    void stand() { phase = 2; dealT = 0.6f; }
+    void dbl() { if (me.size() == 2 && bank >= bet) { bank -= bet; bet *= 2; doubled = true; me.push_back(draw1()); if (total(me) > 21) settle(); else { phase = 2; dealT = 0.6f; } } }
+    // the buttons: where they are (field units), by phase
+    struct Btn { float x0, y0, x1, y1; int id; const char* label; bool on; };
+    std::vector<Btn> buttons() const {
+        std::vector<Btn> b;
+        if (phase == 0 || phase == 3) {
+            b.push_back({16, 204, 52, 230, 10, "-", bet > 10});
+            b.push_back({122, 204, 158, 230, 11, "+", bet + 10 <= std::max(10, bank)});
+            b.push_back({214, 204, 304, 230, 1, phase == 3 ? "Deal again" : "Deal", bank >= 10});
+        } else if (phase == 1) {
+            b.push_back({16, 204, 106, 230, 2, "Hit", true});
+            b.push_back({115, 204, 205, 230, 3, "Stand", true});
+            b.push_back({214, 204, 304, 230, 4, "Double", me.size() == 2 && bank >= bet});
+        }
+        return b;
+    }
+    void press(int id) {
+        if (id == 10) bet = std::max(10, bet - (bet > 100 ? 50 : 10));
+        else if (id == 11) bet = std::min(std::max(10, bank), bet + (bet >= 100 ? 50 : 10));
+        else if (id == 1) deal();
+        else if (id == 2) hit();
+        else if (id == 3) stand();
+        else if (id == 4) dbl();
+    }
+    void step(const Input& in, float dt) {
+        t += dt;
+        if (phase == 0 || phase == 3) {
+            if (in.leftHit) press(10);
+            if (in.rightHit) press(11);
+            if (in.actionHit) press(1);
+        } else if (phase == 1) {
+            if (in.actionHit) press(2);
+            else if (in.downHit) press(3);
+            else if (in.upHit) press(4);
+        }
+        if (in.press && viewSet) {
+            const float fx = (in.px - view.o.x) / view.k, fy = (in.py - view.o.y) / view.k;
+            for (const Btn& b : buttons()) if (b.on && fx >= b.x0 && fx <= b.x1 && fy >= b.y0 && fy <= b.y1) { press(b.id); break; }
+        }
+        if (phase == 2) {   // the dealer's cards, one at a time
+            dealT -= dt;
+            if (dealT <= 0) {
+                if (total(me) <= 21 && total(dealer) < 17) { dealer.push_back(draw1()); dealT = 0.6f; }
+                else settle();
+            }
+        }
+    }
+    static void suit(ImDrawList* dl, ImVec2 c, float r, int s, ImU32 col) {
+        if (s == 0) {   // wings: a chevron with feathers
+            const ImVec2 L[4] = {ImVec2(c.x - r, c.y - r * 0.2f), ImVec2(c.x, c.y + r * 0.25f), ImVec2(c.x, c.y + r * 0.7f), ImVec2(c.x - r * 0.9f, c.y + r * 0.15f)};
+            dl->AddConvexPolyFilled(L, 4, col);
+            const ImVec2 R[4] = {ImVec2(c.x + r, c.y - r * 0.2f), ImVec2(c.x + r * 0.9f, c.y + r * 0.15f), ImVec2(c.x, c.y + r * 0.7f), ImVec2(c.x, c.y + r * 0.25f)};
+            dl->AddConvexPolyFilled(R, 4, col);
+            dl->AddCircleFilled(ImVec2(c.x, c.y - r * 0.15f), r * 0.32f, col, 0);
+        } else if (s == 1) {   // propeller: three blades on a hub
+            for (int i = 0; i < 3; ++i) {
+                const float a = i * 2.094f - 1.571f;
+                const ImVec2 tip(c.x + std::cos(a) * r, c.y + std::sin(a) * r), sd(-std::sin(a) * r * 0.28f, std::cos(a) * r * 0.28f);
+                const ImVec2 bl[3] = {c, ImVec2(tip.x + sd.x, tip.y + sd.y), ImVec2(tip.x - sd.x * 0.2f, tip.y - sd.y * 0.2f)};
+                dl->AddConvexPolyFilled(bl, 3, col);
+            }
+            dl->AddCircleFilled(c, r * 0.25f, col, 0);
+        } else if (s == 2) {   // compass: a four-point star
+            const ImVec2 st[8] = {ImVec2(c.x, c.y - r), ImVec2(c.x + r * 0.22f, c.y - r * 0.22f), ImVec2(c.x + r, c.y), ImVec2(c.x + r * 0.22f, c.y + r * 0.22f),
+                                  ImVec2(c.x, c.y + r), ImVec2(c.x - r * 0.22f, c.y + r * 0.22f), ImVec2(c.x - r, c.y), ImVec2(c.x - r * 0.22f, c.y - r * 0.22f)};
+            for (int i = 0; i < 8; i += 2) { const ImVec2 tri[3] = {c, st[i], st[(i + 1) % 8]}; const ImVec2 tri2[3] = {c, st[(i + 7) % 8], st[i]}; dl->AddConvexPolyFilled(tri, 3, col); dl->AddConvexPolyFilled(tri2, 3, col); }
+        } else {   // beacon: a lamp on a mast, its glow
+            dl->AddRectFilled(ImVec2(c.x - r * 0.12f, c.y - r * 0.1f), ImVec2(c.x + r * 0.12f, c.y + r), col);
+            dl->AddCircleFilled(ImVec2(c.x, c.y - r * 0.35f), r * 0.38f, col, 0);
+            dl->AddLine(ImVec2(c.x - r * 0.9f, c.y - r * 0.35f), ImVec2(c.x - r * 0.55f, c.y - r * 0.35f), col, r * 0.15f);
+            dl->AddLine(ImVec2(c.x + r * 0.55f, c.y - r * 0.35f), ImVec2(c.x + r * 0.9f, c.y - r * 0.35f), col, r * 0.15f);
+            dl->AddLine(ImVec2(c.x, c.y - r * 1.0f), ImVec2(c.x, c.y - r * 0.85f), col, r * 0.15f);
+        }
+    }
+    void card(ImDrawList* dl, const View& v, float x, float y, const Card* c, ImFont* f, float fpx) const {
+        const float cw = 40, ch = 58;
+        dl->AddRectFilled(v.P(x + 1.5f, y + 2), v.P(x + cw + 1.5f, y + ch + 2), rgba(0, 0, 0, 70), v.S(4));
+        if (!c) {   // its back: navy, a white aircraft
+            dl->AddRectFilled(v.P(x, y), v.P(x + cw, y + ch), rgba(26, 52, 110), v.S(4));
+            dl->AddRect(v.P(x + 3, y + 3), v.P(x + cw - 3, y + ch - 3), rgba(255, 255, 255, 90), v.S(3), 0, v.S(0.8f));
+            plane(dl, v.P(x + cw * 0.5f, y + ch * 0.5f), v.S(22), -kPi * 0.5f, rgba(255, 255, 255, 200));
+            return;
+        }
+        dl->AddRectFilled(v.P(x, y), v.P(x + cw, y + ch), rgba(250, 250, 246), v.S(4));
+        const ImU32 col = c->suit % 2 ? rgba(200, 40, 50) : rgba(24, 44, 92);
+        static const char* rk[14] = {"", "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"};
+        dl->AddText(f, fpx, v.P(x + 3, y + 1), col, rk[c->rank]);
+        suit(dl, v.P(x + 8, y + 18), v.S(4.5f), c->suit, col);
+        suit(dl, v.P(x + cw * 0.5f, y + ch * 0.58f), v.S(11), c->suit, col);
+    }
+    void draw(ImDrawList* dl, ImVec2 a, ImVec2 b, ImFont* big, float bigPx, ImFont* small, float smallPx) {
+        view = fit(a, b, W, H); viewSet = true;
+        const View& v = view;
+        dl->AddRectFilledMultiColor(v.P(0, 0), v.P(W, H), rgba(20, 70, 60), rgba(20, 70, 60), rgba(12, 46, 40), rgba(12, 46, 40));
+        dl->AddRect(v.P(4, 4), v.P(W - 4, H - 4), rgba(230, 200, 120, 90), v.S(10), 0, v.S(1.2f));
+        const float fpx = std::max(10.0f, v.S(13));
+        char tt[64];
+        // the dealer's hand (its second card face down on your turn), then yours
+        const bool hide = phase == 1;
+        std::snprintf(tt, sizeof tt, hide ? "Dealer" : "Dealer  %d", total(dealer));
+        dl->AddText(small, smallPx, v.P(16, 12), rgba(230, 240, 235), tt);
+        for (size_t i = 0; i < dealer.size(); ++i) card(dl, v, 16 + i * 30.0f, 26, (hide && i == 1) ? nullptr : &dealer[i], big, fpx);
+        if (!me.empty()) { std::snprintf(tt, sizeof tt, "You  %d", total(me)); dl->AddText(small, smallPx, v.P(16, 96), rgba(230, 240, 235), tt); }
+        for (size_t i = 0; i < me.size(); ++i) card(dl, v, 16 + i * 30.0f, 110, &me[i], big, fpx);
+        // the miles and the bet, at the right
+        std::snprintf(tt, sizeof tt, "Miles %d", bank); dl->AddText(small, smallPx, v.P(214, 12), rgba(255, 230, 150), tt);
+        std::snprintf(tt, sizeof tt, "Bet %d", bet); dl->AddText(small, smallPx, v.P(214, 30), rgba(230, 240, 235), tt);
+        if (!msg.empty()) dl->AddText(small, smallPx, v.P(16, 180), rgba(255, 255, 255), msg.c_str());
+        // the buttons
+        for (const Btn& bt : buttons()) {
+            dl->AddRectFilled(v.P(bt.x0, bt.y0), v.P(bt.x1, bt.y1), bt.on ? rgba(240, 200, 90) : rgba(120, 130, 120, 120), v.S(8));
+            centred(dl, small, smallPx, v.P((bt.x0 + bt.x1) * 0.5f, (bt.y0 + bt.y1) * 0.5f), bt.on ? rgba(30, 30, 30) : rgba(60, 60, 60), bt.label);
+        }
+        if (phase == 0 || phase == 3) { std::snprintf(tt, sizeof tt, "%d", bet); centred(dl, small, smallPx, v.P(87, 217), rgba(255, 255, 255), tt); }
+    }
+};
+
+// ================================================================================================================================
+// Cargo Load: containers of every shape, three at a time, dragged into the hold; a full row or column of the hold ships out
+// and scores, several at once score more. No container fits anywhere: the hold is closed (the game is over)
+struct CargoLoad {
+    static constexpr float W = 320, H = 240;
+    static constexpr int N = 8;
+    static constexpr float cell = 26, gx = 16, gy = 16;   // the hold, 8 x 8
+    int grid[N][N] = {};   // 0 empty, else its colour + 1
+    struct Piece { std::vector<std::pair<int, int>> cells; int w = 1, h = 1, col = 0; bool used = true; };
+    Piece tray[3];
+    int drag = -1; float dragX = 0, dragY = 0;
+    int score = 0, combo = 0; bool over = false, started = false;
+    float t = 0, flashT = 0; std::vector<std::pair<int, int>> flashCells;
+    View view; bool viewSet = false;
+    static Piece make(int kind) {
+        static const char* shapes[] = {"#", "##", "#\n#", "###", "#\n#\n#", "####", "#\n#\n#\n#", "#####", "#\n#\n#\n#\n#", "##\n##", "###\n###\n###",
+                                       "#.\n##", ".#\n##", "##\n#.", "##\n.#", "#..\n###", "..#\n###", "###\n#..", "###\n..#", "###\n.#.", ".#.\n###", "##.\n.##", ".##\n##.", "##\n##\n##", "###\n###"};
+        const int n = (int)(sizeof shapes / sizeof shapes[0]);
+        const char* sp = shapes[std::max(0, std::min(n - 1, kind))];
+        Piece p; int x = 0, y = 0;
+        for (const char* q = sp; *q; ++q) {
+            if (*q == '\n') { ++y; x = 0; continue; }
+            if (*q == '#') { p.cells.push_back({x, y}); p.w = std::max(p.w, x + 1); p.h = std::max(p.h, y + 1); }
+            ++x;
+        }
+        p.col = irand(0, 5); p.used = false;
+        return p;
+    }
+    static int kinds() { return 25; }
+    bool fits(const Piece& p, int cx, int cy) const {
+        for (const auto& c : p.cells) { const int x = cx + c.first, y = cy + c.second; if (x < 0 || y < 0 || x >= N || y >= N || grid[y][x]) return false; }
+        return true;
+    }
+    bool fitsAnywhere(const Piece& p) const { for (int y = 0; y < N; ++y) for (int x = 0; x < N; ++x) if (fits(p, x, y)) return true; return false; }
+    void refill() { for (auto& p : tray) p = make(irand(0, kinds() - 1)); }
+    void checkOver() { bool any = false; for (const auto& p : tray) if (!p.used && fitsAnywhere(p)) any = true; over = !any; }
+    void reset() { for (auto& r : grid) for (int& c : r) c = 0; score = 0; combo = 0; over = false; started = true; drag = -1; refill(); }
+    // the tray: three slots at the right, each about 64 x 70
+    void slot(int i, float& cx, float& cy) const { cx = 266; cy = 54 + i * 72.0f; }
+    float trayCell(const Piece& p) const { return std::min(12.0f, 56.0f / std::max(p.w, p.h)); }
+    bool place(int i, int cx, int cy) {
+        Piece& p = tray[i];
+        if (!fits(p, cx, cy)) return false;
+        for (const auto& c : p.cells) grid[cy + c.second][cx + c.first] = p.col + 1;
+        score += (int)p.cells.size();
+        p.used = true;
+        // full rows and columns ship out
+        bool rowFull[N], colFull[N];
+        int lines = 0;
+        for (int k = 0; k < N; ++k) {
+            rowFull[k] = colFull[k] = true;
+            for (int j = 0; j < N; ++j) { if (!grid[k][j]) rowFull[k] = false; if (!grid[j][k]) colFull[k] = false; }
+            lines += rowFull[k] + colFull[k];
+        }
+        flashCells.clear();
+        for (int k = 0; k < N; ++k) for (int j = 0; j < N; ++j) if (rowFull[k] || colFull[j]) { flashCells.push_back({j, k}); }
+        for (const auto& c : flashCells) grid[c.second][c.first] = 0;
+        if (lines) { ++combo; score += lines * 10 * lines * combo; flashT = 0.35f; } else combo = 0;
+        if (tray[0].used && tray[1].used && tray[2].used) refill();
+        checkOver();
+        return true;
+    }
+    void toField(float sx, float sy, float& fx, float& fy) const { fx = (sx - view.o.x) / view.k; fy = (sy - view.o.y) / view.k; }
+    // where a dragged piece would go: its top-left cell (the piece drawn above the finger)
+    void dropCell(int i, int& cx, int& cy) const {
+        const Piece& p = tray[i];
+        const float px0 = dragX - p.w * cell * 0.5f, py0 = dragY - 34 - p.h * cell * 0.5f;
+        cx = (int)std::floor((px0 - gx) / cell + 0.5f); cy = (int)std::floor((py0 - gy) / cell + 0.5f);
+    }
+    void step(const Input& in, float dt) {
+        t += dt; if (flashT > 0) flashT -= dt;
+        if (over || !viewSet) return;
+        float fx, fy; toField(in.px, in.py, fx, fy);
+        if (in.press && drag < 0) {
+            for (int i = 0; i < 3; ++i) {
+                if (tray[i].used) continue;
+                float cx, cy; slot(i, cx, cy);
+                if (std::fabs(fx - cx) < 36 && std::fabs(fy - cy) < 36) { drag = i; break; }
+            }
+        }
+        if (drag >= 0) { dragX = fx; dragY = fy; }
+        if (drag >= 0 && (in.release || !in.held)) {
+            int cx, cy; dropCell(drag, cx, cy);
+            place(drag, cx, cy);
+            drag = -1;
+        }
+    }
+    static ImU32 colour(int c) {
+        static const ImU32 k[6] = {IM_COL32(230, 120, 50, 255), IM_COL32(70, 150, 230, 255), IM_COL32(90, 190, 110, 255), IM_COL32(220, 190, 60, 255), IM_COL32(170, 110, 220, 255), IM_COL32(220, 80, 90, 255)};
+        return k[c % 6];
+    }
+    static void box(ImDrawList* dl, ImVec2 a, ImVec2 b, ImU32 col) {   // a container: its face, ridges, a lighter top edge
+        const float s = b.x - a.x;
+        dl->AddRectFilled(ImVec2(a.x + s * 0.05f, a.y + s * 0.05f), ImVec2(b.x - s * 0.05f, b.y - s * 0.05f), col, s * 0.12f);
+        dl->AddLine(ImVec2(a.x + s * 0.12f, a.y + s * 0.12f), ImVec2(b.x - s * 0.12f, a.y + s * 0.12f), IM_COL32(255, 255, 255, 110), std::max(1.0f, s * 0.06f));
+        for (int r = 1; r < 3; ++r) dl->AddLine(ImVec2(a.x + s * r / 3.0f, a.y + s * 0.22f), ImVec2(a.x + s * r / 3.0f, b.y - s * 0.15f), IM_COL32(0, 0, 0, 50), std::max(1.0f, s * 0.04f));
+    }
+    void draw(ImDrawList* dl, ImVec2 a, ImVec2 b, ImFont* big, float bigPx, ImFont* small, float smallPx) {
+        view = fit(a, b, W, H); viewSet = true;
+        const View& v = view;
+        dl->AddRectFilled(v.P(0, 0), v.P(W, H), rgba(30, 34, 44));
+        // the hold: its floor of roller tracks
+        dl->AddRectFilled(v.P(gx - 4, gy - 4), v.P(gx + N * cell + 4, gy + N * cell + 4), rgba(18, 20, 28), v.S(6));
+        for (int y = 0; y < N; ++y) for (int x = 0; x < N; ++x) {
+            dl->AddRectFilled(v.P(gx + x * cell + 1, gy + y * cell + 1), v.P(gx + (x + 1) * cell - 1, gy + (y + 1) * cell - 1), rgba(48, 54, 68), v.S(3));
+            for (int r = 1; r < 4; ++r) dl->AddCircleFilled(v.P(gx + x * cell + cell * r / 4.0f, gy + y * cell + cell * 0.5f), v.S(1.2f), rgba(70, 78, 96), 0);
+        }
+        // where the dragged one would go
+        if (drag >= 0) {
+            int cx, cy; dropCell(drag, cx, cy);
+            const bool ok = fits(tray[drag], cx, cy);
+            if (ok) for (const auto& c : tray[drag].cells) dl->AddRectFilled(v.P(gx + (cx + c.first) * cell + 1, gy + (cy + c.second) * cell + 1), v.P(gx + (cx + c.first + 1) * cell - 1, gy + (cy + c.second + 1) * cell - 1), rgba(255, 255, 255, 50), v.S(3));
+        }
+        for (int y = 0; y < N; ++y) for (int x = 0; x < N; ++x) if (grid[y][x]) box(dl, v.P(gx + x * cell, gy + y * cell), v.P(gx + (x + 1) * cell, gy + (y + 1) * cell), colour(grid[y][x] - 1));
+        if (flashT > 0) for (const auto& c : flashCells) dl->AddRectFilled(v.P(gx + c.first * cell, gy + c.second * cell), v.P(gx + (c.first + 1) * cell, gy + (c.second + 1) * cell), rgba(255, 255, 255, (int)(flashT / 0.35f * 200)), v.S(3));
+        // the tray
+        dl->AddText(small, smallPx, v.P(232, 3), rgba(200, 210, 225), "Next up");
+        for (int i = 0; i < 3; ++i) {
+            float cx, cy; slot(i, cx, cy);
+            dl->AddRectFilled(v.P(cx - 36, cy - 34), v.P(cx + 36, cy + 34), rgba(40, 46, 60), v.S(6));
+            const Piece& p = tray[i];
+            if (p.used || i == drag) continue;
+            const float tc = trayCell(p), ox = cx - p.w * tc * 0.5f, oy = cy - p.h * tc * 0.5f;
+            const bool can = fitsAnywhere(p);
+            for (const auto& c : p.cells) box(dl, v.P(ox + c.first * tc, oy + c.second * tc), v.P(ox + (c.first + 1) * tc, oy + (c.second + 1) * tc), can ? colour(p.col) : rgba(90, 96, 110));
+        }
+        if (drag >= 0) {   // the piece under (just above) the finger, at the hold's size
+            const Piece& p = tray[drag];
+            const float ox = dragX - p.w * cell * 0.5f, oy = dragY - 34 - p.h * cell * 0.5f;
+            for (const auto& c : p.cells) box(dl, v.P(ox + c.first * cell, oy + c.second * cell), v.P(ox + (c.first + 1) * cell, oy + (c.second + 1) * cell), colour(p.col));
+        }
+        if (over) banner(dl, v, W, H, big, bigPx, small, smallPx, "Hold closed", "No container fits: New game to load again");
+    }
+};
+
 Contrail g_contrail;
 TaxiRush g_taxi;
 SkyPatrol g_sky;
 HangarClimb g_hangar;
+Cockpit21 g_c21;
+CargoLoad g_cargo;
 
 }  // namespace
 
 const char* name(int g) {
-    static const char* n[COUNT] = {"Contrail", "Taxi Rush", "Sky Patrol", "Hangar Climb"};
+    static const char* n[COUNT] = {"Contrail", "Taxi Rush", "Sky Patrol", "Hangar Climb", "Cockpit 21", "Cargo Load"};
     return g >= 0 && g < COUNT ? n[g] : "";
 }
 const char* blurb(int g) {
     static const char* n[COUNT] = {"Take on fuel; never cross your own contrail.", "Taxi for every light; the ground vehicles patrol.",
-                                   "Rogue drones swoop in formation: clear the sky.", "Jump the rolling tyres; hit the loader's stop."};
+                                   "Rogue drones swoop in formation: clear the sky.", "Jump the rolling tyres; hit the loader's stop.",
+                                   "Twenty-one against the dealer, for air miles.", "Load the hold; full rows and columns ship out."};
     return g >= 0 && g < COUNT ? n[g] : "";
 }
 const char* help(int g) {
     static const char* n[COUNT] = {"Steer with the arrows (W A S D). Each fuel drop lengthens the contrail and speeds you up; the airspace's edge and your own trail end the flight.",
                                    "Taxi with the arrows (W A S D) over every green light. A big green light is a takeoff clearance: for a few seconds the vehicles give way, and you can send them back to the apron.",
                                    "Left and right fly, the action button (Space) fires. Drones that swoop at you score double; dodge their hail.",
-                                   "Left and right walk, up and down climb ladders, the action button (Space) jumps. Jump a tyre for points; reach the red stop on the top deck."};
+                                   "Left and right walk, up and down climb ladders, the action button (Space) jumps. Jump a tyre for points; reach the red stop on the top deck.",
+                                   "Get closer to 21 than the dealer without going over. Tap the buttons (or Space to deal and hit, down to stand, up to double, left and right for the bet). The dealer stands on 17; twenty-one with two cards pays 3 to 2.",
+                                   "Drag a container from the right into the hold. A full row or column ships out and scores; several at once score more. When none of the three fits, the hold is closed."};
     return g >= 0 && g < COUNT ? n[g] : "";
 }
 float aspect(int g) { return g == CONTRAIL ? 28.0f / 20.0f : g == TAXI_RUSH ? 21.0f / 15.0f : 320.0f / 240.0f; }
+bool usesPad(int g) { return g != COCKPIT_21 && g != CARGO_LOAD; }
 void reset(int g) {
     if (g == CONTRAIL) g_contrail.reset(); else if (g == TAXI_RUSH) g_taxi.reset(); else if (g == SKY_PATROL) g_sky.reset(); else if (g == HANGAR_CLIMB) g_hangar.reset();
+    else if (g == COCKPIT_21) g_c21.reset(); else if (g == CARGO_LOAD) g_cargo.reset();
 }
-bool started(int g) { return g == CONTRAIL ? g_contrail.started : g == TAXI_RUSH ? g_taxi.started : g == SKY_PATROL ? g_sky.started : g == HANGAR_CLIMB ? g_hangar.started : false; }
+bool started(int g) { return g == CONTRAIL ? g_contrail.started : g == TAXI_RUSH ? g_taxi.started : g == SKY_PATROL ? g_sky.started : g == HANGAR_CLIMB ? g_hangar.started
+                           : g == COCKPIT_21 ? g_c21.started : g == CARGO_LOAD ? g_cargo.started : false; }
 void step(int g, const Input& in, float dt) {
     if (!started(g)) reset(g);
     dt = std::max(0.0f, std::min(dt, 0.1f));
+    if (g == COCKPIT_21) { g_c21.step(in, dt); return; }      // (the tap games: one step a frame, as they are touched)
+    if (g == CARGO_LOAD) { g_cargo.step(in, dt); return; }
     Input first = in, rest = in;   // (a long frame in small steps; the presses only in the first)
     rest.leftHit = rest.rightHit = rest.upHit = rest.downHit = rest.actionHit = false;
     const int n = std::max(1, (int)std::ceil(dt / 0.02f));
@@ -607,10 +921,14 @@ void draw(int g, ImDrawList* dl, ImVec2 a, ImVec2 b, ImFont* big, float bigPx, I
     else if (g == TAXI_RUSH) g_taxi.draw(dl, a, b, big, bigPx, small, smallPx);
     else if (g == SKY_PATROL) g_sky.draw(dl, a, b, big, bigPx, small, smallPx);
     else if (g == HANGAR_CLIMB) g_hangar.draw(dl, a, b, big, bigPx, small, smallPx);
+    else if (g == COCKPIT_21) g_c21.draw(dl, a, b, big, bigPx, small, smallPx);
+    else if (g == CARGO_LOAD) g_cargo.draw(dl, a, b, big, bigPx, small, smallPx);
 }
-int score(int g) { return g == CONTRAIL ? g_contrail.score : g == TAXI_RUSH ? g_taxi.score : g == SKY_PATROL ? g_sky.score : g == HANGAR_CLIMB ? g_hangar.score : 0; }
+int score(int g) { return g == CONTRAIL ? g_contrail.score : g == TAXI_RUSH ? g_taxi.score : g == SKY_PATROL ? g_sky.score : g == HANGAR_CLIMB ? g_hangar.score
+                         : g == COCKPIT_21 ? g_c21.bank : g == CARGO_LOAD ? g_cargo.score : 0; }
 int lives(int g) { return g == TAXI_RUSH ? g_taxi.livesLeft : g == SKY_PATROL ? g_sky.livesLeft : g == HANGAR_CLIMB ? g_hangar.livesLeft : -1; }
-bool over(int g) { return g == CONTRAIL ? g_contrail.over : g == TAXI_RUSH ? g_taxi.over : g == SKY_PATROL ? g_sky.over : g == HANGAR_CLIMB ? g_hangar.over : false; }
+bool over(int g) { return g == CONTRAIL ? g_contrail.over : g == TAXI_RUSH ? g_taxi.over : g == SKY_PATROL ? g_sky.over : g == HANGAR_CLIMB ? g_hangar.over
+                         : g == COCKPIT_21 ? (g_c21.bank < 10 && g_c21.phase != 1 && g_c21.phase != 2) : g == CARGO_LOAD ? g_cargo.over : false; }
 
 void icon(int g, ImDrawList* dl, ImVec2 c, float r) {
     const ImU32 w = IM_COL32(255, 255, 255, 255);
@@ -632,6 +950,19 @@ void icon(int g, ImDrawList* dl, ImVec2 c, float r) {
         }
         dl->AddLine(ImVec2(c.x, c.y + r * 0.05f), ImVec2(c.x, c.y - r * 0.15f), IM_COL32(255, 240, 150, 255), r * 0.05f);
         plane(dl, ImVec2(c.x, c.y + r * 0.42f), r * 0.55f, -kPi * 0.5f, w);
+    } else if (g == COCKPIT_21) {
+        for (int i = 0; i < 2; ++i) {
+            const ImVec2 o(c.x - r * 0.5f + i * r * 0.36f, c.y - r * 0.5f + i * r * 0.1f);
+            dl->AddRectFilled(o, ImVec2(o.x + r * 0.6f, o.y + r * 0.86f), IM_COL32(250, 250, 246, 255), r * 0.08f);
+            Cockpit21::suit(dl, ImVec2(o.x + r * 0.3f, o.y + r * 0.5f), r * 0.17f, i == 0 ? 0 : 1, i == 0 ? IM_COL32(24, 44, 92, 255) : IM_COL32(200, 40, 50, 255));
+        }
+    } else if (g == CARGO_LOAD) {
+        static const int pat[3][3] = {{1, 1, 0}, {1, 2, 2}, {0, 3, 3}};
+        const float s = r * 0.36f;
+        for (int y = 0; y < 3; ++y) for (int x = 0; x < 3; ++x) if (pat[y][x]) {
+            const ImVec2 a(c.x - s * 1.5f + x * s, c.y - s * 1.5f + y * s);
+            CargoLoad::box(dl, a, ImVec2(a.x + s, a.y + s), CargoLoad::colour(pat[y][x]));
+        }
     } else {
         for (int k = 0; k < 3; ++k) {
             const float yy = c.y + r * 0.5f - k * r * 0.4f;

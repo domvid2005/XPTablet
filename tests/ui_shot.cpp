@@ -445,13 +445,13 @@ int main(int argc, char** argv) {
         {   // each game, opened from its card (nothing drawn over the board)
             auto tp = [&](float x, float y) { for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1);
                 ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); } };
-            tp(200, 200); shot(t, APP_GAMES, "games_2048");
-            tp(60, 100); tp(400, 200); tp(200, 300); shot(t, APP_GAMES, "games_ttt");
+            tp(100, 200); shot(t, APP_GAMES, "games_2048");
+            tp(60, 100); tp(300, 200); tp(200, 300); shot(t, APP_GAMES, "games_ttt");
             tp(60, 100);
             {   // the arcade games: each from its card, played a little (keys held and pressed), its page
-                static const float cx[4] = {660, 140, 400, 660}, cy[4] = {200, 380, 380, 380};
-                static const char* nm[4] = {"games_contrail", "games_taxirush", "games_skypatrol", "games_hangarclimb"};
-                for (int g = 0; g < 4; ++g) {
+                static const float cx[6] = {500, 690, 100, 300, 500, 690}, cy[6] = {200, 200, 380, 380, 380, 380};
+                static const char* nm[6] = {"games_contrail", "games_taxirush", "games_skypatrol", "games_hangarclimb", "games_cockpit21", "games_cargoload"};
+                for (int g = 0; g < 6; ++g) {
                     tp(cx[g], cy[g]);
                     tp(200, 250);   // (the field pressed: it has the keys)
                     if (!gameWantsKeys()) { std::printf("FAIL: %s's field takes the keys when pressed\n", nm[g]); ++failures; }
@@ -460,6 +460,14 @@ int main(int argc, char** argv) {
                     for (int k = 0; k < 40; ++k) { if (k % 9 == 0) { gameKeyEvent(4, true); } if (k % 9 == 4) gameKeyEvent(4, false);
                         io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); io.AddMouseButtonEvent(0, false); ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); }
                     gameKeyEvent(1, false); gameKeyEvent(4, false);
+                    if (g == 5) {   // Cargo Load: a container dragged from the first slot into the hold
+                        const int before = xpt::arcade::score(5);
+                        auto fr2 = [&](float x, float y, bool d) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, d); ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); };
+                        fr2(433, 202, false); fr2(433, 202, true);
+                        for (int k = 1; k <= 12; ++k) fr2(433 + (169 - 433) * k / 12.0f, 202 + (290 - 202) * k / 12.0f, true);
+                        fr2(169, 290, false); fr2(-1000, -1000, false);
+                        if (xpt::arcade::score(5) <= before) { std::printf("FAIL: Cargo Load: a container dragged into the hold\n"); ++failures; }
+                    }
                     shot(t, APP_GAMES, nm[g]);
                     tp(60, 100);
                 }
@@ -1326,7 +1334,7 @@ int main(int argc, char** argv) {
                 in.downHit = in.down && (seed >> 24) % 4 == 0; in.actionHit = in.action && (seed >> 25) % 3 == 0;
                 xpt::arcade::step(g, in, 1.0f / 60.0f);
                 const int sc = xpt::arcade::score(g);
-                if (sc < last) { std::printf("FAIL: %s's score went down (%d to %d)\n", xpt::arcade::name(g), last, sc); ++failures; break; }
+                if (sc < last && g != xpt::arcade::COCKPIT_21) { std::printf("FAIL: %s's score went down (%d to %d)\n", xpt::arcade::name(g), last, sc); ++failures; break; }   // (21: the miles go both ways)
                 last = sc;
                 if (xpt::arcade::over(g)) { ++games; xpt::arcade::reset(g); last = 0; }
             }

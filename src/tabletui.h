@@ -60,7 +60,7 @@ struct Settings {
     int accent = 0;               // Display: the colour of what is chosen (0 violet .. 4 gold), from the logo's letters
     bool localConnect = false;    // Local Connect: the tablet on a phone or tablet on the same network (off until switched on)
     bool localBattery = true;     // with a device connected that tells its battery: the tablet's battery is that device's
-    int arcadeBest[4] = {0, 0, 0, 0};   // the best scores of Contrail, Taxi Rush, Sky Patrol and Hangar Climb
+    int arcadeBest[6] = {0, 0, 0, 0, 0, 0};   // the best scores of Contrail, Taxi Rush, Sky Patrol, Hangar Climb, Cockpit 21 (most miles), Cargo Load
     bool physicalKeys = false;    // typing: the computer's own keyboard (a thin bar instead of the on-screen keys)
     bool mapRings = true;         // range rings round the aircraft (a quarter, half and all of the range), as on WXPlane's map
     bool mapIls = true;           // ILS and localizer courses (a layer of their own)
