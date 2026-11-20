@@ -1108,17 +1108,29 @@ int main(int argc, char** argv) {
               auto settle = [&](const SimState& st2) { for (int k = 0; k < 10; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, st2, 800, kLogicalH, act); ImGui::Render(); } };
               press(p1, 295, 133); settle(p1);
               bool stop = false;
-              for (float yy = 170; yy < 420 && !stop; yy += 6) { const Actions q = press(p1, 200, yy); if (q.ground == GA_PUSH_STOP) stop = true; }
+              for (float yy = 170; yy < 470 && !stop; yy += 6) { const Actions q = press(p1, 580, yy); if (q.ground == GA_PUSH_STOP) stop = true; }
               if (!stop) { std::printf("FAIL: the Pushback panel's Stop (X-Plane's tug)\n"); ++failures; }
               settle(p1);
               shot(p1, APP_GROUND, "ground_pushback_xp");
-              SimState p2 = g3; p2.ground.pushSource = 1; p2.ground.bpConnected = true; p2.ground.parkBrake = true;
-              press(p2, 700, 450); settle(p2); press(p2, 295, 133); settle(p2);
+              SimState p2 = g3; p2.ground.pushSource = 1; p2.ground.bpConnected = true; p2.ground.parkBrake = true; p2.ground.taxiLight = true;
+              settle(p2);   // (the panel stays open from X-Plane's tug above)
               bool start = false;
-              for (float yy = 170; yy < 420 && !start; yy += 6) { const Actions q = press(p2, 120, yy); if (q.ground == GA_BP_START) start = true; }
+              for (float yy = 170; yy < 470 && !start; yy += 6) { const Actions q = press(p2, 480, yy); if (q.ground == GA_BP_START) start = true; }
               if (!start) { std::printf("FAIL: the Pushback panel's Start (BetterPushback)\n"); ++failures; }
               settle(p2);
               shot(p2, APP_GROUND, "ground_pushback_bp");
+              {   // its tug: connected, its button disconnects it
+                  bool disc = false;
+                  for (float yy = 170; yy < 470 && !disc; yy += 6) { const Actions q = press(p2, 700, yy); if (q.ground == GA_BP_DISCONNECT) disc = true; }
+                  if (!disc) { std::printf("FAIL: the Pushback panel's Disconnect the tug (BetterPushback)\n"); ++failures; }
+                  settle(p2);
+              }
+              {   // the X puts the panel away (the cabin back)
+                  press(p2, 776, 112); settle(p2);
+                  bool cabin = false;
+                  for (float yy = 100; yy < 340 && !cabin; yy += 6) { const Actions q = press(p2, 700, yy); if (q.ground == GA_SLIDES_AUTO) cabin = true; }
+                  if (!cabin) { std::printf("FAIL: the Pushback panel's X\n"); ++failures; }
+              }
               press(p2, 700, 450); settle(p2);
           }
           { SimState g4 = g3; g4.ground.slidesAuto = true; g4.ground.slides = 1; settings().cabinAuto = true; shot(g4, APP_GROUND, "ground_slides_auto"); settings().cabinAuto = false; }

@@ -200,6 +200,7 @@ struct SimRefs {
     double jwPressT[3] = {-100, -100, -100};                           // when each door's bubble was last pressed
     bool cabinReady = false, cabinReadyGround = true;                  // ToLiss: Cabin Ready given; on the ground when it was (cleared on takeoff, landing)
     XPLMDataRef jwNumber = nullptr;                                    // openSAM: how many jetways serve the plane
+    XPLMDataRef landingLights = nullptr, taxiLight = nullptr;          // (the ones BetterPushback watches)
     XPLMDataRef bpStarted = nullptr, bpConnected = nullptr;            // BetterPushback: bp/started, bp/connected
     XPLMDataRef beacon = nullptr, engRun = nullptr, parkBrake = nullptr, isChocked = nullptr, gs = nullptr, tlParkBrake = nullptr;
     XPLMDataRef paxDoor = nullptr, cargoDoor = nullptr, chocks = nullptr, extPower = nullptr, hpAir = nullptr, lpAir = nullptr;   // ToLiss
@@ -2073,6 +2074,8 @@ void findSimRefs() {
         r.parkBrake = XPLMFindDataRef("sim/cockpit2/controls/parking_brake_ratio");
         r.isChocked = XPLMFindDataRef("sim/flightmodel2/gear/is_chocked");
         r.gs = XPLMFindDataRef("sim/flightmodel/position/groundspeed");
+        r.landingLights = XPLMFindDataRef("sim/cockpit/electrical/landing_lights_on");
+        r.taxiLight = XPLMFindDataRef("sim/cockpit/electrical/taxi_light_on");
     }
     // other plugins' datarefs appear when they load (an aircraft's own plugin after the aircraft): looked for until found
     if (!r.jwStatus) r.jwStatus = XPLMFindDataRef("opensam/jetway/status");
@@ -2243,6 +2246,8 @@ void readSimState() {
     g.pushSource = XPLMFindCommand("BetterPushback/start") != nullptr ? 1 : 0;   // (BetterPushback's commands: it is installed)
     g.bpStarted = g.pushSource == 1 && r.bpStarted && XPLMGetDatai(r.bpStarted) != 0;
     g.bpConnected = g.pushSource == 1 && r.bpConnected && XPLMGetDatai(r.bpConnected) != 0;
+    g.landingLights = r.landingLights && XPLMGetDatai(r.landingLights) != 0;
+    g.taxiLight = r.taxiLight && XPLMGetDatai(r.taxiLight) != 0;
     g.jetway = g.openSam ? XPLMGetDatai(r.jwStatus) : 0;
     g.toliss = g_sim.toliss && r.paxDoor != nullptr;
     g.paxDoors = g.cargoDoors = 0;
@@ -2503,6 +2508,8 @@ void doGround(const xpt::Actions& act) {
     case xpt::GA_BP_CONNECT: once("BetterPushback/connect_first"); break;  // the tug drives up and connects before the route is planned
     case xpt::GA_BP_START: once("BetterPushback/start"); break;
     case xpt::GA_BP_STOP: once("BetterPushback/stop"); break;
+    case xpt::GA_BP_DISCONNECT: once("BetterPushback/disconnect"); break;   // the tow bar and headset off (hand signals from then on)
+    case xpt::GA_BP_RECONNECT: once("BetterPushback/reconnect"); break;     // the tow back on, waiting
     case xpt::GA_DOORS_CLOSE: if (g.toliss) trigger("toliss_airbus/door_commands/all_to_mode_close"); break;
     case xpt::GA_DOORS_AUTO: if (g.toliss) trigger("toliss_airbus/door_commands/all_to_mode_auto"); break;
     case xpt::GA_DEICE: if (g.toliss) trigger("toliss_airbus/iscsinterface/animatedDeice"); break;
