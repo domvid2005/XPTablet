@@ -975,6 +975,7 @@ int main(int argc, char** argv) {
           press(g3, 78, cy);
           for (int k = 0; k < 8; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, g3, 800, kLogicalH, act); ImGui::Render(); }
           shot(g3, APP_GROUND, "ground_jetway_menu");
+          { SimState g4 = g3; g4.ground.slidesAuto = true; g4.ground.slides = 1; shot(g4, APP_GROUND, "ground_slides_auto"); }
           press(g3, 700, 450); openApp(APP_GROUND); }
         // not a ToLiss: an airliner still gets the 1L bubble (X-Plane's own jetways, or openSAM's)
         { SimState t2 = t; t2.acfIcao = "B738"; t2.toliss = false; t2.ground.toliss = false; t2.ground.openSam = false; t2.ground.jetway = 1; t2.ground.jwDoors = 1;

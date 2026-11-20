@@ -6051,8 +6051,18 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         y += 32;
         // Arm, Disarm, or Auto: the aircraft's own rule (ToLiss arms them once the beacon is on and the doors are shut, disarms parked)
         const float bw = std::floor((cx1 - cx0 - 16) / 3.0f);
-        if (pill(dl, f, "##arm", "Arm", ImVec2(cx0, y), ImVec2(cx0 + bw, y + 30), !g.slidesAuto && g.slides == 1, true)) act.ground = GA_SLIDES_ARM;
-        if (pill(dl, f, "##disarm", "Disarm", ImVec2(cx0 + bw + 8, y), ImVec2(cx0 + 2 * bw + 8, y + 30), !g.slidesAuto && g.slides == 0, true)) act.ground = GA_SLIDES_DISARM;
+        // Arm and Disarm hold them so; with Auto, ToLiss arms and disarms them itself: Arm and Disarm are greyed then, the one that
+        // matches what ToLiss has done still lit (a press on either holds it so again, out of Auto)
+        const ImVec2 armA(cx0, y), armB(cx0 + bw, y + 30), disA(cx0 + bw + 8, y), disB(cx0 + 2 * bw + 8, y + 30);
+        if (pill(dl, f, "##arm", "Arm", armA, armB, g.slides == 1, true)) act.ground = GA_SLIDES_ARM;
+        if (pill(dl, f, "##disarm", "Disarm", disA, disB, g.slides == 0, true)) act.ground = GA_SLIDES_DISARM;
+        {
+            const float gk = openness("##slgrey", g.slidesAuto);   // (greyed in and out smoothly)
+            if (gk > 0.01f) {
+                dl->AddRectFilled(armA, armB, IM_COL32(14, 18, 28, (int)(150 * gk)), 15.0f);
+                dl->AddRectFilled(disA, disB, IM_COL32(14, 18, 28, (int)(150 * gk)), 15.0f);
+            }
+        }
         if (pill(dl, f, "##sauto", "Auto", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), g.slidesAuto, true)) act.ground = GA_SLIDES_AUTO;
         y += 42;
         // Cabin Ready: tells the aircraft the cabin is secure (the CABIN READY memo); greyed once given, until after takeoff or landing

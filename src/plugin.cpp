@@ -2404,6 +2404,9 @@ void slidesHoldStep() {
 }
 void slidesAutoStep() {
     const xpt::GroundState& g = g_sim.ground;
+    // Auto: ToLiss arms and disarms them on its own; XPTablet leaves them alone (it only holds them when Arm or Disarm is chosen)
+    (void)g;
+    return;
     if (g_slidesHold) return;
     if (!g_slidesAuto || !g.toliss || g.slides < 0) return;
     static double last = -10;
