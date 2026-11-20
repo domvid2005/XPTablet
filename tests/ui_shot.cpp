@@ -827,6 +827,29 @@ int main(int argc, char** argv) {
             settings().simbriefUser = "alpineaviation";
             st.plan.status = "Imported KSBN to KORD at 05:12Z"; st.plan.loaded = true;
             shot(st, APP_SETTINGS, "settings_data");
+            {   // Reset All: tapped twice, every setting back to its default, and the tablet boots
+                const Settings keepAll = settings();
+                setBattery(100);
+                Settings fresh; settings() = fresh; layoutHome(); const std::string defaults = settingsToText();
+                settings() = keepAll;
+                settings().favoriteSlots = 2; settings().wallpaper = 3; settings().notifyTcas = false; settings().localConnect = true;
+                tap(st, 80, 196);   // Data
+                bool booted = false;
+                for (float yy = 330; yy < 390 && !booted; yy += 4) {
+                    tap(st, 713, yy); tap(st, 713, yy);
+                    if (settings().favoriteSlots != 2) booted = true;
+                }
+                if (!booted) { std::printf("FAIL: Reset All (twice) did not reset\n"); ++failures; }
+                else {
+                    if (settingsToText() != defaults) { std::printf("FAIL: Reset All leaves settings that are not the defaults\n"); ++failures;
+                        const std::string now2 = settingsToText(); size_t i = 0; while (i < now2.size() && i < defaults.size() && now2[i] == defaults[i]) ++i;
+                        const size_t ls = defaults.rfind('\n', i) + 1; std::printf("  default: %s\n  now:     %s\n", defaults.substr(ls, defaults.find('\n', i) - ls).c_str(), now2.substr(ls, now2.find('\n', i) - ls).c_str()); }
+                    if (tabletPoweredOn() && currentApp() != APP_HOME) { std::printf("FAIL: Reset All goes back to the home screen\n"); ++failures; }
+                    shot(st, APP_HOME, "reset_all_boot");
+                }
+                settings() = keepAll; layoutHome();
+                openApp(APP_SETTINGS); tap(st, 80, 196);
+            }
             settings().simbriefUser.clear();
             tap(st, 80, 280);   // Media
             settings().mediaDuck = 1; settings().duckRx = 0.35f; settings().duckTx = 0.15f;

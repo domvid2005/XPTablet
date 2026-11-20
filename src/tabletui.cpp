@@ -46,6 +46,7 @@ const float kPi = 3.14159265f;
 void normalizeLayout();   // the home screen's places
 float itemHover();                                          // the last item's hover, eased
 float openness(const char* id, bool open, float rate = 14.0f);   // a menu opening and closing, eased
+void resetTablet();   // Reset All (below)
 // a finger's drag up or down over a list scrolls it, even begun on one of its rows (whose tap is then let go); the mouse's too
 bool g_touchScrolling = false;
 bool g_touchInput = false;   // the last press came from a finger (a phone or tablet browser): the map opens its cards on a double tap
@@ -85,7 +86,7 @@ const AppDef kApps[APP_COUNT] = {
     {"music", "Media", IM_COL32(250, 45, 85, 255), nullptr},   // (its id stays "music": saved home screens keep it)
     {"dispatch", "Dispatch", IM_COL32(58, 110, 200, 255), nullptr},   // the SimBrief briefing (its PDF)
     {"navsearch", "Navaids", IM_COL32(24, 150, 170, 255), nullptr},   // X-Plane's navaids, fixes and airports, searched
-    {"appstore", "App Store", IM_COL32(38, 48, 122, 255), nullptr},   // deep indigo, with a bag (not a blue tile with an A)
+    {"appstore", "App Store", IM_COL32(84, 76, 232, 255), nullptr},   // bright indigo, a white bag (as the other icons: one white glyph on a bright tile)
     {"games", "Games", IM_COL32(236, 72, 120, 255), nullptr},
     {"datis", "D-ATIS", IM_COL32(40, 160, 140, 255), "https://datis.clowd.io"},
     {"spotify", "Spotify", IM_COL32(30, 185, 84, 255), "https://open.spotify.com"},
@@ -206,8 +207,8 @@ float fontPx(ImFont* f) { return f->FontSize * ImGui::GetIO().FontGlobalScale; }
 // coral, orange, gold). A background is a sky (top, bottom) and two mountain ranges; an accent is the colour of what is chosen.
 struct Backdrop { const char* name; ImU32 top, bot, back, front; };
 const Backdrop kBackdrops[5] = {
-    {"Navy", IM_COL32(9, 22, 44, 255), IM_COL32(24, 58, 104, 255), IM_COL32(20, 46, 86, 255), IM_COL32(14, 34, 66, 255)},
-    {"Violet", IM_COL32(16, 12, 42, 255), IM_COL32(60, 40, 118, 255), IM_COL32(46, 30, 96, 255), IM_COL32(32, 22, 72, 255)},
+    {"Ocean", IM_COL32(9, 22, 44, 255), IM_COL32(24, 58, 104, 255), IM_COL32(20, 46, 86, 255), IM_COL32(14, 34, 66, 255)},
+    {"Lavender", IM_COL32(16, 12, 42, 255), IM_COL32(60, 40, 118, 255), IM_COL32(46, 30, 96, 255), IM_COL32(32, 22, 72, 255)},
     {"Dusk", IM_COL32(22, 10, 34, 255), IM_COL32(100, 36, 96, 255), IM_COL32(76, 28, 78, 255), IM_COL32(52, 20, 58, 255)},
     {"Sunset", IM_COL32(20, 14, 40, 255), IM_COL32(150, 66, 72, 255), IM_COL32(104, 44, 64, 255), IM_COL32(64, 28, 52, 255)},
     {"Amber", IM_COL32(20, 16, 30, 255), IM_COL32(146, 96, 42, 255), IM_COL32(104, 66, 38, 255), IM_COL32(64, 40, 30, 255)},
@@ -636,23 +637,19 @@ void drawTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, boo
     } else if (storeApp(app) || app == APP_APPSTORE || app == APP_GAMES) {   // (until their logos come: a mark of their own)
         const float r = tile * 0.32f * scale;
         const ImU32 wcol = IM_COL32(255, 255, 255, 255);
-        if (app == APP_APPSTORE) {   // a shopping bag with an orange download arrow
-            const float tt = std::max(1.5f, r * 0.13f);
-            const ImU32 orange = shade(IM_COL32(255, 150, 50, 255), shadeK);
-            // the handle: an arch over the bag's top
-            dl->PathArcTo(ImVec2(c.x, c.y - r * 0.40f), r * 0.34f, 3.14159f, 2 * 3.14159f, 16);
+        if (app == APP_APPSTORE) {   // a white shopping bag, a download arrow cut into it (one white glyph, as the other icons)
+            const float tt = std::max(1.5f, r * 0.14f);
+            const ImU32 cut = shade(appColor(app), shadeK);
+            dl->PathArcTo(ImVec2(c.x, c.y - r * 0.36f), r * 0.32f, 3.14159f, 2 * 3.14159f, 16);   // the handle
             dl->PathStroke(wcol, 0, tt);
-            dl->AddLine(ImVec2(c.x - r * 0.34f, c.y - r * 0.40f), ImVec2(c.x - r * 0.34f, c.y - r * 0.26f), wcol, tt);
-            dl->AddLine(ImVec2(c.x + r * 0.34f, c.y - r * 0.40f), ImVec2(c.x + r * 0.34f, c.y - r * 0.26f), wcol, tt);
-            // the bag, a little wider at the bottom
-            const ImVec2 q[4] = {ImVec2(c.x - r * 0.70f, c.y - r * 0.30f), ImVec2(c.x + r * 0.70f, c.y - r * 0.30f), ImVec2(c.x + r * 0.82f, c.y + r * 0.80f), ImVec2(c.x - r * 0.82f, c.y + r * 0.80f)};
-            dl->AddConvexPolyFilled(q, 4, wcol);
-            // the arrow, down into a tray
-            const float at = std::max(1.5f, r * 0.15f);
-            dl->AddLine(ImVec2(c.x, c.y - r * 0.08f), ImVec2(c.x, c.y + r * 0.44f), orange, at);
-            dl->AddLine(ImVec2(c.x - r * 0.24f, c.y + r * 0.22f), ImVec2(c.x, c.y + r * 0.46f), orange, at);
-            dl->AddLine(ImVec2(c.x + r * 0.24f, c.y + r * 0.22f), ImVec2(c.x, c.y + r * 0.46f), orange, at);
-            dl->AddLine(ImVec2(c.x - r * 0.36f, c.y + r * 0.62f), ImVec2(c.x + r * 0.36f, c.y + r * 0.62f), orange, at);
+            dl->AddLine(ImVec2(c.x - r * 0.32f, c.y - r * 0.36f), ImVec2(c.x - r * 0.32f, c.y - r * 0.22f), wcol, tt);
+            dl->AddLine(ImVec2(c.x + r * 0.32f, c.y - r * 0.36f), ImVec2(c.x + r * 0.32f, c.y - r * 0.22f), wcol, tt);
+            const float rb = r * 0.16f;   // the bag, its corners rounded
+            dl->AddRectFilled(ImVec2(c.x - r * 0.76f, c.y - r * 0.26f), ImVec2(c.x + r * 0.76f, c.y + r * 0.82f), wcol, rb);
+            const float at = std::max(1.5f, r * 0.15f);   // the arrow, in the tile's colour
+            dl->AddLine(ImVec2(c.x, c.y - r * 0.04f), ImVec2(c.x, c.y + r * 0.50f), cut, at);
+            dl->AddLine(ImVec2(c.x - r * 0.25f, c.y + r * 0.27f), ImVec2(c.x, c.y + r * 0.52f), cut, at);
+            dl->AddLine(ImVec2(c.x + r * 0.25f, c.y + r * 0.27f), ImVec2(c.x, c.y + r * 0.52f), cut, at);
         } else if (app == APP_GAMES) {   // a game pad
             dl->AddRectFilled(ImVec2(c.x - r * 0.86f, c.y - r * 0.40f), ImVec2(c.x + r * 0.86f, c.y + r * 0.46f), wcol, r * 0.40f);
             const ImU32 k = shade(appColor(app), shadeK);
@@ -7522,6 +7519,32 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         else askedAt = now;
     }
     if (asking) textRight(dl, f.small, w - 12, top + 228, kWarn, "Signs out of every site");
+    // the whole tablet back as it came: every setting, the home screen, themes, notes and drawings, notifications, the battery,
+    // the browser's data and the map cache; asked twice, then it starts again (the boot) as new
+    static double resetAskedAt = -100;
+    const bool resetAsking = now - resetAskedAt < 4.0;
+    if (pill(dl, f, "##resetall", resetAsking ? "Tap again: reset all" : "Reset All", ImVec2(w - 12 - 150, top + 250), ImVec2(w - 12, top + 282), resetAsking, true)) {
+        if (resetAsking) { resetAskedAt = -100; act.resetBrowserData = true; act.clearTileCache = true; resetTablet(); return; }
+        resetAskedAt = now;
+    }
+    textRight(dl, f.small, w - 12, top + 288, resetAsking ? kWarn : kMuted, resetAsking ? "Everything goes back to its defaults" : "Every setting to its default");
+}
+void resetTablet() {   // Reset All (Settings, Data): defaults everywhere, then the boot as from off
+    g_settings = Settings();
+    notesFromText(std::string());
+    for (int i = 0; i < 6; ++i) g_craft[i].clear();
+    for (int i = 0; i < 9; ++i) g_atis[i].clear();
+    g_scratch.clear();
+    g_notes.clear();
+    g_batt = 100.0f; g_charger = false; g_battFromDevice = false; g_ownBatt = 100.0f; g_ownCharger = false;
+    g_lowWarned20 = g_lowWarned10 = false; g_lowAlert = 0;
+    g_homePage = 0; g_homeScroll = 0; g_openFolder = -1; g_editMode = false; g_dragging = false; g_widgetPicker = false; g_addMenu = false;
+    g_customEdit = -1; g_settingsTab = 0;
+    g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr;
+    normalizeLayout();
+    g_settingsChanged = true; g_notesChanged = true;
+    g_power = POWER_BOOT; g_powerT0 = ImGui::GetTime();
+    g_app = APP_HOME; g_animPage = -1;
 }
 
 void openWeb(const char* site, const char* url, bool chrome, int group) {
