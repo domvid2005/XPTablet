@@ -2462,7 +2462,6 @@ void doGround(const xpt::Actions& act) {
         if (r.cabinAuto && XPLMCanWriteDataRef(r.cabinAuto)) writeNum(r.cabinAuto, readNum(r.cabinAuto) > 0.5f ? 0.0f : 1.0f);
         else logMsg("cabin lights: this aircraft has no cabin light auto setting");
         break;
-    case xpt::GA_OPENSAM_UI: once("openSAM/toggle_ui"); break;   // (its window: a jetway docked at the one door chosen)
     case xpt::GA_GPU: if (g.toliss && r.extPower) toggleInt(r.extPower); else once("sim/ground_ops/toggle_gpu_request"); break;
     case xpt::GA_CHOCKS: if (g.toliss) toggleInt(r.chocks); break;
     case xpt::GA_HP_AIR: if (g.toliss) toggleInt(r.hpAir); break;
