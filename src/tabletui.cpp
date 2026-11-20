@@ -695,7 +695,7 @@ bool isApp(int e) { return e >= 0 && e < APP_COUNT; }
 bool isFolder(int e) { return e >= kFolder0 && e < kFolder0 + (int)g_settings.folders.size(); }
 bool isWidget(int e) { return e >= kWidget0 && e < kWidget0 + W_COUNT; }
 void widgetCells(int kind, int& wc, int& wr) {
-    static const int sz[W_COUNT][2] = {{2, 2}, {4, 2}, {2, 2}, {1, 1}, {7, 2}};
+    static const int sz[W_COUNT][2] = {{2, 2}, {4, 2}, {2, 2}, {1, 1}, {7, 1}};   // (Volanta's overlay: a strip across the page)
     wc = std::min(sz[kind][0], g_gridCols); wr = std::min(sz[kind][1], g_gridRows);
 }
 const char* widgetName(int kind) {
