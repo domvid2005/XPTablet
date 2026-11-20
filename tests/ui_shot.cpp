@@ -310,6 +310,9 @@ int main(int argc, char** argv) {
             frame(fx, fy, false); frame(fx, fy, true); frame(fx + 20, fy + 10, true); frame(cx, cy, true); frame(cx, cy, true); frame(cx, cy, false); frame(cx, cy, false);
             if (settings().order[last] != app || settings().order[from] != -1) { std::printf("FAIL: an icon put on a free place (%d at %d, %d at %d)\n", settings().order[last], last, settings().order[from], from); ++failures; }
             { Canvas cv((int)(W * scale), (int)(H * scale)); batches.clear(); frame(-1000, -1000, false); raster(cv, batches, tex, tw, th, scale); writePng(cv, out + "/tablet_arrange.png"); }
+            frame(56, H - 28, false); frame(56, H - 28, true); frame(56, H - 28, false);   // + : its menu
+            { Canvas cv((int)(W * scale), (int)(H * scale)); batches.clear(); frame(-1000, -1000, false); raster(cv, batches, tex, tw, th, scale); writePng(cv, out + "/tablet_arrange_menu.png"); }
+            frame(56, H - 28, false); frame(56, H - 28, true); frame(56, H - 28, false);   // and shut again
             // an icon dropped on another icon: the two change places, nothing else moves
             {
                 std::vector<int> at;

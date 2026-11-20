@@ -823,6 +823,7 @@ double g_edgeSince = -1;       // an icon held at the screen's edge since then (
 int g_openFolder = -1;         // the folder shown open, -1 none
 double g_folderT0 = -10;
 bool g_widgetPicker = false;   // the list of widgets to add (while arranging)
+bool g_addMenu = false;        // the + button's menu: New Folder, Add Widget
 int g_grabCol = 0, g_grabRow = 0;   // where in a widget it was taken hold of (in places)
 void drawWidget(ImDrawList* dl, const Fonts& f, const SimState& s, int kind, ImVec2 a, ImVec2 b, Actions& act, bool live);   // (below)
 
@@ -879,8 +880,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
     const int drag = g_dragging ? g_pressApp : -1;
     std::vector<int> dock;
     for (int a : g_settings.favorites) if (appVisible(a) && a != drag) dock.push_back(a);
-    const ImVec2 bubA(16, h - 44), bubB(150, h - 12);        // arranging: New Folder (a trash while an empty folder is carried)
-    const ImVec2 wgA(16, h - 82), wgB(150, h - 50);          // and Widgets
+    const ImVec2 bubA(16, h - 44), bubB(g_dragging ? 150.0f : 96.0f, h - 12);   // (as wide as Done; wider with a word while carrying)        // arranging: + (New Folder, Add Widget); a bin for an empty folder or a widget carried
     const bool overBubble = drag >= 0 && m.x >= bubA.x && m.x < bubB.x && m.y >= bubA.y - 6 && m.y < bubB.y + 6;
     // where the dragged thing would land: a place in the grid (a widget: its corner), or a place in the bar
     bool toDock = false;
@@ -1012,27 +1012,33 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         g_iconC[dock[k]] = c; g_iconSize[dock[k]] = dockTile;
         hits.push_back({dock[k], ImVec2(cx, dockTop), ImVec2(cx + dockCell, dockTop + dockH), -1});
     }
-    // arranging: New Folder (a trash for an empty folder carried onto it) and Widgets
+    // arranging: the + button (its menu: New Folder, Add Widget). Something carried onto it: an app makes a new folder; an empty
+    // folder or a widget goes (it is a bin then)
     const bool carryEmptyFolder = isFolder(drag) && g_settings.folders[drag - kFolder0].apps.empty();
+    const bool carryBin = carryEmptyFolder || isWidget(drag);
     if (g_editMode || drag >= 0) {
         const Ease eb = eased("##newfolder", overBubble, false, false);
-        const ImU32 bg = carryEmptyFolder ? mixCol(IM_COL32(200, 50, 50, 200), IM_COL32(240, 70, 70, 255), eb.on) : mixCol(IM_COL32(255, 255, 255, 40), accentCol(220), eb.on);
+        const ImU32 bg = carryBin ? mixCol(IM_COL32(200, 50, 50, 200), IM_COL32(240, 70, 70, 255), eb.on) : mixCol(IM_COL32(255, 255, 255, 40), accentCol(220), std::max(eb.on, g_addMenu ? 1.0f : 0.0f));
         const float grow = eb.on * 3;
         dl->AddRectFilled(ImVec2(bubA.x - grow, bubA.y - grow), ImVec2(bubB.x + grow, bubB.y + grow), bg, 16.0f + grow);
-        const float my = (bubA.y + bubB.y) * 0.5f;
-        if (carryEmptyFolder) {   // a bin
-            const float x = bubA.x + 20;
-            dl->AddRect(ImVec2(x - 6, my - 5), ImVec2(x + 6, my + 8), kInk, 2.0f, 0, 1.6f);
-            dl->AddLine(ImVec2(x - 8, my - 7), ImVec2(x + 8, my - 7), kInk, 1.8f);
-            dl->AddLine(ImVec2(x - 2.5f, my - 10), ImVec2(x + 2.5f, my - 10), kInk, 1.8f);
-            textAt(dl, f.small, bubA.x + 34, std::floor(my - fontPx(f.small) * 0.5f), kInk, "Delete");
-        } else {
-            const float x = bubA.x + 20;
-            dl->AddRect(ImVec2(x - 8, my - 7), ImVec2(x + 8, my + 7), kInk, 4.0f, 0, 1.6f);
-            dl->AddLine(ImVec2(x, my - 3.5f), ImVec2(x, my + 3.5f), kInk, 1.6f);
-            dl->AddLine(ImVec2(x - 3.5f, my), ImVec2(x + 3.5f, my), kInk, 1.6f);
-            textAt(dl, f.small, bubA.x + 34, std::floor(my - fontPx(f.small) * 0.5f), kInk, isFolder(drag) ? "Not empty" : "New Folder");
+        const float mx = (bubA.x + bubB.x) * 0.5f, my = (bubA.y + bubB.y) * 0.5f;
+        // the glyph and its word, centred together on the button
+        const char* word = drag < 0 ? "" : carryBin ? (isWidget(drag) ? "Remove" : "Delete") : isFolder(drag) ? "Not empty" : "New Folder";
+        const float tw = *word ? f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, word).x : 0.0f;
+        const bool glyph = !(isFolder(drag) && !carryEmptyFolder);
+        const float gw = glyph ? 16.0f : 0.0f, gap = (glyph && *word) ? 8.0f : 0.0f;
+        const float x0 = std::floor(mx - (gw + gap + tw) * 0.5f);
+        const float gx = x0 + gw * 0.5f;
+        if (glyph && carryBin) {   // a bin
+            dl->AddRect(ImVec2(gx - 6, my - 5), ImVec2(gx + 6, my + 8), kInk, 2.0f, 0, 1.6f);
+            dl->AddLine(ImVec2(gx - 8, my - 7), ImVec2(gx + 8, my - 7), kInk, 1.8f);
+            dl->AddLine(ImVec2(gx - 2.5f, my - 10), ImVec2(gx + 2.5f, my - 10), kInk, 1.8f);
+        } else if (glyph) {   // a plus, on its own (no box)
+            const float r = *word ? 6.0f : 8.0f;
+            dl->AddLine(ImVec2(gx, my - r), ImVec2(gx, my + r), kInk, 2.2f);
+            dl->AddLine(ImVec2(gx - r, my), ImVec2(gx + r, my), kInk, 2.2f);
         }
+        if (*word) textAt(dl, f.small, x0 + gw + gap, std::floor(my - fontPx(f.small) * 0.5f), kInk, word);
     }
 
     // the finger (drawn first so Done, after it, takes its own presses)
@@ -1092,6 +1098,9 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
                     if (at >= 0) order[at] = fe;
                     normalizeLayout(cap);
                     g_openFolder = fe - kFolder0; g_folderT0 = now;
+                    g_settingsChanged = true;
+                } else if (isWidget(e)) {   // the bin: the widget goes
+                    if (from >= 0) order[from] = -1;
                     g_settingsChanged = true;
                 } else if (carryEmptyFolder) {   // the bin: the folder goes (the ones after it move up a number)
                     const int k = e - kFolder0;
@@ -1166,17 +1175,28 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         normalizeLayout(cap);
     }
     if (g_editMode && drag < 0) {
-        if (pill(dl, f, "##homedone", "Done", ImVec2(w - 96, h - 44), ImVec2(w - 16, h - 12), true, true)) { g_editMode = false; g_widgetPicker = false; }
-        // New Folder tapped: an empty one, at the first free place
+        if (pill(dl, f, "##homedone", "Done", ImVec2(w - 96, h - 44), ImVec2(w - 16, h - 12), true, true)) { g_editMode = false; g_widgetPicker = false; g_addMenu = false; }
+        // + tapped: its menu, above it
         ImGui::SetCursorScreenPos(bubA);
-        if (ImGui::InvisibleButton("##newfolderbtn", ImVec2(bubB.x - bubA.x, bubB.y - bubA.y))) {
-            g_settings.folders.push_back({"Folder", {}});
-            normalizeLayout(cap);
-            g_openFolder = (int)g_settings.folders.size() - 1; g_folderT0 = now;
-            g_settingsChanged = true;
+        if (ImGui::InvisibleButton("##addbtn", ImVec2(bubB.x - bubA.x, bubB.y - bubA.y))) { g_addMenu = !g_addMenu; g_widgetPicker = false; }
+        if (g_addMenu) {
+            const ImVec2 ma(bubA.x, bubA.y - 86), mb(bubA.x + 150, bubA.y - 8);
+            ImGui::SetCursorScreenPos(ma);
+            ImGui::SetNextItemAllowOverlap();
+            ImGui::InvisibleButton("##addmenubg", ImVec2(mb.x - ma.x, mb.y - ma.y));
+            dl->AddRectFilled(ImVec2(ma.x + 2, ma.y + 4), ImVec2(mb.x + 2, mb.y + 4), IM_COL32(0, 0, 0, 70), 14.0f);
+            dl->AddRectFilled(ma, mb, themeTone(12, 22, 40, 242), 14.0f);
+            dl->AddRect(ma, mb, IM_COL32(255, 255, 255, 46), 14.0f, 0, 1.0f);
+            if (pill(dl, f, "##addfolder", "New Folder", ImVec2(ma.x + 8, ma.y + 8), ImVec2(mb.x - 8, ma.y + 38), false, true)) {   // an empty one, at the first free place
+                g_addMenu = false;
+                g_settings.folders.push_back({"Folder", {}});
+                normalizeLayout(cap);
+                g_openFolder = (int)g_settings.folders.size() - 1; g_folderT0 = now;
+                g_settingsChanged = true;
+            }
+            if (pill(dl, f, "##addwidget", "Add Widget", ImVec2(ma.x + 8, ma.y + 42), ImVec2(mb.x - 8, ma.y + 72), false, true)) { g_addMenu = false; g_widgetPicker = true; }
         }
-        if (pill(dl, f, "##widgets", "+ Widgets", wgA, wgB, g_widgetPicker, true)) g_widgetPicker = !g_widgetPicker;
-    }
+    } else if (!g_editMode) g_addMenu = false;
     // the widgets to add: a card over the grid (a widget is never a favorite)
     if (g_widgetPicker && g_editMode) {
         const ImVec2 a(170, kStatusH + 30), b(w - 170, h - 120);
