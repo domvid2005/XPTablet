@@ -778,6 +778,16 @@ int main(int argc, char** argv) {
             c.checklistText = "# Before start\nDoors | CLOSED\nBeacon | ON\n# Taxi\nFlaps | 5\n";
             c.checklistSource = "From Checklists/B738.txt";
             shot(c, APP_CHECKLISTS, "checklists_own");
+            // the abnormal and emergency procedures (an Airbus: its own set, de-icing too)
+            c.acfIcao = "A321"; c.checklistText.clear(); c.checklistSource.clear(); c.engineType = 5;
+            shot(c, APP_CHECKLISTS, "checklists_airliner_auto");
+            auto tap = [&](float x, float y) {
+                for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1);
+                    ImGui::NewFrame(); Actions act; build(fonts, c, 800, kLogicalH, act); ImGui::Render(); } };
+            tap(630, 97); shot(c, APP_CHECKLISTS, "checklists_abnormal");
+            tap(735, 97); shot(c, APP_CHECKLISTS, "checklists_emergency");
+            tap(533, 97);
+            c.acfIcao = "AT76"; c.engineType = 2; shot(c, APP_CHECKLISTS, "checklists_turboprop");
         }
         {   // Documents: the list
             SimState d = t;

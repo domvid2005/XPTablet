@@ -314,6 +314,7 @@ struct SimState {
     bool mac = false;             // macOS: no media controls (no Music app, no Media settings)
     MediaState media;
     float fps = 0;                // X-Plane's frame rate
+    int engineType = -1;          // the first engine's kind (X-Plane's acf_en_type: 0/1 piston, 2/8 turboprop, 3 electric, 4/5 jet), -1 unknown
     FlightPlan planPreview;       // a plan fetched from SimBrief, waiting for Import or Dismiss (loaded: the window shows it)
     bool planPreviewOpen = false; // its window is up (Dismiss closes it; the plan stays, to review again)
     std::string planDismissed;    // the last plan dismissed (its ofpId): the 2-minute check does not offer it again

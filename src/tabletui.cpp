@@ -4319,6 +4319,76 @@ const char* const kLightChecklist =
     "# After landing\nFlaps | UP\nCarb heat | COLD\nTransponder | STBY\nLights | AS RQRD\n"
     "# Shutdown\nAvionics | OFF\nMixture | IDLE CUTOFF\nMagnetos | OFF\nMaster | OFF\nParking brake | SET\n";
 
+// the turboprops' normal list, and the abnormal and emergency procedures (general ones; the Airbus set for the Airbus types).
+// Simulation use only, not for real-world flight.
+const char* const kTurbopropChecklist =
+    "# Before start\nDoors | CLOSED\nParking brake | SET\nBatteries | ON\nFuel quantity | CHECKED\nPropellers | FEATHER / AREA CLEAR\nBeacon | ON\n"
+    "# Engine start\nCondition levers | FUEL OFF\nStart | ENGAGE\nIgnition / fuel at 12-15% NH | ON\nITT | MONITORED\nGenerators | ON\n"
+    "# Before taxi\nCondition levers | MIN RPM / TAXI\nAnti-ice | AS RQRD\nFlaps | SET\nFlight controls | CHECKED\nTakeoff briefing | COMPLETE\n"
+    "# Before takeoff\nPropellers | MAX RPM\nAutofeather | ARMED\nTrim | SET\nTransponder | ALT\nLights | ON\n"
+    "# After takeoff\nGear | UP\nFlaps | UP\nPower | CLIMB\nAutofeather | OFF\n"
+    "# Cruise\nPower | CRUISE\nPropellers | CRUISE RPM\nFuel | MONITORED\nIce protection | AS RQRD\n"
+    "# Approach\nBriefing | COMPLETE\nAltimeters | SET\nPropellers | MAX RPM (by the threshold)\nFlaps | APPROACH\n"
+    "# Landing\nGear | DOWN, 3 GREEN\nFlaps | LANDING\nLanding clearance | RECEIVED\n"
+    "# Shutdown\nParking brake | SET\nCondition levers | FUEL OFF / FEATHER\nGenerators | OFF\nBeacon | OFF\nBatteries | OFF\n";
+const char* const kAirbusAbnormal =
+    "# Icing conditions\nIcing: OAT/TAT at or below 10\xC2\xB0""C with visible moisture | CHECK\nENG ANTI ICE | ON\nWING ANTI ICE | AS RQRD (not on the ground before takeoff)\nPROBE / WINDOW HEAT | AUTO (ON when needed)\nIce on the wipers or airframe | MONITOR\n"
+    "# Ground de-icing / anti-icing\nHoldover time and fluid type | NOTED\nFLAPS / SLATS | RETRACTED\nSPEED BRAKES | RETRACTED\nPACK 1 + 2 | OFF\nAPU BLEED | OFF\nENG BLEED | AS RQRD (OFF if engines running and asked)\nDoors and windows | CLOSED\nAfter spraying: wait 1 minute | DONE\nPACKS / APU BLEED | ON\nFlight controls | CHECKED\nHoldover time | MONITORED\n"
+    "# Engine anti-ice fault\nAffected ENG ANTI ICE | OFF THEN ON\nIcing conditions | AVOID\nThrust | AS RQRD\n"
+    "# Gear not up / gear disagree\nGear lever | DOWN THEN UP\nSpeed | BELOW VLE\nGear | LEAVE DOWN if no retraction\nFuel burn (gear down) | CONSIDER\n"
+    "# Gear gravity extension\nSpeed | BELOW VLE\nGear lever | DOWN\nGravity extension handle | TURN 3 TIMES CLOCKWISE\nGear indications | 3 GREEN\nLanding distance | CHECKED\n"
+    "# Hydraulic system low pressure\nAffected ENG PUMP | OFF\nPTU | AS RQRD\nLanding configuration | PLAN (longer distance)\nApproach | STABLE, EARLY\n"
+    "# Generator fault\nAffected GEN | OFF THEN ON\nIf not restored: APU GEN | ON\nGalley | AS RQRD\n"
+    "# Bleed fault\nAffected ENG BLEED | OFF\nX BLEED | AS RQRD\nWing anti-ice | AVOID icing\nAltitude | FL 230 MAX if one bleed\n"
+    "# Fuel imbalance\nFuel used and quantities | CHECKED (leak?)\nCROSS FEED | ON\nPumps of the light side | OFF\nWhen balanced: CROSS FEED | OFF, PUMPS ON\n"
+    "# Unreliable airspeed\nAutopilot / FD / A/THR | OFF\nPitch and thrust | AS RQRD (memory items)\nProbe / window heat | ON\nCompare speeds (ADR 1, 2, 3) | CHECK\nFaulty ADR | OFF\n"
+    "# Overweight landing\nLanding configuration | FULL (as allowed)\nApproach speed | VLS\nAuto brake | AS RQRD\nTouchdown | GENTLE (less than 360 ft/min)\nInspection after landing | REQUEST\n"
+    "# Go-around\nThrust levers | TOGA\nRotation | 15\xC2\xB0 nose up\nFlaps | ONE STEP UP\nPositive climb: gear | UP\nSRS / GA TRK | CHECKED\nAutopilot | AS RQRD\n";
+const char* const kAirbusEmergency =
+    "# Engine fire\nThrust lever (affected) | IDLE\nENG MASTER (affected) | OFF\nENG FIRE pb | PUSH\nAGENT 1 (after 10 s) | DISCH\nATC | NOTIFY (MAYDAY)\nIf fire after 30 s: AGENT 2 | DISCH\nLand | AT THE NEAREST AIRPORT\n"
+    "# Engine failure / severe damage\nThrust lever (affected) | IDLE\nENG MASTER (affected) | OFF\nENG FIRE pb (damage) | PUSH\nAGENT 1 | DISCH\nSingle-engine procedures | APPLY\nATC | NOTIFY\n"
+    "# Engine failure after V1\nRudder | CONTROL\nV2 to V2+10 | FLY\nPositive climb: gear | UP\nAt acceleration altitude: speed | GREEN DOT\nECAM actions | COMPLETE\n"
+    "# Emergency descent\nCrew oxygen masks | ON\nSigns | ON\nEmergency descent | INITIATE\nThrust levers | IDLE\nSpeed brakes | FULL\nSpeed | MAX / APPROPRIATE\nATC | NOTIFY\nSquawk | 7700\nPax oxygen masks | ON (if cabin above 14000 ft)\n"
+    "# Smoke / fumes\nCrew oxygen masks | ON, 100%\nCrew communication | ESTABLISH\nGalley | OFF\nCabin fans | OFF\nSmoke source | IDENTIFY, ISOLATE\nDiversion | CONSIDER\n"
+    "# All engines failure\nSpeed | OPTIMUM (green dot)\nEmergency electrical power | CHECKED (RAT)\nATC | NOTIFY (MAYDAY), 7700\nEngine relight | ATTEMPT\nAPU | START (below FL 250)\nForced landing / ditching | PREPARE\n"
+    "# Stall recovery\nNose down pitch | APPLY\nBank | WINGS LEVEL\nThrust | AS RQRD\nSpeed brakes | RETRACTED\nWhen out of the stall | RECOVER SMOOTHLY\n"
+    "# Evacuation\nAircraft / parking brake | STOP / ON\nATC | NOTIFY\nCabin crew (PA) | AT STATIONS\nENG MASTERS | OFF\nFire pbs (all) | PUSH\nAgents | AS RQRD\nEvacuation | INITIATE\n";
+const char* const kAirlinerAbnormal =
+    "# Icing conditions\nEngine anti-ice | ON\nWing anti-ice | AS RQRD\nProbe heat | ON\nIce on the airframe | MONITOR\n"
+    "# Ground de-icing / anti-icing\nHoldover time and fluid type | NOTED\nFlaps | UP\nPacks / APU bleed | OFF\nAfter spraying: packs and bleeds | ON\nFlight controls | CHECKED\nHoldover time | MONITORED\n"
+    "# Gear will not retract\nGear lever | DOWN\nSpeed | BELOW GEAR LIMIT\nFuel burn (gear down) | CONSIDER\n"
+    "# Manual gear extension\nSpeed | BELOW GEAR LIMIT\nManual extension | PERFORM\nGear | 3 GREEN\n"
+    "# Hydraulic failure\nAffected pump | OFF\nLanding distance | CHECKED\nApproach | EARLY, STABLE\n"
+    "# Generator failure\nAffected generator | RESET\nAPU generator | ON\nLoad shedding | AS RQRD\n"
+    "# Unreliable airspeed\nAutopilot / autothrottle | OFF\nPitch and thrust | AS RQRD\nProbe heat | ON\nSpeeds | COMPARE\n"
+    "# Go-around\nThrust | TOGA\nPitch | 15\xC2\xB0 nose up\nFlaps | ONE STEP UP\nPositive climb: gear | UP\n";
+const char* const kAirlinerEmergency =
+    "# Engine fire\nThrust lever (affected) | IDLE\nFuel control (affected) | CUTOFF\nFire handle | PULL\nAgent | DISCHARGE\nATC | MAYDAY\nLand | NEAREST AIRPORT\n"
+    "# Engine failure\nThrust lever (affected) | IDLE\nFuel control (affected) | CUTOFF\nSingle-engine procedures | APPLY\nATC | NOTIFY\n"
+    "# Emergency descent\nOxygen masks | ON\nThrust | IDLE\nSpeed brakes | EXTENDED\nTransponder | 7700\nATC | NOTIFY\n"
+    "# Smoke / fumes\nOxygen masks | ON, 100%\nSource | IDENTIFY, ISOLATE\nDiversion | CONSIDER\n"
+    "# Evacuation\nParking brake | SET\nEngines | SHUT DOWN\nFire handles | PULL\nATC | NOTIFY\nEvacuation | INITIATE\n";
+const char* const kTurbopropAbnormal =
+    "# Icing conditions\nEngine intake anti-ice | ON\nPropeller de-ice | ON\nAirframe de-ice boots | AS RQRD\nMinimum icing speed | OBSERVE\n"
+    "# Ground de-icing / anti-icing\nHoldover time and fluid type | NOTED\nFlaps | UP\nBleeds | OFF\nAfter spraying: flight controls | CHECKED\n"
+    "# Generator failure\nAffected generator | RESET\nLoads | SHED AS RQRD\n"
+    "# Propeller overspeed\nPower lever | REDUCE\nCondition lever | REDUCE RPM\nIf it persists: feather | CONSIDER\n";
+const char* const kTurbopropEmergency =
+    "# Engine fire\nPower lever (affected) | IDLE\nCondition lever (affected) | FUEL OFF / FEATHER\nFire handle | PULL\nAgent | DISCHARGE\nATC | MAYDAY\n"
+    "# Engine failure after takeoff\nDirectional control | MAINTAIN\nAutofeather | CHECKED (else feather)\nSpeed | V2\nPositive climb: gear | UP\nCondition lever (affected) | FUEL OFF\n"
+    "# Emergency descent\nOxygen masks | ON\nPower levers | IDLE\nSpeed | VMO\nTransponder | 7700\n";
+const char* const kLightAbnormal =
+    "# Carburettor icing\nCarb heat | ON (HOT)\nThrottle | FULL\nMixture | ADJUST for smooth running\nAfter the ice clears: carb heat | AS RQRD\n"
+    "# Low oil pressure\nOil temperature | CHECK\nPower | REDUCE\nLand | AS SOON AS PRACTICAL\n"
+    "# Alternator failure\nAmmeter | CHECK\nMaster (ALT) | OFF THEN ON\nElectrical load | REDUCE\nLand | AS SOON AS PRACTICAL\n"
+    "# Rough running engine\nCarb heat | ON\nMixture | ADJUST\nFuel selector | BOTH\nMagnetos | CHECK L, R, BOTH\n";
+const char* const kLightEmergency =
+    "# Engine failure after takeoff\nAirspeed | BEST GLIDE\nMixture | IDLE CUTOFF\nFuel selector | OFF\nMagnetos | OFF\nFlaps | AS RQRD\nMaster | OFF\nLand | STRAIGHT AHEAD\n"
+    "# Engine failure in flight\nAirspeed | BEST GLIDE\nLanding site | CHOOSE\nCarb heat | ON\nFuel selector | BOTH\nMixture | RICH\nMagnetos | BOTH (or START)\nIf no restart: forced landing | PREPARE\n"
+    "# Engine fire in flight\nMixture | IDLE CUTOFF\nFuel selector | OFF\nMaster | OFF\nCabin heat and air | OFF\nForced landing | EXECUTE\n"
+    "# Electrical fire\nMaster | OFF\nAvionics | OFF\nVents | CLOSED\nFire extinguisher | ACTIVATE\nLand | AS SOON AS POSSIBLE\n"
+    "# Forced landing\nAirspeed | BEST GLIDE\nATC | MAYDAY, 7700\nSeats and belts | SECURE\nFlaps | AS RQRD\nDoors | UNLATCHED\nMaster | OFF before touchdown\n";
+
 std::vector<CheckSection> parseChecklist(const std::string& text) {
     std::vector<CheckSection> out;
     size_t p = 0;
@@ -4344,7 +4414,8 @@ std::vector<CheckSection> parseChecklist(const std::string& text) {
     return out;
 }
 
-int g_clSource = -1;    // -1 automatic: the aircraft's own file, else by its size; 0 own, 1 airliner, 2 light aircraft
+int g_clSource = -1;    // -1 automatic: the aircraft's own file, else by its engines (or size); 0 own, 1 airliner, 2 light aircraft, 3 turboprop
+int g_clKind = 0;       // 0 normal, 1 abnormal, 2 emergency
 int g_clSection = 0;
 std::string g_clKey;    // what the ticks belong to (source and aircraft)
 std::vector<std::vector<bool>> g_clDone;
@@ -4356,10 +4427,13 @@ void checklistsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     if (!findShape(s.acfIcao, len, span)) len = spec.len;
     const bool own = !s.checklistText.empty();
     int src = g_clSource;
-    if (src < 0 || (src == 0 && !own)) src = own ? 0 : (len >= 24 ? 1 : 2);
-    const char* names[3] = {"This aircraft", "Airliner", "Light aircraft"};
+    // automatic: the aircraft's own file, else by its engines (jets: airliner; turboprops; pistons and electric: light), else its size
+    const int et = s.engineType;
+    const int byEngine = (et == 4 || et == 5) ? 1 : (et == 2 || et == 8) ? 3 : (et == 0 || et == 1 || et == 3) ? 2 : (len >= 24 ? 1 : 2);
+    if (src < 0 || (src == 0 && !own)) src = own ? 0 : byEngine;
+    const char* names[4] = {"This aircraft", "Airliner", "Light aircraft", "Turboprop"};
     float x = 12;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         if (i == 0 && !own) continue;
         char id[16];
         std::snprintf(id, sizeof id, "##cls%d", i);
@@ -4367,11 +4441,44 @@ void checklistsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         if (pill(dl, f, id, names[i], ImVec2(x, top), ImVec2(x + bw, top + 30), src == i, true)) g_clSource = i;
         x += bw + 6;
     }
-    if (own) textRight(dl, f.small, w - 14, top + 8, kMuted, s.checklistSource.c_str());
-    else textRight(dl, f.small, w - 14, top + 8, kMuted, "Your own: Output/XPTablet/Checklists/<ICAO>.txt");
-    const std::vector<CheckSection> list = parseChecklist(src == 0 ? s.checklistText : src == 1 ? kAirlinerChecklist : kLightChecklist);
+    {   // which procedures: normal, abnormal, emergency (the emergency one in red)
+        static const char* kinds[3] = {"Normal", "Abnormal", "Emergency"};
+        float kx = w - 12;
+        for (int k = 2; k >= 0; --k) {
+            const float bw = f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, kinds[k]).x + 28;
+            kx -= bw;
+            char id[16]; std::snprintf(id, sizeof id, "##clk%d", k);
+            if (pill(dl, f, id, kinds[k], ImVec2(kx, top), ImVec2(kx + bw, top + 30), g_clKind == k, true)) g_clKind = k;
+            if (k == 2 && g_clKind == 2) dl->AddRect(ImVec2(kx, top), ImVec2(kx + bw, top + 30), IM_COL32(255, 96, 96, 255), 15.0f, 0, 2.0f);
+            kx -= 6;
+        }
+    }
+    // the aircraft's own file may hold abnormal and emergency sections too ("# Abnormal: ...", "# Emergency: ..."); else the general ones
+    const bool airbus = s.acfIcao.size() == 4 && s.acfIcao[0] == 'A' && (s.acfIcao[1] == '3' || s.acfIcao[1] == '2') && len >= 24;
+    std::vector<CheckSection> list;
+    {
+        const std::vector<CheckSection> all = parseChecklist(src == 0 ? s.checklistText : src == 1 ? kAirlinerChecklist : src == 3 ? kTurbopropChecklist : kLightChecklist);
+        auto kindOf = [](const std::string& t) { return t.compare(0, 9, "Abnormal:") == 0 ? 1 : t.compare(0, 10, "Emergency:") == 0 ? 2 : 0; };
+        bool ownKind = false;
+        for (const CheckSection& c : all) if (kindOf(c.title) == g_clKind) {
+            CheckSection c2 = c;
+            if (g_clKind) { const size_t colon = c2.title.find(':'); c2.title = c2.title.substr(colon + 1); while (!c2.title.empty() && c2.title[0] == ' ') c2.title.erase(0, 1); }
+            list.push_back(c2); ownKind = true;
+        }
+        if (g_clKind > 0 && !ownKind) {
+            const int fam = (src == 0 || src == 1) ? (airbus ? 0 : 1) : src == 3 ? 2 : 3;   // Airbus, airliner, turboprop, light
+            const char* const ab[4] = {kAirbusAbnormal, kAirlinerAbnormal, kTurbopropAbnormal, kLightAbnormal};
+            const char* const em[4] = {kAirbusEmergency, kAirlinerEmergency, kTurbopropEmergency, kLightEmergency};
+            list = parseChecklist(g_clKind == 1 ? ab[fam] : em[fam]);
+        }
+    }
+    {
+        const char* note = own ? s.checklistSource.c_str() : "Your own: Output/XPTablet/Checklists/<ICAO>.txt";
+        if (g_clKind > 0) note = "General procedures, for the simulator only";
+        textAt(dl, f.small, 12, top + 34, kMuted, note);
+    }
     if (list.empty()) return;
-    const std::string key = std::to_string(src) + "|" + s.acfIcao;
+    const std::string key = std::to_string(src) + "|" + std::to_string(g_clKind) + "|" + s.acfIcao;
     if (key != g_clKey || g_clDone.size() != list.size()) {
         g_clKey = key; g_clSection = 0;
         g_clDone.assign(list.size(), {});
@@ -4379,7 +4486,7 @@ void checklistsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     }
     g_clSection = std::max(0, std::min((int)list.size() - 1, g_clSection));
     // the sections, with how far each has got
-    const float y0 = top + 42, leftW = 230;
+    const float y0 = top + 56, leftW = 230;
     card(dl, ImVec2(12, y0), ImVec2(12 + leftW, h - 12), f, nullptr);
     const float rh = std::min(36.0f, std::floor((h - 12 - y0 - 12) / (float)list.size()));
     for (size_t i = 0; i < list.size(); ++i) {

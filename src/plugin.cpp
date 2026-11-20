@@ -2388,6 +2388,16 @@ float flightLoop(float dt, float, int, void*) {
         if (g_sim.acfIcao != icao) { g_sim.acfIcao = icao; loadChecklist(); }
     }
     if ((XPLMGetCycleNumber() & 127) == 0) g_sim.toliss = isToLissAircraft();   // its plugin loads after the aircraft does
+    if ((XPLMGetCycleNumber() & 63) == 0) {   // the engines: their kind (the checklists follow it), and ToLiss's engine choice changed in its menu
+        static XPLMDataRef en = XPLMFindDataRef("sim/aircraft/prop/acf_en_type");
+        int t = -1;
+        if (en) XPLMGetDatavi(en, &t, 0, 1);
+        g_sim.engineType = t;
+        static int lastToLissEng = -100;
+        int k = -1;
+        if (XPLMDataRef r = XPLMFindDataRef("AirbusFBW/EngineTypeIndex")) k = (XPLMGetDataRefTypes(r) & xplmType_Int) ? XPLMGetDatai(r) : (int)XPLMGetDataf(r);
+        if (k != lastToLissEng) { const bool first = lastToLissEng == -100; lastToLissEng = k; if (!first) loadChecklist(); }
+    }
     if ((XPLMGetCycleNumber() & 255) == 0) g_sim.wxPlane = XPLMFindPluginBySignature(kWxPlaneSignature) != XPLM_NO_PLUGIN_ID;   // it may load after us
     updateCaptureWindow();
     return -1.0f;   // every frame
