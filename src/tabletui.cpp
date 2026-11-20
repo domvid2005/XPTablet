@@ -3958,6 +3958,28 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         if (m.havePos) pts.push_back(toS(ac));   // up to the aircraft
         flushTrail();
     }
+    // ---- the plan's procedures (SID green, STAR amber, approach magenta), under the route: a thin line, its fixes, its name
+    if (g_settings.mapProcedures && !m.procedures.empty()) {
+        static const ImU32 pc[3] = {IM_COL32(70, 205, 140, 255), IM_COL32(255, 170, 60, 255), IM_COL32(230, 100, 210, 255)};
+        for (const MapState::Procedure& pr : m.procedures) {
+            if (pr.pts.size() < 2) continue;
+            const ImU32 col = pc[std::max(0, std::min(2, pr.kind))];
+            std::vector<ImVec2> pts;
+            for (const MapState::RoutePoint& rp : pr.pts) pts.push_back(toS(mercOf(rp.lat, rp.lon)));
+            dl->AddPolyline(pts.data(), (int)pts.size(), IM_COL32(10, 10, 20, 110), 0, 4.0f);
+            dl->AddPolyline(pts.data(), (int)pts.size(), col, 0, 2.0f);
+            for (size_t i = 0; i < pts.size(); ++i) {
+                const ImVec2 q = pts[i];
+                if (q.x < r0.x - 20 || q.x > r1.x + 20 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
+                dl->AddCircleFilled(q, 2.6f, col, 0);
+                if (g_mapZoom >= 9.5) g_labels.push_back({4, q, 5, pr.pts[i].ident, "", IM_COL32(255, 255, 255, 230), 0, (col & 0x00FFFFFF) | 0xC8000000});
+            }
+            if (g_mapZoom >= 7.0) {   // its name, by its middle fix
+                const ImVec2 q = pts[pts.size() / 2];
+                if (q.x > r0.x && q.x < r1.x && q.y > r0.y && q.y < r1.y) g_labels.push_back({4, ImVec2(q.x, q.y - 14), 6, pr.name, "", IM_COL32(20, 20, 30, 255), 0, col});
+            }
+        }
+    }
     // ---- the SimBrief flight plan: a line in the theme's accent through its fixes
     if (g_settings.mapRoute && m.route.size() >= 2) {
         std::vector<ImVec2> pts;
@@ -4209,7 +4231,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         const Item nav[] = {{"##mapt", "Airports And Taxiways", &g_settings.mapAirports, true}, {"##mstand", "Parking Spaces", &g_settings.mapStands, g_settings.mapAirports},
                             {"##mbest", "Best Runway (Wind)", &g_settings.mapBestRunway, g_settings.mapAirports}, {"##mils", "ILS", &g_settings.mapIls, true},
                             {"##mnav", "Navaids", &g_settings.mapNavaids, true}, {"##mfix", "Waypoints (GPS)", &g_settings.mapWaypoints, true},
-                            {"##mrte", "Flight Plan Route", &g_settings.mapRoute, !m.route.empty()}, {"##mring", "Range Rings", &g_settings.mapRings, true}};
+                            {"##mrte", "Flight Plan Route", &g_settings.mapRoute, !m.route.empty()}, {"##mproc", "SID, STAR And Approach", &g_settings.mapProcedures, !m.procedures.empty()}, {"##mring", "Range Rings", &g_settings.mapRings, true}};
         const Item tfc[] = {{"##mtraf", "Show Traffic", &g_settings.mapTraffic, true}, {"##mttrl", "Trail When Selected", &g_settings.mapTrafficTrails, g_settings.mapTraffic},
                             {"##mtrte", "Filed Route When Selected", &g_settings.mapTrafficRoute, g_settings.mapTraffic}};
         const Item fea[] = {{"##mtrail", "My Breadcrumbs", &g_settings.mapTrail, true}, {"##mout", "Coastlines And Borders", &g_settings.mapOutlines, true},
@@ -9158,8 +9180,8 @@ std::string settingsToText() {
     std::snprintf(buf, sizeof buf, "media_enabled=%d\nmedia_duck=%d\nnotify_enabled=%d\nnotify_tcas=%d\nnotify_simbrief=%d\n", g_settings.mediaEnabled ? 1 : 0,
                   std::max(0, std::min(2, g_settings.mediaDuck)), g_settings.notifyEnabled ? 1 : 0, g_settings.notifyTcas ? 1 : 0, g_settings.notifySimbrief ? 1 : 0);
     out += buf;
-    std::snprintf(buf, sizeof buf, "map_navaids=%d\nmap_waypoints=%d\nmap_route=%d\nstatus_local_time=%d\nauto_dim=%d\n", g_settings.mapNavaids ? 1 : 0, g_settings.mapWaypoints ? 1 : 0,
-                  g_settings.mapRoute ? 1 : 0, g_settings.statusLocalTime ? 1 : 0, g_settings.autoDim ? 1 : 0);
+    std::snprintf(buf, sizeof buf, "map_navaids=%d\nmap_waypoints=%d\nmap_route=%d\nmap_procedures=%d\nstatus_local_time=%d\nauto_dim=%d\n", g_settings.mapNavaids ? 1 : 0, g_settings.mapWaypoints ? 1 : 0,
+                  g_settings.mapRoute ? 1 : 0, g_settings.mapProcedures ? 1 : 0, g_settings.statusLocalTime ? 1 : 0, g_settings.autoDim ? 1 : 0);
     out += buf;
     std::snprintf(buf, sizeof buf, "duck_rx=%.2f\nduck_tx=%.2f\nnotify_volume=%.2f\n", (double)g_settings.duckRx, (double)g_settings.duckTx, (double)g_settings.notifyVolume);
     out += buf;
@@ -9329,6 +9351,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "notify_tcas") g_settings.notifyTcas = v != 0;
         else if (key == "notify_simbrief") g_settings.notifySimbrief = v != 0;
         else if (key == "map_waypoints") g_settings.mapWaypoints = v != 0;
+        else if (key == "map_procedures") g_settings.mapProcedures = v != 0;
         else if (key == "map_route") g_settings.mapRoute = v != 0;
         else if (key == "simbrief_user") g_settings.simbriefUser = val;
         else if (key == "openaip_key") g_settings.openAipKey = val;

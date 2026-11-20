@@ -21,6 +21,7 @@
 #include "imgui_internal.h"   // (the error log: ImGui's own record of unbalanced calls, which it shows on screen in the sim)
 #include "tabletui.h"
 #include "arcade.h"
+#include "simbrief.h"
 #include "airspace_parse.h"
 #include "airlines.h"
 #include "tabrender.h"
@@ -132,6 +133,7 @@ bool writePng(const Canvas&, const std::string&) { return true; }   // no zlib h
 
 } // namespace
 
+static xpt::FlightPlan g_testPlan; static std::vector<xpt::MapState::Procedure> g_testProcs;
 static int installedApps() { int n = 0; for (int a = 0; a < APP_COUNT; ++a) n += appInstalled(a) && appVisible(a) ? 1 : 0; return n; }
 int main(int argc, char** argv) {
     const std::string out = argc > 1 ? argv[1] : ".";
@@ -442,6 +444,33 @@ int main(int argc, char** argv) {
           settings().wallpaper = 8; shot(t, APP_HOME, "home_custom");
           settings().wallpaper = keep; }
         shot(t, APP_GAMES, "games");
+        {   // the plan's procedures from a CIFP file: KSBN's SID by its runway and the route's transition, KORD's STAR and ILS 28C to the runway
+            FlightPlan p; p.loaded = true; p.origin = "KSBN"; p.originRunway = "27"; p.sid = "SBN2"; p.dest = "KORD"; p.destRunway = "28C"; p.star = "WATSN4";
+            struct Fx { const char* id; double lat, lon; };
+            static const Fx fixes[] = {{"KSBN", 41.7087, -86.3173}, {"KORD", 41.9786, -87.9048}, {"SBN", 41.62, -86.36}, {"ZEGEN", 41.74, -86.52}, {"GIJ", 41.7685, -86.3186},
+                {"PMM", 42.4644, -86.1059}, {"OBK", 42.2206, -87.952}, {"WATSN", 42.05, -87.7}, {"VEECK", 42.03, -87.48}, {"FYTTE", 42.1, -87.6}, {"DEGEE", 41.9893, -87.602},
+                {"KURKK", 41.9876, -87.713}, {"ROWLS", 41.9866, -87.772}};
+            for (const char* id : {"KSBN", "GIJ", "PMM", "OBK", "KORD"}) for (const Fx& f : fixes) if (!std::strcmp(f.id, id)) { FlightPlan::Leg l; l.ident = id; l.lat = f.lat; l.lon = f.lon; p.legs.push_back(l); }
+            auto cifp = [](const std::string& icao) -> std::string {
+                if (icao == "KSBN") return "RWY:RW27,      ,      ,00799, ,ISBN,1,   ;N41421140,W086181290,0000;\nRWY:RW09,      ,      ,00799, ,     , ,   ;N41421140,W086200000,0000;\n"
+                    "SID:010,1,SBN2,RW09,,,,,VA\nSID:015,1,SBN2,RW09,ROWLS,K5,P,C,TF\nSID:010,1,SBN2,RW27,,,,,VA\nSID:020,1,SBN2,RW27,ZEGEN,K5,P,C,TF\nSID:030,2,SBN2,ALL,SBN,K5,D,,TF\nSID:040,3,SBN2,GIJ,GIJ,K5,D,,TF\nSID:050,3,SBN2,PMM,PMM,K5,D,,TF\n";
+                if (icao == "KORD") return "RWY:RW28C,      ,      ,00668, ,IORD,1,   ;N41591350,W087515750,0000;\n"
+                    "STAR:010,4,WATSN4,OBK,OBK,K5,D,,IF\nSTAR:020,4,WATSN4,OBK,WATSN,K5,P,C,TF\nSTAR:030,5,WATSN4,ALL,FYTTE,K5,P,C,TF\nSTAR:040,6,WATSN4,RW28C,VEECK,K5,P,C,TF\n"
+                    "APPCH:005,A,R28C,VEECK,VEECK,K5,P,C,IF\nAPPCH:006,R,R28C,,KURKK,K5,P,C,IF\nAPPCH:010,A,I28C,VEECK,VEECK,K5,P,C,IF\nAPPCH:020,I,I28C,,DEGEE,K5,P,C,IF\nAPPCH:030,I,I28C,,KURKK,K5,P,C,TF\nAPPCH:040,I,I28C,,RW28C,K5,P,G,TF\nAPPCH:050,I,I28C,,ROWLS,K5,P,C,CA\n";
+                return "";
+            };
+            auto fix = [&](const std::string& id, double, double, double& la, double& lo) { for (const Fx& f : fixes) if (id == f.id) { la = f.lat; lo = f.lon; return true; } return false; };
+            const auto pr = buildProcedures(p, cifp, fix);
+            auto ids = [](const MapState::Procedure& q) { std::string r; for (const auto& x : q.pts) r += (r.empty() ? "" : " ") + x.ident; return r; };
+            if (pr.size() != 3) { std::printf("FAIL: procedures: %d lines\n", (int)pr.size()); ++failures; }
+            else {
+                if (ids(pr[0]) != "RW27 ZEGEN SBN GIJ" || pr[0].name != "SBN2 RW27") { std::printf("FAIL: the SID: %s (%s)\n", ids(pr[0]).c_str(), pr[0].name.c_str()); ++failures; }
+                if (ids(pr[1]) != "OBK WATSN FYTTE VEECK") { std::printf("FAIL: the STAR: %s\n", ids(pr[1]).c_str()); ++failures; }
+                if (ids(pr[2]) != "DEGEE KURKK RW28C" || pr[2].name != "ILS 28C") { std::printf("FAIL: the approach: %s (%s)\n", ids(pr[2]).c_str(), pr[2].name.c_str()); ++failures; }
+                if (std::fabs(pr[0].pts[0].lat - (41 + 42 / 60.0 + 11.40 / 3600)) > 1e-6 || std::fabs(pr[0].pts[0].lon + (86 + 18 / 60.0 + 12.90 / 3600)) > 1e-6) { std::printf("FAIL: the runway's threshold from its RWY record\n"); ++failures; }
+            }
+            g_testPlan = p; g_testProcs = pr;   // (pictured on the map with the map tests, below)
+        }
         {   // the logbook: a flight found by itself (block out, takeoff, a landing, block in), saved and read back; the Timers page
             logbookFromText(std::string()); const auto keepInst = settings().installed; settings().installed.push_back("timers"); settings().installed.push_back("logbook");
             auto run = [&](SimState u, float secs) { for (float tt = 0; tt < secs; tt += 0.25f) { u.map.utc += 0; io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.25f; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
@@ -656,6 +685,13 @@ int main(int argc, char** argv) {
                     settings().mapVatsimAtc = was;
                 }
                 mapSelect(0, ""); for (int i = 0; i < 9; ++i) mapCommand(0);
+                {   // the plan's SID, STAR and ILS (built above) on the map, at 60 nm
+                    SimState u = em; u.plan = g_testPlan; planToRoute(u.plan, u.map); u.map.procedures = g_testProcs; u.map.lat = 41.95; u.map.lon = -87.2;
+                    for (int k = 0; k < 30; ++k) mapCommand(1);   // (the farthest out, as the map was here) then in to 60 nm
+                    for (int k = 0; k < 7; ++k) mapCommand(0);
+                    mapCommand(2); shot(u, APP_MAP, "map_procedures");
+                    for (int k = 0; k < 7; ++k) mapCommand(1);
+                }
             }
             {   // the frame's cost at every zoom step, from the farthest in to the closest, every layer on (a step costing
                 // much more than the others is how "zoomed right in, the sim freezes" shows here)

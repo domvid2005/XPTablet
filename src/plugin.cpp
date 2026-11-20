@@ -810,6 +810,35 @@ void planToRoute() {
     xpt::planToRoute(g_sim.plan, g_sim.map);
 }
 
+// The plan's SID, STAR and approach for the map: built again when the plan (or its runways) changes, from the CIFP and the nav data
+void proceduresStep() {
+    const xpt::FlightPlan& p = g_sim.plan;
+    const std::string key = p.loaded ? p.ofpId + "|" + p.origin + p.originRunway + p.sid + "|" + p.dest + p.destRunway + p.star + "|" + std::to_string(p.legs.size()) : std::string();
+    static std::string built = "\x01";
+    if (key == built) return;
+    built = key;
+    char sys[2048] = "";
+    XPLMGetSystemPath(sys);
+    const std::string root = sys;
+    g_sim.map.procedures = xpt::buildProcedures(p, [&](const std::string& icao) {
+        std::string t;
+        if (!readFile(root + "Custom Data/CIFP/" + icao + ".dat", t)) readFile(root + "Resources/default data/CIFP/" + icao + ".dat", t);
+        return t;
+    }, [](const std::string& id, double nLat, double nLon, double& la, double& lo) {
+        const bool near = nLat != 0 || nLon != 0;
+        float fla = (float)nLat, flo = (float)nLon;
+        const XPLMNavType types = id.size() == 4 && !near ? xplm_Nav_Airport : (XPLMNavType)(xplm_Nav_Fix | xplm_Nav_VOR | xplm_Nav_NDB | xplm_Nav_DME | xplm_Nav_Airport);
+        const XPLMNavRef r = XPLMFindNavAid(nullptr, id.c_str(), near ? &fla : nullptr, near ? &flo : nullptr, nullptr, types);
+        if (r == XPLM_NAV_NOT_FOUND) return false;
+        float rla = 0, rlo = 0; char outId[32] = {};
+        XPLMGetNavAidInfo(r, nullptr, &rla, &rlo, nullptr, nullptr, nullptr, outId, nullptr, nullptr);
+        if (id != outId) return false;
+        la = rla; lo = rlo;
+        return true;
+    });
+    if (p.loaded) logMsg("map: %d procedure line(s) for %s %s / %s %s", (int)g_sim.map.procedures.size(), p.sid.c_str(), p.originRunway.c_str(), p.star.c_str(), p.destRunway.c_str());
+}
+
 void planStep(const xpt::Actions& act) {
     static bool divertPending = false;   // the plan being fetched is a diversion
     if (act.planImport && !xpt::settings().simbriefUser.empty() && !g_sim.plan.busy) { divertPending = false; simbriefFetch(xpt::settings().simbriefUser); }
@@ -1596,6 +1625,7 @@ void ensureFrame() {
     browserStep(act);
     mapStep(act);
     planStep(act);
+    proceduresStep();
     mediaStep(act);
     backgroundStep(act);
     {   // the Map's traffic card: its aircraft on VATSIM (and its filed route); VATSIM's world as traffic when chosen

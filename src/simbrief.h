@@ -18,5 +18,10 @@ void planDecide(SimState& s, const Actions& a);              // the preview's Im
 // The SID's and STAR's crossing restrictions (altitude and speed) onto the plan's fixes, from X-Plane's procedure files (CIFP)
 // for the departure and the destination: cifpText(icao) returns that airport's file ("" when there is none).
 int addCrossings(FlightPlan& p, const std::function<std::string(const std::string&)>& cifpText);
+// The plan's SID (its runway's transition, the common part, the route's transition), STAR (the other way about) and an approach to
+// the destination's runway (ILS first, else RNAV, else any; its final part, to the runway) as lines for the map. resolveFix finds a
+// fix's position near a point (false: not found); the runways' thresholds come from the CIFP's RWY records.
+std::vector<MapState::Procedure> buildProcedures(const FlightPlan& p, const std::function<std::string(const std::string&)>& cifpText,
+    const std::function<bool(const std::string& id, double nearLat, double nearLon, double& lat, double& lon)>& resolveFix);
 
 } // namespace xpt

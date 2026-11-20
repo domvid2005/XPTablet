@@ -88,6 +88,7 @@ struct Settings {
     std::string hoppieCode;       // the user's Hoppie ACARS logon code (Settings, Accounts): the ACARS app
     bool mapOpenAip = false;      // the map's openAIP overlay (airspaces, airports, navaids)
     float mapOpenAipAlpha = 0.9f; // its opacity
+    bool mapProcedures = true;    // the plan's SID, STAR and approach on the map
     bool autoDim = false;         // the screen dims itself as the daylight goes (WXPlane's curve); the brightness slider rests
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
     bool mediaEnabled = true;     // the Music app and the music controls in the pull-down (not on macOS)
@@ -259,6 +260,8 @@ struct MapState {
     // the SimBrief flight plan
     struct RoutePoint { double lat = 0, lon = 0; std::string ident; };
     std::vector<RoutePoint> route;
+    struct Procedure { std::string name; int kind = 0; std::vector<RoutePoint> pts; };   // kind 0 SID, 1 STAR, 2 approach
+    std::vector<Procedure> procedures;   // the plan's departure, arrival and approach, from X-Plane's CIFP (drawn on the map)
     std::vector<RoutePoint> trafficRoute;   // the selected VATSIM aircraft's filed route (its fixes found in X-Plane's nav data)
     std::string routeStatus;      // "KSBN to KORD, 12 fixes", or why there is none
     // the traffic card's aircraft on VATSIM (for Actions::trafficSelected)
