@@ -5745,6 +5745,8 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     const float split = top + std::floor((bot - top) * 2.0f / 3.0f);
     card(dl, ImVec2(rx, top), ImVec2(rx + rw, split - 5), f, "CABIN");
     card(dl, ImVec2(rx, split + 5), ImVec2(rx + rw, bot), f, "JETWAY STATUS");
+    // openSAM docks every jetway of the stand with its commands; one door alone is chosen in openSAM's own window
+    if (g.openSam && g.jwDoors > 1 && pill(dl, f, "##samui", "Pick the door in openSAM", ImVec2(rx + rw - 196, split + 9), ImVec2(rx + rw - 10, split + 33), false, true)) act.ground = GA_OPENSAM_UI;
     const float cx0 = rx + 16, cx1 = rx + rw - 16;
     if (!g.toliss) {
         dl->AddText(f.body, fontPx(f.body), ImVec2(cx0, top + 40), kMuted, "Cabin lights and slide arming are for ToLiss aircraft.", nullptr, cx1 - cx0);
