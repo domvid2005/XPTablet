@@ -6089,15 +6089,18 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
                 knob += (target - knob) * (1.0f - std::exp(-dt * 16.0f));
             }
             const float hx = tx0 + (tx1 - tx0) * knob;
-            dl->AddRectFilled(ImVec2(tx0, ty - 3), ImVec2(tx1, ty + 3), IM_COL32(255, 255, 255, 40), 3.0f);
-            dl->AddRectFilled(ImVec2(tx0, ty - 3), ImVec2(hx, ty + 3), IM_COL32(255, 214, 120, 255), 3.0f);
+            // on Auto only the bar and the knob go grey (eased), not the area round them
+            auto greyed = [&](int r, int g2, int b2, int al) { const float k = greyK; const int gr = 120;
+                return IM_COL32((int)(r + (gr - r) * k), (int)(g2 + (gr + 6 - g2) * k), (int)(b2 + (gr + 18 - b2) * k), al); };
+            const ImU32 fillCol = greyed(255, 214, 120, 255), knobCol = greyed(245, 248, 255, 255);
+            dl->AddRectFilled(ImVec2(tx0, ty - 3), ImVec2(tx1, ty + 3), IM_COL32(255, 255, 255, (int)(40 - 14 * greyK)), 3.0f);
+            dl->AddRectFilled(ImVec2(tx0, ty - 3), ImVec2(hx, ty + 3), fillCol, 3.0f);
             for (int i = 0; i <= 10; ++i) {
                 const float x = tx0 + (tx1 - tx0) * i / 10.0f;
                 dl->AddLine(ImVec2(x, ty + 7), ImVec2(x, ty + (i % 5 == 0 ? 13 : 10)), IM_COL32(255, 255, 255, 90), 1.0f);
             }
-            dl->AddCircleFilled(ImVec2(hx, ty), 10.0f, IM_COL32(245, 248, 255, 255), 0);
-            dl->AddCircle(ImVec2(hx, ty), 10.0f, IM_COL32(255, 214, 120, 255), 0, 2.0f);
-            if (greyK > 0.01f) dl->AddRectFilled(ImVec2(cx0 - 2, y - 2), ImVec2(cx1 + 2, y + 30), IM_COL32(14, 18, 28, (int)(150 * greyK)), 8.0f);
+            dl->AddCircleFilled(ImVec2(hx, ty), 10.0f, knobCol, 0);
+            dl->AddCircle(ImVec2(hx, ty), 10.0f, fillCol, 0, 2.0f);
             y += 32;
         } else {
             textAt(dl, f.small, cx0, y, kMuted, "This aircraft does not offer its cabin lights.");
