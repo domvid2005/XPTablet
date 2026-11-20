@@ -60,6 +60,9 @@ struct Settings {
     bool mapTrafficRoute = true;  // a VATSIM aircraft's filed route on the map while its card is open
     float mapTrafficRangeNm = 0;  // traffic shown within this distance of us (0: any)
     float mapTrafficAltFt = 0;    // and within this height of us (0: any)
+    std::string gatesFor;         // the flight plan the gates are for (its SimBrief id)
+    std::string startGate;        // the stand the flight left from (found when the plan came in on the ground; "N/A" in the air)
+    std::string arrivalGate;      // the stand it is going to (typed; shown on the destination's layout)
     std::string simbriefUser;     // SimBrief user name or pilot ID (the Flight Plan page and the route on the map)
     bool autoDim = false;         // the screen dims itself as the daylight goes (WXPlane's curve); the brightness slider rests
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
@@ -240,6 +243,7 @@ struct FlightPlan {
                  std::string cross;   // the SID's or STAR's crossing restriction there ("at or above FL220", "... 280 kt"), from X-Plane's CIFP
     };
     std::vector<Leg> legs;
+    std::string divertKey;        // a diversion: the plan it replaced (its breadcrumbs go on), "" when none
 };
 
 // The Airports page: one airport, read from X-Plane's scenery (apt.dat) and OurAirports.
@@ -295,6 +299,7 @@ struct SimState {
     std::string checklistText;    // the aircraft's own checklist file (see Checklists), "" for the built-in ones
     std::string checklistSource;  // where it came from
     FlightPlan plan;
+    FlightPlan planOriginal;      // the plan a diversion replaced (Undo Divert brings it back); loaded false when none
     float autoDimLevel = 1.0f;    // what auto dim makes of the brightness now (from the sun)
     std::vector<std::pair<std::string, std::string>> dataInfo;   // Settings, Data: where the tablet's data comes from, and how it is
     bool mac = false;             // macOS: no media controls (no Music app, no Media settings)
@@ -347,6 +352,8 @@ struct Actions {
     bool planDismiss = false;
     bool planReview = false;      // open the window again on the plan dismissed     // the preview's Dismiss: it goes, the flight plan stays as it was
     bool planClear = false;       // forget it
+    bool planDivert = false;      // a diversion: SimBrief's latest plan, taken from where the aircraft is (Undo goes back)
+    bool planUndoDivert = false;
     bool clearTileCache = false;  // delete the map tiles kept on disk
     bool resetBrowserData = false;   // the browser's profile (logins, cookies, history, cache): stopped, deleted, started afresh
     std::string docOpen;

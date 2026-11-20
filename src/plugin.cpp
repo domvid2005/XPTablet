@@ -805,7 +805,15 @@ void planToRoute() {
 }
 
 void planStep(const xpt::Actions& act) {
-    if (act.planImport && !xpt::settings().simbriefUser.empty() && !g_sim.plan.busy) simbriefFetch(xpt::settings().simbriefUser);
+    static bool divertPending = false;   // the plan being fetched is a diversion
+    if (act.planImport && !xpt::settings().simbriefUser.empty() && !g_sim.plan.busy) { divertPending = false; simbriefFetch(xpt::settings().simbriefUser); }
+    if (act.planDivert && g_sim.plan.loaded && !xpt::settings().simbriefUser.empty() && !g_sim.plan.busy) { divertPending = true; simbriefFetch(xpt::settings().simbriefUser); }
+    if (act.planUndoDivert && g_sim.planOriginal.loaded) {   // the plan before the diversion again (the breadcrumbs carry on)
+        g_sim.plan = g_sim.planOriginal;
+        g_sim.planOriginal = xpt::FlightPlan();
+        g_sim.plan.status = "Diversion undone";
+        planToRoute();
+    }
     {   // every 2 minutes with the SimBrief ID: a new plan is loaded and announced
         static double next = 30;
         const double now = XPLMGetElapsedTime();
@@ -817,9 +825,39 @@ void planStep(const xpt::Actions& act) {
             simbriefFetch(st.simbriefUser, true);
         }
     }
-    if (act.planAccept || act.planDismiss || act.planReview) { const bool took = act.planAccept; xpt::planDecide(g_sim, act); if (took) planToRoute(); }
+    if (act.planAccept || act.planDismiss || act.planReview) {
+        const bool took = act.planAccept && g_sim.planPreview.loaded;
+        const xpt::FlightPlan before = g_sim.plan;
+        xpt::planDecide(g_sim, act);
+        if (took && divertPending && before.loaded) {   // a diversion: the old plan kept for Undo, the trail goes on, the route from here
+            divertPending = false;
+            if (!g_sim.planOriginal.loaded) g_sim.planOriginal = before;
+            const xpt::FlightPlan& orig = g_sim.planOriginal;
+            g_sim.plan.divertKey = !orig.divertKey.empty() ? orig.divertKey : !orig.ofpId.empty() ? orig.ofpId : orig.origin + ">" + orig.dest + "@" + orig.importedAt;
+            const xpt::MapState& m = g_sim.map;
+            auto& legs = g_sim.plan.legs;
+            if (m.havePos && !m.onGround && legs.size() >= 2) {   // airborne: the new route picks up where the aircraft is
+                auto nm = [](double a1, double o1, double a2, double o2) { const double dy = (a2 - a1) * 60.0, dx = (o2 - o1) * 60.0 * std::cos(a1 * 3.14159265 / 180.0); return std::sqrt(dx * dx + dy * dy); };
+                size_t best = 1; double bestDetour = 1e18;
+                for (size_t i = 1; i < legs.size(); ++i) {
+                    const double d = nm(m.lat, m.lon, legs[i - 1].lat, legs[i - 1].lon) + nm(m.lat, m.lon, legs[i].lat, legs[i].lon) - nm(legs[i - 1].lat, legs[i - 1].lon, legs[i].lat, legs[i].lon);
+                    if (d < bestDetour) { bestDetour = d; best = i; }
+                }
+                xpt::FlightPlan::Leg here;
+                here.ident = "PPOS"; here.lat = m.lat; here.lon = m.lon; here.type = "ppos";
+                std::vector<xpt::FlightPlan::Leg> nl;
+                nl.push_back(here);
+                nl.insert(nl.end(), legs.begin() + (long)best, legs.end());
+                legs.swap(nl);
+            }
+            g_sim.plan.status = "Diverted to " + g_sim.plan.dest;
+        }
+        if (took && !before.divertKey.empty() == false && !divertPending && g_sim.plan.divertKey.empty()) g_sim.planOriginal = xpt::FlightPlan();   // (a new flight: no diversion to undo)
+        if (took) planToRoute();
+    }
     if (act.planClear) {
         if (g_sbThread.joinable()) g_sbThread.join();
+        g_sim.planOriginal = xpt::FlightPlan();
         g_sim.plan = xpt::FlightPlan();
         g_sim.plan.status = "Cleared";
         planToRoute();

@@ -614,6 +614,11 @@ int main(int argc, char** argv) {
             settings().simbriefUser = "alpineaviation";
             for (auto& l : fp.plan.legs) if (l.ident == "WATSN") l.cross = "between 10000 and 12000, 250 kt";   // (a made-up one: how it shows)
             shot(fp, APP_ROUTES, "flightplan");
+            {   // on the ground at the origin: "Welcome to" it, the figures at the left
+                SimState wf = fp; wf.map.havePos = true; wf.map.onGround = true;
+                wf.map.lat = wf.plan.legs.front().lat + 0.004; wf.map.lon = wf.plan.legs.front().lon; wf.map.hdgTrue = 270;
+                shot(wf, APP_ROUTES, "flightplan_welcome");
+            }
             openDispatchFromPlan(); shot(fp, APP_DISPATCH, "dispatch");
             { SimState np = t; shot(np, APP_DISPATCH, "dispatch_empty"); }
             {   // a newer plan from SimBrief, in its window before Import (the plan in use stays under it)

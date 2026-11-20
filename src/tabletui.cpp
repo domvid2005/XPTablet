@@ -2035,7 +2035,7 @@ double crumbNm(double la0, double lo0, double la1, double lo1) {
 void trackCrumbs(const SimState& s) {
     const FlightPlan& p = s.plan;
     if (!p.loaded) { g_crumbs.clear(); g_crumbsFor.clear(); return; }   // no plan, or cleared
-    const std::string key = !p.ofpId.empty() ? p.ofpId : p.origin + ">" + p.dest + "@" + p.importedAt;
+    const std::string key = !p.divertKey.empty() ? p.divertKey : !p.ofpId.empty() ? p.ofpId : p.origin + ">" + p.dest + "@" + p.importedAt;   // (a diversion: the original's)
     if (key != g_crumbsFor) { g_crumbs.clear(); g_crumbsFor = key; }   // another plan
     const MapState& m = s.map;
     if (!m.havePos) return;
@@ -2868,6 +2868,15 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                         if (q.x < r0.x - 40 || q.x > r1.x + 40 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
                         const bool picked = g_selKind == 6 && g_selKey == g.icao + "|" + std::to_string(si);
                         if (picked) dl->AddCircle(q, 8.0f, accentLite(255), 0, 2.2f);
+                        if (!g_settings.arrivalGate.empty() && s.plan.loaded && g.icao == s.plan.dest) {   // the flight's arrival gate: green, named
+                            std::string nm = st.name;
+                            for (char& c : nm) c = (char)std::toupper((unsigned char)c);
+                            if (nm == g_settings.arrivalGate) {
+                                dl->AddCircleFilled(q, 9.0f, IM_COL32(60, 220, 110, 70), 0);
+                                dl->AddCircle(q, 9.0f, IM_COL32(60, 220, 110, 255), 0, 2.4f);
+                                g_labels.push_back({6, q, 10, "Gate " + st.name, "", IM_COL32(255, 255, 255, 255), 0, IM_COL32(30, 140, 70, 235)});
+                            }
+                        }
                         dl->AddCircleFilled(q, picked ? 4.0f : 3.0f, picked ? accentLite(255) : IM_COL32(255, 255, 255, 235), 0);
                         dl->AddCircle(q, 3.0f, IM_COL32(20, 24, 32, 200), 0, 1.0f);
                         if (closest && !st.name.empty()) textAt(dl, f.small, q.x + 5, q.y - fontPx(f.small) * 0.5f, sat ? kInk : IM_COL32(30, 36, 48, 255), st.name.c_str());
@@ -4425,6 +4434,7 @@ Progress flightProgress(const SimState& s) {
 }
 // the bar: departure, the line flown (in the accent colour), the aircraft on it, destination; the figures over it
 std::string fitText(ImFont* fnt, const std::string& t, float width);   // (below)
+std::string welcomeAirport(const SimState& s, const Progress& pr);   // (below)
 void progressStrip(ImDrawList* dl, const Fonts& f, const SimState& s, const Progress& pr, ImVec2 a, ImVec2 b, bool compact) {
     const FlightPlan& p = s.plan;
     const float cy = compact ? b.y - 12 : (a.y + b.y) * 0.5f + 4;
@@ -4452,13 +4462,62 @@ void progressStrip(ImDrawList* dl, const Fonts& f, const SimState& s, const Prog
     // the aircraft is not (right while it is in the first half, left after)
     // (on the page: lifted clear of the aircraft's top, which reaches 13 px above the bar)
     const float ty = std::min(a.y - 2, std::floor(cy - 13 - fontPx(f.small) - 2));
-    if (compact) {   // beside the box's "Flight" title (fitted to the room right of it, never over it or the aircraft below)
-        const float room = b.x - (a.x + f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, "Flight").x + 14);
-        textRight(dl, f.small, b.x, a.y - 21, kMuted, fitText(f.small, t, room).c_str());
+    const std::string welcome = welcomeAirport(s, pr);
+    if (compact) {   // beside the box's title (fitted to the room right of it, never over it or the aircraft below)
+        const char* title = welcome.empty() ? "Flight" : "Welcome to XXXX";
+        const float room = b.x - (a.x + f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, title).x + 14);
+        if (welcome.empty()) textRight(dl, f.small, b.x, a.y - 21, kMuted, fitText(f.small, t, room).c_str());
+    } else {   // on the page: always at the left, under the call sign; "Welcome to" the airport over the bar's right
+        textAt(dl, f.small, a.x, ty, kMuted, t);
+        if (!welcome.empty()) textRight(dl, f.bold, b.x, ty - 2, accentLite(255), ("Welcome to " + welcome).c_str());
     }
-    else if (pr.frac < 0.5f) textRight(dl, f.small, b.x, ty, kMuted, t);
-    else textAt(dl, f.small, a.x, ty, kMuted, t);
 }
+// the airport the aircraft is at, on the ground, when it is the plan's origin (before it has gone far) or its destination: the
+// flight's progress says "Welcome to" it
+std::string welcomeAirport(const SimState& s, const Progress& pr) {
+    const FlightPlan& p = s.plan;
+    const MapState& m = s.map;
+    if (!p.loaded || p.legs.size() < 2 || !m.havePos || !m.onGround) return std::string();
+    if (nmBetween(m.lat, m.lon, p.legs.back().lat, p.legs.back().lon) < 3.0) return p.dest;
+    if (nmBetween(m.lat, m.lon, p.legs.front().lat, p.legs.front().lon) < 3.0 && (!pr.ok || pr.flownNm < 5)) return p.origin;
+    return std::string();
+}
+// the stand nearest the aircraft (within 80 m) on the airport layouts read round it, "" none
+std::string nearestStand(const SimState& s) {
+    const MapState& m = s.map;
+    if (!m.havePos) return std::string();
+    std::string best;
+    double bestM = 80;
+    for (const auto& ap : m.airports)
+        for (const AptGeo::Stand& st : ap->stands) {
+            double la, lo;
+            latLonOf(st.p, la, lo);
+            const double d = nmBetween(m.lat, m.lon, la, lo) * 1852.0;
+            if (d < bestM && !st.name.empty()) { bestM = d; best = st.name; }
+        }
+    return best;
+}
+// the gates follow the plan: a new plan finds the stand the aircraft is at (on the ground; for half a minute while the layouts are
+// read), or N/A when it came in in the air; the arrival gate is typed
+void trackGates(const SimState& s) {
+    const FlightPlan& p = s.plan;
+    if (!p.loaded) return;
+    const std::string key = !p.divertKey.empty() ? p.divertKey : !p.ofpId.empty() ? p.ofpId : p.origin + ">" + p.dest + "@" + p.importedAt;
+    static double since = -100;
+    if (key != g_settings.gatesFor) {
+        g_settings.gatesFor = key;
+        g_settings.startGate = s.map.havePos && !s.map.onGround ? "N/A" : "";
+        g_settings.arrivalGate.clear();
+        g_settingsChanged = true;
+        since = ImGui::GetTime();
+    }
+    if (g_settings.startGate.empty() && s.map.onGround && ImGui::GetTime() - since < 30) {
+        const std::string st = nearestStand(s);
+        if (!st.empty()) { g_settings.startGate = st; g_settingsChanged = true; }
+    }
+}
+std::string g_gateEdit;   // a gate being typed (the departure's, or the arrival's)
+int g_gateEditing = 0;    // 1 departure, 2 arrival
 double g_previewT0 = 0;   // when the plan preview window appeared (it grows in)
 float rowStep = 21;   // the Flight Plan rows' spacing (the fuel and weights card closes it up)
 void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
@@ -4478,6 +4537,9 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     const bool waiting = s.planPreview.loaded && !s.planPreviewOpen;
     if (button("##fpimport", p.busy ? "Importing..." : "Import from SimBrief", true, (haveId || waiting) && !p.busy)) { act.planReview = waiting; act.planImport = haveId; }
     if (button("##fpclear", "Clear", false, p.loaded)) act.planClear = true;
+    // a diversion: SimBrief's latest plan (made for the new destination), from where the aircraft is; Undo goes back to the plan before
+    if (s.planOriginal.loaded) { if (button("##fpundo", "Undo Divert", true, true)) act.planUndoDivert = true; }
+    else if (button("##fpdivert", "Divert", false, p.loaded && haveId && !p.busy)) act.planDivert = true;
     if (button("##fppdf", "Briefing PDF", false, p.loaded && !p.pdfUrl.empty())) { openDispatch(true); return; }
     if (button("##fpmap", "Show on map", false, p.loaded && !p.legs.empty())) {
         double la = 0, lo = 0;
@@ -4539,6 +4601,53 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     row(c1 + 14, c1 + w1 - 14, "Cost index", p.costIndex);
     row(c1 + 14, c1 + w1 - 14, "Average wind", p.avgWind);
     row(c1 + 14, c1 + w1 - 14, "Alternate", p.alternate);
+    {   // the gates: the one left from (found, or typed), the one going to (typed; its dot is marked on the destination's layout)
+        trackGates(s);
+        y += 6;
+        auto gateRow = [&](int which, const char* label, std::string& v) {
+            textAt(dl, f.small, c1 + 14, y + 7, kMuted, label);
+            const ImVec2 ga(c1 + w1 - 14 - 110, y), gb(c1 + w1 - 14, y + 28);
+            char id[16];
+            std::snprintf(id, sizeof id, "##gate%d", which);
+            if (g_gateEditing == which) {
+                textField(dl, f, id, g_gateEdit, ga, gb, "Gate", false);
+                if (g_typeInto != &g_gateEdit) {   // typed and finished
+                    std::string t = g_gateEdit;
+                    for (char& c : t) c = (char)std::toupper((unsigned char)c);
+                    v = t; g_gateEditing = 0; g_settingsChanged = true;
+                }
+            } else if (pill(dl, f, id, v.empty() ? "Set" : v.c_str(), ga, gb, false, true)) {
+                g_gateEditing = which; g_gateEdit = v == "N/A" ? std::string() : v;
+                g_typeInto = &g_gateEdit; g_typeMultiline = false; g_kbd = true; g_kbdTarget = 2;
+            }
+            y += 34;
+        };
+        gateRow(1, "Departure gate", g_settings.startGate);
+        gateRow(2, "Arrival gate", g_settings.arrivalGate);
+        // the destination's stands, when its layout has been read (the map near it): the ones that start with what is typed
+        if (g_gateEditing == 2 && !g_gateEdit.empty()) {
+            std::string up = g_gateEdit;
+            for (char& c : up) c = (char)std::toupper((unsigned char)c);
+            float gx = c1 + 14;
+            int shown = 0;
+            for (const auto& ap : s.map.airports) {
+                if (ap->icao != p.dest) continue;
+                for (const AptGeo::Stand& st : ap->stands) {
+                    std::string nm = st.name;
+                    for (char& c : nm) c = (char)std::toupper((unsigned char)c);
+                    if (nm.compare(0, up.size(), up) != 0 || shown >= 4) continue;
+                    const float bw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, st.name.c_str()).x + 20;
+                    char id[24];
+                    std::snprintf(id, sizeof id, "##gsug%d", shown++);
+                    if (pill(dl, f, id, st.name.c_str(), ImVec2(gx, y), ImVec2(gx + bw, y + 24), false, true)) {
+                        g_settings.arrivalGate = nm; g_gateEditing = 0; g_typeInto = nullptr; g_kbd = false; g_kbdTarget = 0; g_settingsChanged = true;
+                    }
+                    gx += bw + 6;
+                }
+            }
+            if (shown) y += 30;
+        }
+    }
     // fuel and weights
     const float c2 = c1 + w1 + 10, w2 = 200;
     card(dl, ImVec2(c2, y0), ImVec2(c2 + w2, bot), f, "FUEL AND WEIGHTS");
@@ -5507,7 +5616,8 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             ImGui::SetCursorScreenPos(a);   // the card: the Flight Plan
             ImGui::SetNextItemAllowOverlap();
             if (ImGui::InvisibleButton("##ccflightcard", ImVec2(b.x - a.x, b.y - a.y))) { g_ccTarget = 0; openApp(APP_ROUTES); }
-            textAt(dl, f.bold, a.x + 16, a.y + 10, kInk, "Flight");
+            const std::string welcome = welcomeAirport(s, pr);
+            textAt(dl, f.bold, a.x + 16, a.y + 10, welcome.empty() ? kInk : accentLite(255), welcome.empty() ? "Flight" : ("Welcome to " + welcome).c_str());
             progressStrip(dl, f, s, pr, ImVec2(a.x + 16, a.y + 32), ImVec2(b.x - 16, b.y - 4), true);
         }
     }
@@ -6527,6 +6637,8 @@ std::string settingsToText() {
     }
     std::snprintf(buf, sizeof buf, "browser_volume=%.2f\n", (double)g_settings.browserVolume);
     out += buf;
+    auto oneLine = [](std::string v) { for (char& c : v) if (c == '\n' || c == '\r') c = ' '; return v; };
+    out += "gates_for=" + oneLine(g_settings.gatesFor) + "\nstart_gate=" + oneLine(g_settings.startGate) + "\narrival_gate=" + oneLine(g_settings.arrivalGate) + "\n";
     return out;
 }
 
@@ -6619,6 +6731,9 @@ void settingsFromText(const std::string& text) {
             const size_t tab = val.find('\t');
             if (tab != std::string::npos && tab + 1 < val.size() && g_settings.history.size() < 200) g_settings.history.push_back({val.substr(0, tab), val.substr(tab + 1)});
         }
+        else if (key == "gates_for") g_settings.gatesFor = val;
+        else if (key == "start_gate") g_settings.startGate = val;
+        else if (key == "arrival_gate") g_settings.arrivalGate = val;
         else if (key == "browser_volume") g_settings.browserVolume = std::max(0.0f, std::min(1.0f, (float)std::atof(val.c_str())));
     }
     if (!newStyle) {   // an older settings file: the site its one icon was set to
