@@ -31,7 +31,7 @@ struct Settings {
     // (ForeFlight, SkyVector), flight planning (SimBrief)
     bool showCharts = true, showNavigraph = false, showLive = false, showVatsim = false, showForeflight = true, showSkyvector = false, showSimbrief = true;
     std::vector<int> order;       // the home screen's icons, in the order the user arranged them
-    std::vector<std::string> installed = {"datis"};   // the App Store's apps on the home screen (their ids)
+    std::vector<std::string> installed = {"datis", "games"};   // the App Store's apps on the home screen (their ids)
     struct Folder { std::string name; std::vector<int> apps; };
     std::vector<Folder> folders;  // the home screen's folders (in order as kFolder0 + their index)
     int homePages = 1;            // the home screen's pages

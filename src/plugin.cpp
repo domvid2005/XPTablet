@@ -1528,7 +1528,7 @@ void ensureFrame() {
     xpt::build(g_fonts, g_sim, g_logW, xpt::kLogicalH, act);
     ImGui::Render();
     xpt::clipDrawData(ImGui::GetDrawData(), g_batches);
-    {   // the Navigation page's search: X-Plane's navaids, fixes and airports whose code starts with it, or whose name holds it
+    {   // the Navigation page's search: X-Plane's navaids and fixes (airports: the Airports app) whose code starts with it, or whose name holds it
         static std::string last;
         if (act.navSearch != last) {
             last = act.navSearch;
@@ -1536,7 +1536,7 @@ void ensureFrame() {
             if (last.size() >= 2) {
                 struct Hit { xpt::SimState::NavHit h; int rank; double d; };
                 std::vector<Hit> hits;
-                const int want = xplm_Nav_Airport | xplm_Nav_NDB | xplm_Nav_VOR | xplm_Nav_ILS | xplm_Nav_Localizer | xplm_Nav_Fix | xplm_Nav_DME;
+                const int want = xplm_Nav_NDB | xplm_Nav_VOR | xplm_Nav_ILS | xplm_Nav_Localizer | xplm_Nav_Fix | xplm_Nav_DME;
                 for (XPLMNavRef r = XPLMGetFirstNavAid(); r != XPLM_NAV_NOT_FOUND; r = XPLMGetNextNavAid(r)) {
                     XPLMNavType type = xplm_Nav_Unknown;
                     float la = 0, lo = 0, hgt = 0, hdg = 0;

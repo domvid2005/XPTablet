@@ -85,7 +85,7 @@ ImTextureID g_wxLogo = 0;
 Settings g_settings;
 // the App Store's apps: on the home screen only once installed (the others were always there, their Settings switches too)
 bool g_installedRead = false;   // the settings file had its list (else D-ATIS comes installed)
-bool storeApp(int app) { return app >= APP_DATIS && app < APP_COUNT; }
+bool storeApp(int app) { return app == APP_GAMES || (app >= APP_DATIS && app < APP_COUNT); }
 bool installed(int app) {
     if (!storeApp(app)) return true;
     for (const std::string& id : g_settings.installed) if (id == kApps[app].id) return true;
@@ -7249,12 +7249,12 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
 
 namespace {
 
-// ---- Navigation: X-Plane's navaids, fixes and airports, found by their code or name; tapped, shown on the map -------------------------
+// ---- Navigation: X-Plane's navaids and fixes (airports: the Airports app), found by their code or name; tapped, shown on the map -------------------------
 std::string g_navQuery;
 float g_navScroll = 0;
 void navSearchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const float top = kStatusH + kHeaderH + 10;
-    textField(dl, f, "##navq", g_navQuery, ImVec2(12, top), ImVec2(w - 12, top + 40), "Search: a VOR, NDB, ILS, fix or airport (code or name)", false, 0);
+    textField(dl, f, "##navq", g_navQuery, ImVec2(12, top), ImVec2(w - 12, top + 40), "Search: a VOR, NDB, ILS, DME or fix (code or name)", false, 0);
     for (char& c : g_navQuery) c = (char)std::toupper((unsigned char)c);
     act.navSearch = g_navQuery;
     const float ly0 = top + 52, ly1 = (g_kbd && g_kbdTarget == 2) ? h - 230 : h - 12;
@@ -7417,7 +7417,7 @@ bool storeInstalled(int app) { bool* fl = storeFlag(app); return fl ? *fl : inst
 int g_storeCat = 0;   // the category shown: 0 all
 float g_storeScroll = 0;
 void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
-    struct Item { int app; int cat; const char* what; };   // cat: 1 charts, 2 planning, 3 networks, 4 music and video
+    struct Item { int app; int cat; const char* what; };   // cat: 1 charts, 2 planning, 3 networks, 4 music and video, 5 games
     static const Item items[] = {
         {APP_FOREFLIGHT, 1, "ForeFlight's charts and maps on the web"},
         {APP_CHARTS, 1, "ChartFox: free charts for most of the world"},
@@ -7435,12 +7435,13 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
         {APP_APPLEMUSIC, 4, "Apple Music on the web"},
         {APP_SOUNDCLOUD, 4, "SoundCloud"},
         {APP_YOUTUBE, 4, "YouTube"},
+        {APP_GAMES, 5, "2048, and noughts and crosses against the tablet"},
     };
     const float top = kStatusH + kHeaderH + 10;
     {   // the categories
-        static const char* cats[5] = {"All", "Charts", "Flight Planning", "Networks", "Music & Video"};
+        static const char* cats[6] = {"All", "Charts", "Flight Planning", "Networks", "Music & Video", "Games"};
         float x = 16;
-        for (int c = 0; c < 5; ++c) {
+        for (int c = 0; c < 6; ++c) {
             const float bw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, cats[c]).x + 32;
             char id[16]; std::snprintf(id, sizeof id, "##scat%d", c);
             if (pill(dl, f, id, cats[c], ImVec2(x, top), ImVec2(x + bw, top + 30), g_storeCat == c, true) && g_storeCat != c) { g_storeCat = c; g_storeScroll = 0; }
@@ -7571,8 +7572,13 @@ void tttTabletMove() {
         g_ttt[i] = 2;
         int v = tttScore(g_ttt, 1);
         g_ttt[i] = 0;
-        if (std::rand() % 6 == 0) v -= 3;   // (now and then not the best move: it can be beaten)
         if (v > best) { best = v; bestI = i; }
+    }
+    // the tablet is beatable: about half its moves are a free cell picked at random (it still takes a win it sees half the time)
+    if (std::rand() % 100 < 45) {
+        int freeN = 0;
+        for (int c : g_ttt) freeN += c == 0;
+        if (freeN) { int k = std::rand() % freeN; for (int i = 0; i < 9; ++i) if (!g_ttt[i] && k-- == 0) { bestI = i; break; } }
     }
     if (bestI >= 0) g_ttt[bestI] = 2;
 }
@@ -7622,12 +7628,14 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
     }
     if (pill(dl, f, "##gamesback", "All games", ImVec2(16, top + 12), ImVec2(116, top + 40), false, true)) { g_game = -1; return; }
     if (g_game == 0) {   // 2048: swipe on the board, or the arrow keys
+        // the board at the left under All games; the score, the best and New game in a column to its right (nothing over the board)
+        const float side = std::floor(std::min(h - top - 62, w * 0.5f)), cell = side / 4;
+        const ImVec2 o(16, top + 52);
+        const float px = o.x + side + 32;
         char t[48];
-        std::snprintf(t, sizeof t, "Score %d", g_score); textAt(dl, f.bold, w - 300, top + 16, kInk, t);
-        std::snprintf(t, sizeof t, "Best %d", g_best); textAt(dl, f.small, w - 300, top + 40, kMuted, t);
-        if (pill(dl, f, "##2048new", "New game", ImVec2(w - 126, top + 12), ImVec2(w - 16, top + 40), false, true)) new2048();
-        const float side = std::min(h - top - 30, w - 340), cell = side / 4;
-        const ImVec2 o(std::floor((w - side) * 0.5f) - 80, top + 16);
+        std::snprintf(t, sizeof t, "Score %d", g_score); textAt(dl, f.title, px, o.y + 4, kInk, t);
+        std::snprintf(t, sizeof t, "Best %d", g_best); textAt(dl, f.body, px, o.y + 42, kMuted, t);
+        if (pill(dl, f, "##2048new", "New game", ImVec2(px, o.y + 78), ImVec2(px + 140, o.y + 108), false, true)) new2048();
         ImGui::SetCursorScreenPos(o);
         ImGui::InvisibleButton("##2048board", ImVec2(side, side));
         static ImVec2 from;
@@ -7663,14 +7671,14 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
             dl->AddRectFilled(o, ImVec2(o.x + side, o.y + side), IM_COL32(238, 228, 218, 170), 14.0f);
             textCentered(dl, f.title, o.x + side * 0.5f, o.y + side * 0.5f - 14, IM_COL32(119, 110, 101, 255), "No moves left");
         }
-        textAt(dl, f.small, w - 300, top + 80, kMuted, "Swipe on the board, or use");
-        textAt(dl, f.small, w - 300, top + 98, kMuted, "the arrow keys.");
+        dl->AddText(f.small, fontPx(f.small), ImVec2(px, o.y + 126), kMuted, "Swipe on the board, or use the arrow keys.", nullptr, w - 16 - px);
         return;
     }
     // noughts and crosses: you are X and go first; the tablet answers
-    const float side = std::min(h - top - 40, 330.0f), cell = side / 3;
-    const ImVec2 o(std::floor((w - side) * 0.5f), top + 24);
-    if (pill(dl, f, "##tttnew", "New game", ImVec2(w - 126, top + 12), ImVec2(w - 16, top + 40), false, true)) { for (int& c : g_ttt) c = 0; g_tttResult = 0; }
+    const float side = std::floor(std::min(h - top - 62, 340.0f)), cell = side / 3;
+    const ImVec2 o(std::floor((w - side) * 0.5f) - 120, top + 52);
+    const float px = o.x + side + 40;
+    if (pill(dl, f, "##tttnew", "New game", ImVec2(px, o.y + 52), ImVec2(px + 140, o.y + 82), false, true)) { for (int& c : g_ttt) c = 0; g_tttResult = 0; }
     for (int i = 0; i < 9; ++i) {
         const ImVec2 c0(o.x + (i % 3) * cell, o.y + (i / 3) * cell), c1(c0.x + cell, c0.y + cell);
         char id[16]; std::snprintf(id, sizeof id, "##ttt%d", i);
@@ -7693,7 +7701,7 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         dl->AddLine(ImVec2(o.x + 8, o.y + k * cell), ImVec2(o.x + side - 8, o.y + k * cell), IM_COL32(255, 255, 255, 90), 3.0f);
     }
     const char* msg = g_tttResult == 1 ? "You win!" : g_tttResult == 2 ? "The tablet wins" : g_tttResult == 3 ? "A draw" : "Your move (X)";
-    textAt(dl, f.bold, w - 250, top + 70, kInk, msg);
+    textAt(dl, f.title, px, o.y + 4, g_tttResult == 1 ? kGood : kInk, msg);
 }
 
 } // namespace

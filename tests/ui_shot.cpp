@@ -440,13 +440,20 @@ int main(int argc, char** argv) {
           settings().wallpaper = 8; shot(t, APP_HOME, "home_custom");
           settings().wallpaper = keep; }
         shot(t, APP_GAMES, "games");
+        {   // each game, opened from its card (nothing drawn over the board)
+            auto tp = [&](float x, float y) { for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1);
+                ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); } };
+            tp(200, 200); shot(t, APP_GAMES, "games_2048");
+            tp(60, 100); tp(600, 200); tp(200, 300); shot(t, APP_GAMES, "games_ttt");
+            tp(60, 100);
+        }
         { SimState nv = t;
-          nv.navHits = {{4, "GIJ", "GIPPER VORTAC", 41.77, -86.32, 11580}, {1, "KSBN", "South Bend Intl", 41.70, -86.32, 0}, {2, "SB", "SOUTH BEND NDB", 41.6, -86.2, 356}, {512, "SBNAP", "SBNAP", 41.5, -86.4, 0}};
+          nv.navHits = {{4, "GIJ", "GIPPER VORTAC", 41.77, -86.32, 11580}, {2, "SB", "SOUTH BEND NDB", 41.6, -86.2, 356}, {512, "SBNAP", "SBNAP", 41.5, -86.4, 0}};
           shot(nv, APP_NAVSEARCH, "navsearch"); }
         shot(t, APP_VATSIMHUB, "vatsimhub");
         {
             const Settings keep = settings();
-            settings().installed = {"datis", "spotify", "youtube", "nattrak"};
+            settings().installed = {"datis", "games", "spotify", "youtube", "nattrak"};
             settings().folders = {{"Ops", {APP_NOTES, APP_DOCUMENTS, APP_CHECKLISTS}}};
             settings().order = {kWidget0 + W_WEATHER, -1, kWidget0 + W_FLIGHT, -1, -1, -1, kWidget0 + W_FPS, -1, -1, -1, -1, -1, -1, kFolder0};
             SimState hw = t; hw.fps = 47; hw.media.supported = true; hw.media.active = true; hw.media.title = "Night Flight"; hw.media.artist = "The Cruise"; hw.media.playing = true;
