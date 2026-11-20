@@ -6530,19 +6530,24 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
     // the picture: none, or one from the backgrounds folder (put there from your computer)
     float py = pa.y + pvh + 34;
     textAt(dl, f.bold, a.x + 20, py, kInk, "Picture");
-    float px = a.x + 100;
+    float px = a.x + 122;
     auto pick = [&](const char* id, const std::string& label, const std::string& file) {
         const float bw = std::min(160.0f, f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, label.c_str()).x + 28);
-        if (px + bw > b.x - 20) { px = a.x + 100; py += 36; }
+        if (px + bw > b.x - 20) { px = a.x + 122; py += 36; }
         if (py > b.y - 40) return;
         if (pill(dl, f, id, fitText(f.small, label, bw - 16).c_str(), ImVec2(px, py - 4), ImVec2(px + bw, py + 24), ct.picture == file, true) && ct.picture != file) { ct.picture = file; g_settingsChanged = true; }
         px += bw + 6;
     };
+    {   // the refresh: the folder looked at again (pictures added since show), beside the word Picture
+        const ImVec2 ra(a.x + 20 + 64, py - 4), rb(ra.x + 28, py + 24);
+        if (iconButton("##ctlook", ra, rb, true)) act.backgroundsList = true;
+        reloadIcon(dl, ImVec2((ra.x + rb.x) * 0.5f, (ra.y + rb.y) * 0.5f), kInk);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Look in the backgrounds folder again");
+    }
     pick("##ctpnone", "None", "");
     for (size_t i = 0; i < s.backgroundFiles.size() && i < 12; ++i) { char id[24]; std::snprintf(id, sizeof id, "##ctp%zu", i); pick(id, s.backgroundFiles[i], s.backgroundFiles[i]); }
-    if (pill(dl, f, "##ctlook", "Look again", ImVec2(b.x - 120, b.y - 40), ImVec2(b.x - 18, b.y - 14), false, true)) act.backgroundsList = true;
-    const std::string where = "Import a picture (PNG or JPG): put it in " + (s.backgroundsFolder.empty() ? std::string("plugins/XPTablet/backgrounds") : s.backgroundsFolder);
-    dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 20, b.y - 40), kMuted, where.c_str(), nullptr, b.x - a.x - 160);
+    const std::string where = "Import a picture (PNG or JPG): put it in the backgrounds folder in XPTablet's plugin folder, " + (s.backgroundsFolder.empty() ? std::string("plugins/XPTablet/backgrounds") : s.backgroundsFolder);
+    dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 20, b.y - 44), kMuted, where.c_str(), nullptr, b.x - a.x - 40);
 }
 
 void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {

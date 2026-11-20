@@ -140,6 +140,10 @@ if(XPT_BUILD_PLUGIN)
   endif()
   add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory   # the Airbus checklists (GPL-2, with their licence)
     "${CMAKE_SOURCE_DIR}/assets/checklists" "${CMAKE_BINARY_DIR}/package/XPTablet/checklists")
+  add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory   # the user's folders, ready in the plugin's folder
+    "${CMAKE_SOURCE_DIR}/assets/backgrounds" "${CMAKE_BINARY_DIR}/package/XPTablet/backgrounds")
+  add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_SOURCE_DIR}/assets/docs" "${CMAKE_BINARY_DIR}/package/XPTablet/docs")
   set_target_properties(XPTablet PROPERTIES
     PREFIX "" OUTPUT_NAME "XPTablet" SUFFIX ".xpl"
     LIBRARY_OUTPUT_DIRECTORY "${XPT_OUT}" RUNTIME_OUTPUT_DIRECTORY "${XPT_OUT}")
