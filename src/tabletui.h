@@ -22,7 +22,7 @@ enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_
            APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_MUSIC, APP_DISPATCH, APP_NAVSEARCH,
            // the App Store and what it offers (web apps, installed or not), and Games
            APP_APPSTORE, APP_GAMES, APP_DATIS, APP_SPOTIFY, APP_YTMUSIC, APP_APPLEMUSIC, APP_SOUNDCLOUD, APP_YOUTUBE, APP_VATSIMHUB, APP_NATTRAK, APP_IVAO,
-           APP_TIMERS, APP_LOGBOOK, APP_ACARS,   // (App Store apps of XPTablet's own)
+           APP_TIMERS, APP_LOGBOOK, APP_ACARS, APP_XPILOT,   // (App Store apps of XPTablet's own)
            APP_COUNT };
 
 constexpr int kMaxFavorites = 7;   // the favorites bar holds up to 7 places (icons, or the 1 x 1 and 7 x 1 widgets); its size is chosen in Settings, 0 removes it

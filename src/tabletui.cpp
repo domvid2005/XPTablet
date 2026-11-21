@@ -105,6 +105,7 @@ const AppDef kApps[APP_COUNT] = {
     {"timers", "Timers", IM_COL32(255, 149, 0, 255), nullptr},
     {"logbook", "Logbook", IM_COL32(120, 84, 60, 255), nullptr},
     {"acars", "ACARS", IM_COL32(52, 120, 140, 255), nullptr},
+    {"xpilot", "xPilot", IM_COL32(30, 44, 70, 255), nullptr},   // xPilot's own windows, opened from the tablet
 };
 enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM, ICON_SKYVECTOR };   // pictures of their own (the other web apps borrow one)
 
@@ -679,6 +680,13 @@ void drawTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, boo
             const ImVec2 tl[3] = {ImVec2(c.x - r * 0.42f, c.y + r * 0.38f), ImVec2(c.x - r * 0.1f, c.y + r * 0.38f), ImVec2(c.x - r * 0.5f, c.y + r * 0.8f)};
             dl->AddConvexPolyFilled(tl, 3, wcol);
             for (int i = 0; i < 3; ++i) dl->AddLine(ImVec2(c.x - r * 0.58f, c.y - r * 0.34f + i * r * 0.26f), ImVec2(c.x + (i == 2 ? r * 0.12f : r * 0.58f), c.y - r * 0.34f + i * r * 0.26f), k, std::max(1.5f, r * 0.1f));
+        } else if (app == APP_XPILOT) {   // a headset: its band, two ear cups and the microphone
+            const float t = std::max(2.0f, r * 0.16f);
+            dl->PathArcTo(ImVec2(c.x, c.y + r * 0.06f), r * 0.66f, 3.14159f * 1.05f, 3.14159f * 1.95f, 24); dl->PathStroke(wcol, 0, t);
+            dl->AddRectFilled(ImVec2(c.x - r * 0.82f, c.y - r * 0.02f), ImVec2(c.x - r * 0.46f, c.y + r * 0.58f), wcol, r * 0.14f);
+            dl->AddRectFilled(ImVec2(c.x + r * 0.46f, c.y - r * 0.02f), ImVec2(c.x + r * 0.82f, c.y + r * 0.58f), wcol, r * 0.14f);
+            dl->PathArcTo(ImVec2(c.x - r * 0.2f, c.y + r * 0.46f), r * 0.44f, 3.14159f * 0.15f, 3.14159f * 0.9f, 16); dl->PathStroke(wcol, 0, std::max(1.5f, r * 0.11f));
+            dl->AddCircleFilled(ImVec2(c.x + r * 0.18f, c.y + r * 0.86f), r * 0.13f, wcol, 0);
         } else if (app == APP_GAMES) {   // a game pad
             dl->AddRectFilled(ImVec2(c.x - r * 0.86f, c.y - r * 0.40f), ImVec2(c.x + r * 0.86f, c.y + r * 0.46f), wcol, r * 0.40f);
             const ImU32 k = shade(appColor(app), shadeK);
@@ -8269,10 +8277,10 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
         {APP_SKYVECTOR, 1, "SkyVector's aeronautical charts"},
         {APP_SIMBRIEF, 2, "SimBrief: plan and dispatch your flights"},
         {APP_DATIS, 2, "Digital ATIS for the airports that publish it"},
-        {APP_NATTRAK, 2, "North Atlantic oceanic clearances on VATSIM"},
         {APP_TIMERS, 2, "A stopwatch, a hold timer, the flight's block and air times, ETA and top of descent"},
         {APP_LOGBOOK, 2, "Every flight logged by itself: times, route, landing rate and fuel"},
         {APP_ACARS, 3, "Hoppie ACARS: CPDLC, pre-departure clearances and telex on VATSIM and IVAO"},
+        {APP_XPILOT, 3, "xPilot's windows (messages, nearby ATC...) opened from the tablet, and its radio state"},
         {APP_VATSIM, 3, "VATSIM Radar: the network's traffic and ATC live"},
         {APP_LIVEMAP, 3, "Volanta's live map of your flights"},
         {APP_VATSIMHUB, 3, "VATSIM: network stats, events, the AIP and pilot resources"},
@@ -8329,26 +8337,19 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
 }
 
 // ---- VATSIM: a page of bubbles, each a part of VATSIM's own sites (they open as the app's tabs) ----------------------------------------
-// xPilot's commands the tablet knows a name for (only those found in the sim are shown)
-struct XpCmd { const char* cmd; const char* label; };
-const XpCmd kXpCmds[] = {
-    {"xpilot/toggle_text_message_console", "Messages"}, {"xpilot/toggle_nearby_atc_window", "Nearby ATC"},
-    {"xpilot/toggle_notification_panel", "Notifications"}, {"xpilot/contact_atc", "Contact ATC"},
-    {"xpilot/toggle_aircraft_labels", "Aircraft Labels"}, {"xpilot/toggle_settings_window", "xPilot Settings"},
-};
-void vatsimHubPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
-    std::vector<const XpCmd*> xp;
-    for (const XpCmd& c : kXpCmds) for (const std::string& n : s.xpilotCmds) if (n == c.cmd) xp.push_back(&c);
+void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
     struct Bubble { const char* name; const char* what; const char* url; ImU32 col; };
     static const Bubble bubbles[] = {
         {"Stats", "Your hours, flights and the network's numbers", "https://stats.vatsim.net", IM_COL32(40, 120, 220, 255)},
         {"AIP", "Airports, their controllers and procedures (myVATSIM)", "https://my.vatsim.net", IM_COL32(40, 160, 120, 255)},
         {"Events", "What is on across the network", "https://my.vatsim.net/events", IM_COL32(220, 120, 40, 255)},
         {"Pilot resources", "Guides, charts, maps and tools", "https://vatsim.net/docs/pilots/pilots", IM_COL32(140, 90, 220, 255)},
+        {"natTrak", "North Atlantic oceanic clearances", "https://nattrak.vatsim.net", IM_COL32(20, 90, 150, 255)},
+        {"xPilot", "Its messages, nearby ATC and more, opened in the sim", nullptr, IM_COL32(30, 44, 70, 255)},
     };
-    const float top = kStatusH + kHeaderH + 24, bw = std::floor((w - 32 - 16) * 0.5f), bh = xp.empty() ? 150.0f : 112.0f;
-    for (int i = 0; i < 4; ++i) {
-        const ImVec2 a(16 + (i % 2) * (bw + 16), top + (i / 2) * (bh + 16)), b(a.x + bw, a.y + bh);
+    const float top = kStatusH + kHeaderH + 16, gap = 14, bw = std::floor((w - 32 - 2 * gap) / 3), bh = std::floor((h - top - 14 - gap) / 2);
+    for (int i = 0; i < 6; ++i) {
+        const ImVec2 a(16 + (i % 3) * (bw + gap), top + (i / 3) * (bh + gap)), b(a.x + bw, a.y + bh);
         char id[24]; std::snprintf(id, sizeof id, "##vbub%d", i);
         ImGui::SetCursorScreenPos(a);
         const bool hit = ImGui::InvisibleButton(id, ImVec2(bw, bh));
@@ -8359,19 +8360,46 @@ void vatsimHubPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
         dl->AddRect(a2, b2, IM_COL32(255, 255, 255, (int)(30 + 60 * e.hot)), 28.0f, 0, 1.2f);
         dl->AddText(f.title, fontPx(f.title), ImVec2(a2.x + 22, a2.y + 22), IM_COL32(255, 255, 255, 255), bubbles[i].name);
         dl->AddText(f.small, fontPx(f.small), ImVec2(a2.x + 22, a2.y + 62), IM_COL32(235, 240, 250, 220), bubbles[i].what, nullptr, bw - 44);
-        if (hit) openWeb("VATSIM", bubbles[i].url, false, 100 + APP_VATSIMHUB);
+        if (hit) { if (bubbles[i].url) openWeb("VATSIM", bubbles[i].url, false, 100 + APP_VATSIMHUB); else { g_app = APP_XPILOT; g_animPage = -1; } }
     }
-    if (!xp.empty()) {   // xPilot, in the sim: its own windows opened from here (it connects in its own app)
-        const ImVec2 a(16, top + 2 * (bh + 16)), b(w - 16, h - 12);
-        card(dl, a, b, f, "XPILOT");
-        textAt(dl, f.small, a.x + 28, a.y + 30, kMuted, "Opens xPilot's own windows in the sim (connecting stays in the xPilot app)");
-        const int n = (int)xp.size();
-        const float gap = 8, pw = std::floor((b.x - a.x - 32 - gap * (n - 1)) / n);
-        for (int i = 0; i < n; ++i) {
-            char id[48]; std::snprintf(id, sizeof id, "##xp_%s", xp[i]->cmd);
-            const float x = a.x + 16 + i * (pw + gap);
-            if (pill(dl, f, id, xp[i]->label, ImVec2(x, b.y - 48), ImVec2(x + pw, b.y - 14), false, true)) act.xpilotCmd = xp[i]->cmd;
-        }
+}
+
+// ---- xPilot: its own windows opened from the tablet (its commands, when found in the sim), and what its radios are doing
+struct XpCmd { const char* cmd; const char* label; const char* what; };
+const XpCmd kXpCmds[] = {
+    {"xpilot/toggle_text_message_console", "Messages", "Its text window: ATC, private and frequency messages"},
+    {"xpilot/toggle_nearby_atc_window", "Nearby ATC", "The controllers in range, their frequencies"},
+    {"xpilot/toggle_notification_panel", "Notifications", "Its notification panel"},
+    {"xpilot/contact_atc", "Contact ATC", "Asks the controller to contact you"},
+    {"xpilot/toggle_aircraft_labels", "Aircraft Labels", "Other aircraft's labels, on or off"},
+    {"xpilot/toggle_settings_window", "Settings", "xPilot's own settings"},
+};
+void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const float top = kStatusH + kHeaderH + 10;
+    std::vector<const XpCmd*> xp;
+    for (const XpCmd& c : kXpCmds) for (const std::string& n : s.xpilotCmds) if (n == c.cmd) xp.push_back(&c);
+    card(dl, ImVec2(12, top), ImVec2(w - 12, top + 76), f, "XPILOT");
+    const bool loaded = !s.xpilotCmds.empty();
+    textAt(dl, f.bold, 28, top + 30, loaded ? kGood : kWarn, loaded ? "xPilot is loaded in the sim" : "xPilot is not loaded (its plugin is not running)");
+    std::string radio = s.media.radioTx ? "Transmitting" : s.media.radioRx && s.media.radioSource == "xPilot" ? "Receiving" : "Radio quiet";
+    textAt(dl, f.small, 28, top + 52, kMuted, (radio + "  \xC2\xB7  connecting and typing stay in xPilot's own app and windows").c_str());
+    if (!loaded) return;
+    const float y0 = top + 90, gap = 12, cols = 3, tw = std::floor((w - 24 - gap * (cols - 1)) / cols);
+    const int rows = ((int)xp.size() + 2) / 3;
+    const float th = std::min(150.0f, std::floor((h - 12 - y0 - gap * (rows - 1)) / std::max(1, rows)));
+    for (size_t i = 0; i < xp.size(); ++i) {
+        const ImVec2 a(12 + (i % 3) * (tw + gap), y0 + (i / 3) * (th + gap)), b(a.x + tw, a.y + th);
+        char id[64]; std::snprintf(id, sizeof id, "##xp_%s", xp[i]->cmd);
+        ImGui::SetCursorScreenPos(a);
+        const bool hit = ImGui::InvisibleButton(id, ImVec2(tw, th));
+        const Ease e = eased(id, false, ImGui::IsItemHovered(), ImGui::IsItemActive());
+        const float in = e.down * 3;
+        const ImVec2 a2(a.x + in, a.y + in), b2(b.x - in, b.y - in);
+        dl->AddRectFilled(a2, b2, IM_COL32(255, 255, 255, (int)(14 + 16 * e.hot)), 22.0f);
+        dl->AddRect(a2, b2, IM_COL32(255, 255, 255, (int)(30 + 50 * e.hot)), 22.0f, 0, 1.2f);
+        dl->AddText(f.title, fontPx(f.title), ImVec2(a2.x + 18, a2.y + 18), kInk, xp[i]->label);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(a2.x + 18, a2.y + 54), kMuted, xp[i]->what, nullptr, tw - 36);
+        if (hit) act.xpilotCmd = xp[i]->cmd;
     }
 }
 
@@ -9039,7 +9067,8 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
         else if (app == APP_TIMERS) timersPage(dl, f, s, w, h);
         else if (app == APP_LOGBOOK) logbookPage(dl, f, s, w, h);
         else if (app == APP_ACARS) acarsPage(dl, f, s, w, h, act);
-        else if (app == APP_VATSIMHUB) vatsimHubPage(dl, f, s, w, h, act);
+        else if (app == APP_VATSIMHUB) vatsimHubPage(dl, f, w, h);
+        else if (app == APP_XPILOT) xpilotPage(dl, f, s, w, h, act);
         else placeholderPage(dl, f, app, w, h);
     }
 }
