@@ -275,6 +275,14 @@ ImU32 themeText(int r, int g, int b, float share) {
 ImU32 accentCol(int a) { const Accent c = themeAccent(); return IM_COL32(c.r, c.g, c.b, std::max(0, std::min(255, a))); }
 ImU32 accentLite(int a);
 ImU32 mixCol(ImU32 a, ImU32 b, float t);
+// text on the accent: white, unless the accent is so bright white would not read on it (under 3:1); then a deep shade of the accent
+bool accentIsLight() {
+    const Accent c = themeAccent();
+    auto lin = [](int v) { const float x = v / 255.0f; return x <= 0.04045f ? x / 12.92f : std::pow((x + 0.055f) / 1.055f, 2.4f); };
+    const float L = 0.2126f * lin(c.r) + 0.7152f * lin(c.g) + 0.0722f * lin(c.b);
+    return 1.05f / (L + 0.05f) < 2.5f;   // (the tablet's own blues and violets keep white text)
+}
+ImU32 onAccent() { return accentIsLight() ? mixCol(accentCol(255), IM_COL32(0, 0, 0, 255), 0.8f) : kInk; }
 // the route on the map: the theme's accent, a little lighter so it shows on the street map and the imagery
 ImU32 routeCol(int a) { const ImU32 c = mixCol(accentCol(255), IM_COL32(255, 255, 255, 255), 0.12f); return (c & 0x00FFFFFF) | ((ImU32)std::max(0, std::min(255, a)) << 24); }
 ImU32 accentLite(int a) {   // the lighter one: rings, lines, focus
@@ -1627,7 +1635,7 @@ bool pill(ImDrawList* dl, const Fonts& f, const char* id, const char* label, ImV
     const ImVec2 a2(a.x + inset, a.y + inset), b2(b.x - inset, b.y - inset);
     dl->AddRectFilled(a2, b2, bg, (b2.y - a2.y) * 0.5f);
     if (enabled && e.hot * (1 - e.on) > 0.02f) dl->AddRect(a2, b2, accentLite((int)(150 * e.hot * (1 - e.on))), (b2.y - a2.y) * 0.5f, 0, 1.2f);
-    textCentered(dl, f.small, (a.x + b.x) * 0.5f, std::floor((a.y + b.y - fontPx(f.small)) * 0.5f), enabled ? kInk : IM_COL32(236, 241, 250, 90), label);
+    textCentered(dl, f.small, (a.x + b.x) * 0.5f, std::floor((a.y + b.y - fontPx(f.small)) * 0.5f), enabled ? mixCol(kInk, onAccent(), e.on) : IM_COL32(236, 241, 250, 90), label);
     return hit && enabled;
 }
 
@@ -1836,7 +1844,7 @@ float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
         const bool down = ImGui::IsItemActive(), hot = ImGui::IsItemHovered();
         dl->AddRectFilled(ImVec2(x, yy), ImVec2(x + ww, yy + kh), lit ? accentCol(down ? 255 : hot ? 245 : 230) : IM_COL32(255, 255, 255, down ? 80 : hot ? 46 : 30), 7.0f);
         ImFont* fn = std::strlen(label) > 2 ? f.small : f.bold;
-        textCentered(dl, fn, x + ww * 0.5f, std::floor(yy + (kh - fontPx(fn)) * 0.5f), kInk, label);
+        textCentered(dl, fn, x + ww * 0.5f, std::floor(yy + (kh - fontPx(fn)) * 0.5f), lit ? onAccent() : kInk, label);
         return hit;
     };
     for (int r = 0; r < 4; ++r) {
@@ -6277,7 +6285,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             const Ease ez = eased("##cabready", false, ImGui::IsItemHovered(), ImGui::IsItemActive());
             const float in = ez.down * 1.2f;
             dl->AddRectFilled(ImVec2(ra.x + in, ra.y + in), ImVec2(rb.x - in, rb.y - in), mixCol(accentCol(255), accentLite(255), ez.hot), 14.0f);
-            textCentered(dl, f.bold, (ra.x + rb.x) * 0.5f, std::floor((ra.y + rb.y) * 0.5f - fontPx(f.bold) * 0.5f), IM_COL32(255, 255, 255, 255), "Cabin Ready");
+            textCentered(dl, f.bold, (ra.x + rb.x) * 0.5f, std::floor((ra.y + rb.y) * 0.5f - fontPx(f.bold) * 0.5f), onAccent(), "Cabin Ready");
             if (hit) act.ground = GA_CABIN_READY;
         }
     }
@@ -7163,12 +7171,16 @@ bool colorWheel(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 c, float 
     textCentered(dl, f.small, c.x, c.y + r + 6, kMuted, label);
     return changed;
 }
+std::string g_hexBuf[2];        // the Custom editor's hex boxes (background, accent), as typed
+int g_hexShown[2] = {-1, -1};   // the colour each box last showed
 void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     Settings::CustomTheme& ct = g_settings.customs[g_customEdit];
+    const bool hexTyping = g_kbd && g_kbdTarget == 2 && (g_typeInto == &g_hexBuf[0] || g_typeInto == &g_hexBuf[1]);
+    const float lift = 120.0f * openness("##ctlift", hexTyping);   // (typing a hex code: the card moves up, above the keys)
     const float e0 = std::min(1.0f, (float)(ImGui::GetTime() - g_customEditT0) / 0.22f), e = 1 - (1 - e0) * (1 - e0) * (1 - e0);
     dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(150 * e)));
     const float pw = 700, ph = 400, sc = 0.9f + 0.1f * e;
-    const ImVec2 c(w * 0.5f, (kStatusH + h) * 0.5f);
+    const ImVec2 c(w * 0.5f, (kStatusH + h) * 0.5f - lift);
     const ImVec2 a(c.x - pw * 0.5f * sc, c.y - ph * 0.5f * sc), b(c.x + pw * 0.5f * sc, c.y + ph * 0.5f * sc);
     dl->AddRectFilled(a, b, themeTone(14, 26, 50, (int)(240 * e)), 22.0f);
     glass(dl, a, b, 22.0f, e);
@@ -7196,7 +7208,7 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
         drawTile(dl, f, dock[i], ImVec2(pa.x + 90 + i * 40, pa.y + pvh - 28), 26, false, 1.0f, 1.0f);
     }
     dl->AddRectFilled(ImVec2(pa.x + 24, pa.y + 82), ImVec2(pa.x + 124, pa.y + 104), accentCol(230), 11.0f);
-    textCentered(dl, f.small, pa.x + 74, pa.y + 85, kInk, "Button");
+    textCentered(dl, f.small, pa.x + 74, pa.y + 85, onAccent(), "Button");
     dl->AddRectFilled(ImVec2(pa.x + 140, pa.y + 84), ImVec2(pa.x + 176, pa.y + 102), accentCol(230), 9.0f);
     dl->AddCircleFilled(ImVec2(pa.x + 167, pa.y + 93), 7, IM_COL32(255, 255, 255, 255), 0);
     dl->AddRectFilled(ImVec2(pa.x + 190, pa.y + 82), ImVec2(pa.x + pvw - 24, pa.y + 104), themeTone(10, 22, 44, 210), 8.0f);
@@ -7209,6 +7221,29 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
     const float wr = 62;
     if (colorWheel(dl, f, "##ctbg", ImVec2(pa.x + pvw + 40 + wr, pa.y + wr + 4), wr, ct.bg, 0.45f, "Background")) g_settingsChanged = true;
     if (colorWheel(dl, f, "##ctac", ImVec2(pa.x + pvw + 70 + wr * 3, pa.y + wr + 4), wr, ct.accent, 1.0f, "Accent")) g_settingsChanged = true;
+    // under each wheel, its colour as a hex code: it follows the wheel, and a code typed in (6 digits) sets the colour
+    auto hexBox = [&](int k, const char* id, int& rgb, float cx) {
+        std::string& v = g_hexBuf[k];
+        const bool typing = g_kbd && g_kbdTarget == 2 && g_typeInto == &v;
+        if (!typing && g_hexShown[k] != rgb) { char t[8]; std::snprintf(t, sizeof t, "%06X", rgb & 0xFFFFFF); v = t; g_hexShown[k] = rgb; }
+        static bool wasTyping[2] = {false, false};
+        if (typing && !wasTyping[k]) v.clear();   // (tapped: a fresh code, as a selected field would be typed over)
+        wasTyping[k] = typing;
+        if (typing) {   // only hex digits, upper case, at most six
+            std::string clean;
+            for (char ch : v) if (std::isxdigit((unsigned char)ch) && clean.size() < 6) clean += (char)std::toupper((unsigned char)ch);
+            v = clean;
+            if (v.size() == 6) { const int nv = (int)std::strtol(v.c_str(), nullptr, 16); if (nv != rgb) { rgb = nv; g_settingsChanged = true; } g_hexShown[k] = rgb; }
+        }
+        const ImVec2 a0(cx - 52, pa.y + wr * 2 + 30), a1(cx + 52, pa.y + wr * 2 + 60);
+        dl->AddRectFilled(ImVec2(a0.x - 30, a0.y + 7), ImVec2(a0.x - 12, a0.y + 23), rgbCol(rgb), 4.0f);   // (a swatch of it)
+        dl->AddRect(ImVec2(a0.x - 30, a0.y + 7), ImVec2(a0.x - 12, a0.y + 23), IM_COL32(255, 255, 255, 80), 4.0f);
+        textAt(dl, f.body, a0.x + 8, std::floor((a0.y + a1.y) * 0.5f - fontPx(f.body) * 0.5f), kMuted, "#");
+        textField(dl, f, id, v, ImVec2(a0.x + 22, a0.y), a1, "RRGGBB", false);
+        if (typing && v.size() < 6) textCentered(dl, f.small, cx, a1.y + 4, kWarn, "6 digits");
+    };
+    hexBox(0, "##cthexbg", ct.bg, pa.x + pvw + 40 + wr);
+    hexBox(1, "##cthexac", ct.accent, pa.x + pvw + 70 + wr * 3);
     // the picture: none, or one from the backgrounds folder (put there from your computer)
     float py = pa.y + pvh + 34;
     textAt(dl, f.bold, a.x + 20, py, kInk, "Picture");
@@ -7230,6 +7265,7 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
     for (size_t i = 0; i < s.backgroundFiles.size() && i < 12; ++i) { char id[24]; std::snprintf(id, sizeof id, "##ctp%zu", i); pick(id, s.backgroundFiles[i], s.backgroundFiles[i]); }
     const std::string where = "Import a picture (PNG or JPG): put it in the backgrounds folder in XPTablet's plugin folder, " + (s.backgroundsFolder.empty() ? std::string("plugins/XPTablet/backgrounds") : s.backgroundsFolder);
     dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 20, b.y - 44), kMuted, where.c_str(), nullptr, b.x - a.x - 40);
+    if (hexTyping) pageKeyboard(dl, f, w, h, act);   // (before the card's press catcher: the keys take their presses)
 }
 
 void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act);
@@ -8289,8 +8325,8 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
     const std::string q = lower(g_storeSearch);
     std::vector<const Item*> shown;
     for (const Item& it : items) {
-        if (!q.empty()) { if (lower(appName(it.app)).find(q) != std::string::npos || lower(it.what).find(q) != std::string::npos) shown.push_back(&it); }   // (every category)
-        else if (g_storeCat == 0 || it.cat == g_storeCat) shown.push_back(&it);
+        if (g_storeCat != 0 && it.cat != g_storeCat) continue;   // (the category chosen, with or without a search)
+        if (q.empty() || lower(appName(it.app)).find(q) != std::string::npos || lower(it.what).find(q) != std::string::npos) shown.push_back(&it);
     }
     static int catShown = -1; static double catT0 = -10;   // (a category chosen: its apps fade in)
     if (catShown != g_storeCat) { catShown = g_storeCat; catT0 = ImGui::GetTime(); }
@@ -8321,7 +8357,7 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
     dl->PopClipRect();
     fadeSince(dl, storeV0, std::min(1.0f, (float)(ImGui::GetTime() - catT0) / 0.2f));
     if (content > ly1 - ly0) g_storeScroll = scrollBar(dl, "##storebar", w - 8, ly0 + 4, ly1 - 4, g_storeScroll, content, ly1 - ly0);
-    if (shown.empty()) textCentered(dl, f.body, w * 0.5f, ly0 + 40, kMuted, ("No apps match \"" + g_storeSearch + "\"").c_str());
+    if (shown.empty()) textCentered(dl, f.body, w * 0.5f, ly0 + 40, kMuted, ("No apps match \"" + g_storeSearch + "\"" + (g_storeCat ? " in this category" : "")).c_str());
     pageKeyboard(dl, f, w, h, act);
 }
 

@@ -993,6 +993,14 @@ int main(int argc, char** argv) {
                     for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); }
                     shot(sb, APP_SETTINGS, "settings_custom_theme_dragged");
                 }
+                {   // the accent's hex box: tapped, a code typed sets the colour; a bright one makes the text on it dark
+                    tap(sb, 634, 284);
+                    for (char ch : std::string("ffe070")) tabletKey(ch, true);
+                    for (int k = 0; k < 20; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); }
+                    if (settings().customs[0].accent != 0xFFE070) { std::printf("FAIL: a hex code typed sets the accent (%06X)\n", settings().customs[0].accent); ++failures; }
+                    shot(sb, APP_SETTINGS, "settings_custom_hex");
+                    tabletKey(13, false);
+                }
                 if (settings().wallpaper != 7) { std::printf("FAIL: holding Custom 1 chooses it (%d)\n", settings().wallpaper); ++failures; }
                 tap(sb, 690, 83);   // Done
                 settings().wallpaper = keepWp;
