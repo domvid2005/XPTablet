@@ -995,7 +995,7 @@ int main(int argc, char** argv) {
                     {2, 2026, 2, 14, true}, {2, 2026, 2, 15, false}, {3, 2026, 2, 16, true}, {4, 2026, 3, 17, true}, {5, 2026, 4, 5, true}, {5, 2026, 3, 29, true},
                     {5, 2026, 4, 7, false}, {6, 2026, 5, 25, true}, {6, 2026, 5, 22, false}, {7, 2026, 6, 19, true}, {8, 2026, 7, 4, true}, {9, 2026, 9, 7, true},
                     {9, 2026, 9, 8, false}, {10, 2026, 10, 31, true}, {10, 2026, 11, 1, false}, {11, 2026, 11, 11, true}, {12, 2026, 11, 26, true}, {12, 2026, 11, 20, false},
-                    {13, 2026, 12, 1, true}, {13, 2026, 12, 24, true}, {13, 2026, 12, 25, true}, {13, 2026, 12, 26, false}, {14, 2026, 6, 1, true}, {14, 2026, 7, 1, false}, {15, 2026, 10, 15, true}, {15, 2026, 11, 1, false}};
+                    {13, 2026, 12, 1, false}, {13, 2026, 12, 23, false}, {13, 2026, 12, 24, true}, {13, 2026, 12, 25, true}, {13, 2026, 12, 26, false}, {14, 2026, 6, 1, true}, {14, 2026, 7, 1, false}, {15, 2026, 10, 15, true}, {15, 2026, 11, 1, false}};
                 {   // the four seasons, by the calendar's months: one is always on, never two
                     static const D ss[] = {{16, 2027, 3, 1, true}, {16, 2027, 5, 31, true}, {16, 2027, 6, 1, false}, {17, 2027, 6, 1, true}, {17, 2027, 8, 31, true}, {17, 2027, 9, 1, false},
                                            {18, 2026, 11, 21, true}, {18, 2026, 12, 1, false}, {19, 2026, 12, 1, true}, {19, 2027, 1, 15, true}, {19, 2027, 2, 28, true}, {19, 2027, 3, 1, false}};
@@ -1005,6 +1005,19 @@ int main(int argc, char** argv) {
                 for (const D& d : ds) if (seasonalOnDate(d.k, d.y, d.m, d.d) != d.on) { std::printf("FAIL: %s on %d-%02d-%02d should be %s\n", seasonalName(d.k), d.y, d.m, d.d, d.on ? "on" : "off"); ++failures; }
                 setSeasonalPreview(true);
                 shot(st, APP_SETTINGS, "settings_display_seasonal");
+                {   // more seasonal themes than a row holds: the round arrow under the row turns the page, and back
+                    auto pic = [&](const char* nm) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.5f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render();
+                        std::vector<Batch> b; clipDrawData(ImGui::GetDrawData(), b); Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + nm); return b.size(); };
+                    const int keepW = settings().wallpaper;
+                    tap(st, 520, 310);   // (the first theme of the first page: New Year)
+                    if (settings().wallpaper != 10 + 0) { std::printf("FAIL: the seasonal row's first page starts at New Year (%d)\n", settings().wallpaper); ++failures; }
+                    tap(st, 696, 390); pic("/tablet_settings_seasonal_page2.png");
+                    tap(st, 520, 310);
+                    if (settings().wallpaper != 10 + 4) { std::printf("FAIL: the arrow under the seasonal row turns to its next page (%d)\n", settings().wallpaper); ++failures; }
+                    tap(st, 592, 390); tap(st, 520, 310);
+                    if (settings().wallpaper != 10 + 0) { std::printf("FAIL: the other arrow turns the seasonal row back (%d)\n", settings().wallpaper); ++failures; }
+                    settings().wallpaper = keepW;
+                }
                 const int keepWp = settings().wallpaper;
                 for (int k = 0; k < 20; ++k) { settings().wallpaper = 10 + k; char nm[32]; std::snprintf(nm, sizeof nm, "home_season%02d", k); shot(st, APP_HOME, nm); }
                 settings().wallpaper = 10 + 10; shot(st, APP_HOME, "home_halloween");

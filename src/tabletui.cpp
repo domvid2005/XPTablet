@@ -308,7 +308,7 @@ bool seasonalOn(int s, int year, int month, int day) {
     case 10: return month == 10 && day >= 17;                                                   // Halloween: Oct 17-31
     case 11: return month == 11 && day >= 9 && day <= 11;                                       // Veterans Day: Nov 9-11
     case 12: return within(11, nthWeekday(year, 11, 4, 4), 3, 3);                                // Thanksgiving: 4th Thursday of November, its week
-    case 13: return month == 12 && day <= 25;                                                   // Christmas: all December, Christmas Eve and the day itself
+    case 13: return month == 12 && (day == 24 || day == 25);                                    // Christmas: Christmas Eve and the day itself
     case 14: return month == 6;                                                                 // Men's Mental Health Month (US Men's Health Month): June
     case 15: return month == 10;                                                                // Breast Cancer Awareness Month: October
     case 16: return month >= 3 && month <= 5;                                                   // Spring: March to May
@@ -8501,12 +8501,21 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             if (!seas.empty()) {   // the seasonal row's heading, and its pages
                 textAt(dl, f.bold, rx, ry + 12, kInk, "Seasonal");
                 textAt(dl, f.small, rx + 78, ry + 15, kMuted, "While It Lasts");
-                if (seasPages > 1) {
-                    char pg[16]; std::snprintf(pg, sizeof pg, "%d / %d", seasPage + 1, seasPages);
-                    const float bx = rx + colW;
-                    if (pill(dl, f, "##seasnext", ">", ImVec2(bx - 30, ry + 8), ImVec2(bx, ry + 32), false, seasPage + 1 < seasPages)) ++seasPage;
-                    textCentered(dl, f.small, bx - 62, ry + 13, kMuted, pg);
-                    if (pill(dl, f, "##seasprev", "<", ImVec2(bx - 124, ry + 8), ImVec2(bx - 94, ry + 32), false, seasPage > 0)) --seasPage;
+                if (seasPages > 1) {   // more than a row of them: under the row, in its middle, a dot for each page between two round arrows
+                    const float cx = rx + colW * 0.5f, cy = ry + 30 + th + 76, gap = 12.0f, half = (seasPages - 1) * gap * 0.5f;
+                    for (int p = 0; p < seasPages; ++p) dl->AddCircleFilled(ImVec2(cx - half + p * gap, cy), p == seasPage ? 3.5f : 2.5f, p == seasPage ? accentLite(255) : IM_COL32(255, 255, 255, 70), 12);
+                    auto arrow = [&](const char* id, float x, int dir, bool enabled) {
+                        ImGui::SetCursorScreenPos(ImVec2(x - 17, cy - 17));
+                        const bool tapped = ImGui::InvisibleButton(id, ImVec2(34, 34)) && enabled;
+                        const bool hot = enabled && ImGui::IsItemHovered();
+                        dl->AddCircleFilled(ImVec2(x, cy), 13.0f, IM_COL32(255, 255, 255, !enabled ? 10 : hot ? 46 : 24), 28);
+                        const ImU32 ink = enabled ? kInk : IM_COL32(255, 255, 255, 50);
+                        const ImVec2 pts[3] = {ImVec2(x - dir * 2.5f, cy - 5.5f), ImVec2(x + dir * 3.0f, cy), ImVec2(x - dir * 2.5f, cy + 5.5f)};
+                        dl->AddPolyline(pts, 3, ink, 0, 1.8f);
+                        return tapped;
+                    };
+                    if (arrow("##seasprev", cx - half - 28, -1, seasPage > 0)) --seasPage;
+                    if (arrow("##seasnext", cx + half + 28, 1, seasPage + 1 < seasPages)) ++seasPage;
                 }
             }
         }
