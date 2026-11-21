@@ -1019,7 +1019,8 @@ int main(int argc, char** argv) {
                     settings().wallpaper = keepW;
                 }
                 const int keepWp = settings().wallpaper;
-                {   // every theme's background moves, slowly: after two seconds the home screen is not drawn quite the same; but in one
+                {   // every seasonal theme's background moves, slowly: after two seconds the home screen is not drawn quite the same (the
+                    // everyday themes stay still: drawn just the same); and in one
                     // sixtieth of a second nothing moves far (no jumps: the most any point shifts is a couple of pixels)
                     auto frame = [&](float dt) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = dt; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
                         ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render();
@@ -1034,7 +1035,8 @@ int main(int argc, char** argv) {
                         const std::vector<float> a = frame(1.0f / 60), b = frame(1.0f / 60);
                         for (int i = 0; i < 8; ++i) frame(0.25f);
                         const std::vector<float> c = frame(1.0f / 60);
-                        if (a == c) { std::printf("FAIL: theme %d (%s) has a moving background\n", th, th >= 10 ? seasonalName(th - 10) : "everyday"); ++failures; }
+                        if (th >= 10 && a == c) { std::printf("FAIL: theme %d (%s) has a moving background\n", th, seasonalName(th - 10)); ++failures; }
+                        if (th < 10 && a != c) { std::printf("FAIL: everyday theme %d's background stays still\n", th); ++failures; }
                         if (a.size() == b.size()) { float worst = 0; for (size_t i = 0; i + 2 < a.size(); i += 3) worst = std::max(worst, std::max(std::fabs(a[i] - b[i]), std::fabs(a[i + 1] - b[i + 1])));
                             if (worst > 2.5f) { std::printf("FAIL: theme %d's background moves slowly (%.1f px in a frame)\n", th, worst); ++failures; } }
                     }

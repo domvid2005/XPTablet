@@ -564,25 +564,6 @@ void seasonalDecor(ImDrawList* dl, ImVec2 o, float w, float h, int k, int stage)
     auto motes = [&](int n, int salt, float secs, ImU32 col) {
         adrift(n, salt, secs, true, [&](ImVec2 p, float sz, float, int i, float show) { dl->AddCircleFilled(p, (1.2f + sz * 1.8f) * u, fade(col, show * breathe(6.0f + decoRnd(i, salt + 9) * 6.0f, 0.7f, (float)i)), 8); });
     };
-    if (k < 0) {   // ---- the ten everyday themes (k: -1 - the theme): a quiet sky of their own
-        if (stage != 0) return;
-        const int th = -1 - k;
-        const Backdrop bd = themeBackdrop(th);
-        const int lum = (int)(((bd.bot & 255) * 3 + ((bd.bot >> 8) & 255) * 6 + ((bd.bot >> 16) & 255)) / 10);
-        if (lum > 150) {   // a light sky (Cloud, a pale Custom): clouds crossing in the band under the icons
-            cloudAt(0, 0.52f, 22, 300, IM_COL32(255, 255, 255, 120)); cloudAt(1, 0.58f, 15, 380, IM_COL32(255, 255, 255, 96)); cloudAt(2, 0.47f, 11, 460, IM_COL32(255, 255, 255, 80));
-            return;
-        }
-        switch (th) {
-        case 1: stars(44, 0.6f, IM_COL32(236, 226, 255, 120)); break;                                                               // Lavender: a fuller sky
-        case 2: stars(30, 0.55f, IM_COL32(255, 230, 250, 110)); cloudAt(0, 0.55f, 16, 420, IM_COL32(230, 150, 220, 34)); break;     // Dusk: a late cloud
-        case 3: stars(18, 0.4f, IM_COL32(255, 236, 226, 100)); cloudAt(0, 0.52f, 20, 360, IM_COL32(255, 180, 150, 46)); cloudAt(1, 0.58f, 13, 440, IM_COL32(255, 170, 160, 36)); break;   // Sunset: lit clouds
-        case 4: stars(14, 0.4f, IM_COL32(255, 240, 214, 96)); motes(12, 40, 80.0f, IM_COL32(255, 210, 130, 96)); break;             // Amber: warm motes rising
-        case 5: stars(34, 0.6f, IM_COL32(255, 255, 255, 84)); break;                                                                // Noir: faint
-        default: stars(36, 0.55f, IM_COL32(255, 255, 255, 110)); break;                                                             // Ocean, and a dark Custom
-        }
-        return;
-    }
     switch (k) {
     case 0:   // New Year: stars and fireworks
         if (stage == 0) { stars(60, 0.55f, IM_COL32(255, 255, 255, 140));
@@ -820,7 +801,7 @@ void wallpaperIn(ImDrawList* dl, ImVec2 o, float w, float h, int which, float ro
         }
     }
     const int seasonK = std::max(0, std::min(kThemes - 1, which)) - kSeasonal0;
-    seasonalDecor(dl, o, w, h, seasonK >= 0 ? seasonK : -1 - std::max(0, std::min(kThemes - 1, which)), 0);   // (a seasonal theme's sky: its picture; an everyday theme's: its quiet stars or clouds)
+    if (seasonK >= 0) seasonalDecor(dl, o, w, h, seasonK, 0);   // (a seasonal theme's sky: its picture; the everyday themes stay still)
     const int vMount = dl->VtxBuffer.Size;
     const float back[][2] = {{0.00f, 0.80f}, {0.12f, 0.62f}, {0.22f, 0.74f}, {0.36f, 0.50f}, {0.50f, 0.72f}, {0.62f, 0.56f}, {0.76f, 0.76f}, {0.88f, 0.60f}, {1.00f, 0.78f}};
     const float front[][2] = {{0.00f, 0.92f}, {0.10f, 0.80f}, {0.24f, 0.90f}, {0.42f, 0.70f}, {0.56f, 0.88f}, {0.70f, 0.76f}, {0.84f, 0.90f}, {1.00f, 0.80f}};
