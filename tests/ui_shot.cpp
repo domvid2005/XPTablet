@@ -439,6 +439,13 @@ int main(int argc, char** argv) {
         shot(t, APP_GROUND, "ground_generic");
         // the App Store, Games, VATSIM's page; the home screen with widgets, a folder and a second page
         shot(t, APP_APPSTORE, "appstore");
+        {   // its search: typed, the apps that match (from every category)
+            auto tp = [&](float x, float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
+                ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); } };
+            tp(680, 99); for (char c : std::string("log")) tabletKey(c, true);
+            shot(t, APP_APPSTORE, "appstore_search");
+            tabletKey(13, false); tp(774, 99);   // (put away, then cleared)
+        }
         { const int keep = settings().wallpaper;
           settings().wallpaper = 5; shot(t, APP_HOME, "home_noir"); shot(t, APP_SETTINGS, "settings_noir");
           settings().wallpaper = 6; shot(t, APP_HOME, "home_cloud"); shot(t, APP_MAP, "map_cloud");

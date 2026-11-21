@@ -8268,7 +8268,8 @@ bool* storeFlag(int app) {
 bool storeInstalled(int app) { bool* fl = storeFlag(app); return fl ? *fl : installed(app); }
 int g_storeCat = 0;   // the category shown: 0 all
 float g_storeScroll = 0;
-void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
+std::string g_storeSearch;   // the App Store's search (an app's name or what it does, in every category)
+void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
     struct Item { int app; int cat; const char* what; };   // cat: 1 charts, 2 planning, 3 networks, 4 music and video, 5 games
     static const Item items[] = {
         {APP_FOREFLIGHT, 1, "ForeFlight's charts and maps on the web"},
@@ -8302,9 +8303,18 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
             if (pill(dl, f, id, cats[c], ImVec2(x, top), ImVec2(x + bw, top + 30), g_storeCat == c, true) && g_storeCat != c) { g_storeCat = c; g_storeScroll = 0; }
             x += bw + 8;
         }
+        static std::string was;
+        textField(dl, f, "##storesearch", g_storeSearch, ImVec2(std::max(x + 8, w - 230), top), ImVec2(w - 16, top + 30), "Search apps", false);
+        if (!g_storeSearch.empty() && pill(dl, f, "##storeclr", "x", ImVec2(w - 46, top + 3), ImVec2(w - 20, top + 27), false, true)) g_storeSearch.clear();
+        if (was != g_storeSearch) { was = g_storeSearch; g_storeScroll = 0; }
     }
+    auto lower = [](std::string v) { for (char& c : v) c = (char)std::tolower((unsigned char)c); return v; };
+    const std::string q = lower(g_storeSearch);
     std::vector<const Item*> shown;
-    for (const Item& it : items) if (g_storeCat == 0 || it.cat == g_storeCat) shown.push_back(&it);
+    for (const Item& it : items) {
+        if (!q.empty()) { if (lower(appName(it.app)).find(q) != std::string::npos || lower(it.what).find(q) != std::string::npos) shown.push_back(&it); }   // (every category)
+        else if (g_storeCat == 0 || it.cat == g_storeCat) shown.push_back(&it);
+    }
     static int catShown = -1; static double catT0 = -10;   // (a category chosen: its apps fade in)
     if (catShown != g_storeCat) { catShown = g_storeCat; catT0 = ImGui::GetTime(); }
     const int storeV0 = dl->VtxBuffer.Size;
@@ -8334,6 +8344,8 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
     dl->PopClipRect();
     fadeSince(dl, storeV0, std::min(1.0f, (float)(ImGui::GetTime() - catT0) / 0.2f));
     if (content > ly1 - ly0) g_storeScroll = scrollBar(dl, "##storebar", w - 8, ly0 + 4, ly1 - 4, g_storeScroll, content, ly1 - ly0);
+    if (shown.empty()) textCentered(dl, f.body, w * 0.5f, ly0 + 40, kMuted, ("No apps match \"" + g_storeSearch + "\"").c_str());
+    pageKeyboard(dl, f, w, h, act);
 }
 
 // ---- VATSIM: a page of bubbles, each a part of VATSIM's own sites (they open as the app's tabs) ----------------------------------------
@@ -9061,7 +9073,7 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
         else if (app == APP_GROUND) groundPage(dl, f, s, w, h, act);
         else if (app == APP_MUSIC) musicPage(dl, f, s, w, h, act);
         else if (app == APP_DISPATCH) dispatchPage(dl, f, s, w, h, act);
-        else if (app == APP_APPSTORE) storePage(dl, f, w, h);
+        else if (app == APP_APPSTORE) storePage(dl, f, w, h, act);
         else if (app == APP_NAVSEARCH) navSearchPage(dl, f, s, w, h, act);
         else if (app == APP_GAMES) gamesPage(dl, f, w, h);
         else if (app == APP_TIMERS) timersPage(dl, f, s, w, h);
