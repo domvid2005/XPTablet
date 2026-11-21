@@ -34,7 +34,7 @@ Alpine Aviation. It is freeware: you may have it at no cost, under the terms bel
    XPTablet includes or uses software, fonts and data made by others. Those parts are not owned by Alpine Aviation and keep
    their own licences, listed in LICENSES.txt (for example the GPL checklists and aircraft top views, which you may share
    under the GPL). Nothing in this licence limits your rights under those licences. Online services XPTablet connects to
-   (map tiles, VATSIM, SimBrief, Hoppie's ACARS, openAIP and others) have their own terms, which you agree to with them when
+   (map tiles, VATSIM, SimBrief, Hoppie's ACARS and others) have their own terms, which you agree to with them when
    you use them.
 
 5. No warranty

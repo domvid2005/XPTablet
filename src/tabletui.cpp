@@ -3592,29 +3592,6 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     }
     }
 
-    // ---- openAIP's overlay: its airspaces, airports and navaids over the map (transparent tiles, the user's key; zoom 4 to 14)
-    const bool aipOn = g_settings.mapOpenAip && !g_settings.openAipKey.empty() && m.tile && !noMap;
-    if (aipOn && tz >= 4) {
-        const int az = std::min(14, tz), sh = tz - az, nA = 1 << az;
-        const ImU32 tint = IM_COL32(255, 255, 255, (int)std::lround(255 * std::max(0.2f, std::min(1.0f, g_settings.mapOpenAipAlpha))));
-        std::vector<std::pair<int, int>> seen;
-        for (const TileAt& t : want) {
-            const int ax = (((t.x >> sh) % nA) + nA) % nA, ay = t.y >> sh, axr = t.x >> sh;
-            if (std::find(seen.begin(), seen.end(), std::make_pair(axr, ay)) != seen.end()) continue;
-            seen.push_back({axr, ay});
-            const MercPt q0{(double)axr / nA, (double)ay / nA}, q1{(double)(axr + 1) / nA, (double)(ay + 1) / nA};
-            const ImVec2 p00 = toS(q0), p10 = toS(MercPt{q1.x, q0.y}), p11 = toS(q1), p01 = toS(MercPt{q0.x, q1.y});
-            ImTextureID tex = m.tile(3, az, ax, ay, true);
-            ImVec2 u0(0, 0), u1(1, 1);
-            for (int dz = 1; !tex && dz <= 3 && az - dz >= 4; ++dz) {   // a coarser one, stretched, until it comes
-                const int px = ax >> dz, py = ay >> dz;
-                tex = m.tile(3, az - dz, px, py, false);
-                if (tex) { const float k = 1.0f / (float)(1 << dz); u0 = ImVec2((ax - (px << dz)) * k, (ay - (py << dz)) * k); u1 = ImVec2(u0.x + k, u0.y + k); }
-            }
-            if (tex) dl->AddImageQuad(tex, p00, p10, p11, p01, u0, ImVec2(u1.x, u0.y), u1, ImVec2(u0.x, u1.y), tint);
-        }
-    }
-
     // ---- the outlines: coastlines, borders, states and provinces (lakes as coast)
     if (g_settings.mapOutlines) {
         double la0, lo0, la1, lo1;
@@ -4248,8 +4225,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                             {"##mtrte", "Filed Route When Selected", &g_settings.mapTrafficRoute, g_settings.mapTraffic}};
         const Item fea[] = {{"##mtrail", "My Breadcrumbs", &g_settings.mapTrail, true}, {"##mout", "Coastlines And Borders", &g_settings.mapOutlines, true},
                             {"##mtz", "Time Zones", &g_settings.mapTimeZones, true}, {"##mday", "Daylight", &g_settings.mapDaylight, true},
-                            {"##mvatc", "VATSIM ATC Online", &g_settings.mapVatsimAtc, true}, {"##mvasp", "VATSIM Airspaces", &g_settings.mapAirspaces, true},
-                            {"##maip", g_settings.openAipKey.empty() ? "openAIP (key in Accounts)" : "openAIP Overlay", &g_settings.mapOpenAip, !g_settings.openAipKey.empty()}};
+                            {"##mvatc", "VATSIM ATC Online", &g_settings.mapVatsimAtc, true}, {"##mvasp", "VATSIM Airspaces", &g_settings.mapAirspaces, true}};
         const char* cats[3] = {"Navigation", "Traffic", "Features"};
         float cw = 0;
         for (const char* c : cats) cw = std::max(cw, bubbleW(f, nullptr, c));
@@ -4312,8 +4288,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             popIn(dl, menuV0, ImVec2(r0.x + 10 + cw, r0.y + 46 + (g_mapMenuNow - 1) * 36.0f + 15), menuT);
         }
         // where the map comes from, and whether the airports are still being found
-        const char* attr = noMap ? "" : satImg ? (aipOn ? "Imagery: Esri, Maxar, Earthstar Geographics; \xC2\xA9 openAIP" : "Imagery: Esri, Maxar, Earthstar Geographics")
-                                          : (aipOn ? "\xC2\xA9 OpenStreetMap contributors; \xC2\xA9 openAIP" : "\xC2\xA9 OpenStreetMap contributors");
+        const char* attr = noMap ? "" : satImg ? "Imagery: Esri, Maxar, Earthstar Geographics" : "\xC2\xA9 OpenStreetMap contributors";
         if (*attr) {
             const ImVec2 as = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, attr);
             dl->AddRectFilled(ImVec2(r1.x - as.x - 12, r1.y - as.y - 6), r1, IM_COL32(255, 255, 255, 190), 4.0f, ImDrawFlags_RoundCornersTopLeft);
@@ -6524,7 +6499,6 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"IVAO icon", "The IVAO logo is a trademark of the International Virtual Aviation Organisation (ivao.aero), used only to show their Webeye map", "Trademark"},
         {"Spotify, YouTube, YouTube Music, Apple Music and SoundCloud icons", "Their logos are trademarks of Spotify AB, Google LLC, Apple Inc. and SoundCloud Global Limited, used only to show their web players", "Trademark"},
         {"ACARS and CPDLC", "Hoppie's ACARS network (hoppie.nl): telex, pre-departure clearances and CPDLC, with your own logon code; for flight simulation only", "Free service"},
-        {"openAIP overlay", "Aeronautical map tiles from openAIP (openaip.net), with your own API key; drawn over the map as served", "CC BY-NC 4.0"},
         {"VATSIM ATC and airspaces", "VATSIM data feed (data.vatsim.net); FIR and airspace boundaries from the VATSpy Data Project (github.com/vatsimnetwork/vatspy-data-project), fetched and shown as published", "CC BY-SA 4.0"},
         {"Jetways", "openSAM by Holger Teutsch (hotbso) and contributors (github.com/hotbso/openSAM), its commands and datarefs (no openSAM code is in XPTablet)", "LGPL-2.1"},
         {"Games", "Knots and Crosses, 2048 (after Gabriele Cirulli's game), and Contrail, Taxi Rush, Sky Patrol, Hangar Climb, Cockpit 21 and Cargo Load: all made for XPTablet, every map, rule and drawing its own", ""},
@@ -7450,8 +7424,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, what, nullptr, w - 12 - lx);
             y += 38;
             const bool typing = g_kbd && g_kbdTarget == 2 && g_typeInto == &v;
-            static std::string dots[2];
-            std::string& d = dots[std::strcmp(id, "##acaip") == 0 ? 0 : 1];
+            static std::string d;   // (the dots shown for it)
             if (typing) textField(dl, f, id, v, ImVec2(lx, y), ImVec2(w - 12, y + 34), hint, false, 0);
             else {
                 d.assign(std::min<size_t>(v.size(), 40) * 3, ' '); d.clear();
@@ -7462,8 +7435,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             y += 46;
             return typing;
         };
-        bool typing = secret("##acaip", "openAIP API key", "For the map's openAIP overlay (airspaces, airports, navaids): sign in at openaip.net, then your account's API page gives the key.", g_settings.openAipKey, "Tap to enter your openAIP API key");
-        typing = secret("##achop", "Hoppie ACARS logon code", "For the ACARS app (CPDLC and telex on VATSIM and IVAO): register at hoppie.nl/acars, and the logon code comes by e-mail.", g_settings.hoppieCode, "Tap to enter your Hoppie logon code") || typing;
+        const bool typing = secret("##achop", "Hoppie ACARS logon code", "For the ACARS app (CPDLC and telex on VATSIM and IVAO): register at hoppie.nl/acars, and the logon code comes by e-mail.", g_settings.hoppieCode, "Tap to enter your Hoppie logon code");
         if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; }
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Kept only in XPTablet's settings on this computer, and sent only to the service each is for.", nullptr, w - 12 - lx);
         if (typing) pageKeyboard(dl, f, w, h, act);
@@ -9387,8 +9359,7 @@ std::string settingsToText() {
         std::string u = g_settings.simbriefUser;
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
-        for (const std::string* k : {&g_settings.openAipKey, &g_settings.hoppieCode}) { std::string v = *k; for (char& c : v) if (c == '\n' || c == '\r') c = ' '; out += (k == &g_settings.openAipKey ? "openaip_key=" : "hoppie_code=") + v + "\n"; }
-        char ob[64]; std::snprintf(ob, sizeof ob, "map_openaip=%d\nmap_openaip_alpha=%.2f\n", g_settings.mapOpenAip ? 1 : 0, (double)g_settings.mapOpenAipAlpha); out += ob;
+        { std::string v = g_settings.hoppieCode; for (char& c : v) if (c == '\n' || c == '\r') c = ' '; out += "hoppie_code=" + v + "\n"; }
     }
     out += std::string("map_airspaces=") + (g_settings.mapAirspaces ? "1" : "0") + "\n";
     out += std::string("map_dark_auto=") + (g_settings.mapDarkAuto ? "1" : "0") + "\n";
@@ -9548,10 +9519,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_procedures") g_settings.mapProcedures = v != 0;
         else if (key == "map_route") g_settings.mapRoute = v != 0;
         else if (key == "simbrief_user") g_settings.simbriefUser = val;
-        else if (key == "openaip_key") g_settings.openAipKey = val;
         else if (key == "hoppie_code") g_settings.hoppieCode = val;
-        else if (key == "map_openaip") g_settings.mapOpenAip = v != 0;
-        else if (key == "map_openaip_alpha") g_settings.mapOpenAipAlpha = std::max(0.2f, std::min(1.0f, (float)std::atof(val.c_str())));
         else if (key == "status_local_time") g_settings.statusLocalTime = v != 0;
         else if (key == "auto_dim") g_settings.autoDim = v != 0;
         else if (key == "favorite_slots") g_settings.favoriteSlots = std::max(0, std::min(kMaxFavorites, v));

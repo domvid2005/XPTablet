@@ -743,7 +743,6 @@ void mapStep(const xpt::Actions& act) {
         }
     }
     if (act.mapShown) {
-        { static std::string aipKey = "\x01"; if (aipKey != xpt::settings().openAipKey) { aipKey = xpt::settings().openAipKey; xpt::tiles::setOpenAipKey(aipKey); } }   // (openAIP's overlay: the user's key)
         xpt::tiles::want(g_tileWants);
         xpt::aptdat::setView(act.mapLat, act.mapLon, act.mapLayoutNm, act.mapPointNm, act.mapLayouts, act.mapPointMinFt);
         xpt::navdata::setView(act.mapLat, act.mapLon, act.mapNavNm, act.mapFixNm);

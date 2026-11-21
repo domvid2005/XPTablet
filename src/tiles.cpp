@@ -38,25 +38,18 @@ std::vector<Key> g_waiting;          // most wanted first
 std::set<Key> g_busy;                // being fetched
 std::deque<Tile> g_done;
 std::map<Key, std::time_t> g_failedAt;   // not asked again for a minute
-std::string g_aipKey;                // openAIP's API key (under g_mx)
-std::atomic<int> g_aipLayer{0};      // 0: its whole chart ("openaip"); 1: airspaces only, if the first is not served as PNG
 
 // OpenStreetMap's standard tiles (its tile usage policy: a real user agent, tiles kept, few connections; attribution shown) and
 // Esri's World Imagery (attribution shown).
 std::string urlOf(const Key& k) {
     char b[256];
     if (k.src == SATELLITE) std::snprintf(b, sizeof b, "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/%d/%d/%d", k.z, k.y, k.x);
-    else if (k.src == OPENAIP) {   // openAIP's Tiles API, the key as its apiKey parameter
-        std::string key; { std::lock_guard<std::mutex> lk(g_mx); key = g_aipKey; }
-        std::snprintf(b, sizeof b, "https://api.tiles.openaip.net/api/data/%s/%d/%d/%d.png?apiKey=", g_aipLayer.load() ? "airspaces" : "openaip", k.z, k.x, k.y);
-        return std::string(b) + key;
-    }
     else std::snprintf(b, sizeof b, "https://tile.openstreetmap.org/%d/%d/%d.png", k.z, k.x, k.y);
     return b;
 }
 std::string fileOf(const Key& k) {
     char b[128];
-    std::snprintf(b, sizeof b, "/%s/%d/%d/%d.%s", k.src == SATELLITE ? "satellite" : k.src == OPENAIP ? "openaip" : "osm",   // the dark map shares OSM's files
+    std::snprintf(b, sizeof b, "/%s/%d/%d/%d.%s", k.src == SATELLITE ? "satellite" : "osm",   // the dark map shares OSM's files
                   k.z, k.x, k.y, k.src == SATELLITE ? "jpg" : "png");
     return g_dir + b;
 }
@@ -112,15 +105,13 @@ void worker() {
         std::string bytes;
         std::time_t mt = 0;
         const bool cached = readFile(file, bytes, mt);
-        const bool fresh = cached && std::difftime(std::time(nullptr), mt) < (k.src == OPENAIP ? 7 : 30) * 86400.0;   // kept a month (openAIP's a week), then asked for again
+        const bool fresh = cached && std::difftime(std::time(nullptr), mt) < 30 * 86400.0;   // kept a month, then asked for again
         bool ok = false;
         if (fresh) ok = decode(bytes, t);
         if (!ok) {
             std::string body, err;
             long status = 0;
-            const bool got = wx::httpGetCancellable(urlOf(k), "", body, status, err, 20, 4u << 20, &g_quit);
-            if (k.src == OPENAIP && status == 404 && !g_aipLayer.load()) g_aipLayer = 1;   // (no combined PNG: its airspaces layer)
-            if (got && decode(body, t)) {
+            if (wx::httpGetCancellable(urlOf(k), "", body, status, err, 20, 4u << 20, &g_quit) && decode(body, t)) {
                 ok = true;
                 makeDirs(file);
                 FILE* f = std::fopen(file.c_str(), "wb");
@@ -141,8 +132,7 @@ void worker() {
 } // namespace
 
 const char* attribution(int source) { return source == SATELLITE ? "Imagery: Esri, Maxar, Earthstar Geographics" : "\xC2\xA9 OpenStreetMap contributors"; }
-int maxZoom(int source) { return source == OPENAIP ? 14 : 19; }
-void setOpenAipKey(const std::string& key) { std::lock_guard<std::mutex> lk(g_mx); g_aipKey = key; }
+int maxZoom(int source) { return source == SATELLITE ? 19 : 19; }
 
 void start(const std::string& cacheDir) {
     if (!g_threads.empty()) return;

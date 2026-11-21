@@ -8,8 +8,7 @@
 namespace xpt {
 namespace tiles {
 
-enum Source { OSM = 0, SATELLITE = 1, DARK = 2, OPENAIP = 3, SOURCES };   // DARK: OpenStreetMap's tiles, recoloured for night (darken);
-                                                                     // OPENAIP: openAIP's aeronautical overlay (transparent PNG, the user's API key)
+enum Source { OSM = 0, SATELLITE = 1, DARK = 2, SOURCES };   // DARK: OpenStreetMap's tiles, recoloured for night (darken)
 const char* attribution(int source);
 int maxZoom(int source);
 
@@ -43,7 +42,6 @@ inline void darken(uint8_t* px, size_t pixels) {
 }
 
 void start(const std::string& cacheDir);   // Output/XPTablet/tiles
-void setOpenAipKey(const std::string& key);   // the user's openAIP API key (Settings, Accounts); empty: no overlay tiles are asked for
 void stop();
 // The tiles the map needs now, most wanted first: the list replaces what was waiting (tiles no longer on screen are not fetched).
 void want(const std::vector<Key>& keys);

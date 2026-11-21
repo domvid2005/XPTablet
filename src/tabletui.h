@@ -84,10 +84,7 @@ struct Settings {
     std::string startGate;        // the stand the flight left from (found when the plan came in on the ground; "N/A" in the air)
     std::string arrivalGate;      // the stand it is going to (typed; shown on the destination's layout)
     std::string simbriefUser;     // SimBrief user name or pilot ID (the Flight Plan page and the route on the map)
-    std::string openAipKey;       // the user's openAIP API key (Settings, Accounts): the map's openAIP overlay
     std::string hoppieCode;       // the user's Hoppie ACARS logon code (Settings, Accounts): the ACARS app
-    bool mapOpenAip = false;      // the map's openAIP overlay (airspaces, airports, navaids)
-    float mapOpenAipAlpha = 0.9f; // its opacity
     bool mapProcedures = true;    // the plan's SID, STAR and approach on the map
     bool autoDim = false;         // the screen dims itself as the daylight goes (WXPlane's curve); the brightness slider rests
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
