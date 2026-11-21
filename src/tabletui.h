@@ -120,6 +120,7 @@ struct Fonts {
 const unsigned char* logoPixels(int& w, int& h, int& levels);
 // the logo, every pixel white with its own alpha (all its levels), and where TABLET starts across it (0..1)
 const unsigned char* logoMaskPixels(int& w, int& h, int& levels, float& tabletFrom);
+bool logoLetterBox(int n, float& u0, float& u1, float& v0, float& v1);   // TABLET's nth letter's box in the logo (fractions)
 const unsigned char* iconsPixels(int& w, int& h, int& levels);   // the same layout as the logo's
 
 // The WXPlane icon's picture: 256 x 256 RGBA (WXPlane's logo, WX above PLANE), followed by its mip levels down to 1 x 1.

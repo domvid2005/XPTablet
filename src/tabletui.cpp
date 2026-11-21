@@ -460,9 +460,15 @@ void seasonalDecor(ImDrawList* dl, ImVec2 o, float w, float h, int k, int stage)
         break;
     case 3: case 11:   // Presidents' Day, Veterans Day: an arc of stars, and a flag's stripes waving faintly across the sky
         if (stage == 0) {
-            for (int s = 0; s < 7; ++s) for (int x = 0; x < 40; ++x) {
-                const float fx = x / 40.0f, fy = 0.12f + s * 0.05f + 0.02f * std::sin(fx * 9 + s * 0.4f);
-                dl->AddRectFilled(at(fx, fy), at(fx + 0.026f, fy + 0.025f), s % 2 ? IM_COL32(255, 255, 255, 14) : IM_COL32(220, 60, 70, 30));
+            // the stripes as one smooth waving cloth: each a band between two sine curves, in fine slices that share their edges
+            auto edge = [&](int line, float fx) { return 0.12f + line * 0.045f + 0.025f * std::sin(fx * 7.0f + 0.6f) + 0.006f * std::sin(fx * 17.0f); };
+            const int seg = std::max(24, (int)(w / 6));
+            for (int st = 0; st < 7; ++st) {
+                const ImU32 col = st % 2 ? IM_COL32(255, 255, 255, 16) : IM_COL32(220, 60, 70, 34);
+                for (int x = 0; x < seg; ++x) {
+                    const float f0 = (float)x / seg, f1 = (float)(x + 1) / seg;
+                    dl->AddQuadFilled(at(f0, edge(st, f0)), at(f1, edge(st, f1)), at(f1, edge(st + 1, f1)), at(f0, edge(st + 1, f0)), col);
+                }
             }
             for (int i = 0; i < 13; ++i) { const float a = 3.4f + i * 2.6f / 12; decoStar(dl, ImVec2(o.x + w * 0.5f + std::cos(a) * w * 0.32f, o.y + h * 0.56f + std::sin(a) * h * 0.32f), 9 * u, k == 3 ? IM_COL32(255, 255, 255, 200) : IM_COL32(240, 210, 120, 220)); }
         }
@@ -509,7 +515,6 @@ void seasonalDecor(ImDrawList* dl, ImVec2 o, float w, float h, int k, int stage)
     case 10:   // Halloween: a big moon, bats, pumpkins on the hills
         if (stage == 0) { dl->AddCircleFilled(at(0.78f, 0.58f), 62 * u, IM_COL32(255, 236, 190, 230), 48); dl->AddCircleFilled(at(0.78f, 0.58f), 80 * u, IM_COL32(255, 220, 160, 30), 48);
             for (int i = 0; i < 6; ++i) decoBat(dl, at(0.1f + decoRnd(i, 9) * 0.8f, 0.08f + decoRnd(i, 10) * 0.4f), (14 + decoRnd(i, 11) * 10) * u, IM_COL32(12, 6, 16, 240)); }
-        else for (int i = 0; i < 5; ++i) decoPumpkin(dl, at(0.1f + i * 0.2f + decoRnd(i, 4) * 0.05f, 0.92f), (18 + decoRnd(i, 5) * 8) * u);
         break;
     case 12:   // Thanksgiving: autumn leaves falling
         if (stage == 0) { static const ImU32 lv[4] = {IM_COL32(230, 120, 40, 200), IM_COL32(200, 70, 30, 200), IM_COL32(240, 180, 60, 200), IM_COL32(170, 90, 40, 200)};
@@ -801,11 +806,21 @@ void drawLogo(ImDrawList* dl, ImVec2 a, ImVec2 b, int alpha) {
     logoMaskPixels(lw, lh, lv, from);
     const float sx = a.x + (b.x - a.x) * from;
     dl->AddImage(g_logoMask, a, ImVec2(sx, b.y), ImVec2(0, 0), ImVec2(from, 1), IM_COL32(255, 255, 255, alpha));
+    // Halloween: TABLET's A is a jack-o'-lantern (its letter left out of the slices, the pumpkin in its place)
+    float au0 = 2, au1 = 2, av0 = 0, av1 = 1;
+    const bool pumpkinA = themeIndex() == kSeasonal0 + 10 && logoLetterBox(1, au0, au1, av0, av1);
     const int n = 6;   // TABLET in slices, its colour running from the accent's light tone to the accent
     for (int i = 0; i < n; ++i) {
         const float u0 = from + (1 - from) * i / n, u1 = from + (1 - from) * (i + 1) / n;
-        const ImU32 c = mixCol(accentLite(255), accentCol(255), (i + 0.5f) / n);
-        dl->AddImage(g_logoMask, ImVec2(a.x + (b.x - a.x) * u0, a.y), ImVec2(a.x + (b.x - a.x) * u1, b.y), ImVec2(u0, 0), ImVec2(u1, 1), (c & 0x00FFFFFF) | ((ImU32)alpha << 24));
+        const ImU32 c = (mixCol(accentLite(255), accentCol(255), (i + 0.5f) / n) & 0x00FFFFFF) | ((ImU32)alpha << 24);
+        auto slice = [&](float s0, float s1) { if (s1 > s0) dl->AddImage(g_logoMask, ImVec2(a.x + (b.x - a.x) * s0, a.y), ImVec2(a.x + (b.x - a.x) * s1, b.y), ImVec2(s0, 0), ImVec2(s1, 1), c); };
+        if (pumpkinA && u1 > au0 && u0 < au1) { slice(u0, std::min(u1, au0)); slice(std::max(u0, au1), u1); }
+        else slice(u0, u1);
+    }
+    if (pumpkinA && alpha > 8) {
+        const float lh = (av1 - av0) * (b.y - a.y), cx = a.x + (b.x - a.x) * (au0 + au1) * 0.5f, by = a.y + (b.y - a.y) * av1;
+        const float r = lh / 1.85f;
+        decoPumpkin(dl, ImVec2(cx, by - r * 0.8f), r);
     }
 }
 void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
@@ -9545,6 +9560,28 @@ const unsigned char* logoMaskPixels(int& w, int& h, int& levels, float& tabletFr
     }
     tabletFrom = from;
     return mask.data();
+}
+// the nth letter of TABLET (0 T, 1 A...) in the logo: its box, as fractions of the picture (false: not found)
+bool logoLetterBox(int n, float& u0, float& u1, float& v0, float& v1) {
+    static std::vector<std::array<float, 4>> boxes;
+    static bool done = false;
+    if (!done) {
+        done = true;
+        int w, h, l; float from = 0.5f;
+        const unsigned char* p = logoPixels(w, h, l);
+        logoMaskPixels(w, h, l, from);
+        if (!p) return false;
+        int x = (int)(from * w), start = -1, top = h, bot = -1;
+        for (; x <= w; ++x) {
+            bool any = false;
+            if (x < w) for (int y = 0; y < h; ++y) if (p[((size_t)y * w + x) * 4 + 3] > 64) { any = true; top = std::min(top, y); bot = std::max(bot, y); }
+            if (any && start < 0) start = x;
+            if (!any && start >= 0) { boxes.push_back({(float)start / w, (float)x / w, (float)top / h, (float)(bot + 1) / h}); start = -1; top = h; bot = -1; }
+        }
+    }
+    if (n < 0 || n >= (int)boxes.size()) return false;
+    u0 = boxes[n][0]; u1 = boxes[n][1]; v0 = boxes[n][2]; v1 = boxes[n][3];
+    return true;
 }
 const unsigned char* iconsPixels(int& w, int& h, int& levels) {
     const unsigned char* b = xpt_asset_icons;
