@@ -1019,6 +1019,28 @@ int main(int argc, char** argv) {
                     settings().wallpaper = keepW;
                 }
                 const int keepWp = settings().wallpaper;
+                {   // every theme's background moves, slowly: after two seconds the home screen is not drawn quite the same; but in one
+                    // sixtieth of a second nothing moves far (no jumps: the most any point shifts is a couple of pixels)
+                    auto frame = [&](float dt) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = dt; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
+                        ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render();
+                        std::vector<float> v; const ImDrawData* dd = ImGui::GetDrawData();
+                        for (int n = 0; n < dd->CmdListsCount; ++n) for (const ImDrawVert& q : dd->CmdLists[n]->VtxBuffer) { v.push_back(q.pos.x); v.push_back(q.pos.y); v.push_back((float)(q.col >> 24)); }
+                        return v; };
+                    const int keepW = settings().wallpaper;
+                    openApp(APP_HOME);
+                    for (int th = 0; th < 30; ++th) {
+                        settings().wallpaper = th;
+                        for (int i = 0; i < 8; ++i) frame(0.25f);
+                        const std::vector<float> a = frame(1.0f / 60), b = frame(1.0f / 60);
+                        for (int i = 0; i < 8; ++i) frame(0.25f);
+                        const std::vector<float> c = frame(1.0f / 60);
+                        if (a == c) { std::printf("FAIL: theme %d (%s) has a moving background\n", th, th >= 10 ? seasonalName(th - 10) : "everyday"); ++failures; }
+                        if (a.size() == b.size()) { float worst = 0; for (size_t i = 0; i + 2 < a.size(); i += 3) worst = std::max(worst, std::max(std::fabs(a[i] - b[i]), std::fabs(a[i + 1] - b[i + 1])));
+                            if (worst > 2.5f) { std::printf("FAIL: theme %d's background moves slowly (%.1f px in a frame)\n", th, worst); ++failures; } }
+                    }
+                    settings().wallpaper = keepW;
+                }
+                for (int k = 0; k < 7; ++k) { settings().wallpaper = k; char nm[32]; std::snprintf(nm, sizeof nm, "home_theme%d", k); shot(st, APP_HOME, nm); }
                 for (int k = 0; k < 20; ++k) { settings().wallpaper = 10 + k; char nm[32]; std::snprintf(nm, sizeof nm, "home_season%02d", k); shot(st, APP_HOME, nm); }
                 settings().wallpaper = 10 + 10; shot(st, APP_HOME, "home_halloween");
                 {   // Christmas: the user's aircraft is a sleigh (the Ground page, the map, the route bar); traffic stays as it is
