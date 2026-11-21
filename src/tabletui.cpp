@@ -302,6 +302,7 @@ bool seasonalOn(int s, int year, int month, int day) {
     default: return false;
     }
 }
+bool christmasTheme() { return std::max(0, std::min(kThemes - 1, g_settings.wallpaper)) == kSeasonal0 + 13; }
 bool seasonalAvailable(int s) {
     if (g_seasonalAll) return true;
     const std::time_t now = std::time(nullptr);
@@ -2993,6 +2994,51 @@ const PlaneSpec& planeSpec(const std::string& icao) {
 }
 
 // The aircraft from above, nose up, its nose at `nose` and `px` screen units per metre.
+// ---- Christmas: the user's aircraft is a sleigh drawn from above, pulled by four reindeer (our own simple drawing). c: its middle,
+// len: its whole length on screen, ang: its heading on screen (0 up, clockwise, radians)
+bool christmasTheme();
+void drawSleigh(ImDrawList* dl, ImVec2 c, float len, float ang, int alpha = 255) {
+    const float k = len / 108.0f, ca = std::cos(ang), sa = std::sin(ang);
+    auto P = [&](float x, float y) { x *= k; y = (y + 6) * k; return ImVec2(c.x + x * ca - y * sa, c.y + x * sa + y * ca); };   // y: forward is -y
+    auto A = [&](ImU32 col) { return (col & 0x00FFFFFF) | ((ImU32)(((col >> 24) & 255) * alpha / 255) << 24); };
+    auto ell = [&](float x, float y, float rx, float ry, ImU32 col) {
+        ImVec2 p[20];
+        for (int i = 0; i < 20; ++i) { const float t = i * 6.2832f / 20; p[i] = P(x + std::cos(t) * rx, y + std::sin(t) * ry); }
+        dl->AddConvexPolyFilled(p, 20, A(col));
+    };
+    const float lw = std::max(1.0f, 1.6f * k);
+    const ImU32 brown = IM_COL32(140, 92, 52, 255), dark = IM_COL32(96, 60, 34, 255), antler = IM_COL32(222, 200, 160, 255), gold = IM_COL32(236, 196, 92, 255);
+    // the reins, from the sleigh's front to each pair
+    for (int sd = -1; sd <= 1; sd += 2) dl->AddLine(P(sd * 9.0f, 8), P(sd * 7.0f, -52), A(gold), std::max(1.0f, k * 0.9f));
+    // the reindeer: two pairs, each a body, a head with antlers
+    for (int pr = 0; pr < 2; ++pr)
+        for (int sd = -1; sd <= 1; sd += 2) {
+            const float x = sd * 8.0f, y = -12.0f - pr * 26.0f;
+            ell(x, y, 4.2f, 9.0f, brown);
+            ell(x, y - 10.5f, 2.8f, 3.4f, dark);
+            dl->AddLine(P(x - 1.2f, y - 12), P(x - 5.0f, y - 17.5f), A(antler), lw); dl->AddLine(P(x - 3.5f, y - 15.5f), P(x - 6.5f, y - 14.5f), A(antler), lw);
+            dl->AddLine(P(x + 1.2f, y - 12), P(x + 5.0f, y - 17.5f), A(antler), lw); dl->AddLine(P(x + 3.5f, y - 15.5f), P(x + 6.5f, y - 14.5f), A(antler), lw);
+        }
+    // the sleigh: gold runners with curled fronts, a red body, a darker seat back, the sack of presents and its driver
+    for (int sd = -1; sd <= 1; sd += 2) {
+        dl->AddLine(P(sd * 15.5f, 6), P(sd * 15.5f, 48), A(gold), std::max(1.0f, 2.2f * k));
+        dl->AddBezierCubic(P(sd * 15.5f, 6), P(sd * 15.5f, -2), P(sd * 9.0f, -2), P(sd * 10.0f, 4), A(gold), std::max(1.0f, 2.2f * k));
+    }
+    {
+        const ImVec2 body[8] = {P(-13, 10), P(-8, 6), P(8, 6), P(13, 10), P(14, 44), P(10, 47), P(-10, 47), P(-14, 44)};
+        dl->AddConvexPolyFilled(body, 8, A(IM_COL32(200, 30, 40, 255)));
+        dl->AddPolyline(body, 8, A(gold), ImDrawFlags_Closed, std::max(1.0f, 1.4f * k));
+    }
+    ell(0, 40, 10.0f, 5.0f, IM_COL32(150, 18, 28, 255));   // the seat's back
+    ell(0, 34, 8.0f, 7.5f, IM_COL32(136, 96, 60, 255));    // the sack
+    dl->AddLine(P(-5, 31), P(5, 37), A(IM_COL32(110, 76, 46, 255)), lw);
+    ell(0, 22, 7.5f, 6.0f, IM_COL32(214, 34, 44, 255));    // the driver: a red coat, its white fur collar, his hat (its bobble forward)
+    ell(0, 17.5f, 5.5f, 2.2f, IM_COL32(250, 250, 250, 255));
+    ell(0, 15, 3.4f, 3.4f, IM_COL32(200, 24, 36, 255));
+    ell(0, 12.5f, 1.4f, 1.4f, IM_COL32(255, 255, 255, 255));
+    for (int i = 0; i < 3; ++i) ell(-6.0f + i * 6.0f, 28.0f, 2.0f, 2.0f, i == 1 ? IM_COL32(70, 170, 90, 255) : IM_COL32(240, 200, 80, 255));   // presents
+}
+
 void planeTopDown(ImDrawList* dl, ImVec2 nose, float px, const PlaneSpec& p, ImU32 col, ImU32 shade2) {
     const float L = p.len, hw = p.fus * 0.5f, semi = p.span * 0.5f;
     auto P = [&](float x, float y) { return ImVec2(nose.x + x * px, nose.y + y * px); };   // metres: x right, y aft of the nose
@@ -4418,7 +4464,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         float sl = 0, ss = 0;
         const Shape* sh = findShape(s.acfIcao, sl, ss);
         const float pxPerM = (float)(scale / mPerMerc);
-        if (sh) {
+        if (christmasTheme()) drawSleigh(dl, q, std::max(symLen * 1.7f, sh ? sl * pxPerM : 0.0f), (float)a);   // (Christmas: the sleigh, not the aircraft)
+        else if (sh) {
             // its own type's outline: at its real size when that is bigger than a symbol, else 36 units long (nose at y = 0, tail +y),
             // turned along the heading about its middle
             const float pm = std::max(pxPerM, symLen / std::max(1.0f, sl));
@@ -5923,7 +5970,8 @@ void progressStrip(ImDrawList* dl, const Fonts& f, const SimState& s, const Prog
     dl->AddCircleFilled(ImVec2(x1, cy), 4.0f, IM_COL32(255, 255, 255, 120), 0);
     // the aircraft: its own outline (the drawing the map uses), small, nose along the bar; an arrowhead if there is no drawing
     float sl = 0, ss = 0;
-    if (const Shape* sh = findShape(s.acfIcao, sl, ss)) {
+    if (christmasTheme()) drawSleigh(dl, ImVec2(px, cy), 34.0f, 1.5707963f);   // (Christmas: the sleigh, heading along the bar)
+    else if (const Shape* sh = findShape(s.acfIcao, sl, ss)) {
         const float L = 24.0f, k = L / std::max(1.0f, std::max(sl, ss));   // fits 24 px whichever is longer, length or span
         const int v0 = dl->VtxBuffer.Size;
         drawShape(dl, *sh, ImVec2(px, cy - sl * k * 0.5f), k * ss / std::max(1.0f, sh->span), k * sl / std::max(1.0f, sh->len), IM_COL32(255, 255, 255, 255), IM_COL32(150, 162, 186, 255));
@@ -6228,7 +6276,8 @@ void planPreview(ImDrawList* dl, const Fonts& f, const FlightPlan& p, float w, f
         const ImVec2 mid((nx[0] + nx[1]) * 0.5f, cy);
         // the plan's aircraft: its own outline (as on the route bar and the map), nose along the line; an arrowhead if none
         float sl = 0, ss = 0;
-        if (const Shape* sh = findShape(p.aircraft, sl, ss)) {
+        if (christmasTheme()) drawSleigh(dl, mid, 36.0f, 1.5707963f, A);   // (Christmas: the sleigh)
+        else if (const Shape* sh = findShape(p.aircraft, sl, ss)) {
             const float L = 26.0f, k = L / std::max(1.0f, std::max(sl, ss));
             const int v0 = dl->VtxBuffer.Size;
             drawShape(dl, *sh, ImVec2(mid.x, cy - sl * k * 0.5f), k * ss / std::max(1.0f, sh->span), k * sl / std::max(1.0f, sh->len), IM_COL32(255, 255, 255, A), IM_COL32(150, 162, 186, A));
@@ -6344,7 +6393,8 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     // the drawing, resized to the type's length and span (kx, ky: from the drawing's metres to the type's)
     const float kx = shape ? acSpan / shape->span : 1.0f, ky = shape ? acLen / shape->len : 1.0f;
     // white in every theme, with neutral grey lines (no blue that reads as tinted next to a warm theme)
-    if (shape) drawShape(dl, *shape, nose, px * kx, px * ky, IM_COL32(246, 247, 249, 255), IM_COL32(128, 132, 140, 255));
+    if (christmasTheme()) drawSleigh(dl, ImVec2(nose.x, nose.y + acLen * px * 0.5f), acLen * px, 0.0f);   // (Christmas: the sleigh, at the aircraft's size)
+    else if (shape) drawShape(dl, *shape, nose, px * kx, px * ky, IM_COL32(246, 247, 249, 255), IM_COL32(128, 132, 140, 255));
     else planeTopDown(dl, nose, px, spec, IM_COL32(246, 247, 249, 255), IM_COL32(128, 132, 140, 255));
     const float hw0 = shape ? fuselageHalf(*shape, 0.25f, 0) : -1;   // the fuselage's half-width forward of the wing, drawing metres
     const float hwPx = (shape && hw0 > 0 ? hw0 * kx : spec.fus * 0.5f) * px;

@@ -991,6 +991,12 @@ int main(int argc, char** argv) {
                 const int keepWp = settings().wallpaper;
                 for (int k = 0; k < 16; ++k) { settings().wallpaper = 10 + k; char nm[32]; std::snprintf(nm, sizeof nm, "home_season%02d", k); shot(st, APP_HOME, nm); }
                 settings().wallpaper = 10 + 10; shot(st, APP_HOME, "home_halloween");
+                {   // Christmas: the user's aircraft is a sleigh (the Ground page, the map, the route bar); traffic stays as it is
+                    settings().wallpaper = 10 + 13;
+                    SimState xs = st; xs.map.havePos = true; xs.map.lat = 41.70; xs.map.lon = -86.32; xs.map.hdgTrue = 60; xs.acfIcao = "A20N";
+                    shot(xs, APP_GROUND, "christmas_ground");
+                    shot(xs, APP_MAP, "christmas_map");
+                }
                 setSeasonalPreview(false);
                 settings().wallpaper = 10 + 0; settings().wallpaperBase = 3;
                 for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); }
