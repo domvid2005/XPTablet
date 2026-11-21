@@ -1,23 +1,23 @@
 XPTablet - third-party notices
 ==============================
 
-XPTablet includes the following open-source software. Their licences require these notices to accompany the plugin.
+XPTablet includes the following open-source software. Their licenses require these notices to accompany the plugin.
 
-  * Dear ImGui 1.91.8 (the tablet's screens), Copyright (c) 2014-2025 Omar Cornut - MIT licence (full text below).
+  * Dear ImGui 1.91.8 (the tablet's screens), Copyright (c) 2014-2025 Omar Cornut - MIT license (full text below).
   * IBM Plex Sans (the tablet's text), Copyright (c) 2017 IBM Corp. with Reserved Font Name "Plex", and JetBrains Mono
     (fixed-width text), Copyright 2020 The JetBrains Mono Project Authors - SIL Open Font License 1.1 (full text below).
     Both are embedded in the plugin.
-  * libcurl 8.14.1 (downloads: the METAR search) - curl licence (MIT/X derivative). The Windows and Linux builds link it statically,
-    with zlib (zlib licence).
+  * libcurl 8.14.1 (downloads: the METAR search) - curl license (MIT/X derivative). The Windows and Linux builds link it statically,
+    with zlib (zlib license).
   * OpenSSL 3 (TLS for the downloads, Linux build, statically linked) - Apache License 2.0 (full text below).
 
   * Aircraft top views (the shapes folder): AircraftShapesSVG by RexKramer1 and amnesica (BelugaProject),
     https://github.com/RexKramer1/AircraftShapesSVG - GNU General Public License v3.0. They are a separate data file read at run
-    time; its licence and README are in the shapes folder, and its source (the SVG files and tools/make_shapes.py) is in
+    time; its license and README are in the shapes folder, and its source (the SVG files and tools/make_shapes.py) is in
     XPTablet's repository.
 
   * Web pages (xptbrowser): built against the C API headers of the Chromium Embedded Framework (CEF) by Marshall A. Greenblatt and
-    contributors - BSD 3-clause licence (full text below). At run time it uses the CEF and Chromium that X-Plane itself installs
+    contributors - BSD 3-clause license (full text below). At run time it uses the CEF and Chromium that X-Plane itself installs
     (Resources/dlls/64/cef); XPTablet ships no part of Chromium.
 
   * Map tiles: OpenStreetMap (c) OpenStreetMap contributors, Open Database License (https://www.openstreetmap.org/copyright);
@@ -27,7 +27,7 @@ XPTablet includes the following open-source software. Their licences require the
     Gateway's contributors) and the user's installed scenery. Nothing of it ships with XPTablet.
   * Time zones and the map's outlines: Natural Earth 1:10m time zones and 1:50m coastlines, borders, state and province lines
     (public domain), as prepared for WXPlane (tools/make_tzones.py, WXPlane's tools/make_basemap.py).
-  * stb_image 2.30 by Sean Barrett (decoding the map tiles) - MIT licence or public domain (full text in third_party/stb).
+  * stb_image 2.30 by Sean Barrett (decoding the map tiles) - MIT license or public domain (full text in third_party/stb).
 
   * Online traffic details on the map's traffic cards: the VATSIM public data feed (https://data.vatsim.net/v3/vatsim-data.json), read live and not stored;
   * Airport facts (names, places, frequencies including CTAF): OurAirports (https://ourairports.com/data/), public domain;

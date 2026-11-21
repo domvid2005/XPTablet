@@ -880,7 +880,7 @@ const char* name(int g) {
 }
 const char* blurb(int g) {
     static const char* n[COUNT] = {"Take on fuel; never cross your own contrail.", "Taxi for every light; the ground vehicles patrol.",
-                                   "Rogue drones swoop in formation: clear the sky.", "Jump the rolling tyres; hit the loader's stop.",
+                                   "Rogue drones swoop in formation: clear the sky.", "Jump the rolling tires; hit the loader's stop.",
                                    "Twenty-one against the dealer, for air miles.", "Load the hold; full rows and columns ship out."};
     return g >= 0 && g < COUNT ? n[g] : "";
 }
@@ -888,7 +888,7 @@ const char* help(int g) {
     static const char* n[COUNT] = {"Steer with the arrows (W A S D). Each fuel drop lengthens the contrail and speeds you up; the airspace's edge and your own trail end the flight.",
                                    "Taxi with the arrows (W A S D) over every green light. A big green light is a takeoff clearance: for a few seconds the vehicles give way, and you can send them back to the apron.",
                                    "Left and right fly, the action button (Space) fires. Drones that swoop at you score double; dodge their hail.",
-                                   "Left and right walk, up and down climb ladders, the action button (Space) jumps. Jump a tyre for points; reach the red stop on the top deck.",
+                                   "Left and right walk, up and down climb ladders, the action button (Space) jumps. Jump a tire for points; reach the red stop on the top deck.",
                                    "Get closer to 21 than the dealer without going over. Tap the buttons (or Space to deal and hit, down to stand, up to double, left and right for the bet). The dealer stands on 17; twenty-one with two cards pays 3 to 2.",
                                    "Drag a container from the right into the hold. A full row or column ships out and scores; several at once score more. When none of the three fits, the hold is closed."};
     return g >= 0 && g < COUNT ? n[g] : "";

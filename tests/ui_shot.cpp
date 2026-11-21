@@ -444,6 +444,14 @@ int main(int argc, char** argv) {
             auto tp = [&](float x, float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
                 ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); } };
             tp(680, 99); for (char c : std::string("log")) tabletKey(c, true);
+            if (!tabletTyping()) { std::printf("FAIL: the App Store's search takes typing (its keyboard comes up)\n"); ++failures; }
+            {   // as it is while typing, the keyboard up (shot() would close it)
+                std::vector<Batch> b;
+                for (int i = 0; i < 12; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.05f; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
+                    ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); b.clear(); clipDrawData(ImGui::GetDrawData(), b); }
+                io.DeltaTime = 1.0f / 60.0f;
+                Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_appstore_search_typing.png");
+            }
             shot(t, APP_APPSTORE, "appstore_search");
             tabletKey(13, false); tp(774, 99);   // (put away, then cleared)
         }
@@ -1044,6 +1052,14 @@ int main(int argc, char** argv) {
                     tap(sb, 660, 284);
                     for (char ch : std::string("ffe070")) tabletKey(ch, true);
                     for (int k = 0; k < 20; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); }
+                    if (!tabletTyping()) { std::printf("FAIL: the hex box takes typing (its keyboard comes up)\n"); ++failures; }
+                    {   // as it is while typing: the card lifted, the keyboard under it
+                        std::vector<Batch> b;
+                        for (int i = 0; i < 12; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.05f; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
+                            ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); b.clear(); clipDrawData(ImGui::GetDrawData(), b); }
+                        io.DeltaTime = 1.0f / 60.0f;
+                        Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_settings_custom_hex_typing.png");
+                    }
                     if (settings().customs[0].accent != 0xFFE070) { std::printf("FAIL: a hex code typed sets the accent (%06X)\n", settings().customs[0].accent); ++failures; }
                     shot(sb, APP_SETTINGS, "settings_custom_hex");
                     tabletKey(13, false);
@@ -1078,15 +1094,23 @@ int main(int argc, char** argv) {
                     shot(st, APP_HOME, "reset_all_boot");
                 }
                 settings() = keepAll; layoutHome();
+                for (int k = 0; k < 120 && !(tabletPoweredOn() && currentApp() == APP_HOME && k > 80); ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.1f; io.AddMousePosEvent(-1000, -1000);
+                    ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); }   // (the boot it started has finished)
+                io.DeltaTime = 1.0f / 60.0f;
                 openApp(APP_SETTINGS); tap(st, 80, 196);
             }
             settings().simbriefUser.clear();
             tap(st, 80, 280);   // Media
             settings().mediaDuck = 1; settings().duckRx = 0.35f; settings().duckTx = 0.15f;
             shot(st, APP_SETTINGS, "settings_media");
+            if (settingsTabShown() != 5) { std::printf("FAIL: the Media tab of Settings was not opened (%d)\n", settingsTabShown()); ++failures; }
             settings().mediaDuck = 0;
             tap(st, 80, 238);   // Notifications
             shot(st, APP_SETTINGS, "settings_notifications");
+            if (settingsTabShown() != 4) { std::printf("FAIL: the Notifications tab of Settings was not opened (%d)\n", settingsTabShown()); ++failures; }
+            tap(st, 80, 364);   // Accounts
+            shot(st, APP_SETTINGS, "settings_accounts");
+            if (settingsTabShown() != 7) { std::printf("FAIL: the Accounts tab of Settings was not opened (%d)\n", settingsTabShown()); ++failures; }
             tap(st, 80, 322);   // Local Connect
             {   // on, an Android phone connected (its battery the tablet's), an iPhone paired before, an iPad asking to pair
                 SimState lc = st;
@@ -1247,7 +1271,8 @@ int main(int argc, char** argv) {
             for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(80, kLogicalH - 12 - 30); io.AddMouseButtonEvent(0, d);
                 ImGui::NewFrame(); Actions act; build(fonts, s, 800, kLogicalH, act); ImGui::Render(); }
             std::vector<Batch> b;
-            for (int i = 0; i < 2; ++i) { io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, s, 800, kLogicalH, act); ImGui::Render(); clipDrawData(ImGui::GetDrawData(), b); }
+            for (int i = 0; i < 24; ++i) { io.DeltaTime = 0.05f; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, s, 800, kLogicalH, act); ImGui::Render(); b.clear(); clipDrawData(ImGui::GetDrawData(), b); }   // (the highlight has settled)
+            io.DeltaTime = 1.0f / 60.0f;
             Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_credits.png");
             for (bool d : downs) { io.AddMousePosEvent(80, 112); io.AddMouseButtonEvent(0, d);   // back to the settings
                 ImGui::NewFrame(); Actions act; build(fonts, s, 800, kLogicalH, act); ImGui::Render(); }

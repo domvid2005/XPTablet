@@ -9,6 +9,7 @@
 #include <map>
 #include <set>
 #include <array>
+#include <sstream>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
@@ -128,6 +129,7 @@ int favSlots() { return std::max(0, std::min(kMaxFavorites, g_settings.favoriteS
 bool g_mac = false;              // macOS (told by the host): no media controls
 bool g_ownPerformance = false;   // the aircraft brings its own performance calculator (ToLiss): no Performance app
 bool g_chrome = true;                                             // with the browser's own controls
+double g_subT0 = -10;   // when an app's own page (VATSIM's Stats, xPilot...) was opened or left: the page fades in
 int g_backTo = -1;    // a page opened from inside another app (VATSIM's Stats, natTrak, xPilot): Back returns there, not Home
 int g_webGroup = 0;   // whose tabs are shown: 0 the Browser's (and documents'), else a web app's own (100 + its app)
 bool g_webHold = false;   // the shown tab is not this group's yet (one moment): no picture from another group's page
@@ -458,7 +460,7 @@ void seasonalDecor(ImDrawList* dl, ImVec2 o, float w, float h, int k, int stage)
         }
         break;
     case 2:   // Valentine's: hearts floating up
-        if (stage == 0) for (int i = 0; i < 14; ++i) decoHeart(dl, at(0.05f + decoRnd(i, 9) * 0.9f, 0.08f + decoRnd(i, 10) * 0.55f), (8 + decoRnd(i, 11) * 16) * u, i % 3 ? IM_COL32(255, 120, 160, 150) : IM_COL32(255, 200, 215, 170));
+        if (stage == 0) for (int i = 0; i < 14; ++i) decoHeart(dl, at(0.05f + decoRnd(i, 9) * 0.9f, 0.08f + decoRnd(i, 10) * 0.55f), (8 + decoRnd(i, 11) * 16) * u, i % 3 ? IM_COL32(255, 120, 160, 110) : IM_COL32(255, 200, 215, 90));
         break;
     case 3: case 11:   // Presidents' Day, Veterans Day: an arc of stars, and a flag's stripes waving faintly across the sky
         if (stage == 0) {
@@ -472,20 +474,20 @@ void seasonalDecor(ImDrawList* dl, ImVec2 o, float w, float h, int k, int stage)
                     dl->AddQuadFilled(at(f0, edge(st, f0)), at(f1, edge(st, f1)), at(f1, edge(st + 1, f1)), at(f0, edge(st + 1, f0)), col);
                 }
             }
-            for (int i = 0; i < 13; ++i) { const float a = 3.4f + i * 2.6f / 12; decoStar(dl, ImVec2(o.x + w * 0.5f + std::cos(a) * w * 0.32f, o.y + h * 0.56f + std::sin(a) * h * 0.32f), 9 * u, k == 3 ? IM_COL32(255, 255, 255, 200) : IM_COL32(240, 210, 120, 220)); }
+            for (int i = 0; i < 13; ++i) { const float a = 3.4f + i * 2.6f / 12; decoStar(dl, ImVec2(o.x + w * 0.5f + std::cos(a) * w * 0.32f, o.y + h * 0.56f + std::sin(a) * h * 0.32f), 9 * u, k == 3 ? IM_COL32(255, 255, 255, 96) : IM_COL32(240, 210, 120, 110)); }
         }
         break;
     case 4:   // St. Patrick's: clovers drifting, a rainbow's arc
         if (stage == 0) {
             static const ImU32 bow[6] = {IM_COL32(230, 70, 70, 50), IM_COL32(240, 150, 60, 50), IM_COL32(240, 220, 80, 50), IM_COL32(90, 200, 100, 50), IM_COL32(70, 130, 230, 50), IM_COL32(140, 90, 220, 50)};
             for (int i = 0; i < 6; ++i) { dl->PathArcTo(at(0.7f, 0.78f), (230 - i * 12) * u, 3.1416f, 6.2832f, 48); dl->PathStroke(bow[i], 0, 12 * u); }
-            for (int i = 0; i < 12; ++i) decoClover(dl, at(0.04f + decoRnd(i, 9) * 0.9f, 0.06f + decoRnd(i, 10) * 0.5f), (9 + decoRnd(i, 11) * 10) * u, IM_COL32(110, 220, 120, 150));
+            for (int i = 0; i < 12; ++i) decoClover(dl, at(0.04f + decoRnd(i, 9) * 0.9f, 0.06f + decoRnd(i, 10) * 0.5f), (9 + decoRnd(i, 11) * 10) * u, IM_COL32(110, 220, 120, 100));
         }
         break;
     case 5:   // Easter: flowers in the sky's light, eggs on the hills
-        if (stage == 0) for (int i = 0; i < 10; ++i) decoFlower(dl, at(0.05f + decoRnd(i, 9) * 0.9f, 0.08f + decoRnd(i, 10) * 0.45f), (8 + decoRnd(i, 11) * 8) * u, IM_COL32(255, 255, 255, 120), IM_COL32(255, 220, 120, 180));
+        if (stage == 0) for (int i = 0; i < 10; ++i) decoFlower(dl, at(0.05f + decoRnd(i, 9) * 0.9f, 0.08f + decoRnd(i, 10) * 0.45f), (8 + decoRnd(i, 11) * 8) * u, IM_COL32(255, 255, 255, 56), IM_COL32(255, 220, 120, 90));
         else { static const ImU32 eggs[5] = {IM_COL32(250, 180, 200, 255), IM_COL32(180, 220, 250, 255), IM_COL32(255, 236, 150, 255), IM_COL32(200, 180, 250, 255), IM_COL32(180, 240, 200, 255)};
-            for (int i = 0; i < 7; ++i) decoEgg(dl, at(0.08f + i * 0.14f, 0.9f + decoRnd(i, 4) * 0.04f), (13 + decoRnd(i, 5) * 5) * u, eggs[i % 5], IM_COL32(255, 255, 255, 170)); }
+            for (int i = 0; i < 6; ++i) decoEgg(dl, at(i < 3 ? 0.03f + i * 0.045f : 0.88f + (i - 3) * 0.045f, 0.9f + decoRnd(i, 4) * 0.05f), (12 + decoRnd(i, 5) * 5) * u, eggs[i % 5], IM_COL32(255, 255, 255, 170)); }
         break;
     case 6:   // Memorial Day: stars over the dusk, poppies on the hills
         if (stage == 0) stars(40, 0.5f, IM_COL32(255, 255, 255, 120));
@@ -2492,7 +2494,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
             // the Browser's last tab's x clears it (a fresh search page takes its place): there is always one
             std::string title = isStartPage(t.url) ? std::string("New tab") : !t.title.empty() ? t.title : hostOf(t.url);
             const float roomW = e.x - a.x - 34;
-            while (title.size() > 3 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, title.c_str()).x > roomW) { title.resize(title.size() - 3); title += ".."; }
+            while (title.size() > 4 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, title.c_str()).x > roomW) { title.resize(title.size() - 4); title += "..."; }
             dl->PushClipRect(a, ImVec2(e.x - 22, e.y), true);
             textAt(dl, f.small, a.x + 10, std::floor(a.y + (e.y - a.y - fontPx(f.small)) * 0.5f), on ? kInk : kMuted, title.c_str());
             dl->PopClipRect();
@@ -2615,7 +2617,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         std::vector<Bm> bms;
         if (g_settings.bookmarks.empty())
             dl->AddText(f.small, fontPx(f.small), ImVec2(x, std::floor(by + (bmH - 8 - fontPx(f.small)) * 0.5f)), dim, "No bookmarks yet: the star in the address bar adds this page");
-        for (const auto& u : g_settings.bookmarks) bms.push_back({u.first.size() > 24 ? u.first.substr(0, 22) + ".." : u.first, u.second});
+        for (const auto& u : g_settings.bookmarks) bms.push_back({u.first.size() > 24 ? u.first.substr(0, 22) + "..." : u.first, u.second});
         {   // at the right: the History, and the arrow folding the bars away
             if (pill(dl, f, "##bhist", "History", ImVec2(w - 132, by), ImVec2(w - 46, by + bmH - 8), g_historyOpen, true)) { g_historyOpen = !g_historyOpen; g_historyScroll = 0; }
             if (iconButton("##bfold", ImVec2(w - 40, by), ImVec2(w - 8, by + bmH - 8), true)) { g_barsHidden = true; g_historyOpen = false; g_volumeOpen = false; }
@@ -2666,7 +2668,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         dl->AddCircle(c, r, mixCol(IM_COL32(255, 255, 255, 60), accentLite(255), e.hot), 0, 1.6f);
         dl->AddLine(ImVec2(c.x - 18, c.y), ImVec2(c.x + 18, c.y), kInk, 3.5f);
         dl->AddLine(ImVec2(c.x, c.y - 18), ImVec2(c.x, c.y + 18), kInk, 3.5f);
-        textCentered(dl, f.bold, c.x, c.y + 64, kInk, "New Tab");
+        textCentered(dl, f.bold, c.x, c.y + 64, kInk, "New tab");
         if (hit) { g_browserNoTabs = false; act.webTabNew = true; act.webTabGroup = 0; act.webTabUrl.clear(); g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear(); }
     } else webView(dl, f, s, 0, pageTop + 1, w, h - pageTop - 1, act, false, (g_historyOpen || g_volumeOpen) ? 0.0f : h - pageTop - 1 - kbH);   // (a card open: the page waits)
     const float histT = openness("##histopen", g_chrome && g_historyOpen && !g_barsHidden);
@@ -2689,7 +2691,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         dl->AddRectFilled(a, e, themeTone(12, 22, 40, 248), 12.0f);
         dl->AddRect(a, e, IM_COL32(255, 255, 255, 46), 12.0f);
         textAt(dl, f.bold, a.x + 14, a.y + 12, kInk, "History");
-        if (pill(dl, f, "##histclr", "Clear History", ImVec2(e.x - 176, a.y + 8), ImVec2(e.x - 46, a.y + 36), false, !g_settings.history.empty())) { g_settings.history.clear(); g_settingsChanged = true; }
+        if (pill(dl, f, "##histclr", "Clear history", ImVec2(e.x - 176, a.y + 8), ImVec2(e.x - 46, a.y + 36), false, !g_settings.history.empty())) { g_settings.history.clear(); g_settingsChanged = true; }
         if (iconButton("##histx", ImVec2(e.x - 40, a.y + 8), ImVec2(e.x - 10, a.y + 36), true)) g_historyOpen = false;
         const ImVec2 xc(e.x - 25, a.y + 22);
         dl->AddLine(ImVec2(xc.x - 5, xc.y - 5), ImVec2(xc.x + 5, xc.y + 5), kInk, 1.6f);
@@ -2710,8 +2712,8 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
             if (ImGui::InvisibleButton(id, ImVec2(e.x - a.x - 24, rowH - 2)) && y >= ly0 - 4) { g_navPending = hp.second; g_navForce = true; g_url = hp.second; g_historyOpen = false; }
             if (const float hk = itemHover(); hk > 0.01f) dl->AddRectFilled(ImVec2(a.x + 6, y), ImVec2(e.x - 18, y + rowH - 2), IM_COL32(255, 255, 255, (int)(18 * hk)), 7.0f);
             std::string t = hp.first, u = hp.second;
-            while (t.size() > 3 && f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, t.c_str()).x > e.x - a.x - 40) { t.resize(t.size() - 3); t += ".."; }
-            while (u.size() > 3 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, u.c_str()).x > e.x - a.x - 40) { u.resize(u.size() - 3); u += ".."; }
+            while (t.size() > 4 && f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, t.c_str()).x > e.x - a.x - 40) { t.resize(t.size() - 4); t += "..."; }
+            while (u.size() > 4 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, u.c_str()).x > e.x - a.x - 40) { u.resize(u.size() - 4); u += "..."; }
             textAt(dl, f.body, a.x + 14, y + 2, kInk, t.c_str());
             textAt(dl, f.small, a.x + 14, y + 21, kMuted, u.c_str());
         }
@@ -2826,7 +2828,7 @@ void metarPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
         if (c.empty() && (r.clearSky || r.cavok)) c = "clear";
         if (!c.empty()) row("Clouds", c.c_str());
     }
-    if (r.hasTemp) { if (r.hasDewp) std::snprintf(b, sizeof b, "%d / %d \xC2\xB0""C", (int)std::lround(r.tempC), (int)std::lround(r.dewpC)); else std::snprintf(b, sizeof b, "%d \xC2\xB0""C", (int)std::lround(r.tempC)); row("Temp / Dew", b); }
+    if (r.hasTemp) { if (r.hasDewp) std::snprintf(b, sizeof b, "%d / %d \xC2\xB0""C", (int)std::lround(r.tempC), (int)std::lround(r.dewpC)); else std::snprintf(b, sizeof b, "%d \xC2\xB0""C", (int)std::lround(r.tempC)); row("Temp / dew", b); }
     if (r.hasAltim) { std::snprintf(b, sizeof b, "%d hPa  %.2f in", (int)std::lround(r.altimHpa), r.altimHpa / wx::kInHgToHpa); row("QNH", b); }
 }
 
@@ -2869,7 +2871,7 @@ void simWeatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
             if (x.visSm >= 10) std::snprintf(b, sizeof b, "10+ SM"); else std::snprintf(b, sizeof b, "%.1f SM", x.visSm);
             row("Visibility", b);
             std::snprintf(b, sizeof b, "%d / %d \xC2\xB0""C", (int)std::lround(x.tempC), (int)std::lround(x.dewC));
-            row("Temp / Dew", b);
+            row("Temp / dew", b);
             std::snprintf(b, sizeof b, "%d hPa  %.2f in", (int)std::lround(x.qnhHpa), x.qnhHpa / 33.8639f);
             row("QNH", b);
             row("Rain", x.rain < 0.02f ? "none" : x.rain < 0.3f ? "light" : x.rain < 0.7f ? "moderate" : "heavy");
@@ -3668,13 +3670,13 @@ bool drawCardBody(ImDrawList* dl, const Fonts& f, const std::vector<CardLine>& L
         switch (l.style) {
         case 0:
             textAt(dl, f.title, x0, y, kInk, l.a.c_str());
-            if (!l.b.empty()) { std::string sub = l.b; while (sub.size() > 3 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, sub.c_str()).x > inner - 10) { sub.resize(sub.size() - 3); sub += ".."; } textAt(dl, f.small, x0, y + 24, kMuted, sub.c_str()); }
+            if (!l.b.empty()) { std::string sub = l.b; while (sub.size() > 4 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, sub.c_str()).x > inner - 10) { sub.resize(sub.size() - 4); sub += "..."; } textAt(dl, f.small, x0, y + 24, kMuted, sub.c_str()); }
             y += 44;
             break;
         case 1: {
             textAt(dl, f.small, x0, y + 1, kMuted, l.a.c_str());
             std::string v = l.b;
-            while (v.size() > 3 && f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, v.c_str()).x > inner - 96) { v.resize(v.size() - 3); v += ".."; }
+            while (v.size() > 4 && f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, v.c_str()).x > inner - 96) { v.resize(v.size() - 4); v += "..."; }
             textRight(dl, f.bold, x1, y, kInk, v.c_str());
             y += 20;
             break;
@@ -4783,7 +4785,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 std::snprintf(b, sizeof b, "%.0f kt", t->gsKt); L.push_back({1, "Ground speed", b});
                 std::snprintf(b, sizeof b, "%03d\xC2\xB0T", ((int)std::lround(t->hdg) % 360 + 360) % 360); L.push_back({1, "Heading", b});
                 if (!t->onGround) { std::snprintf(b, sizeof b, "%+.0f fpm", std::round(t->vsFpm / 50) * 50); L.push_back({1, "Vertical speed", b}); }
-                if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, t->lat, t->lon, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0", d, brg); L.push_back({1, "From you", b}); }
+                if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, t->lat, t->lon, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0T", d, brg); L.push_back({1, "From you", b}); }
                 L.push_back({4, "VATSIM", ""});
                 if (!vat) L.push_back({2, m.vatsimStatus.empty() ? "Asking VATSIM..." : m.vatsimStatus, ""});
                 else {
@@ -4806,7 +4808,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                         if (!v.depTime.empty()) L.push_back({1, "Departure", hhmm(v.depTime) + "Z" + (v.enroute.empty() ? "" : ", en route " + hhmm(v.enroute))});
                         if (!v.fuel.empty()) L.push_back({1, "Fuel on board", hhmm(v.fuel)});
                         if (!v.route.empty()) L.push_back({2, v.route, "route"});
-                        if (!v.remarks.empty()) L.push_back({2, v.remarks.size() > 220 ? v.remarks.substr(0, 218) + ".." : v.remarks, "remarks"});
+                        if (!v.remarks.empty()) L.push_back({2, v.remarks.size() > 220 ? v.remarks.substr(0, 218) + "..." : v.remarks, "Remarks"});
                     } else L.push_back({2, "No flight plan filed", ""});
                 }
             }
@@ -4911,7 +4913,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     L.push_back({1, "Frequency", c.freq});
                     if (!c.name.empty()) L.push_back({1, "Controller", c.name});
                     if (!c.logon.empty()) L.push_back({1, "Online since", c.logon});
-                    if (!c.text.empty()) L.push_back({2, c.text.size() > 300 ? c.text.substr(0, 298) + ".." : c.text, "message"});
+                    if (!c.text.empty()) L.push_back({2, c.text.size() > 300 ? c.text.substr(0, 298) + "..." : c.text, "Message"});
                 }
             }
         } else if (g_selKind == 4) {
@@ -5304,7 +5306,7 @@ const char* const kTurbopropEmergency =
     "# Engine failure after takeoff\nDirectional control | MAINTAIN\nAutofeather | CHECKED (else feather)\nSpeed | V2\nPositive climb: gear | UP\nCondition lever (affected) | FUEL OFF\n"
     "# Emergency descent\nOxygen masks | ON\nPower levers | IDLE\nSpeed | VMO\nTransponder | 7700\n";
 const char* const kLightAbnormal =
-    "# Carburettor icing\nCarb heat | ON (HOT)\nThrottle | FULL\nMixture | ADJUST for smooth running\nAfter the ice clears: carb heat | AS RQRD\n"
+    "# Carburetor icing\nCarb heat | ON (HOT)\nThrottle | FULL\nMixture | ADJUST for smooth running\nAfter the ice clears: carb heat | AS RQRD\n"
     "# Low oil pressure\nOil temperature | CHECK\nPower | REDUCE\nLand | AS SOON AS PRACTICAL\n"
     "# Alternator failure\nAmmeter | CHECK\nMaster (ALT) | OFF THEN ON\nElectrical load | REDUCE\nLand | AS SOON AS PRACTICAL\n"
     "# Rough running engine\nCarb heat | ON\nMixture | ADJUST\nFuel selector | BOTH\nMagnetos | CHECK L, R, BOTH\n";
@@ -5532,7 +5534,7 @@ void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             textRight(dl, f.small, 2 + lw, y + 5, kMuted, b);
         }
         std::string nm = p.name;
-        while (nm.size() > 3 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, nm.c_str()).x > lw - 40) { nm.resize(nm.size() - 3); nm += ".."; }
+        while (nm.size() > 4 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, nm.c_str()).x > lw - 40) { nm.resize(nm.size() - 4); nm += "..."; }
         textAt(dl, f.small, 28, y + 22, kMuted, nm.c_str());
     }
     dl->PopClipRect();
@@ -5650,7 +5652,7 @@ void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         headsetButton(dl, id, ImVec2(x0 + 226, y + 9), fq.mhz, act);
         if (!fq.note.empty()) {
             std::string n = fq.note;
-            while (n.size() > 3 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, n.c_str()).x > x1 - x0 - 250) { n.resize(n.size() - 3); n += ".."; }
+            while (n.size() > 4 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, n.c_str()).x > x1 - x0 - 250) { n.resize(n.size() - 4); n += "..."; }
             textAt(dl, f.small, x0 + 250, y + 2, kMuted, n.c_str());
         }
         y += 22;
@@ -5839,7 +5841,7 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
         dl->AddRectFilled(ImVec2(ic.x - 7, ic.y - 10), ImVec2(ic.x + 7, ic.y + 10), e.pdf ? IM_COL32(220, 70, 70, 255) : IM_COL32(70, 150, 230, 255), 2.0f);
         textCentered(dl, f.small, ic.x, ic.y - fontPx(f.small) * 0.5f, kInk, e.pdf ? "P" : "I");
         std::string nm = e.name;
-        while (nm.size() > 3 && f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, nm.c_str()).x > lw - 110) { nm.resize(nm.size() - 3); nm += ".."; }
+        while (nm.size() > 4 && f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, nm.c_str()).x > lw - 110) { nm.resize(nm.size() - 4); nm += "..."; }
         textAt(dl, f.body, la.x + 38, std::floor(y + 17 - fontPx(f.body) * 0.5f), kInk, nm.c_str());
         textRight(dl, f.small, rowR - 6, std::floor(y + 17 - fontPx(f.small) * 0.5f), kMuted, sizeText(e.bytes).c_str());
         y += 36;
@@ -5851,7 +5853,7 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     if (!g_docPdf.empty()) {   // a PDF: its name and the zoom along the top, the pages under them
         dl->AddRectFilled(va, vb, themeTone(8, 14, 26, 240), 10.0f);
         std::string nm = g_docPdf.substr(g_docPdf.find_last_of("/\\") + 1);
-        while (nm.size() > 3 && f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, nm.c_str()).x > vb.x - va.x - 170) { nm.resize(nm.size() - 3); nm += ".."; }
+        while (nm.size() > 4 && f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, nm.c_str()).x > vb.x - va.x - 170) { nm.resize(nm.size() - 4); nm += "..."; }
         textAt(dl, f.bold, va.x + 14, va.y + 13, kInk, nm.c_str());
         pdfZoomControls(dl, f, s, act, "doc", vb.x - 136, va.y + 6, va.y + 38, ImVec2((vb.x - va.x) * 0.5f, (vb.y - va.y - 44) * 0.5f), s.browser.status == 1 && !g_webHold);
         pdfView(dl, f, s, va.x, va.y + 44, vb.x - va.x, vb.y - va.y - 44, act, kGroupDocuments, fileUrl(g_docPdf));
@@ -6109,7 +6111,7 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     if (button("##fpimport", p.busy ? "Importing..." : "Import from SimBrief", true, (haveId || waiting) && !p.busy)) { act.planReview = waiting; act.planImport = haveId; }
     if (button("##fpclear", "Clear", false, p.loaded)) act.planClear = true;
     // a diversion: SimBrief's latest plan (made for the new destination), from where the aircraft is; Undo goes back to the plan before
-    if (s.planOriginal.loaded) { if (button("##fpundo", "Undo Divert", true, true)) act.planUndoDivert = true; }
+    if (s.planOriginal.loaded) { if (button("##fpundo", "Undo divert", true, true)) act.planUndoDivert = true; }
     else if (button("##fpdivert", "Divert", false, p.loaded && haveId && !p.busy)) act.planDivert = true;
     if (button("##fppdf", "Briefing PDF", false, p.loaded && !p.pdfUrl.empty())) { openDispatch(true); return; }
     if (button("##fpmap", "Show on map", false, p.loaded && !p.legs.empty())) {
@@ -6563,7 +6565,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         for (int i = 0; i < 3; ++i) {
             textAt(dl, f.bold, cx0, y + 4, kMuted, rowsNA[i]);
             char id[16]; std::snprintf(id, sizeof id, "##cabna%d", i);
-            pill(dl, f, id, "Not Available", ImVec2(cx1 - 180, y), ImVec2(cx1, y + 30), false, false);
+            pill(dl, f, id, "Not available", ImVec2(cx1 - 180, y), ImVec2(cx1, y + 30), false, false);
             y += 48;
         }
     } else {
@@ -6577,7 +6579,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         if (pct > 0) lastOn = pct;
         if (pct < 0) std::snprintf(lv, sizeof lv, "-");
         else if (pct == 0) std::snprintf(lv, sizeof lv, "Off");
-        else std::snprintf(lv, sizeof lv, "%d %%", pct);
+        else std::snprintf(lv, sizeof lv, "%d%%", pct);
         textAt(dl, f.bold, cx0 + 112, y + 4, pct > 0 ? kInk : kMuted, lv);
         textAt(dl, f.small, cx0, y + 26, kMuted, "Keep ToLiss Cabin Light Controls to Auto");
         if (g.cabinLight >= 0) {
@@ -6680,7 +6682,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         }
         float y = split + 5 + 32;
         if (!doors) {
-            textAt(dl, f.title, cx0, y, kMuted, "Not Available");
+            textAt(dl, f.title, cx0, y, kMuted, "Not available");
             textAt(dl, f.small, cx0, y + 30, kMuted, "This aircraft does not use jetways");
         } else if (why.empty()) {
             textAt(dl, f.title, cx0, y, kGood, anyDocked ? "Good  \xC2\xB7  connected" : "Good");
@@ -6855,7 +6857,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
     struct Credit { const char* what; const char* who; const char* licence; };
     static const Credit kCredits[] = {
         {"XPTablet", "\xC2\xA9 2026 Alpine Aviation. Free to use; not for resale or re-upload (LICENSE.txt)", "Freeware"},
-        {"Aircraft top views (Ground page)", "AircraftShapesSVG by RexKramer1 and amnesica (BelugaProject), github.com/RexKramer1/AircraftShapesSVG", "GNU GPL v3.0"},
+        {"Aircraft top views (Ground page)", "AircraftShapesSVG by RexKramer1 and amnesica (BelugaProject)\ngithub.com/RexKramer1/AircraftShapesSVG", "GNU GPL v3.0"},
         {"User interface", "Dear ImGui by Omar Cornut and contributors", "MIT"},
         {"Text", "IBM Plex Sans (IBM Corp.), JetBrains Mono (The JetBrains Mono Project Authors)", "SIL Open Font License 1.1"},
         {"Downloads", "libcurl (Daniel Stenberg and contributors), zlib (Jean-loup Gailly, Mark Adler), OpenSSL on Linux", "curl, zlib, Apache 2.0"},
@@ -6899,7 +6901,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         dl->AddText(f.small, fontPx(f.small), ImVec2(x0, y + 21), kMuted, c.who, nullptr, wrap);
         y += 21 + sz.y + 10;
     }
-    textAt(dl, f.small, x0, y + 2, kMuted, "Full licence texts: LICENSES.txt and shapes/LICENSE-GPL-3.0.txt in the XPTablet folder.");
+    textAt(dl, f.small, x0, y + 2, kMuted, "Full license texts: LICENSES.txt and shapes/LICENSE-GPL-3.0.txt in the XPTablet folder.");
     dl->PopClipRect();
     const float content = y + 30 + g_creditsScroll - (top + 38);
     credMax = std::max(0.0f, content - (cb.y - ca.y - 40));
@@ -7433,7 +7435,7 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         }
         const bool hot = ImGui::IsItemHovered() && any;
         dl->AddRectFilled(a, b, any ? (hot ? IM_COL32(255, 255, 255, 60) : IM_COL32(255, 255, 255, 40)) : IM_COL32(255, 255, 255, 16), 20.0f);
-        textCentered(dl, f.bold, (a.x + b.x) * 0.5f, std::floor(a.y + 20 - fontPx(f.bold) * 0.5f), any ? kInk : kMuted, "Clear All");
+        textCentered(dl, f.bold, (a.x + b.x) * 0.5f, std::floor(a.y + 20 - fontPx(f.bold) * 0.5f), any ? kInk : kMuted, "Clear all");
         y += 52;
     }
     const float listTop = y, listBot = h + oy - kCcBottomGap;   // (clear of the bar at the bottom, as the boxes at the left)
@@ -7554,7 +7556,9 @@ int g_hexShown[2] = {-1, -1};   // the colour each box last showed
 void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     Settings::CustomTheme& ct = g_settings.customs[g_customEdit];
     const bool hexTyping = g_kbd && g_kbdTarget == 2 && (g_typeInto == &g_hexBuf[0] || g_typeInto == &g_hexBuf[1]);
-    const float lift = 120.0f * openness("##ctlift", hexTyping);   // (typing a hex code: the card moves up, above the keys)
+    // typing a hex code: the card moves up just far enough for the colour bubbles to clear the keys (its top stays on the screen)
+    const float liftNeed = (kStatusH + h) * 0.5f - 200.0f + 62 + 124 + 74 + 8 - (h - kKbdH);
+    const float lift = std::max(0.0f, std::min(liftNeed, (kStatusH + h) * 0.5f - 200.0f - 6.0f)) * openness("##ctlift", hexTyping);
     const float e0 = std::min(1.0f, (float)(ImGui::GetTime() - g_customEditT0) / 0.22f), e = 1 - (1 - e0) * (1 - e0) * (1 - e0);
     dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(150 * e)));
     const float pw = 700, ph = 400, sc = 0.9f + 0.1f * e;
@@ -7648,7 +7652,7 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
     for (size_t i = 0; i < s.backgroundFiles.size() && i < 12; ++i) { char id[24]; std::snprintf(id, sizeof id, "##ctp%zu", i); pick(id, s.backgroundFiles[i], s.backgroundFiles[i]); }
     const std::string where = "Import a picture (PNG or JPG): put it in the backgrounds folder in XPTablet's plugin folder, " + (s.backgroundsFolder.empty() ? std::string("plugins/XPTablet/backgrounds") : s.backgroundsFolder);
     dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 20, b.y - 44), kMuted, where.c_str(), nullptr, b.x - a.x - 40);
-    if (hexTyping) pageKeyboard(dl, f, w, h, act);   // (before the card's press catcher: the keys take their presses)
+    if (hexTyping) { dl->AddRectFilled(ImVec2(0, h - kKbdH), ImVec2(w, h), themeTone(8, 16, 30, 255)); pageKeyboard(dl, f, w, h, act); }   // (a solid backing: the card does not show through the keys; before the card's press catcher, so the keys take their presses)
 }
 
 void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act);
@@ -7856,7 +7860,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         };
         const bool typing = secret("##achop", "Hoppie ACARS logon code", "For the ACARS app (CPDLC and telex on VATSIM and IVAO): register at hoppie.nl/acars, and the logon code comes by e-mail.", g_settings.hoppieCode, "Tap to enter your Hoppie logon code");
         if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; }
-        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Kept only in XPTablet's settings on this computer, and sent only to the service each is for.", nullptr, w - 12 - lx);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Kept only in XPTablet's settings on this computer, and sent only to Hoppie's network.", nullptr, w - 12 - lx);
         if (typing) pageKeyboard(dl, f, w, h, act);
         return;
     }
@@ -8042,18 +8046,26 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             std::vector<int> seas;
             for (int k = 0; k < kSeasonalN; ++k) if (seasonalAvailable(k)) seas.push_back(kSeasonal0 + k);
             static int seasPage = 0;
-            const int seasPages = std::max(1, ((int)seas.size() + 4) / 5);
+            const int seasPer = 4;   // (four to a page: wider places, so their longer names fit under them)
+            const int seasPages = std::max(1, ((int)seas.size() + seasPer - 1) / seasPer);
             seasPage = std::max(0, std::min(seasPage, seasPages - 1));
             std::vector<int> order;
             for (int i = 0; i < 10; ++i) order.push_back(i);
-            for (int k = seasPage * 5; k < (int)seas.size() && k < seasPage * 5 + 5; ++k) order.push_back(seas[k]);
+            for (int k = seasPage * seasPer; k < (int)seas.size() && k < seasPage * seasPer + seasPer; ++k) order.push_back(seas[k]);
+            static int seasPageShown = 0; static double seasT0 = -10;   // (a page turned: its themes fade in)
+            if (seasPageShown != seasPage) { seasPageShown = seasPage; seasT0 = ImGui::GetTime(); }
+            int seasV0 = -1;
             for (int slot = 0; slot < (int)order.size(); ++slot) {   // the wallpaper itself, made small, with its accent under it (rows of five)
                 const int i = order[slot];
                 const Backdrop bd = themeBackdrop(i);
                 const int keep = g_settings.wallpaper;
                 g_settings.wallpaper = i; const Accent ac = themeAccent(); g_settings.wallpaper = keep;
                 const float seasGap = slot >= 10 ? 30.0f : 0.0f;   // (the seasonal row under its own heading)
-                const ImVec2 a(std::floor(rx + (slot % 5) * (tw + 8)), std::floor(ry + (slot / 5) * (th + 40) + seasGap)), b(a.x + tw, a.y + th);   // (on whole pixels: even edges)
+                const float cellW = std::floor((colW - (seasPer - 1) * 8) / seasPer);
+                if (slot == 10) seasV0 = dl->VtxBuffer.Size;
+                const ImVec2 a = slot < 10 ? ImVec2(std::floor(rx + (slot % 5) * (tw + 8)), std::floor(ry + (slot / 5) * (th + 40)))   // (on whole pixels: even edges)
+                                           : ImVec2(std::floor(rx + (slot - 10) * (cellW + 8) + (cellW - tw) * 0.5f), std::floor(ry + 2 * (th + 40) + seasGap));
+                const ImVec2 b(a.x + tw, a.y + th);
                 char id[16];
                 std::snprintf(id, sizeof id, "##wp%d", i);
                 ImGui::SetCursorScreenPos(a);
@@ -8082,10 +8094,21 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
                     dl->AddLine(ImVec2(pc.x - 3, pc.y + 3), ImVec2(pc.x + 3, pc.y - 3), IM_COL32(255, 255, 255, 230), 1.6f);
                 }
                 dl->AddCircleFilled(ImVec2((a.x + b.x) * 0.5f, b.y + 10), 5.0f, IM_COL32(ac.r, ac.g, ac.b, 255), 0);
-                textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y + 18, sel ? kInk : kMuted, fitText(f.small, bd.name, tw + 6).c_str());
+                if (slot < 10) textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y + 18, sel ? kInk : kMuted, fitText(f.small, bd.name, tw + 6).c_str());
+                else {   // a seasonal theme's name: on as many lines as it needs, each centered under its picture
+                    std::vector<std::string> lines; std::string cur;
+                    std::istringstream in(bd.name); std::string wd;
+                    while (in >> wd) {
+                        const std::string tryL = cur.empty() ? wd : cur + " " + wd;
+                        if (!cur.empty() && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, tryL.c_str()).x > cellW + 4) { lines.push_back(cur); cur = wd; } else cur = tryL;
+                    }
+                    if (!cur.empty()) lines.push_back(cur);
+                    for (size_t li = 0; li < lines.size() && li < 3; ++li) textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y + 18 + li * 13.0f, sel ? kInk : kMuted, fitText(f.small, lines[li], cellW + 6).c_str());
+                }
             }
+            if (seasV0 >= 0) fadeSince(dl, seasV0, std::min(1.0f, (float)(ImGui::GetTime() - seasT0) / 0.2f));
             ry += 2 * (th + 40);
-            textAt(dl, f.small, rx, ry - 8, kMuted, "Hold a Custom theme to choose its colours and picture.");
+            textAt(dl, f.small, rx, ry - 8, kMuted, "Hold a Custom theme to choose its colors and picture.");
             if (!seas.empty()) {   // the seasonal row's heading, and its pages
                 textAt(dl, f.bold, rx, ry + 12, kInk, "Seasonal");
                 textAt(dl, f.small, rx + 78, ry + 15, kMuted, "while it lasts");
@@ -8570,7 +8593,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         const ImVec2 a(c.x - aw * 0.5f * sc, c.y - ah * 0.5f * sc), b(c.x + aw * 0.5f * sc, c.y + ah * 0.5f * sc);
         glass(dl, a, b, 18.0f, e);
         char t1[48], t2[64];
-        std::snprintf(t1, sizeof t1, "Low Battery");
+        std::snprintf(t1, sizeof t1, "Low battery");
         std::snprintf(t2, sizeof t2, "%d%% of battery remaining", g_lowAlert);
         const int A = (int)(255 * e);
         textCentered(dl, f.bold, c.x, a.y + 22, IM_COL32(240, 244, 250, A), t1);
@@ -8785,6 +8808,7 @@ bool* storeFlag(int app) {
 bool storeInstalled(int app) { bool* fl = storeFlag(app); return fl ? *fl : installed(app); }
 int g_storeCat = 0;   // the category shown: 0 all
 float g_storeScroll = 0;
+double g_storeFadeT0 = -10;   // the search changed: what it finds fades in
 std::string g_storeSearch;   // the App Store's search (an app's name or what it does, in every category)
 void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
     struct Item { int app; int cat; const char* what; };   // cat: 1 charts, 2 planning, 3 networks, 4 music and video, 5 games
@@ -8822,7 +8846,7 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
         static std::string was;
         textField(dl, f, "##storesearch", g_storeSearch, ImVec2(std::max(x + 8, w - 230), top), ImVec2(w - 16, top + 30), "Search apps", false);
         if (!g_storeSearch.empty() && pill(dl, f, "##storeclr", "x", ImVec2(w - 46, top + 3), ImVec2(w - 20, top + 27), false, true)) g_storeSearch.clear();
-        if (was != g_storeSearch) { was = g_storeSearch; g_storeScroll = 0; }
+        if (was != g_storeSearch) { was = g_storeSearch; g_storeScroll = 0; g_storeFadeT0 = ImGui::GetTime(); }
     }
     auto lower = [](std::string v) { for (char& c : v) c = (char)std::tolower((unsigned char)c); return v; };
     const std::string q = lower(g_storeSearch);
@@ -8858,7 +8882,7 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
         if (pill(dl, f, id, on ? "Remove" : "Get", ImVec2(b.x - 66, a.y + 8), ImVec2(b.x - 10, a.y + 30), !on, a.y + 8 >= ly0 && a.y + 30 <= ly1)) installApp(app, !on);
     }
     dl->PopClipRect();
-    fadeSince(dl, storeV0, std::min(1.0f, (float)(ImGui::GetTime() - catT0) / 0.2f));
+    fadeSince(dl, storeV0, std::min(1.0f, (float)(ImGui::GetTime() - std::max(catT0, g_storeFadeT0)) / 0.2f));
     if (content > ly1 - ly0) g_storeScroll = scrollBar(dl, "##storebar", w - 8, ly0 + 4, ly1 - 4, g_storeScroll, content, ly1 - ly0);
     if (shown.empty()) textCentered(dl, f.body, w * 0.5f, ly0 + 40, kMuted, ("No apps match \"" + g_storeSearch + "\"" + (g_storeCat ? " in this category" : "")).c_str());
     pageKeyboard(dl, f, w, h, act);
@@ -8888,7 +8912,7 @@ void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         dl->AddRect(a2, b2, IM_COL32(255, 255, 255, (int)(30 + 60 * e.hot)), 28.0f, 0, 1.2f);
         dl->AddText(f.title, fontPx(f.title), ImVec2(a2.x + 22, a2.y + 22), IM_COL32(255, 255, 255, 255), bubbles[i].name);
         dl->AddText(f.small, fontPx(f.small), ImVec2(a2.x + 22, a2.y + 62), IM_COL32(235, 240, 250, 220), bubbles[i].what, nullptr, bw - 44);
-        if (hit) { if (bubbles[i].url) openWeb("VATSIM", bubbles[i].url, false, 100 + APP_VATSIMHUB); else { g_app = APP_XPILOT; g_animPage = -1; } g_backTo = APP_VATSIMHUB; }
+        if (hit) { if (bubbles[i].url) openWeb("VATSIM", bubbles[i].url, false, 100 + APP_VATSIMHUB); else { g_app = APP_XPILOT; g_animPage = -1; } g_backTo = APP_VATSIMHUB; g_subT0 = ImGui::GetTime(); }
     }
 }
 
@@ -9127,7 +9151,10 @@ void logbookPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         std::snprintf(b, sizeof b, "%d:%02d", e.airMin / 60, e.airMin % 60); textAt(dl, f.small, x0 + cx[4], y + 2, kInk, b);
         std::snprintf(b, sizeof b, "%d fpm", e.rateFpm); textAt(dl, f.small, x0 + cx[5], y + 2, e.rateFpm < -600 ? kWarn : kInk, b);
         if (e.landings > 1) { std::snprintf(b, sizeof b, "%d landings", e.landings); textAt(dl, f.small, x0 + cx[5], y + 20, kMuted, b); }
-        if (e.fuelKg >= 0) { std::snprintf(b, sizeof b, "%d kg", e.fuelKg); textAt(dl, f.small, x0 + cx[6], y + 2, kInk, b); }
+        if (e.fuelKg >= 0) {   // in the flight plan's units (lbs), else kg
+            if (s.plan.loaded && s.plan.units == "lbs") std::snprintf(b, sizeof b, "%d lbs", (int)std::lround(e.fuelKg * 2.20462)); else std::snprintf(b, sizeof b, "%d kg", e.fuelKg);
+            textAt(dl, f.small, x0 + cx[6], y + 2, kInk, b);
+        }
         char id[24]; std::snprintf(id, sizeof id, "##logdel%d", i);
         if (pill(dl, f, id, "Delete", ImVec2(w - 96, y), ImVec2(w - 28, y + 26), false, true)) del = i;
     }
@@ -9248,7 +9275,7 @@ void acarsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
     textField(dl, f, "##accall", g_acCall, ImVec2(x, y), ImVec2(x + 112, y + 32), s.plan.loaded && !s.plan.callsign.empty() ? s.plan.callsign.c_str() : "Callsign", false); x += 120;
     textField(dl, f, "##acstn", g_acStation, ImVec2(x, y), ImVec2(x + 100, y + 32), "Station", false); x += 108;
     const bool logged = g_acLogon != 0;
-    if (pill(dl, f, "##aclogon", logged ? "CPDLC Logoff" : "CPDLC Logon", ImVec2(x, y), ImVec2(x + 132, y + 32), g_acLogon == 2, ready && (logged || g_acStation.size() >= 3))) {
+    if (pill(dl, f, "##aclogon", logged ? "CPDLC logoff" : "CPDLC logon", ImVec2(x, y), ImVec2(x + 132, y + 32), g_acLogon == 2, ready && (logged || g_acStation.size() >= 3))) {
         if (logged) { acSend(s, act, g_acLogonTo, "cpdlc", cpdlcPacket(++g_acMin, 0, "N", "LOGOFF"), "LOGOFF"); g_acLogon = 0; }
         else { g_acLogonTo = g_acStation; g_acLogon = 1; acSend(s, act, g_acStation, "cpdlc", cpdlcPacket(++g_acMin, 0, "Y", "REQUEST LOGON"), "REQUEST LOGON"); }
     }
@@ -9604,8 +9631,10 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
         wallpaper(dl, w, h);
         dl->PopClipRect();
         dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), themeTone(8, 18, 36, 170));   // the veil, in the theme's tone
+        const int pageV0 = dl->VtxBuffer.Size;
+        struct SubFade { ImDrawList* dl; int v0; ~SubFade() { const float t = (float)(ImGui::GetTime() - g_subT0) / 0.18f; if (t < 1.0f) fadeSince(dl, v0, std::max(0.0f, t)); } } subFade{dl, pageV0};   // (into or out of an app's own page: a quick fade)
         if (!(app == APP_BROWSER && videoFull(s)) && pageHeader(dl, f, w, app == APP_BROWSER ? g_site.c_str() : appName(app))) {
-            if (g_backTo >= 0) { const int to = g_backTo; g_backTo = -1; if (g_kbdTarget == 2 || g_kbdTarget == 1) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; } g_app = to; g_animPage = -1; }   // (back into the app it came from)
+            if (g_backTo >= 0) { const int to = g_backTo; g_backTo = -1; if (g_kbdTarget == 2 || g_kbdTarget == 1) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; } g_app = to; g_subT0 = ImGui::GetTime(); g_animPage = -1; }   // (back into the app it came from)
             else openApp(APP_HOME);
         }
         if (app == APP_SETTINGS) settingsPage(dl, f, s, w, h, act);
@@ -9891,6 +9920,7 @@ void pictureColors(const unsigned char* rgba, int w, int h, int& average, int& a
     accent = ((int)std::lround(chan(R) * 255) << 16) | ((int)std::lround(chan(G) * 255) << 8) | (int)std::lround(chan(B) * 255);
 }
 void setSeasonalPreview(bool all) { g_seasonalAll = all; }
+int settingsTabShown() { return g_settingsTab; }
 void celebrate(int which) { g_celebrate = which; g_celebT0 = ImGui::GetTime(); }
 bool seasonalOnDate(int k, int year, int month, int day) { return seasonalOn(k, year, month, day); }
 const char* seasonalName(int k) { return k >= 0 && k < kSeasonalN ? kSeasonal[k].name : ""; }
