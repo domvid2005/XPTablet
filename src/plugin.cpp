@@ -169,7 +169,6 @@ int g_panelEnabled = 0, g_panelPowered = 0;
 float g_brightness = 1.0f;
 float g_mirrorScale = 0;              // Local Connect: the scale a connected device is shown the tablet at (0: none connected)
 unsigned g_texChanges = 0;           // counts the pictures given to the graphics card (a web page's, a map tile, a document, a cover): the mirror looks again
-double g_remotePlayUntil = -1;       // a device worked the tablet lately: the games allow for the mirror's delay until then
 double g_remotePointerUntil = -1;    // a device's pointer has the tablet until then (the sim's own pointer waits)
 bool g_captureClicks = true;   // AviTab.json's panel/disable_capture_window turns this off (the aircraft sends AviTab/click_left itself)
 bool g_ownsAviTab = false;     // we registered the avitab/* datarefs and AviTab/* commands (AviTab itself is not running)
@@ -1904,7 +1903,7 @@ bool panelClick(XPLMMouseStatus status) {
     if (status == xplm_MouseDown) {
         if (!on) return false;
         io.AddMousePosEvent(x, y);
-        { io.AddMouseButtonEvent(0, true); g_remotePlayUntil = -1; }   // (the sim's own pointer: no longer played from a device)
+        io.AddMouseButtonEvent(0, true);
         g_captureDown = true;
         return true;
     }
@@ -2050,7 +2049,7 @@ int winClick(XPLMWindowID, int x, int y, XPLMMouseStatus status, void*) {
     float lx, ly;
     winToLayout(x, y, lx, ly);
     io.AddMousePosEvent(lx, ly);
-    if (status == xplm_MouseDown) { io.AddMouseButtonEvent(0, true); g_remotePlayUntil = -1; }   // (the sim's own pointer: no longer played from a device)
+    if (status == xplm_MouseDown) io.AddMouseButtonEvent(0, true);
     else if (status == xplm_MouseUp) io.AddMouseButtonEvent(0, false);
     if (status == xplm_MouseDown && g_wantKeys && g_win && !XPLMHasKeyboardFocus(g_win)) XPLMTakeKeyboardFocus(g_win);
     g_winHoverCycle = XPLMGetCycleNumber();
@@ -2837,13 +2836,13 @@ void remoteInput() {
         switch (in.kind) {
         // (through the tablet's own stepping of the pointer: where it is first, the press on the next frame, the release on another)
         case xpt::mirror::Input::MOVE: xpt::queuePointer(x, y, -1); g_remotePointerUntil = now + 0.6; break;
-        case xpt::mirror::Input::DOWN: xpt::setTouchInput(in.touch); xpt::queuePointer(x, y, 1); g_remotePointerUntil = now + 600; g_remotePlayUntil = now + 60; break;   // (until it lifts)
+        case xpt::mirror::Input::DOWN: xpt::setTouchInput(in.touch); xpt::queuePointer(x, y, 1); g_remotePointerUntil = now + 600; break;   // (until it lifts)
         case xpt::mirror::Input::UP: xpt::queuePointer(x, y, 0); g_remotePointerUntil = now + (in.touch ? 0.3 : 0.6); break;
         case xpt::mirror::Input::CANCEL: xpt::queuePointer(-1000, -1000, 0); g_remotePointerUntil = now + 0.2; break;
         case xpt::mirror::Input::WHEEL: io.AddMouseWheelEvent(0, (float)in.code); break;
         case xpt::mirror::Input::KEY: if (xpt::tabletTyping()) xpt::tabletKey(in.code, false); break;
         case xpt::mirror::Input::CHAR: if (xpt::tabletTyping()) xpt::tabletKey(in.code, true); break;
-        case xpt::mirror::Input::GAME_KEY: if (xpt::currentApp() == xpt::APP_GAMES && !xpt::tabletTyping()) { xpt::gameKeyEvent(in.code, in.down); g_remotePlayUntil = now + 60; } break;
+        case xpt::mirror::Input::GAME_KEY: if (xpt::currentApp() == xpt::APP_GAMES && !xpt::tabletTyping()) xpt::gameKeyEvent(in.code, in.down); break;
         }
     }
     if (xpt::localserver::clients() == 0 && g_remotePointerUntil > now + 1) {   // the device left with its finger down: let go
@@ -2919,7 +2918,6 @@ void localConnectStep() {
         L.devices.push_back(o);
     }
     if (st.state == 2) remoteInput();
-    xpt::setRemotePlay(st.state == 2 && now < g_remotePlayUntil && xpt::localserver::clients() > 0);
 #else
     L.status = -2;   // (built without Local Connect: Settings leaves its page out)
 #endif

@@ -885,15 +885,18 @@ const char* blurb(int g) {
     return g >= 0 && g < COUNT ? n[g] : "";
 }
 const char* help(int g) {
-    static const char* n[COUNT] = {"Steer with the arrows (W A S D). Each fuel drop lengthens the contrail and speeds you up; the airspace's edge and your own trail end the flight.",
-                                   "Taxi with the arrows (W A S D) over every green light. A big green light is a takeoff clearance: for a few seconds the vehicles give way, and you can send them back to the apron.",
-                                   "Left and right fly, the action button (Space) fires. Drones that swoop at you score double; dodge their hail.",
-                                   "Left and right walk, up and down climb ladders, the action button (Space) jumps. Jump a tire for points; reach the red stop on the top deck.",
+    static const char* n[COUNT] = {"Steer with the arrows (W A S D), the pad or a swipe. Each fuel drop lengthens the contrail and speeds you up; the airspace's edge and your own trail end the flight.",
+                                   "Taxi with the arrows (W A S D), the pad or a swipe over every green light. A big green light is a takeoff clearance: for a few seconds the vehicles give way, and you can send them back to the apron.",
+                                   "Left and right fly: on the pad, tap one to keep flying that way and tap it again to stop. It fires by itself. Drones that swoop at you score double; dodge their hail.",
+                                   "Left and right walk, up and down climb ladders, Jump (Space) jumps. On the pad, tap a direction to keep going and tap it again to stop. Jump a tire for points; reach the red stop on the top deck.",
                                    "Get closer to 21 than the dealer without going over. Tap the buttons (or Space to deal and hit, down to stand, up to double, left and right for the bet). The dealer stands on 17; twenty-one with two cards pays 3 to 2.",
                                    "Drag a container from the right into the hold. A full row or column ships out and scores; several at once score more. When none of the three fits, the hold is closed."};
     return g >= 0 && g < COUNT ? n[g] : "";
 }
 float playerX(int g) { return g == SKY_PATROL ? g_sky.px : g == HANGAR_CLIMB ? g_hangar.x : 0.0f; }
+// The games that run by the clock (Contrail, Taxi Rush, Sky Patrol, Hangar Climb) at this share of the speed they were written at:
+// an easier pace on a tablet's pad, and the same wherever the tablet is played from.
+constexpr float kPace = 0.6f;
 float aspect(int g) { return g == CONTRAIL ? 28.0f / 20.0f : g == TAXI_RUSH ? 21.0f / 15.0f : 320.0f / 240.0f; }
 bool usesPad(int g) { return g != COCKPIT_21 && g != CARGO_LOAD; }
 void reset(int g) {
@@ -907,6 +910,7 @@ void step(int g, const Input& in, float dt) {
     dt = std::max(0.0f, std::min(dt, 0.1f));
     if (g == COCKPIT_21) { g_c21.step(in, dt); return; }      // (the tap games: one step a frame, as they are touched)
     if (g == CARGO_LOAD) { g_cargo.step(in, dt); return; }
+    dt *= kPace;
     Input first = in, rest = in;   // (a long frame in small steps; the presses only in the first)
     rest.leftHit = rest.rightHit = rest.upHit = rest.downHit = rest.actionHit = false;
     const int n = std::max(1, (int)std::ceil(dt / 0.02f));

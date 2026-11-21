@@ -589,42 +589,31 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        {   // the games played from a paired device (Local Connect's mirror): slower, a direction tapped keeps going, Sky Patrol fires by itself
+        {   // the pad with one pointer (a mouse, a finger, a paired device's): a direction tapped keeps going, tapped again it stops; Sky Patrol fires by itself
             auto fr = [&](float x, float y, bool d) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, d); ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); };
             auto tapAt = [&](float x, float y) { fr(x, y, false); fr(x, y, true); fr(x, y, false); fr(-1000, -1000, false); };
             auto run = [&](int n) { for (int k = 0; k < n; ++k) fr(-1000, -1000, false); };
-            setRemotePlay(false);
+            auto at = []() { return xpt::arcade::playerX(xpt::arcade::SKY_PATROL); };
             openApp(APP_GAMES); run(4);
-            tapAt(100, 380); run(3);                                    // Sky Patrol's card
+            tapAt(100, 380); run(3);                                     // Sky Patrol's card
             if (!arcadeOnScreen()) { std::printf("FAIL: (test) Sky Patrol is open\n"); ++failures; }
             tapAt(754, 414); run(6);                                     // Fire: the game begins
-            setRemotePlay(true);
-            tapAt(576, 396); run(1);                                     // Left tapped once, from a device: it keeps flying left
-            const float l0 = xpt::arcade::playerX(xpt::arcade::SKY_PATROL);
-            run(12);
-            const float l1 = xpt::arcade::playerX(xpt::arcade::SKY_PATROL);
-            run(12);
-            const float l2 = xpt::arcade::playerX(xpt::arcade::SKY_PATROL);
-            if (!(l1 < l0 - 1) || !(l2 < l1 - 1 || l2 <= 12)) { std::printf("FAIL: from a device a direction tapped keeps going (%g, %g, %g)\n", l0, l1, l2); ++failures; }
-            {   // (pictured as it stands: the latched arrow lit, the device's own help)
-                std::vector<Batch> b; clipDrawData(ImGui::GetDrawData(), b); Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_games_device_play.png");
+            tapAt(576, 396); run(1);                                     // Left tapped once: it keeps flying left
+            const float l0 = at(); run(12);
+            const float l1 = at(); run(12);
+            const float l2 = at();
+            if (!(l1 < l0 - 1) || !(l2 < l1 - 1 || l2 <= 12)) { std::printf("FAIL: a direction tapped on the pad keeps going (%g, %g, %g)\n", l0, l1, l2); ++failures; }
+            {   // (pictured as it stands: the arrow that keeps going is lit)
+                std::vector<Batch> b; clipDrawData(ImGui::GetDrawData(), b); Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_games_pad_latched.png");
             }
             tapAt(576, 396);                                             // Left again: it stops
-            const float s0 = xpt::arcade::playerX(xpt::arcade::SKY_PATROL);
-            run(12);
-            if (std::fabs(xpt::arcade::playerX(xpt::arcade::SKY_PATROL) - s0) > 0.01f) { std::printf("FAIL: the direction tapped again stops\n"); ++failures; }
-            tapAt(664, 396); run(1);                                     // Right, from a device: slower than the computer's own speed
-            const float r0 = xpt::arcade::playerX(xpt::arcade::SKY_PATROL);
-            run(6);
-            const float slow = xpt::arcade::playerX(xpt::arcade::SKY_PATROL) - r0;
-            setRemotePlay(false);
-            fr(664, 396, false); fr(664, 396, true);
-            const float r1 = xpt::arcade::playerX(xpt::arcade::SKY_PATROL);
-            for (int k = 0; k < 6; ++k) fr(664, 396, true);
-            const float full = xpt::arcade::playerX(xpt::arcade::SKY_PATROL) - r1;
-            fr(664, 396, false); fr(-1000, -1000, false);
-            if (!(slow > 0 && full > 0 && slow < full * 0.8f)) { std::printf("FAIL: from a device the game runs slower (%g against %g)\n", slow, full); ++failures; }
-            run(3);
+            const float s0 = at(); run(12);
+            if (std::fabs(at() - s0) > 0.01f) { std::printf("FAIL: the direction tapped again stops\n"); ++failures; }
+            tapAt(664, 396); run(1);                                     // Right: the other way; and at the games' eased pace
+            const float r0 = at(); run(10);
+            const float moved = at() - r0;                               // (Sky Patrol's ship was written to cross 150 units a second: 10 frames at 30 a second would be 50)
+            if (!(moved > 5 && moved < 38)) { std::printf("FAIL: the games run at their eased pace (%g in a third of a second)\n", moved); ++failures; }
+            tapAt(664, 396); run(2);
             tapAt(60, 100); run(2);                                      // All Games
             openApp(APP_HOME);
         }
