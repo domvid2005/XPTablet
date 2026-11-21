@@ -60,6 +60,27 @@ jobs:
           objdump -p "$X" | grep NEEDED || true
           if objdump -p "$X" | grep NEEDED | grep -vE 'libc\.so|libm\.so|libdl\.so|ld-linux'; then echo "unexpected shared library dependency"; exit 1; fi
       - run: ctest --test-dir build -C Release --output-on-failure
+      # Local Connect's page (the tablet's screens for a phone's browser): built once, on Linux, with the Emscripten version it was
+      # tested with; it goes into the plugin's folder as localconnect/index.html.gz, where the plugin serves it from.
+      - name: Local Connect page (Emscripten)
+        if: runner.os == 'Linux'
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 3.1.50
+          "$RUNNER_TEMP/emsdk/emsdk" activate 3.1.50
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          tools/build_localclient.sh build/localclient
+          mkdir -p build/package/XPTablet/localconnect
+          cp build/localclient/index.html.gz build/package/XPTablet/localconnect/index.html.gz
+      - uses: actions/setup-node@v4
+        if: runner.os == 'Linux'
+        with: { node-version: 22 }
+      # a real browser opens the page the real server serves, pairs with the code and uses the tablet (told, but it does not stop
+      # the build: a runner without a working headless browser is not a fault in the plugin)
+      - name: Local Connect end to end
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: node tests/e2e_localconnect.mjs build/local_host build/localclient/index.html.gz "$(command -v google-chrome || command -v chromium-browser || command -v chromium)" build/e2e
       - uses: actions/upload-artifact@v4
         with:
           name: XPTablet-${{ runner.os }}

@@ -518,6 +518,15 @@ int settingsTabShown();   // the Settings page's tab (for the tests)
 void celebrate(int which);   // the midnight celebration now: 0 New Year, 1 Christmas (it starts by itself at midnight; this is for a preview)
 bool celebrationShown();     // it is up (it stays until its Dismiss button is pressed)
 unsigned settingsReveal();   // which of Settings' hidden fields are shown now (a bit each: SimBrief, Hoppie, Volanta, Local Connect's address)
+
+// ---- Local Connect, on the paired device (src/localclient) ----
+void setRemoteClient(bool on);   // this tablet is a device's copy of the computer's: it keeps no logbook of its own
+void setMapCredit(const std::string& credit);   // the street map's credit line (the default: OpenStreetMap's)
+// The screen before the tablet is live. phase: 0 connecting, 1 enter the pairing code (typed into code with its own keys), 2 turned
+// away (message says why). Returns 1 when the sixth digit was entered this frame, 2 when Try Again was pressed, else 0.
+int localClientScreen(const Fonts& f, float w, float h, int phase, const std::string& message, std::string& code);
+const char* currentWebUrl();     // the page shown is a web app: its address ("" otherwise) and its name
+const char* currentWebName();
 bool seasonalOnDate(int theme, int year, int month, int day);   // seasonal theme n (0 New Year .. 15 Breast Cancer Awareness) on that date
 const char* seasonalName(int theme);   // every seasonal colour theme offered whatever the date (the browser emulator)
 // A Custom background's colours, from its pixels (RGBA): its average made deeper (the background), and its most striking colour made

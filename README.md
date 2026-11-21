@@ -19,6 +19,25 @@ favorites bar, Settings, and the pages web apps will load into. The browser engi
 
 Copy the `XPTablet` folder into `X-Plane 12/Resources/plugins/`.
 
+## Local Connect
+
+The tablet on a phone or iPad on the same Wi-Fi: Settings, Local Connect, switch it on, and open the address it shows in the
+device's browser. The browser warns once that the connection is not private, because the certificate is one your own computer
+made (choose Advanced or Show Details, then continue). The device then asks for the 6-digit code XPTablet shows in the sim; after
+that it comes straight in each time. What the device shows is the same tablet: the same pages, settings, notes and flight.
+
+How it is kept safe: off until switched on; it listens only on the computer's home-network address and answers only private
+addresses; everything is encrypted (TLS 1.2, Mbed TLS); a device must be paired with the code shown in the sim (five wrong tries
+and that address waits a minute); the computer keeps only the hash of each device's token, and Forget removes a device; a paired
+device can only do what the tablet's own pages do (it cannot manage pairing, drive the computer's browser or delete its data).
+
+Not on the device in this version: the web apps' pages (a button opens the site in the device's own browser instead), document
+pictures and Custom background pictures. Devices fetch their own map tiles, so they need the internet for the map.
+
+Source: `src/localserver.cpp` (the server), `src/localwire.cpp` (the messages), `src/localbridge.cpp` (the plugin's side),
+`src/localclient/` (the page, built with Emscripten by `tools/build_localclient.sh` into `localconnect/index.html.gz`). Tests:
+`ctest` (the messages; the server over real TLS) and `tests/e2e_localconnect.mjs` (a real browser pairing with and using it).
+
 ## Build
 
     cmake -S . -B build -DXPLANE_SDK=/path/to/XPSDK

@@ -10,6 +10,10 @@ XPTablet includes the following open-source software. Their licenses require the
   * libcurl 8.14.1 (downloads: the METAR search) - curl license (MIT/X derivative). The Windows and Linux builds link it statically,
     with zlib (zlib license).
   * OpenSSL 3 (TLS for the downloads, Linux build, statically linked) - Apache License 2.0 (full text below).
+  * Mbed TLS 3.6 (https://www.trustedfirmware.org/projects/mbed-tls/, TLS for Local Connect's server, statically linked on every
+    platform) - Copyright The Mbed TLS Contributors, Apache License 2.0 (full text below).
+  * Local Connect's page (localconnect/index.html.gz) is XPTablet's own screens compiled with Emscripten (MIT / University of
+    Illinois/NCSA licences for its runtime support code) together with Dear ImGui (MIT) and the fonts and data listed here.
 
   * Aircraft top views (the shapes folder): AircraftShapesSVG by RexKramer1 and amnesica (BelugaProject),
     https://github.com/RexKramer1/AircraftShapesSVG - GNU General Public License v3.0. They are a separate data file read at run

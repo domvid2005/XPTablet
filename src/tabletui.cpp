@@ -205,6 +205,8 @@ int appIcon(int app) {
 // the home screen's places (below)
 
 int g_app = APP_HOME;
+bool g_remoteClient = false;   // this tablet is a paired device's copy (Local Connect): the computer's keeps the logbook
+std::string g_mapCredit = "\xC2\xA9 OpenStreetMap contributors";   // the street map's credit (a host using other tiles of the same data sets its own)
 int g_chimeSeq = 0;   // counted up for each notification's chime (and Test); the host plays it at the volume set in Settings, Notifications
 // a web page full screen (a video's button): it takes the whole tablet, status bar and title bar too
 bool videoFull(const SimState& s) { return g_app == APP_BROWSER && s.browser.status == 1 && s.browser.fullscreen && !g_webHold; }
@@ -4709,7 +4711,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             popIn(dl, menuV0, ImVec2(r0.x + 10 + cw, r0.y + 46 + (g_mapMenuNow - 1) * 36.0f + 15), menuT);
         }
         // where the map comes from, and whether the airports are still being found
-        const char* attr = noMap ? "" : satImg ? "Imagery: Esri, Maxar, Earthstar Geographics" : "\xC2\xA9 OpenStreetMap contributors";
+        const char* attr = noMap ? "" : satImg ? "Imagery: Esri, Maxar, Earthstar Geographics" : g_mapCredit.c_str();
         if (*attr) {
             const ImVec2 as = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, attr);
             dl->AddRectFilled(ImVec2(r1.x - as.x - 12, r1.y - as.y - 6), r1, IM_COL32(255, 255, 255, 190), 4.0f, ImDrawFlags_RoundCornersTopLeft);
@@ -6929,6 +6931,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"SimBrief Icon", "The SimBrief logo is a trademark of SimBrief (Navigraph), used only to show their web app", "Trademark"},
         {"VATSIM Radar Icon", "The VATSIM Radar logo belongs to VATSIM Radar (vatsim-radar.com), used only to show their web map", "Trademark"},
         {"VATSIM Icon", "The VATSIM logo is a trademark of VATSIM, Inc. (vatsim.net), used only to show their pages", "Trademark"},
+        {"Local Connect", "Mbed TLS (trustedfirmware.org/projects/mbed-tls): the encryption between the computer and paired devices. On devices the street map is CARTO's tiles of OpenStreetMap's data (carto.com/attributions)", "Apache-2.0; CARTO terms"},
         {"Flightradar24 Icon", "The Flightradar24 logo belongs to Flightradar24 AB (flightradar24.com), used only to show their web app", "Trademark"},
         {"natTrak Icon", "The natTrak logo belongs to VATSIM's natTrak (nattrak.vatsim.net), used only to show their web app", "Trademark"},
         {"IVAO Icon", "The IVAO logo is a trademark of the International Virtual Aviation Organisation (ivao.aero), used only to show their Webeye map", "Trademark"},
@@ -7974,8 +7977,8 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         float y = top;
         toggle("##lcon", lx, y, colW, g_settings.localConnect ? "Local Connect: On" : "Local Connect: Off", g_settings.localConnect, true);
         y += 42;
-        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Use this tablet on your phone or iPad: on the same Wi-Fi, open the address below in Safari or Chrome, then Add to Home Screen. Only your home network can reach it, and each device is paired once with a code.", nullptr, colW);
-        y += 72;
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Use this tablet on your phone or iPad: on the same Wi-Fi, open the address below in Safari or Chrome. The browser warns once that the connection is not private (the certificate is your own computer's): choose Advanced or Show Details, then continue. Only your home network can reach it, and each device is paired once with a code shown here.", nullptr, colW);
+        y += 100;
         textAt(dl, f.bold, lx, y, kInk, "Address");
         y += 24;
         {   // the address, large, in a field of its own
@@ -9211,6 +9214,7 @@ std::string whereAirport(const SimState& s, bool departing) {
     return best;
 }
 void logStep(const SimState& s) {
+    if (g_remoteClient) return;   // (a device shows the computer's logbook; it does not log the flight a second time)
     const MapState& m = s.map;
     const GroundState& g = s.ground;
     if (!m.havePos || m.utc <= 0) return;
@@ -10067,6 +10071,64 @@ int settingsTabShown() { return g_settingsTab; }
 void celebrate(int which) { g_celebrate = which; g_celebT0 = ImGui::GetTime(); g_celebOutT0 = -1; }
 bool celebrationShown() { return g_celebrate >= 0; }
 unsigned settingsReveal() { return g_reveal; }
+
+// ---- Local Connect, on the device: before the tablet is live ----
+void setRemoteClient(bool on) { g_remoteClient = on; }
+void setMapCredit(const std::string& credit) { g_mapCredit = credit; }
+const char* currentWebUrl() { return (g_app >= 0 && g_app < APP_COUNT && kApps[g_app].url) ? kApps[g_app].url : ""; }
+const char* currentWebName() { return (g_app >= 0 && g_app < APP_COUNT && kApps[g_app].url) ? kApps[g_app].name : ""; }
+int localClientScreen(const Fonts& f, float w, float h, int phase, const std::string& message, std::string& code) {
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImVec2(w, h));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::Begin("##tablet", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                                          ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollWithMouse);
+    g_logo = f.logo; g_logoMask = f.logoMask;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    wallpaper(dl, w, h);
+    int result = 0;
+    const float cx = std::floor(w * 0.5f);
+    {   // the logo, as on the status bar, larger
+        int lw = 4, lh = 1, lv = 0; float from = 0.5f;
+        logoMaskPixels(lw, lh, lv, from);
+        const float hh = 30, ww = std::floor(hh * lw / std::max(1, lh));
+        drawLogo(dl, ImVec2(cx - ww * 0.5f, 26), ImVec2(cx + ww * 0.5f, 26 + hh), 255);
+    }
+    if (phase == 1) {
+        textCentered(dl, f.title, cx, 74, kInk, "Enter The Pairing Code");
+        textCentered(dl, f.small, cx, 104, kMuted, "It is shown in X-Plane, on XPTablet: Settings, Local Connect.");
+        const float bw = 40, bh = 46, gap = 8, x0 = cx - (6 * bw + 5 * gap) * 0.5f, y0 = 132;
+        for (int i = 0; i < 6; ++i) {   // the six places, the next one outlined in the accent
+            const ImVec2 a(x0 + i * (bw + gap), y0), b(a.x + bw, y0 + bh);
+            dl->AddRectFilled(a, b, themeTone(10, 20, 38, 255), 10.0f);
+            dl->AddRect(a, b, i == (int)code.size() ? accentLite(230) : IM_COL32(255, 255, 255, 34), 10.0f, 0, i == (int)code.size() ? 1.6f : 1.0f);
+            if (i < (int)code.size()) { const char d[2] = {code[i], 0}; textCentered(dl, f.title, (a.x + b.x) * 0.5f, std::floor((a.y + b.y - fontPx(f.title)) * 0.5f), kInk, d); }
+        }
+        const float kw = 92, kh = 42, kg = 8, kx = cx - (3 * kw + 2 * kg) * 0.5f, ky = y0 + bh + 18;
+        static const char* keys[12] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "Clear", "0", "Back"};
+        for (int i = 0; i < 12; ++i) {
+            const ImVec2 a(kx + (i % 3) * (kw + kg), ky + (i / 3) * (kh + kg)), b(a.x + kw, a.y + kh);
+            char id[24];
+            std::snprintf(id, sizeof id, "##lckey%d", i);
+            if (!pill(dl, f, id, keys[i], a, b, false, true)) continue;
+            if (i == 9) code.clear();
+            else if (i == 11) { if (!code.empty()) code.pop_back(); }
+            else if (code.size() < 6) { code.push_back(keys[i][0]); if (code.size() == 6) result = 1; }
+        }
+        if (!message.empty()) textCentered(dl, f.small, cx, ky + 4 * (kh + kg) + 6, kWarn, fitText(f.small, message, w - 40).c_str());
+    } else {
+        textCentered(dl, f.title, cx, h * 0.5f - 44, kInk, phase == 0 ? "Connecting To XPTablet" : "Not Connected");
+        if (!message.empty()) {
+            const float tw = std::min(w - 80, 520.0f);
+            const ImVec2 sz = f.body->CalcTextSizeA(fontPx(f.body), 1e9f, tw, message.c_str());
+            dl->AddText(f.body, fontPx(f.body), ImVec2(std::floor(cx - std::min(sz.x, tw) * 0.5f), h * 0.5f - 8), phase == 0 ? kMuted : kWarn, message.c_str(), nullptr, tw);
+        }
+        if (phase == 2 && pill(dl, f, "##lcretry", "Try Again", ImVec2(cx - 80, h * 0.5f + 58), ImVec2(cx + 80, h * 0.5f + 96), true, true)) result = 2;
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+    return result;
+}
 bool seasonalOnDate(int k, int year, int month, int day) { return seasonalOn(k, year, month, day); }
 const char* seasonalName(int k) { return k >= 0 && k < kSeasonalN ? kSeasonal[k].name : ""; }
 bool takeLogbookChanged() { const bool c = g_logChanged; g_logChanged = false; return c; }

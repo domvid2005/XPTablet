@@ -1,5 +1,6 @@
 // Local Connect's wire format: a state filled in every section goes out and comes back the same; what is cut short or made up is
 // refused without harm; the pairing code never leaves; a device's requests are kept to what a tablet may ask.
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

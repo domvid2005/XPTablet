@@ -43,6 +43,11 @@
 #include "vatsim.h"
 #include "airspace.h"
 #include "localnet.h"
+#if defined(XPT_LOCAL_CONNECT)
+#include "localbridge.h"
+#include "localserver.h"
+#include "localwire.h"
+#endif
 #include <condition_variable>
 #include <deque>
 #include "simbrief.h"
@@ -1671,6 +1676,12 @@ void ensureFrame() {
     xpt::build(g_fonts, g_sim, g_logW, xpt::kLogicalH, act);
     ImGui::Render();
     xpt::clipDrawData(ImGui::GetDrawData(), g_batches);
+#if defined(XPT_LOCAL_CONNECT)
+    // Local Connect: Forget and Not Me are pressed here, in the sim, only; what paired devices asked for joins this frame's requests
+    if (!act.localForget.empty()) xpt::localserver::forget(act.localForget);
+    if (act.localPairDeny) xpt::localserver::denyPairing();
+    xpt::localbridge::merge(act);
+#endif
     {   // the Navigation page's search: X-Plane's navaids and fixes (airports: the Airports app) whose code starts with it, or whose name holds it
         static std::string last;
         if (act.navSearch != last) {
@@ -2674,6 +2685,92 @@ void doGround(const xpt::Actions& act) {
     }
 }
 
+// ---- Local Connect: the tablet on phones and tablets on the home network (src/localserver.cpp serves it, src/localbridge.cpp keeps
+// them the same tablet). Off until switched on in Settings; it listens on the computer's home-network address only.
+void ensureFrame();
+void localConnectStep() {
+    xpt::LocalConnectState& L = g_sim.local;
+#if defined(XPT_LOCAL_CONNECT)
+    static bool running = false;
+    static std::string servedIp;
+    static double lookedAt = -100;
+    const double now = XPLMGetElapsedTime();
+    if (!xpt::settings().localConnect) {
+        if (running) { xpt::localserver::stop(); running = false; servedIp.clear(); logMsg("local connect: off"); }
+        L = xpt::LocalConnectState();   // (status 0: off; the page shows its switch)
+        lookedAt = -100;
+        return;
+    }
+    if (now - lookedAt > 10) {   // (the network can change: looked at again every 10 s)
+        lookedAt = now;
+        std::string ip = xpt::localIPv4();
+        if (!xpt::isPrivateIPv4(ip)) ip.clear();   // (never on an address the internet can reach)
+        if (ip != servedIp) {
+            if (running) { xpt::localserver::stop(); running = false; }
+            servedIp = ip;
+            if (!ip.empty()) {
+                char sys[2048] = "", path[2048] = "";
+                XPLMGetSystemPath(sys);
+                XPLMGetPluginInfo(XPLMGetMyID(), nullptr, path, nullptr, nullptr);
+                std::string dir = path;
+                for (int up = 0; up < 2; ++up) { const size_t cut = dir.find_last_of("/\\"); if (cut != std::string::npos) dir.resize(cut); }
+                xpt::localserver::Config c;
+                c.bindIp = ip; c.port = 8443;
+                c.dataDir = std::string(sys) + "Output/XPTablet/localconnect";
+                c.pagePath = dir + "/localconnect/index.html.gz";
+                c.wireVersion = xpt::wire::kVersion;
+                xpt::localserver::start(c);
+                running = true;
+                logMsg(("local connect: starting on " + ip).c_str());
+            }
+        }
+    }
+    if (!running) { L = xpt::LocalConnectState(); L.status = 2; return; }   // (on, but no home network: the page says "No network found")
+    const xpt::localserver::Status st = xpt::localserver::status();
+    L.status = st.state == 0 ? 1 : st.state;
+    L.address = st.address; L.error = st.error; L.pairCode = st.pairCode; L.pairName = st.pairName;
+    L.devices.clear();
+    const std::time_t today = std::time(nullptr);
+    std::tm tn{};
+#if IBM
+    localtime_s(&tn, &today);
+#else
+    localtime_r(&today, &tn);
+#endif
+    for (const xpt::localserver::Device& d : st.devices) {
+        xpt::LocalDevice o;
+        o.name = d.name; o.kind = d.kind; o.connected = d.connected; o.batteryPct = d.batteryPct; o.charging = d.charging;
+        if (d.lastSeen > 0) {   // "Today 14:32", "12 Nov"
+            const std::time_t t = (std::time_t)d.lastSeen;
+            std::tm tm{};
+#if IBM
+            localtime_s(&tm, &t);
+#else
+            localtime_r(&t, &tm);
+#endif
+            char buf[32];
+            if (tm.tm_year == tn.tm_year && tm.tm_yday == tn.tm_yday) std::strftime(buf, sizeof buf, "Today %H:%M", &tm);
+            else std::strftime(buf, sizeof buf, "%d %b", &tm);
+            o.lastSeen = buf;
+        }
+        L.devices.push_back(o);
+    }
+    if (st.state != 2) return;
+    xpt::localbridge::publish(g_sim, now);
+    const xpt::localbridge::Took took = xpt::localbridge::take(g_sim);
+    if (took.settings) saveSettings();
+    if (took.notes) saveNotes();
+    // with a device connected and the tablet not being drawn in the sim (its window closed, no cockpit tablet in view), its frame is
+    // still made a few times a second: the map's data, searches and the rest are fetched from there
+    if (xpt::localserver::clients() > 0) {
+        static double ranAt = -100;
+        if (XPLMGetCycleNumber() - g_frameCycle > 2 && now - ranAt > 0.05) { ranAt = now; ensureFrame(); }
+    }
+#else
+    L.status = -2;   // (built without Local Connect: Settings leaves its page out)
+#endif
+}
+
 float flightLoop(float dt, float, int, void*) {
     findSimRefs();
     if ((XPLMGetCycleNumber() & 7) == 0) { readSimState(); g_sim.ground.slidesAuto = g_slidesAuto; followJetways(); slidesAutoStep(); readMapState(); }
@@ -2697,21 +2794,7 @@ float flightLoop(float dt, float, int, void*) {
     g_battery = std::max(0.0f, std::min(100.0f, g_battery + sec * (fed ? 100.0f / 5400.0f : -100.0f / 21600.0f)));
     g_sim.batteryPct = (int)std::lround(g_battery);
     g_sim.charging = fed;
-    {   // Local Connect: the address a phone opens (this computer on the home network). Its server is not built yet, so the
-        // status is always -2 and Settings leaves its page out (nothing is offered that does not work)
-        static double lookedAt = -100;
-        xpt::LocalConnectState& L = g_sim.local;
-        if (!xpt::settings().localConnect) { L.status = -2; L.pairCode.clear(); for (auto& d : L.devices) d.connected = false; }
-        else {
-            const double now = XPLMGetElapsedTime();
-            if (now - lookedAt > 10) {   // (the network can change: looked at again every 10 s)
-                lookedAt = now;
-                const std::string ip = xpt::localIPv4();
-                L.address = !ip.empty() && xpt::isPrivateIPv4(ip) ? "https://" + ip + ":8443" : std::string();
-            }
-            L.status = -2;   // (not served yet: the Settings page says so)
-        }
-    }
+    localConnectStep();
     if (xpt::takeSettingsChanged()) saveSettings();
     saveSettingsIfChanged(sec);
     chimeStep();
@@ -2814,6 +2897,9 @@ PLUGIN_API int XPluginEnable(void) {
 
 PLUGIN_API void XPluginDisable(void) {
     updateCheckStop();
+#if defined(XPT_LOCAL_CONNECT)
+    xpt::localserver::stop();   // (started again by the flight loop when the plugin is enabled and the setting is on)
+#endif
     if (xpt::settingsToText() != g_savedSettings) saveSettings();   // nothing changed is lost when the sim or the plugins reload
     XPLMUnregisterKeySniffer(keySniffer, 1, nullptr);
     XPLMUnregisterDrawCallback(drawPanel, xplm_Phase_Gauges, 0, nullptr);
