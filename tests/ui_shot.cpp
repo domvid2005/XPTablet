@@ -949,6 +949,17 @@ int main(int argc, char** argv) {
                 SimState wf = fp; wf.map.havePos = true; wf.map.onGround = true;
                 wf.map.lat = wf.plan.legs.front().lat + 0.004; wf.map.lon = wf.plan.legs.front().lon; wf.map.hdgTrue = 270;
                 shot(wf, APP_ROUTES, "flightplan_welcome");
+                {   // the aircraft at either end of the progress line stays clear of the airports' names (the Christmas sleigh too)
+                    const int keepWp = settings().wallpaper;
+                    const double ll[6][2] = {{41.7087, -86.3173}, {41.7685, -86.3186}, {42.4644, -86.1059}, {42.2206, -87.9520}, {42.05, -87.70}, {41.9786, -87.9048}};
+                    SimState wo = wf; for (int i = 0; i < 6; ++i) { wo.plan.legs[i].lat = ll[i][0]; wo.plan.legs[i].lon = ll[i][1]; }
+                    wo.map.onGround = false; wo.map.lat = ll[0][0]; wo.map.lon = ll[0][1];
+                    SimState we = wo; we.map.lat = ll[5][0]; we.map.lon = ll[5][1];
+                    shot(wo, APP_ROUTES, "progress_origin"); shot(we, APP_ROUTES, "progress_dest");
+                    setSeasonalPreview(true); settings().wallpaper = 10 + 13;
+                    shot(wo, APP_ROUTES, "progress_christmas_origin"); shot(we, APP_ROUTES, "progress_christmas_dest");
+                    setSeasonalPreview(false); settings().wallpaper = keepWp;
+                }
             }
             openDispatchFromPlan(); shot(fp, APP_DISPATCH, "dispatch");
             { SimState np = t; shot(np, APP_DISPATCH, "dispatch_empty"); }

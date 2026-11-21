@@ -5968,15 +5968,20 @@ void progressStrip(ImDrawList* dl, const Fonts& f, const SimState& s, const Prog
     dl->AddRectFilled(ImVec2(x0, cy - 2.5f), ImVec2(px, cy + 2.5f), accentCol(255), 3.0f);
     dl->AddCircleFilled(ImVec2(x0, cy), 4.0f, accentCol(255), 0);
     dl->AddCircleFilled(ImVec2(x1, cy), 4.0f, IM_COL32(255, 255, 255, 120), 0);
-    // the aircraft: its own outline (the drawing the map uses), small, nose along the bar; an arrowhead if there is no drawing
+    // the aircraft: its own outline (the drawing the map uses), small, nose along the bar; an arrowhead if there is no drawing.
+    // Kept clear of the airports' names at the ends: its middle stays half its length (and a little room) inside them
     float sl = 0, ss = 0;
-    if (christmasTheme()) drawSleigh(dl, ImVec2(px, cy), 34.0f, 1.5707963f);   // (Christmas: the sleigh, heading along the bar)
-    else if (const Shape* sh = findShape(s.acfIcao, sl, ss)) {
-        const float L = 24.0f, k = L / std::max(1.0f, std::max(sl, ss));   // fits 24 px whichever is longer, length or span
+    const Shape* sh = christmasTheme() ? nullptr : findShape(s.acfIcao, sl, ss);
+    const float shapeK = sh ? 24.0f / std::max(1.0f, std::max(sl, ss)) : 0.0f;   // (fits 24 px whichever is longer, length or span)
+    const float half = christmasTheme() ? 17.0f : sh ? sl * shapeK * 0.5f : 9.0f;
+    const float lo = x0 + half, hi = x1 - half;   // (a clear gap, the width of the line's own margin, between it and each name)
+    const float ax = lo < hi ? std::max(lo, std::min(hi, px)) : (x0 + x1) * 0.5f;
+    if (christmasTheme()) drawSleigh(dl, ImVec2(ax, cy), 34.0f, 1.5707963f);   // (Christmas: the sleigh, heading along the bar)
+    else if (sh) {
         const int v0 = dl->VtxBuffer.Size;
-        drawShape(dl, *sh, ImVec2(px, cy - sl * k * 0.5f), k * ss / std::max(1.0f, sh->span), k * sl / std::max(1.0f, sh->len), IM_COL32(255, 255, 255, 255), IM_COL32(150, 162, 186, 255));
-        turnSince(dl, v0, ImVec2(px, cy), 1.5707963f);   // nose up -> nose right
-    } else dl->AddTriangleFilled(ImVec2(px + 9, cy), ImVec2(px - 6, cy - 7), ImVec2(px - 6, cy + 7), IM_COL32(255, 255, 255, 255));
+        drawShape(dl, *sh, ImVec2(ax, cy - sl * shapeK * 0.5f), shapeK * ss / std::max(1.0f, sh->span), shapeK * sl / std::max(1.0f, sh->len), IM_COL32(255, 255, 255, 255), IM_COL32(150, 162, 186, 255));
+        turnSince(dl, v0, ImVec2(ax, cy), 1.5707963f);   // nose up -> nose right
+    } else dl->AddTriangleFilled(ImVec2(ax + 9, cy), ImVec2(ax - 6, cy - 7), ImVec2(ax - 6, cy + 7), IM_COL32(255, 255, 255, 255));
     char t[96];
     if (pr.etaMin >= 0) std::snprintf(t, sizeof t, "%.0f nm flown  \xC2\xB7  %.0f nm to go  \xC2\xB7  %d:%02d left", pr.flownNm, pr.leftNm, pr.etaMin / 60, pr.etaMin % 60);
     else std::snprintf(t, sizeof t, "%.0f nm flown  \xC2\xB7  %.0f nm to go", pr.flownNm, pr.leftNm);
