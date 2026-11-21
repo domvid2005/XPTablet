@@ -6987,7 +6987,8 @@ std::string agoText(double t) {
     return b;
 }
 // the pull-down's boxes, sized so the left column (Media, Brightness, Flight) ends clear of the bar at the bottom, as the list does
-constexpr float kCcMediaH = 196, kCcBrightH = 88, kCcGap = 10, kCcBottomGap = 36;
+constexpr float kCcMediaBase = 196, kCcBrightH = 88, kCcGap = 10, kCcBottomGap = 36;
+float g_ccMediaH = kCcMediaBase;   // the media card's height: a row more when the computer's volume is there under the media's
 // a thin scroll bar at x, from y0 to y1, for content taller than what shows (nothing when it all fits)
 // It can be dragged (the thumb, or a press on the track moves it there) and returns the scroll, changed or not; it widens on hover.
 float scrollBar(ImDrawList* dl, const char* id, float x, float y0, float y1, float scroll, float content, float shown) {
@@ -7196,18 +7197,20 @@ double trackSince(const MediaState& m) {   // when this track began to be shown
     if (k != key) { key = k; at = ImGui::GetTime(); }
     return at;
 }
-// a volume slider with a speaker at its left (the media's or the computer's)
-void volumeSlider(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, float x1, float vol, float& out, bool computer) {
+// a volume slider, a speaker and its name at its left: "Media" (the player's own) or "PC" (the computer's). The media's is greyed
+// and inert while XPTablet holds the music down for the radio (it would only fight the lowering; it comes back with the volume)
+constexpr float kVolLabelW = 62;
+void volumeSlider(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, float x1, float vol, float& out, bool computer, bool enabled = true) {
     const ImVec2 c(a.x + 10, a.y + 15);
-    const ImU32 col = IM_COL32(210, 222, 242, 255);
+    const ImU32 col = enabled ? IM_COL32(210, 222, 242, 255) : IM_COL32(210, 222, 242, 90);
     dl->AddRectFilled(ImVec2(c.x - 6, c.y - 3), ImVec2(c.x - 2, c.y + 3), col, 1.0f);
     dl->AddTriangleFilled(ImVec2(c.x - 3, c.y - 3), ImVec2(c.x + 3, c.y - 8), ImVec2(c.x + 3, c.y + 8), col);
     dl->AddTriangleFilled(ImVec2(c.x - 3, c.y - 3), ImVec2(c.x + 3, c.y + 8), ImVec2(c.x - 3, c.y + 3), col);
-    if (computer) dl->AddRect(ImVec2(c.x - 9, c.y - 10), ImVec2(c.x + 7, c.y + 10), IM_COL32(210, 222, 242, 120), 3.0f, 0, 1.0f);   // (the computer's: in a box)
+    textAt(dl, f.small, a.x + 22, std::floor(c.y - fontPx(f.small) * 0.5f), enabled ? kInk : IM_COL32(236, 241, 250, 90), computer ? "PC" : "Media");
     char txt[16];
     std::snprintf(txt, sizeof txt, "%d%%", (int)std::lround(vol * 100));
     float v = vol;
-    if (smoothSlider(dl, f, id, ImVec2(a.x + 18, a.y), ImVec2(x1, a.y + 30), v, 0.0f, 1.0f, 0, true, txt)) out = v;
+    if (smoothSlider(dl, f, id, ImVec2(a.x + kVolLabelW, a.y), ImVec2(x1, a.y + 30), v, 0.0f, 1.0f, 0, enabled, txt)) out = v;
 }
 
 void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
@@ -7257,7 +7260,7 @@ void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
     playerButtons(dl, m, ImVec2(std::floor((x + x1) * 0.5f), y + 20), 22.0f, "##mp", act);
     y += 62;
     // the volumes: the player's own, and (Windows) the computer's
-    if (m.playerVolume >= 0) { float v = -1; volumeSlider(dl, f, "##mpvol", ImVec2(x, y), x1, m.playerVolume, v, false); if (v >= 0) act.mediaPlayerVol = v; y += 38; }
+    if (m.playerVolume >= 0) { float v = -1; volumeSlider(dl, f, "##mpvol", ImVec2(x, y), x1, m.playerVolume, v, false, !m.ducked); if (v >= 0) act.mediaPlayerVol = v; y += 38; }
     if (m.masterVolume >= 0) { float v = -1; volumeSlider(dl, f, "##mpmaster", ImVec2(x, y), x1, m.masterVolume, v, true); if (v >= 0) act.mediaMasterVol = v; y += 38; }
     y += 4;
     dl->AddLine(ImVec2(x, y), ImVec2(x1, y), IM_COL32(255, 255, 255, 24));
@@ -7406,6 +7409,8 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     if (music) {
         const MediaState& md = s.media;
         textAt(dl, f.title, m + 4, top + 2, kInk, "Media");   // as Notifications beside it; the box level with Clear All
+        g_ccMediaH = kCcMediaBase + (md.masterVolume >= 0 ? 34.0f : 0.0f);
+        const float kCcMediaH = g_ccMediaH;
         const ImVec2 a(m, top + 34), b(m + colL, top + 34 + kCcMediaH);
         glass(dl, a, b, 24.0f);
         ImGui::SetCursorScreenPos(a);   // the card (where nothing else is): the Media page
@@ -7428,14 +7433,16 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         }
         if (md.active) progressBar(dl, f, md, ImVec2(a.x + 16, a.y + 104), b.x - 16, "##ccprog", true, act);
         playerButtons(dl, md, ImVec2(std::floor((a.x + b.x) * 0.5f), a.y + 140), 18.0f, "##ccmp", act);
-        if (md.active && md.playerVolume >= 0) { float v = -1; volumeSlider(dl, f, "##ccvol", ImVec2(a.x + 10, b.y - 38), b.x - 12, md.playerVolume, v, false); if (v >= 0) act.mediaPlayerVol = v; }
-        else textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y - 24, md.radioRx || md.radioTx ? kWarn : kMuted, fitText(f.small, radioLine(md), colL - 24).c_str());
+        const float volY = a.y + kCcMediaBase - 38;   // the media's volume (or, when the player keeps it to itself, the radio's line), then the computer's
+        if (md.active && md.playerVolume >= 0) { float v = -1; volumeSlider(dl, f, "##ccvol", ImVec2(a.x + 10, volY), b.x - 12, md.playerVolume, v, false, !md.ducked); if (v >= 0) act.mediaPlayerVol = v; }
+        else textCentered(dl, f.small, (a.x + b.x) * 0.5f, volY + 14, md.radioRx || md.radioTx ? kWarn : kMuted, fitText(f.small, radioLine(md), colL - 24).c_str());
+        if (md.masterVolume >= 0) { float v = -1; volumeSlider(dl, f, "##ccmaster", ImVec2(a.x + 10, volY + 34), b.x - 12, md.masterVolume, v, true); if (v >= 0) act.mediaMasterVol = v; }
         // the Music app
         ImGui::SetCursorScreenPos(ImVec2(a.x + 16, a.y + 16));
         if (ImGui::InvisibleButton("##ccart", ImVec2(art, art))) { g_ccTarget = 0; openApp(APP_MUSIC); }
     }
     {   // the screen's brightness: the slider, and auto dim (as in Settings, Display)
-        const float by = music ? top + 34 + kCcMediaH + kCcGap : top + 34;
+        const float by = music ? top + 34 + g_ccMediaH + kCcGap : top + 34;
         const ImVec2 a(m, by), b(m + colL, by + kCcBrightH);
         glass(dl, a, b, 24.0f);
         ImGui::SetCursorScreenPos(a);   // the card: Settings, Display
@@ -7454,7 +7461,7 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     {   // the flight's progress, under the brightness (only with a flight plan)
         const Progress pr = flightProgress(s);
         if (pr.ok) {
-            const float py = (music ? top + 34 + kCcMediaH + kCcGap : top + 34) + kCcBrightH + kCcGap;
+            const float py = (music ? top + 34 + g_ccMediaH + kCcGap : top + 34) + kCcBrightH + kCcGap;
             const ImVec2 a(m, py), b(m + colL, py + 70);
             glass(dl, a, b, 24.0f);
             ImGui::SetCursorScreenPos(a);   // the card: the Flight Plan

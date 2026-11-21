@@ -1474,6 +1474,20 @@ int main(int argc, char** argv) {
               md.media.posSec = 83; md.media.lenSec = 241; md.media.canSeek = true; md.media.playerVolume = 0.6f; md.media.masterVolume = 0.8f;
               md.media.artColor = IM_COL32(150, 40, 90, 255);
               shot(md, APP_MUSIC, "media");
+              {   // lowered for the radio: the media's bar is greyed and does not take a press; the computer's still does
+                  SimState dk = md; dk.media.ducked = true; dk.media.radioRx = true; dk.media.radioSource = "xPilot"; dk.media.playerVolume = 0.15f;
+                  shot(dk, APP_MUSIC, "media_ducked");
+                  auto press = [&](const SimState& st, float x, float y) { Actions got; for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
+                      ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); if (act.mediaPlayerVol >= 0) got.mediaPlayerVol = act.mediaPlayerVol; if (act.mediaMasterVol >= 0) got.mediaMasterVol = act.mediaMasterVol; }
+                      io.AddMousePosEvent(-1000, -1000); io.AddMouseButtonEvent(0, false); ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); return got; };
+                  const Actions g1 = press(dk, 640, 338);
+                  if (g1.mediaPlayerVol >= 0) { std::printf("FAIL: the media's volume is not set while it is lowered for the radio\n"); ++failures; }
+                  const Actions g2 = press(dk, 640, 376);
+                  if (g2.mediaMasterVol < 0) { std::printf("FAIL: the computer's volume can still be set while the media is lowered\n"); ++failures; }
+                  shot(md, APP_MUSIC, "media");
+                  const Actions g3 = press(md, 640, 338);
+                  if (g3.mediaPlayerVol < 0) { std::printf("FAIL: the media's volume slider sets the player's volume\n"); ++failures; }
+              }
               for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(400, 14); io.AddMouseButtonEvent(0, k == 1);
                                             ImGui::NewFrame(); Actions act; build(fonts, md, 800, kLogicalH, act); ImGui::Render(); }
               for (int k = 0; k < 40; ++k) { io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, md, 800, kLogicalH, act); ImGui::Render(); }
