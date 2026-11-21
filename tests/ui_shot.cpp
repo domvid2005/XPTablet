@@ -454,12 +454,32 @@ int main(int argc, char** argv) {
         shot(t, APP_GAMES, "games");
         {   // xPilot's commands as buttons on the VATSIM page (only those found)
             SimState u = t; u.xpilotCmds = {"xpilot/toggle_nearby_atc_window", "xpilot/toggle_text_message_console"};
-            const auto keepInst = settings().installed; settings().installed.push_back("vatsimhub"); settings().installed.push_back("xpilot");
-            shot(u, APP_VATSIMHUB, "vatsimhub_group"); shot(u, APP_XPILOT, "xpilot");
+            const auto keepInst = settings().installed; settings().installed.push_back("vatsimhub");
+            shot(u, APP_VATSIMHUB, "vatsimhub_group");
+            if (appVisible(APP_XPILOT)) { std::printf("FAIL: xPilot is not an app of its own\n"); ++failures; }
+            auto tp0 = [&](float x, float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
+                ImGui::NewFrame(); Actions act; build(fonts, u, 800, kLogicalH, act); ImGui::Render(); } };
+            tp0(-100, -100); tp0(670, 360);   // (the xPilot page, from the VATSIM app's bubble)
+            if (currentApp() != APP_XPILOT) { std::printf("FAIL: the xPilot page from the VATSIM app (%d)\n", currentApp()); ++failures; }
             std::string pressed;
             for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(130, 200); io.AddMouseButtonEvent(0, k == 1 || k == 2);
                 ImGui::NewFrame(); Actions act; build(fonts, u, 800, kLogicalH, act); ImGui::Render(); if (!act.xpilotCmd.empty()) pressed = act.xpilotCmd; }
             if (pressed != "xpilot/toggle_text_message_console") { std::printf("FAIL: xPilot's Messages button (%s)\n", pressed.c_str()); ++failures; }
+            {   // opened from the VATSIM app, Back goes back to it (and from there, Home)
+                auto tp = [&](float x, float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
+                    ImGui::NewFrame(); Actions act; build(fonts, u, 800, kLogicalH, act); ImGui::Render(); } };
+                openApp(APP_VATSIMHUB); tp(-100, -100);
+                tp(670, 360);   // the xPilot bubble (bottom right)
+                if (currentApp() != APP_XPILOT) { std::printf("FAIL: the VATSIM app's xPilot bubble (%d)\n", currentApp()); ++failures; }
+                tp(40, 50);     // Back
+                if (currentApp() != APP_VATSIMHUB) { std::printf("FAIL: Back from xPilot opened in VATSIM goes to VATSIM (%d)\n", currentApp()); ++failures; }
+                tp(130, 150);   // Stats: a web page in the VATSIM group
+                if (currentApp() != APP_BROWSER) { std::printf("FAIL: the VATSIM app's Stats bubble\n"); ++failures; }
+                tp(40, 50);
+                if (currentApp() != APP_VATSIMHUB) { std::printf("FAIL: Back from VATSIM's Stats goes to VATSIM (%d)\n", currentApp()); ++failures; }
+                tp(40, 50);
+                if (currentApp() != APP_HOME) { std::printf("FAIL: Back from VATSIM goes Home (%d)\n", currentApp()); ++failures; }
+            }
             settings().installed = keepInst;
         }
         {   // ACARS: Hoppie's answers read, the URL made; the page logs on, asks for a PDC, answers a climb with WILCO

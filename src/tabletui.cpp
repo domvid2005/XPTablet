@@ -105,7 +105,7 @@ const AppDef kApps[APP_COUNT] = {
     {"timers", "Timers", IM_COL32(255, 149, 0, 255), nullptr},
     {"logbook", "Logbook", IM_COL32(120, 84, 60, 255), nullptr},
     {"acars", "ACARS", IM_COL32(52, 120, 140, 255), nullptr},
-    {"xpilot", "xPilot", IM_COL32(30, 44, 70, 255), nullptr},   // xPilot's own windows, opened from the tablet
+    {"xpilot", "xPilot", IM_COL32(30, 44, 70, 255), nullptr},   // xPilot's own windows: a page of the VATSIM app (not in the App Store, never on the home screen)
 };
 enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM, ICON_SKYVECTOR };   // pictures of their own (the other web apps borrow one)
 
@@ -126,6 +126,7 @@ int favSlots() { return std::max(0, std::min(kMaxFavorites, g_settings.favoriteS
 bool g_mac = false;              // macOS (told by the host): no media controls
 bool g_ownPerformance = false;   // the aircraft brings its own performance calculator (ToLiss): no Performance app
 bool g_chrome = true;                                             // with the browser's own controls
+int g_backTo = -1;    // a page opened from inside another app (VATSIM's Stats, natTrak, xPilot): Back returns there, not Home
 int g_webGroup = 0;   // whose tabs are shown: 0 the Browser's (and documents'), else a web app's own (100 + its app)
 bool g_webHold = false;   // the shown tab is not this group's yet (one moment): no picture from another group's page
 
@@ -1533,7 +1534,7 @@ bool pageHeader(ImDrawList* dl, const Fonts& f, float w, const char* title) {
     const ImU32 col = ImGui::IsItemHovered() ? IM_COL32(255, 255, 255, 255) : accentLite(255);
     const float my = kStatusH + kHeaderH * 0.5f;
     { const ImVec2 pts[3] = {ImVec2(22, my - 8), ImVec2(14, my), ImVec2(22, my + 8)}; dl->AddPolyline(pts, 3, col, 0, 2.0f); }
-    dl->AddText(f.body, fontPx(f.body), ImVec2(30, std::floor(my - fontPx(f.body) * 0.5f)), col, "Home");
+    dl->AddText(f.body, fontPx(f.body), ImVec2(30, std::floor(my - fontPx(f.body) * 0.5f)), col, g_backTo >= 0 && g_backTo < APP_COUNT ? kApps[g_backTo].name : "Home");
     textCentered(dl, f.title, w * 0.5f, std::floor(my - fontPx(f.title) * 0.5f), IM_COL32(245, 248, 255, 255), title);
     return back;
 }
@@ -8281,7 +8282,6 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
         {APP_TIMERS, 2, "A stopwatch, a hold timer, the flight's block and air times, ETA and top of descent"},
         {APP_LOGBOOK, 2, "Every flight logged by itself: times, route, landing rate and fuel"},
         {APP_ACARS, 3, "Hoppie ACARS: CPDLC, pre-departure clearances and telex on VATSIM and IVAO"},
-        {APP_XPILOT, 3, "xPilot's windows (messages, nearby ATC...) opened from the tablet, and its radio state"},
         {APP_VATSIM, 3, "VATSIM Radar: the network's traffic and ATC live"},
         {APP_LIVEMAP, 3, "Volanta's live map of your flights"},
         {APP_VATSIMHUB, 3, "VATSIM: network stats, events, the AIP and pilot resources"},
@@ -8372,7 +8372,7 @@ void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         dl->AddRect(a2, b2, IM_COL32(255, 255, 255, (int)(30 + 60 * e.hot)), 28.0f, 0, 1.2f);
         dl->AddText(f.title, fontPx(f.title), ImVec2(a2.x + 22, a2.y + 22), IM_COL32(255, 255, 255, 255), bubbles[i].name);
         dl->AddText(f.small, fontPx(f.small), ImVec2(a2.x + 22, a2.y + 62), IM_COL32(235, 240, 250, 220), bubbles[i].what, nullptr, bw - 44);
-        if (hit) { if (bubbles[i].url) openWeb("VATSIM", bubbles[i].url, false, 100 + APP_VATSIMHUB); else { g_app = APP_XPILOT; g_animPage = -1; } }
+        if (hit) { if (bubbles[i].url) openWeb("VATSIM", bubbles[i].url, false, 100 + APP_VATSIMHUB); else { g_app = APP_XPILOT; g_animPage = -1; } g_backTo = APP_VATSIMHUB; }
     }
 }
 
@@ -9060,7 +9060,10 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
         wallpaper(dl, w, h);
         dl->PopClipRect();
         dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), themeTone(8, 18, 36, 170));   // the veil, in the theme's tone
-        if (!(app == APP_BROWSER && videoFull(s)) && pageHeader(dl, f, w, app == APP_BROWSER ? g_site.c_str() : appName(app))) openApp(APP_HOME);
+        if (!(app == APP_BROWSER && videoFull(s)) && pageHeader(dl, f, w, app == APP_BROWSER ? g_site.c_str() : appName(app))) {
+            if (g_backTo >= 0) { const int to = g_backTo; g_backTo = -1; if (g_kbdTarget == 2 || g_kbdTarget == 1) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; } g_app = to; g_animPage = -1; }   // (back into the app it came from)
+            else openApp(APP_HOME);
+        }
         if (app == APP_SETTINGS) settingsPage(dl, f, s, w, h, act);
         else if (app == APP_BROWSER) browserPage(dl, f, s, w, h, act);
         else if (app == APP_MAP) mapPage(dl, f, s, w, h, act);
@@ -9229,6 +9232,7 @@ void pushInWidget(int widget, int start, int cap) { pushInWidgetAt(widget, start
 
 // Charts, Live Map, SimBrief and ForeFlight are sites shown as pages of their own. The Browser icon opens the full browser.
 void openApp(int app) {
+    g_backTo = -1;   // (opened from Home: its Back goes Home)
     if (g_kbdTarget == 2) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; }   // a page's keyboard closes with the page
     const bool fromHome = g_app < 0 || g_app >= APP_COUNT;
     if (app < 0 || app >= APP_COUNT || !appVisible(app)) {
