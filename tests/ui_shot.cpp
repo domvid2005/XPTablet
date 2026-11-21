@@ -456,6 +456,7 @@ int main(int argc, char** argv) {
             SimState u = t; u.xpilotCmds = {"xpilot/toggle_nearby_atc_window", "xpilot/toggle_text_message_console"};
             const auto keepInst = settings().installed; settings().installed.push_back("vatsimhub");
             shot(u, APP_VATSIMHUB, "vatsimhub_group");
+            settings().installed.push_back("xpilot"); layoutHome();   // (installed in an earlier build)
             if (appVisible(APP_XPILOT)) { std::printf("FAIL: xPilot is not an app of its own\n"); ++failures; }
             auto tp0 = [&](float x, float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
                 ImGui::NewFrame(); Actions act; build(fonts, u, 800, kLogicalH, act); ImGui::Render(); } };

@@ -116,6 +116,7 @@ Settings g_settings;
 bool g_installedRead = false;   // the settings file had its list (else D-ATIS comes installed)
 bool storeApp(int app) { return app == APP_GAMES || (app >= APP_DATIS && app < APP_COUNT); }
 bool installed(int app) {
+    if (app == APP_XPILOT) return false;   // (a page of the VATSIM app now: never an icon, even where it was installed before)
     if (!storeApp(app)) return true;
     for (const std::string& id : g_settings.installed) if (id == kApps[app].id) return true;
     return false;
