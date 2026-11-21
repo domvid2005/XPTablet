@@ -10,21 +10,23 @@
 namespace xpt {
 namespace mirror {
 
-constexpr int kPageVersion = 2;   // the page's and these messages' version (see src/localpage.h)
+constexpr int kPageVersion = 3;   // the page's and these messages' version (see src/localpage.h)
 
 void start();
 void stop();
 
-// A device is connected, the worker is free, and it is time for the next picture (about 15 a second at most).
-bool wantsFrame(double now);
+// A device is connected, the worker is free, and it is time for the next picture (15 a second at most; 24 when fast is asked
+// for: a game on screen).
+bool wantsFrame(double now, bool fast = false);
 // The tablet's picture: w x h pixels, 4 bytes each (red, green, blue, unused), rows top to bottom (or bottom to top, as OpenGL reads).
 void submit(std::vector<unsigned char>&& rgbx, int w, int h, bool bottomUp);
 
 struct Input {
-    enum Kind { MOVE = 0, DOWN = 1, UP = 2, WHEEL = 3, KEY = 4, CHAR = 5, CANCEL = 6 };
+    enum Kind { MOVE = 0, DOWN = 1, UP = 2, WHEEL = 3, KEY = 4, CHAR = 5, CANCEL = 6, GAME_KEY = 7 };
     int kind = MOVE;
     float x = 0, y = 0;   // where, as fractions of the picture (0..1 across, 0..1 down)
-    int code = 0;         // WHEEL: +1 / -1; KEY: 8 backspace, 13 enter; CHAR: the character
+    int code = 0;         // WHEEL: +1 / -1; KEY: 8 backspace, 13 enter; CHAR: the character; GAME_KEY: 0 left, 1 right, 2 up, 3 down, 4 action
+    bool down = false;    // GAME_KEY: pressed (or let go)
     bool touch = false;   // a finger (not a mouse)
 };
 bool nextInput(Input& in);   // the next thing a device did, if any

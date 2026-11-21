@@ -31,6 +31,7 @@ void draw(int game, ImDrawList* dl, ImVec2 a, ImVec2 b, ImFont* big, float bigPx
 int score(int game);
 int lives(int game);               // -1: the game has none
 bool over(int game);
+float playerX(int game);            // where the player is across the field (Sky Patrol, Hangar Climb; for the tests)
 bool started(int game);            // has a game been set up (else reset first)
 // a small picture for the games list, centred at c, about r across
 void icon(int game, ImDrawList* dl, ImVec2 c, float r);

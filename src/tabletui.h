@@ -507,6 +507,8 @@ int chimeSeq();               // counted up for each notification chime: the hos
 bool tabletTyping();
 bool gameWantsKeys();                    // 2048's board was pressed: W A S D and the arrows play it
 void gameKey(int dir);                   // a move for it: 0 left, 1 right, 2 up, 3 down
+void setRemotePlay(bool on);            // the tablet is being worked from a paired device (Local Connect): the games allow for it
+bool arcadeOnScreen();                  // an arcade game is showing (its picture changes every frame)
 void gameKeyEvent(int key, bool down);  // the arcade games: 0 left, 1 right, 2 up, 3 down, 4 the action (Space), pressed or let go
 void tabletKey(int code, bool isChar);   // code: a character, or 8 (back) / 13 (enter)
 // The Notes page's contents, kept between sessions by the host

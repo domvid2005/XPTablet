@@ -23,7 +23,7 @@ namespace {
 
 constexpr int kBlock = 16;          // changes are found in 16 x 16 pixel blocks (JPEG's own block size, doubled)
 constexpr int kQuality = 91;        // (above 90 the encoder keeps colour at full detail: small coloured text stays clean)
-constexpr double kMinGap = 1.0 / 15;
+constexpr double kMinGap = 1.0 / 15, kMinGapFast = 1.0 / 24;
 constexpr double kHealEvery = 20;   // a whole picture this often, whatever changed (seconds)
 
 struct Job { std::vector<unsigned char> px; int w = 0, h = 0; bool bottomUp = false; };
@@ -113,8 +113,8 @@ void stop() {
     g_busy.store(false);
 }
 
-bool wantsFrame(double now) {
-    if (g_busy.load() || now - g_lastAsk < kMinGap) return false;
+bool wantsFrame(double now, bool fast) {
+    if (g_busy.load() || now - g_lastAsk < (fast ? kMinGapFast : kMinGap)) return false;
     if (localserver::clients() <= 0) return false;
     g_lastAsk = now;
     return true;
@@ -151,6 +151,9 @@ bool nextInput(Input& in) {
             if (n < 3) continue;
             in.code = p[1] | (p[2] << 8);
             if (kind == Input::KEY ? (in.code != 8 && in.code != 13) : (in.code < 32 || in.code > 126)) continue;
+        } else if (kind == Input::GAME_KEY) {
+            if (n < 3 || p[1] > 4) continue;
+            in.code = p[1]; in.down = p[2] != 0;
         } else if (kind != Input::CANCEL) continue;
         return true;
     }

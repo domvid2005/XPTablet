@@ -71,10 +71,11 @@ int main(int argc, char** argv) {
             ++inputs; if (std::getenv("XPT_LC_TRACE")) std::printf("in: %d %.3f %.3f %d\n", in.kind, in.x, in.y, (int)in.touch);
             const float x = in.x * W, y = in.y * H;
             if (in.kind == mirror::Input::MOVE) queuePointer(x, y, -1);
-            else if (in.kind == mirror::Input::DOWN) { setTouchInput(in.touch); queuePointer(x, y, 1); }
+            else if (in.kind == mirror::Input::DOWN) { setTouchInput(in.touch); queuePointer(x, y, 1); setRemotePlay(true); }
             else if (in.kind == mirror::Input::UP) { queuePointer(x, y, 0); if (in.touch) queuePointer(-1000, -1000, -1); }
             else if (in.kind == mirror::Input::CANCEL) queuePointer(-1000, -1000, 0);
             else if (in.kind == mirror::Input::WHEEL) io.AddMouseWheelEvent(0, (float)in.code);
+            else if (in.kind == mirror::Input::GAME_KEY) { if (currentApp() == APP_GAMES && !tabletTyping()) gameKeyEvent(in.code, in.down); }
             else if (tabletTyping()) tabletKey(in.code, in.kind == mirror::Input::CHAR);
         }
         // the tablet's frame
@@ -91,7 +92,7 @@ int main(int argc, char** argv) {
         if (!act.metarSearch.empty()) std::printf("metar: %s\n", act.metarSearch.c_str());
         // its picture, when the mirror wants one
         // (drawn on a thread of its own: the tests' renderer takes a fifth of a second, and the tablet must keep its frame rate)
-        if (!drawing.load() && mirror::wantsFrame(now)) {
+        if (!drawing.load() && mirror::wantsFrame(now, arcadeOnScreen())) {
             if (painter.joinable()) painter.join();
             batches.clear();
             clipDrawData(ImGui::GetDrawData(), batches);

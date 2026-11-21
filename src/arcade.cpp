@@ -893,6 +893,7 @@ const char* help(int g) {
                                    "Drag a container from the right into the hold. A full row or column ships out and scores; several at once score more. When none of the three fits, the hold is closed."};
     return g >= 0 && g < COUNT ? n[g] : "";
 }
+float playerX(int g) { return g == SKY_PATROL ? g_sky.px : g == HANGAR_CLIMB ? g_hangar.x : 0.0f; }
 float aspect(int g) { return g == CONTRAIL ? 28.0f / 20.0f : g == TAXI_RUSH ? 21.0f / 15.0f : 320.0f / 240.0f; }
 bool usesPad(int g) { return g != COCKPIT_21 && g != CARGO_LOAD; }
 void reset(int g) {

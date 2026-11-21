@@ -9161,6 +9161,12 @@ void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
 // ---- Games: 2048 and Knots and Crosses against the tablet ---------------------------------------------------------------------------
 int g_game = -1;   // the game shown, -1 the list (0 2048, 1 Knots and Crosses, 2.. the arcade games)
 bool g_arcKeys = false;            // an arcade game's field was pressed: the computer's keys play it
+// Played from a paired device (Local Connect's mirror): the picture is a moment behind and there is one finger, so the games that
+// run by the clock are slowed, a direction tapped keeps going until tapped again (so Jump can be tapped while walking), and Sky
+// Patrol fires by itself.
+bool g_remotePlay = false;
+int g_arcLatch = -1;               // the direction that keeps going (0 left, 1 right, 2 up, 3 down), -1 none
+constexpr float kRemotePlaySpeed = 0.62f;
 bool g_arcHeld[5] = {}, g_arcHit[5] = {};   // its keys: held, and pressed since the last frame (left, right, up, down, action)
 bool g_2048Keys = false;   // its board was pressed: the computer's W A S D and arrows play it
 int g_gameKeyDir = -1;     // a move from those keys, waiting for the page
@@ -9631,6 +9637,7 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
                 if (i == 0) { bool empty = true; for (int v : g_board) if (v) empty = false; if (empty) new2048(); }
                 if (i >= 2 && !arcade::started(i - 2)) arcade::reset(i - 2);
                 for (int k = 0; k < 5; ++k) g_arcHeld[k] = g_arcHit[k] = false;
+                g_arcLatch = -1;
             }
         }
         return;
@@ -9655,7 +9662,7 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
             ImGui::SetCursorScreenPos(ImVec2(c.x - r, c.y - r));
             ImGui::InvisibleButton(id, ImVec2(r * 2, r * 2));
             padHeld[k] = ImGui::IsItemActive(); padHit[k] = ImGui::IsItemActivated();
-            const Ease e = eased(id, padHeld[k], ImGui::IsItemHovered(), padHeld[k]);
+            const Ease e = eased(id, padHeld[k] || (g_remotePlay && k < 4 && g_arcLatch == k), ImGui::IsItemHovered(), padHeld[k]);
             dl->AddRectFilled(ImVec2(c.x - r + 2, c.y - r + 2), ImVec2(c.x + r - 2, c.y + r - 2), mixCol(IM_COL32(255, 255, 255, 26 + (int)(20 * e.hot)), accentCol(230), e.on), k == 4 ? r : 12.0f);
             return c;
         };
@@ -9694,12 +9701,22 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
                 }
             }
         }
+        float gdt = dt;
+        if (g_remotePlay && pad) {   // from a device: a direction tapped (or swiped) keeps going, tapped again it stops; slower; Sky Patrol fires by itself
+            int tapped = in.leftHit ? 0 : in.rightHit ? 1 : in.upHit ? 2 : in.downHit ? 3 : -1;   // (a swipe on the field)
+            bool again = false;
+            for (int k = 0; k < 4; ++k) if (padHit[k]) { tapped = k; again = g_arcLatch == k; }
+            if (tapped >= 0) g_arcLatch = again ? -1 : tapped;
+            if (g_arcLatch >= 0) padHeld[g_arcLatch] = true;
+            if (ag == arcade::SKY_PATROL) padHeld[4] = true;
+            gdt = dt * kRemotePlaySpeed;
+        } else g_arcLatch = -1;
         in.left = g_arcHeld[0] || padHeld[0]; in.right = g_arcHeld[1] || padHeld[1]; in.up = g_arcHeld[2] || padHeld[2]; in.down = g_arcHeld[3] || padHeld[3]; in.action = g_arcHeld[4] || padHeld[4];
         in.leftHit = in.leftHit || g_arcHit[0] || padHit[0]; in.rightHit = in.rightHit || g_arcHit[1] || padHit[1]; in.upHit = in.upHit || g_arcHit[2] || padHit[2];
         in.downHit = in.downHit || g_arcHit[3] || padHit[3]; in.actionHit = g_arcHit[4] || padHit[4];
         for (bool& b : g_arcHit) b = false;
         if (!g_arcKeys) for (bool& b : g_arcHeld) b = false;
-        arcade::step(ag, in, dt);
+        arcade::step(ag, in, gdt);
         const int sc = arcade::score(ag);
         if (sc > g_settings.arcadeBest[ag]) { g_settings.arcadeBest[ag] = sc; g_settingsChanged = true; }
         dl->PushClipRect(fa, fb, true);
@@ -9714,9 +9731,14 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         std::snprintf(t, sizeof t, "Best %d", g_settings.arcadeBest[ag]); textAt(dl, f.body, px0, y, kMuted, t);
         if (arcade::lives(ag) >= 0) { std::snprintf(t, sizeof t, "Lives %d", std::max(0, arcade::lives(ag))); textRight(dl, f.body, px1, y, kMuted, t); }
         y += 30;
-        if (pill(dl, f, "##arcnew", "New Game", ImVec2(px0, y), ImVec2(px1, y + 30), false, true)) { arcade::reset(ag); g_arcKeys = true; }
+        if (pill(dl, f, "##arcnew", "New Game", ImVec2(px0, y), ImVec2(px1, y + 30), false, true)) { arcade::reset(ag); g_arcKeys = true; g_arcLatch = -1; }
         y += 40;
-        dl->AddText(f.small, fontPx(f.small), ImVec2(px0, y), kMuted, arcade::help(ag), nullptr, px1 - px0);
+        const char* how = arcade::help(ag);
+        if (g_remotePlay && pad)   // (how it is played from a device)
+            how = ag == arcade::SKY_PATROL ? "Playing from a device: slower. Tap left or right to fly that way, tap it again to stop. It fires by itself."
+                : ag == arcade::HANGAR_CLIMB ? "Playing from a device: slower. Tap a direction to keep going, tap it again to stop; tap Jump to jump the tires."
+                : "Playing from a device: slower. Tap an arrow or swipe on the field to steer.";
+        dl->AddText(f.small, fontPx(f.small), ImVec2(px0, y), g_remotePlay && pad ? accentLite(255) : kMuted, how, nullptr, px1 - px0);
         return;
     }
     if (g_game == 0) {   // 2048: swipe on the board, or the arrow keys
@@ -9867,6 +9889,8 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
 int currentApp() { return g_app; }
 bool gameWantsKeys() { return g_app == APP_GAMES && ((g_2048Keys && g_game == 0) || (g_arcKeys && g_game >= 2)); }
 void gameKey(int dir) { g_gameKeyDir = dir; }
+void setRemotePlay(bool on) { g_remotePlay = on; }
+bool arcadeOnScreen() { return g_app == APP_GAMES && g_game >= 2; }
 void gameKeyEvent(int key, bool down) {
     if (key < 0 || key > 4) return;
     if (g_game == 0) { if (down && key < 4) g_gameKeyDir = key; return; }

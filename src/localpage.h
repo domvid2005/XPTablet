@@ -52,7 +52,7 @@ p { margin: 0 0 16px; color: #9fb0cc; font-size: 14px; }
 R"XPT(<script>
 (function () {
   'use strict';
-  var VERSION = 2, TOKEN = 'xptablet.lc.token';
+  var VERSION = 3, TOKEN = 'xptablet.lc.token';
   var $ = function (id) { return document.getElementById(id); };
   var canvas = $('canvas'), ctx = canvas.getContext('2d'), wrap = $('wrap'), panel = $('panel'), code = $('code');
   var ws = null, stop = false, reload = false, live = false, fullW = 800, fullH = 480, chain = Promise.resolve(), gotPicture = false;
@@ -180,7 +180,12 @@ R"XPT(
   }
   canvas.addEventListener('touchend', lift, { passive: false });
   canvas.addEventListener('touchcancel', lift, { passive: false });
-  window.addEventListener('keydown', function (e) {   // a keyboard on the device types into the tablet's text fields
+  // a keyboard on the device: the arrows, W A S D and Space play the tablet's games (pressed and let go, as on the computer)
+  var GAME = { ArrowLeft: 0, ArrowRight: 1, ArrowUp: 2, ArrowDown: 3, a: 0, d: 1, w: 2, s: 3, A: 0, D: 1, W: 2, S: 3, ' ': 4 };
+  function gameKey(e, on) { if (!live || e.target === code || e.ctrlKey || e.metaKey || e.repeat) return false; var k = GAME[e.key]; if (k === undefined) return false; send(bytes(73, 7, k, on ? 1 : 0)); return true; }
+  window.addEventListener('keyup', function (e) { if (gameKey(e, false)) e.preventDefault(); });
+  window.addEventListener('keydown', function (e) {   // and it types into the tablet's text fields
+    if (gameKey(e, true) && e.key.indexOf('Arrow') === 0) { e.preventDefault(); return; }
     if (!live || e.target === code || e.ctrlKey || e.metaKey) return;
     if (e.key === 'Backspace') { send(bytes(73, 4, 8, 0)); e.preventDefault(); }
     else if (e.key === 'Enter') { send(bytes(73, 4, 13, 0)); e.preventDefault(); }
