@@ -368,6 +368,169 @@ ImU32 accentLite(int a) {   // the lighter one: rings, lines, focus
     const Accent c = themeAccent();
     return IM_COL32(c.r + (255 - c.r) * 2 / 5, c.g + (255 - c.g) * 2 / 5, c.b + (255 - c.b) * 2 / 5, std::max(0, std::min(255, a)));
 }
+// ---- the seasonal themes' pictures: drawn over the sky (stage 0, behind the mountains) and on the hills (stage 1, in front),
+// scaled to the box (the screen, or a little picture of it in Settings). Simple shapes of our own: nothing copied.
+float decoRnd(int i, int k) { unsigned x = (unsigned)(i * 7919 + k * 104729 + 12345); x ^= x << 13; x ^= x >> 17; x ^= x << 5; return (x % 10000) / 10000.0f; }
+void decoStar(ImDrawList* dl, ImVec2 c, float r, ImU32 col, float rot = 0) {
+    ImVec2 p[10];
+    for (int i = 0; i < 10; ++i) { const float a = rot - 1.5708f + i * 0.6283f, rr = i % 2 ? r * 0.42f : r; p[i] = ImVec2(c.x + std::cos(a) * rr, c.y + std::sin(a) * rr); }
+    for (int i = 0; i < 10; i += 2) dl->AddTriangleFilled(c, p[i], p[(i + 1) % 10], col), dl->AddTriangleFilled(c, p[i], p[(i + 9) % 10], col);
+}
+void decoHeart(ImDrawList* dl, ImVec2 c, float r, ImU32 col) {
+    dl->AddCircleFilled(ImVec2(c.x - r * 0.5f, c.y - r * 0.2f), r * 0.55f, col, 16);
+    dl->AddCircleFilled(ImVec2(c.x + r * 0.5f, c.y - r * 0.2f), r * 0.55f, col, 16);
+    dl->AddTriangleFilled(ImVec2(c.x - r * 1.02f, c.y), ImVec2(c.x + r * 1.02f, c.y), ImVec2(c.x, c.y + r * 1.15f), col);
+}
+void decoBurst(ImDrawList* dl, ImVec2 c, float r, ImU32 col, int rays) {   // a firework: rays out from its middle, a dot at each end
+    for (int i = 0; i < rays; ++i) {
+        const float a = i * 6.2832f / rays, ca = std::cos(a), sa = std::sin(a);
+        dl->AddLine(ImVec2(c.x + ca * r * 0.25f, c.y + sa * r * 0.25f), ImVec2(c.x + ca * r * 0.9f, c.y + sa * r * 0.9f), (col & 0x00FFFFFF) | 0xB0000000, std::max(1.0f, r * 0.06f));
+        dl->AddCircleFilled(ImVec2(c.x + ca * r, c.y + sa * r), std::max(1.0f, r * 0.07f), col, 8);
+    }
+}
+void decoClover(ImDrawList* dl, ImVec2 c, float r, ImU32 col) {
+    for (int i = 0; i < 3; ++i) { const float a = -1.5708f + i * 2.0944f; dl->AddCircleFilled(ImVec2(c.x + std::cos(a) * r * 0.5f, c.y + std::sin(a) * r * 0.5f), r * 0.48f, col, 14); }
+    dl->AddLine(c, ImVec2(c.x + r * 0.3f, c.y + r * 1.1f), col, std::max(1.0f, r * 0.14f));
+}
+void decoRibbon(ImDrawList* dl, ImVec2 c, float r, ImU32 col) {   // an awareness ribbon: a loop at the top, its two tails crossing down
+    const float t = std::max(2.0f, r * 0.22f);
+    dl->PathArcTo(ImVec2(c.x, c.y - r * 0.45f), r * 0.42f, 3.4f, 6.0f + 0.0f, 20); dl->PathStroke(col, 0, t);
+    dl->AddBezierCubic(ImVec2(c.x - r * 0.40f, c.y - r * 0.30f), ImVec2(c.x - r * 0.30f, c.y + r * 0.1f), ImVec2(c.x + r * 0.2f, c.y + r * 0.5f), ImVec2(c.x + r * 0.55f, c.y + r * 1.0f), col, t);
+    dl->AddBezierCubic(ImVec2(c.x + r * 0.40f, c.y - r * 0.30f), ImVec2(c.x + r * 0.30f, c.y + r * 0.1f), ImVec2(c.x - r * 0.2f, c.y + r * 0.5f), ImVec2(c.x - r * 0.55f, c.y + r * 1.0f), col, t);
+}
+void decoTree(ImDrawList* dl, ImVec2 base, float r, ImU32 col) {   // a fir: three tiers and a trunk
+    dl->AddRectFilled(ImVec2(base.x - r * 0.08f, base.y - r * 0.25f), ImVec2(base.x + r * 0.08f, base.y), IM_COL32(40, 26, 18, 255));
+    for (int i = 0; i < 3; ++i) {
+        const float y0 = base.y - r * 0.2f - i * r * 0.45f, ww = r * (0.55f - i * 0.12f);
+        dl->AddTriangleFilled(ImVec2(base.x - ww, y0), ImVec2(base.x + ww, y0), ImVec2(base.x, y0 - r * 0.7f), col);
+    }
+}
+void decoPumpkin(ImDrawList* dl, ImVec2 c, float r) {
+    const ImU32 o = IM_COL32(232, 110, 24, 255), d = IM_COL32(190, 80, 16, 255);
+    dl->AddEllipseFilled(ImVec2(c.x - r * 0.42f, c.y), ImVec2(r * 0.55f, r * 0.75f), d);
+    dl->AddEllipseFilled(ImVec2(c.x + r * 0.42f, c.y), ImVec2(r * 0.55f, r * 0.75f), d);
+    dl->AddEllipseFilled(c, ImVec2(r * 0.6f, r * 0.8f), o);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.08f, c.y - r * 1.05f), ImVec2(c.x + r * 0.1f, c.y - r * 0.7f), IM_COL32(70, 90, 30, 255), r * 0.05f);
+    const ImU32 g = IM_COL32(255, 220, 90, 255);   // its face, lit
+    dl->AddTriangleFilled(ImVec2(c.x - r * 0.45f, c.y - r * 0.1f), ImVec2(c.x - r * 0.15f, c.y - r * 0.1f), ImVec2(c.x - r * 0.3f, c.y - r * 0.35f), g);
+    dl->AddTriangleFilled(ImVec2(c.x + r * 0.15f, c.y - r * 0.1f), ImVec2(c.x + r * 0.45f, c.y - r * 0.1f), ImVec2(c.x + r * 0.3f, c.y - r * 0.35f), g);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.4f, c.y + r * 0.15f), ImVec2(c.x + r * 0.4f, c.y + r * 0.3f), g, r * 0.06f);
+}
+void decoBat(ImDrawList* dl, ImVec2 c, float r, ImU32 col) {
+    dl->AddEllipseFilled(c, ImVec2(r * 0.18f, r * 0.26f), col);
+    for (int s = -1; s <= 1; s += 2) {
+        const ImVec2 p[5] = {ImVec2(c.x + s * r * 0.12f, c.y - r * 0.1f), ImVec2(c.x + s * r * 0.6f, c.y - r * 0.35f), ImVec2(c.x + s * r * 1.0f, c.y - r * 0.05f),
+                             ImVec2(c.x + s * r * 0.7f, c.y + r * 0.02f), ImVec2(c.x + s * r * 0.45f, c.y + r * 0.15f)};
+        dl->AddTriangleFilled(p[0], p[1], p[4], col); dl->AddTriangleFilled(p[1], p[2], p[3], col); dl->AddTriangleFilled(p[1], p[3], p[4], col);
+    }
+}
+void decoLeaf(ImDrawList* dl, ImVec2 c, float r, float rot, ImU32 col) {
+    const float ca = std::cos(rot), sa = std::sin(rot);
+    auto P = [&](float x, float y) { return ImVec2(c.x + x * ca - y * sa, c.y + x * sa + y * ca); };
+    dl->AddQuadFilled(P(0, -r), P(r * 0.55f, 0), P(0, r), P(-r * 0.55f, 0), col);
+    dl->AddLine(P(0, -r * 0.8f), P(0, r * 1.25f), (col & 0x00FFFFFF) | 0x90000000, std::max(1.0f, r * 0.08f));
+}
+void decoEgg(ImDrawList* dl, ImVec2 c, float r, ImU32 col, ImU32 band) {
+    dl->AddEllipseFilled(c, ImVec2(r * 0.72f, r), col);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.7f, c.y - r * 0.08f), ImVec2(c.x + r * 0.7f, c.y + r * 0.12f), band);
+}
+void decoFlower(ImDrawList* dl, ImVec2 c, float r, ImU32 petal, ImU32 mid) {
+    for (int i = 0; i < 5; ++i) { const float a = i * 1.2566f; dl->AddCircleFilled(ImVec2(c.x + std::cos(a) * r * 0.5f, c.y + std::sin(a) * r * 0.5f), r * 0.45f, petal, 12); }
+    dl->AddCircleFilled(c, r * 0.3f, mid, 12);
+}
+void seasonalDecor(ImDrawList* dl, ImVec2 o, float w, float h, int k, int stage) {
+    const float u = h / 480.0f;   // (the screen is 480 tall: everything in proportion)
+    auto at = [&](float fx, float fy) { return ImVec2(o.x + fx * w, o.y + fy * h); };
+    auto stars = [&](int n, float maxY, ImU32 col) { for (int i = 0; i < n; ++i) dl->AddCircleFilled(at(decoRnd(i, k + 1), decoRnd(i, k + 2) * maxY), std::max(0.6f, (0.8f + decoRnd(i, 3) * 1.4f) * u), col, 6); };
+    switch (k) {
+    case 0:   // New Year: stars and fireworks
+        if (stage == 0) { stars(60, 0.55f, IM_COL32(255, 255, 255, 140));
+            decoBurst(dl, at(0.22f, 0.22f), 46 * u, IM_COL32(255, 214, 110, 255), 16); decoBurst(dl, at(0.62f, 0.14f), 38 * u, IM_COL32(200, 160, 255, 255), 14);
+            decoBurst(dl, at(0.84f, 0.32f), 30 * u, IM_COL32(120, 220, 255, 255), 12); decoBurst(dl, at(0.42f, 0.38f), 24 * u, IM_COL32(255, 140, 180, 255), 12); }
+        break;
+    case 1:   // MLK Day: a sunrise over the hills, its rays
+        if (stage == 0) {
+            const ImVec2 c = at(0.5f, 0.72f);
+            for (int i = 0; i < 14; ++i) { const float a = 3.1416f + i * 3.1416f / 13; dl->AddLine(c, ImVec2(c.x + std::cos(a) * 520 * u, c.y + std::sin(a) * 520 * u), IM_COL32(255, 200, 120, 26), 18 * u); }
+            dl->AddCircleFilled(c, 70 * u, IM_COL32(255, 190, 100, 90), 48); dl->AddCircleFilled(c, 46 * u, IM_COL32(255, 214, 140, 200), 48);
+        }
+        break;
+    case 2:   // Valentine's: hearts floating up
+        if (stage == 0) for (int i = 0; i < 14; ++i) decoHeart(dl, at(0.05f + decoRnd(i, 9) * 0.9f, 0.08f + decoRnd(i, 10) * 0.55f), (8 + decoRnd(i, 11) * 16) * u, i % 3 ? IM_COL32(255, 120, 160, 150) : IM_COL32(255, 200, 215, 170));
+        break;
+    case 3: case 11:   // Presidents' Day, Veterans Day: an arc of stars, and a flag's stripes waving faintly across the sky
+        if (stage == 0) {
+            for (int s = 0; s < 7; ++s) for (int x = 0; x < 40; ++x) {
+                const float fx = x / 40.0f, fy = 0.12f + s * 0.05f + 0.02f * std::sin(fx * 9 + s * 0.4f);
+                dl->AddRectFilled(at(fx, fy), at(fx + 0.026f, fy + 0.025f), s % 2 ? IM_COL32(255, 255, 255, 14) : IM_COL32(220, 60, 70, 30));
+            }
+            for (int i = 0; i < 13; ++i) { const float a = 3.4f + i * 2.6f / 12; decoStar(dl, ImVec2(o.x + w * 0.5f + std::cos(a) * w * 0.32f, o.y + h * 0.56f + std::sin(a) * h * 0.32f), 9 * u, k == 3 ? IM_COL32(255, 255, 255, 200) : IM_COL32(240, 210, 120, 220)); }
+        }
+        break;
+    case 4:   // St. Patrick's: clovers drifting, a rainbow's arc
+        if (stage == 0) {
+            static const ImU32 bow[6] = {IM_COL32(230, 70, 70, 50), IM_COL32(240, 150, 60, 50), IM_COL32(240, 220, 80, 50), IM_COL32(90, 200, 100, 50), IM_COL32(70, 130, 230, 50), IM_COL32(140, 90, 220, 50)};
+            for (int i = 0; i < 6; ++i) { dl->PathArcTo(at(0.7f, 0.78f), (230 - i * 12) * u, 3.1416f, 6.2832f, 48); dl->PathStroke(bow[i], 0, 12 * u); }
+            for (int i = 0; i < 12; ++i) decoClover(dl, at(0.04f + decoRnd(i, 9) * 0.9f, 0.06f + decoRnd(i, 10) * 0.5f), (9 + decoRnd(i, 11) * 10) * u, IM_COL32(110, 220, 120, 150));
+        }
+        break;
+    case 5:   // Easter: flowers in the sky's light, eggs on the hills
+        if (stage == 0) for (int i = 0; i < 10; ++i) decoFlower(dl, at(0.05f + decoRnd(i, 9) * 0.9f, 0.08f + decoRnd(i, 10) * 0.45f), (8 + decoRnd(i, 11) * 8) * u, IM_COL32(255, 255, 255, 120), IM_COL32(255, 220, 120, 180));
+        else { static const ImU32 eggs[5] = {IM_COL32(250, 180, 200, 255), IM_COL32(180, 220, 250, 255), IM_COL32(255, 236, 150, 255), IM_COL32(200, 180, 250, 255), IM_COL32(180, 240, 200, 255)};
+            for (int i = 0; i < 7; ++i) decoEgg(dl, at(0.08f + i * 0.14f, 0.9f + decoRnd(i, 4) * 0.04f), (13 + decoRnd(i, 5) * 5) * u, eggs[i % 5], IM_COL32(255, 255, 255, 170)); }
+        break;
+    case 6:   // Memorial Day: stars over the dusk, poppies on the hills
+        if (stage == 0) stars(40, 0.5f, IM_COL32(255, 255, 255, 120));
+        else for (int i = 0; i < 14; ++i) { const ImVec2 c = at(0.03f + decoRnd(i, 6) * 0.94f, 0.88f + decoRnd(i, 7) * 0.09f); const float r = (8 + decoRnd(i, 8) * 6) * u;
+            decoFlower(dl, c, r, IM_COL32(210, 40, 40, 255), IM_COL32(20, 14, 14, 255)); }
+        break;
+    case 7:   // Juneteenth: the dawn breaking, a bursting star (as on its flag), and an arc across it
+        if (stage == 0) {
+            const ImVec2 c = at(0.7f, 0.58f);
+            dl->PathArcTo(ImVec2(c.x, c.y + 120 * u), 210 * u, 3.6f, 5.82f, 40); dl->PathStroke(IM_COL32(255, 255, 255, 60), 0, 4 * u);
+            decoStar(dl, c, 52 * u, IM_COL32(255, 255, 255, 60), 0.2f); decoStar(dl, c, 22 * u, IM_COL32(255, 235, 200, 230));
+            stars(30, 0.45f, IM_COL32(255, 255, 255, 110));
+        }
+        break;
+    case 8:   // Independence Day: fireworks in red, white and blue
+        if (stage == 0) { stars(40, 0.5f, IM_COL32(255, 255, 255, 110));
+            decoBurst(dl, at(0.2f, 0.24f), 50 * u, IM_COL32(240, 70, 80, 255), 18); decoBurst(dl, at(0.5f, 0.14f), 42 * u, IM_COL32(255, 255, 255, 255), 16);
+            decoBurst(dl, at(0.78f, 0.26f), 48 * u, IM_COL32(90, 140, 255, 255), 18); decoBurst(dl, at(0.36f, 0.42f), 26 * u, IM_COL32(255, 255, 255, 230), 12);
+            decoBurst(dl, at(0.66f, 0.44f), 28 * u, IM_COL32(240, 70, 80, 230), 12); }
+        break;
+    case 9:   // Labor Day: a city's skyline at work, cranes over it
+        if (stage == 1) {
+            for (int i = 0; i < 18; ++i) { const float x0 = 0.02f + i * 0.054f, hh = 0.1f + decoRnd(i, 3) * 0.16f; dl->AddRectFilled(at(x0, 1.0f - hh), at(x0 + 0.046f, 1.0f), IM_COL32(14, 18, 26, 255));
+                for (int wdw = 0; wdw < 4; ++wdw) if (decoRnd(i, wdw + 20) > 0.45f) dl->AddRectFilled(at(x0 + 0.01f + (wdw % 2) * 0.018f, 1.0f - hh + 0.02f + (wdw / 2) * 0.04f), at(x0 + 0.018f + (wdw % 2) * 0.018f, 1.0f - hh + 0.035f + (wdw / 2) * 0.04f), IM_COL32(255, 200, 110, 170)); }
+            for (int c = 0; c < 2; ++c) { const float x = c ? 0.74f : 0.28f; dl->AddLine(at(x, 1.0f), at(x, 0.52f), IM_COL32(255, 150, 50, 220), 4 * u);
+                dl->AddLine(at(x - 0.06f, 0.54f), at(x + 0.16f, 0.54f), IM_COL32(255, 150, 50, 220), 4 * u); dl->AddLine(at(x + 0.13f, 0.54f), at(x + 0.13f, 0.66f), IM_COL32(255, 150, 50, 160), 1.5f * u); }
+        }
+        break;
+    case 10:   // Halloween: a big moon, bats, pumpkins on the hills
+        if (stage == 0) { dl->AddCircleFilled(at(0.78f, 0.58f), 62 * u, IM_COL32(255, 236, 190, 230), 48); dl->AddCircleFilled(at(0.78f, 0.58f), 80 * u, IM_COL32(255, 220, 160, 30), 48);
+            for (int i = 0; i < 6; ++i) decoBat(dl, at(0.1f + decoRnd(i, 9) * 0.8f, 0.08f + decoRnd(i, 10) * 0.4f), (14 + decoRnd(i, 11) * 10) * u, IM_COL32(12, 6, 16, 240)); }
+        else for (int i = 0; i < 5; ++i) decoPumpkin(dl, at(0.1f + i * 0.2f + decoRnd(i, 4) * 0.05f, 0.92f), (18 + decoRnd(i, 5) * 8) * u);
+        break;
+    case 12:   // Thanksgiving: autumn leaves falling
+        if (stage == 0) { static const ImU32 lv[4] = {IM_COL32(230, 120, 40, 200), IM_COL32(200, 70, 30, 200), IM_COL32(240, 180, 60, 200), IM_COL32(170, 90, 40, 200)};
+            for (int i = 0; i < 22; ++i) decoLeaf(dl, at(0.03f + decoRnd(i, 9) * 0.94f, 0.04f + decoRnd(i, 10) * 0.7f), (9 + decoRnd(i, 11) * 9) * u, decoRnd(i, 12) * 6.28f, lv[i % 4]); }
+        break;
+    case 13:   // Christmas: snow falling, firs on the hills, a bright star
+        if (stage == 0) { decoStar(dl, at(0.5f, 0.12f), 18 * u, IM_COL32(255, 230, 150, 240)); dl->AddCircleFilled(at(0.5f, 0.12f), 30 * u, IM_COL32(255, 230, 150, 30), 32); }
+        else { for (int i = 0; i < 9; ++i) decoTree(dl, at(0.04f + i * 0.115f + decoRnd(i, 3) * 0.03f, 1.0f), (60 + decoRnd(i, 4) * 40) * u, IM_COL32(12, 52, 30, 255));
+            for (int i = 0; i < 90; ++i) dl->AddCircleFilled(at(decoRnd(i, 30), decoRnd(i, 31)), (1 + decoRnd(i, 32) * 2.2f) * u, IM_COL32(255, 255, 255, 190), 8); }
+        break;
+    case 14:   // Men's Mental Health: a blue ribbon in a soft light
+        if (stage == 0) { dl->AddCircleFilled(at(0.72f, 0.58f), 110 * u, IM_COL32(120, 180, 255, 26), 48); dl->AddCircleFilled(at(0.72f, 0.58f), 70 * u, IM_COL32(120, 180, 255, 30), 48);
+            decoRibbon(dl, at(0.72f, 0.58f), 70 * u, IM_COL32(80, 160, 255, 255)); stars(30, 0.6f, IM_COL32(255, 255, 255, 90)); }
+        break;
+    case 15:   // Breast Cancer Awareness: a pink ribbon in a soft light
+        if (stage == 0) { dl->AddCircleFilled(at(0.72f, 0.58f), 110 * u, IM_COL32(255, 160, 200, 26), 48); dl->AddCircleFilled(at(0.72f, 0.58f), 70 * u, IM_COL32(255, 160, 200, 30), 48);
+            decoRibbon(dl, at(0.72f, 0.58f), 70 * u, IM_COL32(255, 130, 180, 255)); stars(30, 0.6f, IM_COL32(255, 255, 255, 90)); }
+        break;
+    default: break;
+    }
+}
 // one background drawn into a box (the screen; or a little picture of it in Settings, the same drawing made small)
 ImU32 mixCol(ImU32 a, ImU32 b, float t);
 void wallpaperIn(ImDrawList* dl, ImVec2 o, float w, float h, int which, float round = 0) {
@@ -394,6 +557,8 @@ void wallpaperIn(ImDrawList* dl, ImVec2 o, float w, float h, int which, float ro
             v.col = (c & 0x00FFFFFF) | (v.col & 0xFF000000);
         }
     }
+    const int seasonK = std::max(0, std::min(kThemes - 1, which)) - kSeasonal0;
+    if (seasonK >= 0) seasonalDecor(dl, o, w, h, seasonK, 0);   // (a seasonal theme's sky: its picture)
     const int vMount = dl->VtxBuffer.Size;
     const float back[][2] = {{0.00f, 0.80f}, {0.12f, 0.62f}, {0.22f, 0.74f}, {0.36f, 0.50f}, {0.50f, 0.72f}, {0.62f, 0.56f}, {0.76f, 0.76f}, {0.88f, 0.60f}, {1.00f, 0.78f}};
     const float front[][2] = {{0.00f, 0.92f}, {0.10f, 0.80f}, {0.24f, 0.90f}, {0.42f, 0.70f}, {0.56f, 0.88f}, {0.70f, 0.76f}, {0.84f, 0.90f}, {1.00f, 0.80f}};
@@ -405,6 +570,7 @@ void wallpaperIn(ImDrawList* dl, ImVec2 o, float w, float h, int which, float ro
     };
     range(back, 9, bd.back);
     range(front, 8, bd.front);
+    if (seasonK >= 0) seasonalDecor(dl, o, w, h, seasonK, 1);   // (and on its hills)
     if (round > 0)   // the mountains kept inside the rounded corners: a point past a corner's curve goes onto it
         for (int i = vMount; i < dl->VtxBuffer.Size; ++i) {
             ImVec2& q = dl->VtxBuffer[i].pos;

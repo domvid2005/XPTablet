@@ -989,8 +989,7 @@ int main(int argc, char** argv) {
                 setSeasonalPreview(true);
                 shot(st, APP_SETTINGS, "settings_display_seasonal");
                 const int keepWp = settings().wallpaper;
-                settings().wallpaper = 10 + 13; shot(st, APP_HOME, "home_christmas");
-                settings().wallpaper = 10 + 15; shot(st, APP_HOME, "home_breast_cancer");
+                for (int k = 0; k < 16; ++k) { settings().wallpaper = 10 + k; char nm[32]; std::snprintf(nm, sizeof nm, "home_season%02d", k); shot(st, APP_HOME, nm); }
                 settings().wallpaper = 10 + 10; shot(st, APP_HOME, "home_halloween");
                 setSeasonalPreview(false);
                 settings().wallpaper = 10 + 0; settings().wallpaperBase = 3;
