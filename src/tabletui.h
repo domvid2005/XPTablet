@@ -58,6 +58,8 @@ struct Settings {
     int wallpaper = 0;            // Display: the theme (0 navy .. 4 amber, from the logo's colours; 5 Noir, 6 Cloud, 7-9 the Customs)
     struct CustomTheme { int bg = 0x2A3E5C, accent = 0x46A0FF; std::string picture; };   // colours 0xRRGGBB; a picture from plugins/XPTablet/backgrounds
     CustomTheme customs[3] = {{0x2A3E5C, 0x46A0FF, ""}, {0x2E5A3A, 0xF0A030, ""}, {0x4A2A52, 0xFF7AB0, ""}};   // the three Custom themes (7, 8, 9)
+    int wallpaperBase = 0;        // the theme chosen before a seasonal one (it comes back when the season ends)
+    std::string seasonalTold;     // the seasonal themes already announced ("index-year" items, space-separated)
     int accent = 0;               // Display: the colour of what is chosen (0 violet .. 4 gold), from the logo's letters
     bool localConnect = false;    // Local Connect: the tablet on a phone or tablet on the same network (off until switched on)
     bool localBattery = true;     // with a device connected that tells its battery: the tablet's battery is that device's
@@ -504,6 +506,9 @@ void tabletKey(int code, bool isChar);   // code: a character, or 8 (back) / 13 
 std::string logbookToText();   // the logbook's flights, one a line (saved by the host: Output/XPTablet/logbook.txt)
 void logbookFromText(const std::string& text);
 bool takeLogbookChanged();
+void setSeasonalPreview(bool all);
+bool seasonalOnDate(int theme, int year, int month, int day);   // seasonal theme n (0 New Year .. 15 Breast Cancer Awareness) on that date
+const char* seasonalName(int theme);   // every seasonal colour theme offered whatever the date (the browser emulator)
 // A Custom background's colours, from its pixels (RGBA): its average made deeper (the background), and its most striking colour made
 // bright and clear enough for buttons and switches (the accent). Shared by the plugin and the emulator.
 void pictureColors(const unsigned char* rgba, int w, int h, int& average, int& accent);

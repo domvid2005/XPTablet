@@ -49,6 +49,7 @@ void normalizeLayout();   // the home screen's places
 float itemHover();                                          // the last item's hover, eased
 float openness(const char* id, bool open, float rate = 14.0f);   // a menu opening and closing, eased
 void resetTablet();   // Reset All (below)
+void seasonalStep();   // the seasonal themes (below)
 void resetLogAndTimers();   // Reset All: the logbook and the timers (below)
 void acarsStep(const SimState& s, Actions& act);   // ACARS: what came up, into its log (below)
 void logStep(const SimState& s);   // the logbook's watch on the flight (below)
@@ -235,7 +236,82 @@ const Backdrop kBackdrops[5] = {
 struct Accent { const char* name; int r, g, b; };
 // each background has its accent: Navy the blue XPTablet always had, the others the logo colour their sky is made of
 const Accent kAccents[5] = {{"Blue", 70, 140, 255}, {"Violet", 150, 100, 235}, {"Magenta", 205, 80, 170}, {"Coral", 240, 96, 96}, {"Gold", 236, 176, 56}};
-constexpr int kThemes = 10;   // 0-4 from the logo, 5 Noir, 6 Cloud, 7-9 the three Customs
+// ---- the seasonal themes: one for each major US holiday, and two awareness months; each offered only while it is on (by the
+// computer's own date), and the theme chosen before it comes back when it ends
+struct Seasonal { const char* name; Backdrop bd; Accent ac; };
+const Seasonal kSeasonal[] = {
+    {"New Year", {"New Year", IM_COL32(6, 8, 20, 255), IM_COL32(38, 36, 70, 255), IM_COL32(28, 26, 52, 255), IM_COL32(16, 16, 34, 255)}, {"Gold", 236, 196, 92}},
+    {"MLK Day", {"MLK Day", IM_COL32(12, 12, 24, 255), IM_COL32(64, 52, 92, 255), IM_COL32(48, 38, 70, 255), IM_COL32(30, 24, 46, 255)}, {"Amber", 232, 168, 72}},
+    {"Valentine's", {"Valentine's", IM_COL32(30, 6, 18, 255), IM_COL32(150, 40, 80, 255), IM_COL32(112, 28, 62, 255), IM_COL32(70, 16, 40, 255)}, {"Rose", 255, 110, 150}},
+    {"Presidents' Day", {"Presidents' Day", IM_COL32(8, 14, 36, 255), IM_COL32(40, 60, 118, 255), IM_COL32(30, 44, 92, 255), IM_COL32(18, 28, 62, 255)}, {"Red", 226, 72, 72}},
+    {"St. Patrick's", {"St. Patrick's", IM_COL32(4, 22, 12, 255), IM_COL32(22, 110, 58, 255), IM_COL32(16, 82, 44, 255), IM_COL32(10, 54, 30, 255)}, {"Shamrock", 96, 214, 112}},
+    {"Easter", {"Easter", IM_COL32(40, 46, 86, 255), IM_COL32(150, 170, 214, 255), IM_COL32(120, 160, 150, 255), IM_COL32(86, 130, 110, 255)}, {"Lilac", 190, 150, 240}},
+    {"Memorial Day", {"Memorial Day", IM_COL32(8, 12, 28, 255), IM_COL32(44, 54, 92, 255), IM_COL32(32, 40, 70, 255), IM_COL32(20, 26, 46, 255)}, {"Poppy", 214, 56, 56}},
+    {"Juneteenth", {"Juneteenth", IM_COL32(10, 8, 12, 255), IM_COL32(110, 34, 36, 255), IM_COL32(24, 70, 40, 255), IM_COL32(16, 40, 24, 255)}, {"Gold", 240, 184, 60}},
+    {"Independence Day", {"Independence Day", IM_COL32(6, 10, 32, 255), IM_COL32(36, 52, 120, 255), IM_COL32(120, 30, 44, 255), IM_COL32(70, 20, 34, 255)}, {"Red", 236, 64, 72}},
+    {"Labor Day", {"Labor Day", IM_COL32(10, 14, 22, 255), IM_COL32(58, 74, 96, 255), IM_COL32(44, 56, 74, 255), IM_COL32(28, 36, 50, 255)}, {"Hi-vis", 255, 140, 40}},
+    {"Halloween", {"Halloween", IM_COL32(10, 4, 18, 255), IM_COL32(70, 28, 96, 255), IM_COL32(40, 16, 56, 255), IM_COL32(14, 8, 16, 255)}, {"Pumpkin", 255, 128, 24}},
+    {"Veterans Day", {"Veterans Day", IM_COL32(10, 14, 12, 255), IM_COL32(64, 76, 56, 255), IM_COL32(46, 56, 42, 255), IM_COL32(28, 34, 26, 255)}, {"Gold", 222, 180, 80}},
+    {"Thanksgiving", {"Thanksgiving", IM_COL32(24, 12, 8, 255), IM_COL32(150, 76, 30, 255), IM_COL32(110, 52, 24, 255), IM_COL32(66, 32, 18, 255)}, {"Harvest", 244, 160, 52}},
+    {"Christmas", {"Christmas", IM_COL32(4, 16, 12, 255), IM_COL32(24, 80, 52, 255), IM_COL32(18, 60, 40, 255), IM_COL32(10, 36, 24, 255)}, {"Holly", 222, 52, 60}},
+    {"Men's Mental Health", {"Men's Mental Health", IM_COL32(6, 14, 34, 255), IM_COL32(30, 74, 150, 255), IM_COL32(22, 56, 116, 255), IM_COL32(14, 36, 78, 255)}, {"Blue", 70, 160, 255}},
+    {"Breast Cancer Awareness", {"Breast Cancer Awareness", IM_COL32(30, 10, 24, 255), IM_COL32(170, 70, 120, 255), IM_COL32(130, 50, 96, 255), IM_COL32(80, 30, 60, 255)}, {"Pink", 255, 130, 180}},
+};
+constexpr int kSeasonalN = (int)(sizeof kSeasonal / sizeof kSeasonal[0]);
+constexpr int kSeasonal0 = 10;   // the first seasonal theme's number
+constexpr int kThemes = kSeasonal0 + kSeasonalN;   // 0-4 from the logo, 5 Noir, 6 Cloud, 7-9 the three Customs, then the seasonal ones
+bool g_seasonalAll = false;   // every seasonal theme offered whatever the date (the browser emulator, to look at them)
+// the nth weekday (0 Sunday) of a month (n 1-5; -1 the last), as a day of the month
+int nthWeekday(int year, int month, int wday, int n) {
+    std::tm t{}; t.tm_year = year - 1900; t.tm_mon = month - 1; t.tm_mday = 1; t.tm_hour = 12; std::mktime(&t);
+    const int first = 1 + (wday - t.tm_wday + 7) % 7;
+    if (n > 0) return first + (n - 1) * 7;
+    static const int dim[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int days = dim[month - 1]; if (month == 2 && ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0)) days = 29;
+    int d = first; while (d + 7 <= days) d += 7; return d;
+}
+int dayOfYear(int year, int month, int day) { std::tm t{}; t.tm_year = year - 1900; t.tm_mon = month - 1; t.tm_mday = day; t.tm_hour = 12; std::mktime(&t); return t.tm_yday; }
+int easterDoy(int y) {   // Easter Sunday (the Gregorian computus), as a day of the year
+    const int a = y % 19, b = y / 100, c = y % 100, d = b / 4, e = b % 4, f = (b + 8) / 25, g = (b - f + 1) / 3, h = (19 * a + b - d - g + 15) % 30;
+    const int i = c / 4, k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = (a + 11 * h + 22 * l) / 451;
+    const int month = (h + l - 7 * m + 114) / 31, day = (h + l - 7 * m + 114) % 31 + 1;
+    return dayOfYear(y, month, day);
+}
+// is seasonal theme s on, on this date: each holiday a few days before it until it is over; the awareness months all month
+bool seasonalOn(int s, int year, int month, int day) {
+    const int doy = dayOfYear(year, month, day);
+    auto within = [&](int m, int d, int before, int after) { const int h = dayOfYear(year, m, d); return doy >= h - before && doy <= h + after; };
+    switch (s) {
+    case 0: return (month == 12 && day == 31) || (month == 1 && day <= 2);                       // New Year: Dec 31 to Jan 2
+    case 1: return within(1, nthWeekday(year, 1, 1, 3), 2, 0);                                   // MLK Day: 3rd Monday of January (its weekend)
+    case 2: return month == 2 && day >= 7 && day <= 14;                                         // Valentine's Day: Feb 7-14
+    case 3: return within(2, nthWeekday(year, 2, 1, 3), 2, 0);                                   // Presidents' Day: 3rd Monday of February
+    case 4: return month == 3 && day >= 14 && day <= 17;                                        // St. Patrick's Day: Mar 14-17
+    case 5: { const int e = easterDoy(year); return doy >= e - 7 && doy <= e + 1; }             // Easter: Palm Sunday to Easter Monday
+    case 6: return within(5, nthWeekday(year, 5, 1, -1), 2, 0);                                  // Memorial Day: last Monday of May
+    case 7: return month == 6 && day >= 17 && day <= 19;                                        // Juneteenth: Jun 17-19
+    case 8: return (month == 6 && day == 30) || (month == 7 && day <= 5);                        // Independence Day: Jun 30 to Jul 5
+    case 9: return within(9, nthWeekday(year, 9, 1, 1), 2, 0);                                   // Labor Day: 1st Monday of September
+    case 10: return month == 10 && day >= 17;                                                   // Halloween: Oct 17-31
+    case 11: return month == 11 && day >= 9 && day <= 11;                                       // Veterans Day: Nov 9-11
+    case 12: return within(11, nthWeekday(year, 11, 4, 4), 3, 3);                                // Thanksgiving: 4th Thursday of November, its week
+    case 13: return month == 12 && day <= 26;                                                   // Christmas: Dec 1-26
+    case 14: return month == 6;                                                                 // Men's Mental Health Month (US Men's Health Month): June
+    case 15: return month == 10;                                                                // Breast Cancer Awareness Month: October
+    default: return false;
+    }
+}
+bool seasonalAvailable(int s) {
+    if (g_seasonalAll) return true;
+    const std::time_t now = std::time(nullptr);
+    std::tm lt{};
+#if defined(_WIN32)
+    localtime_s(&lt, &now);
+#else
+    localtime_r(&now, &lt);
+#endif
+    return seasonalOn(s, lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday);
+}
 // the Custom theme's picture, as the host has loaded it (set each frame from the SimState)
 ImTextureID g_bgTex = 0;
 int g_bgW = 0, g_bgH = 0;
@@ -251,6 +327,7 @@ Backdrop themeBackdrop(int which) {
     if (which < 5) return kBackdrops[which];
     if (which == 5) return {"Noir", IM_COL32(8, 8, 10, 255), IM_COL32(44, 46, 50, 255), IM_COL32(32, 33, 36, 255), IM_COL32(21, 22, 25, 255)};
     if (which == 6) return {"Cloud", IM_COL32(58, 116, 190, 255), IM_COL32(176, 210, 238, 255), IM_COL32(124, 170, 214, 255), IM_COL32(96, 146, 198, 255)};
+    if (which >= kSeasonal0) return kSeasonal[which - kSeasonal0].bd;
     static const char* names[3] = {"Custom 1", "Custom 2", "Custom 3"};
     const int bg = g_settings.customs[which - 7].bg;
     return {names[which - 7], rgbCol(bg, 0.30f), rgbCol(bg, 1.0f), rgbCol(bg, 0.78f), rgbCol(bg, 0.56f)};
@@ -260,6 +337,7 @@ Accent themeAccent() {
     if (i < 5) return kAccents[i];
     if (i == 5) return {"Silver", 132, 142, 160};
     if (i == 6) return {"Sky", 36, 128, 232};
+    if (i >= kSeasonal0) return kSeasonal[i - kSeasonal0].ac;
     const int a = g_settings.customs[i - 7].accent;
     return {"Custom", (a >> 16) & 255, (a >> 8) & 255, a & 255};
 }
@@ -295,7 +373,7 @@ void wallpaperIn(ImDrawList* dl, ImVec2 o, float w, float h, int which, float ro
     const Backdrop bd = themeBackdrop(which);
     {   // a Custom theme with its picture loaded: the picture, filling the box (cropped to its shape)
         const int wi = std::max(0, std::min(kThemes - 1, which));
-        if (wi >= 7 && g_bgTex && g_bgW > 0 && g_bgH > 0 && !g_settings.customs[wi - 7].picture.empty() && g_settings.customs[wi - 7].picture == g_bgPic) {
+        if (wi >= 7 && wi <= 9 && g_bgTex && g_bgW > 0 && g_bgH > 0 && !g_settings.customs[wi - 7].picture.empty() && g_settings.customs[wi - 7].picture == g_bgPic) {
             const float ia = (float)g_bgW / g_bgH, ba = w / std::max(1.0f, h);
             ImVec2 uv0(0, 0), uv1(1, 1);
             if (ia > ba) { const float k = ba / ia; uv0.x = (1 - k) * 0.5f; uv1.x = 1 - uv0.x; } else { const float k = ia / ba; uv0.y = (1 - k) * 0.5f; uv1.y = 1 - uv0.y; }
@@ -7660,11 +7738,22 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             textAt(dl, f.bold, rx, ry, kInk, "Color theme");
             ry += 24;
             const float tw = std::floor((colW - 4 * 8) / 5), th = std::floor(tw * 480.0f / 800.0f);   // the screen's shape
-            for (int i = 0; i < kThemes; ++i) {   // the wallpaper itself, made small, with its accent under it (two rows of five)
+            // the seasonal themes on now (all of them in the emulator): a row of their own under the ten, five at a time
+            std::vector<int> seas;
+            for (int k = 0; k < kSeasonalN; ++k) if (seasonalAvailable(k)) seas.push_back(kSeasonal0 + k);
+            static int seasPage = 0;
+            const int seasPages = std::max(1, ((int)seas.size() + 4) / 5);
+            seasPage = std::max(0, std::min(seasPage, seasPages - 1));
+            std::vector<int> order;
+            for (int i = 0; i < 10; ++i) order.push_back(i);
+            for (int k = seasPage * 5; k < (int)seas.size() && k < seasPage * 5 + 5; ++k) order.push_back(seas[k]);
+            for (int slot = 0; slot < (int)order.size(); ++slot) {   // the wallpaper itself, made small, with its accent under it (rows of five)
+                const int i = order[slot];
                 const Backdrop bd = themeBackdrop(i);
                 const int keep = g_settings.wallpaper;
                 g_settings.wallpaper = i; const Accent ac = themeAccent(); g_settings.wallpaper = keep;
-                const ImVec2 a(std::floor(rx + (i % 5) * (tw + 8)), std::floor(ry + (i / 5) * (th + 40))), b(a.x + tw, a.y + th);   // (on whole pixels: even edges)
+                const float seasGap = slot >= 10 ? 30.0f : 0.0f;   // (the seasonal row under its own heading)
+                const ImVec2 a(std::floor(rx + (slot % 5) * (tw + 8)), std::floor(ry + (slot / 5) * (th + 40) + seasGap)), b(a.x + tw, a.y + th);   // (on whole pixels: even edges)
                 char id[16];
                 std::snprintf(id, sizeof id, "##wp%d", i);
                 ImGui::SetCursorScreenPos(a);
@@ -7673,11 +7762,11 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
                 static double heldAt = -1; static int heldOn = -1;
                 if (ImGui::IsItemActivated()) { heldAt = ImGui::GetTime(); heldOn = i; }
                 bool opened = false;
-                if (i >= 7 && ImGui::IsItemActive() && heldOn == i && heldAt >= 0 && ImGui::GetTime() - heldAt > 0.5) {
+                if (i >= 7 && i <= 9 && ImGui::IsItemActive() && heldOn == i && heldAt >= 0 && ImGui::GetTime() - heldAt > 0.5) {
                     g_customEdit = i - 7; g_customEditT0 = ImGui::GetTime(); heldAt = -1; opened = true;
                     g_settings.wallpaper = i; g_settings.accent = 4; g_settingsChanged = true; act.backgroundsList = true;
                 }
-                if (tapped && heldAt >= 0 && !opened) { g_settings.wallpaper = i; g_settings.accent = std::min(i, 4); g_settingsChanged = true; }
+                if (tapped && heldAt >= 0 && !opened) { g_settings.wallpaper = i; g_settings.accent = std::min(i, 4); if (i < kSeasonal0) g_settings.wallpaperBase = i; g_settingsChanged = true; }
                 if (ImGui::IsItemDeactivated()) heldAt = -1;
                 const bool sel = g_settings.wallpaper == i, hot = ImGui::IsItemHovered();
                 dl->PushClipRect(a, b, true);
@@ -7687,16 +7776,27 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
                 // chosen: a ring that hugs the picture's edge all round (no dark gap between them, the same on every side)
                 if (sel) dl->AddRect(ImVec2(a.x - 1, a.y - 1), ImVec2(b.x + 1, b.y + 1), accentLite(255), 9.0f, 0, 2.5f);
                 else dl->AddRect(a, b, hot ? IM_COL32(255, 255, 255, 110) : IM_COL32(255, 255, 255, 40), 8.0f, 0, 1.0f);
-                if (i >= 7) {   // (a pencil: hold to edit)
+                if (i >= 7 && i <= 9) {   // (a pencil: hold to edit)
                     const ImVec2 pc(b.x - 9, a.y + 9);
                     dl->AddCircleFilled(pc, 7, IM_COL32(0, 0, 0, 140), 0);
                     dl->AddLine(ImVec2(pc.x - 3, pc.y + 3), ImVec2(pc.x + 3, pc.y - 3), IM_COL32(255, 255, 255, 230), 1.6f);
                 }
                 dl->AddCircleFilled(ImVec2((a.x + b.x) * 0.5f, b.y + 10), 5.0f, IM_COL32(ac.r, ac.g, ac.b, 255), 0);
-                textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y + 18, sel ? kInk : kMuted, bd.name);
+                textCentered(dl, f.small, (a.x + b.x) * 0.5f, b.y + 18, sel ? kInk : kMuted, fitText(f.small, bd.name, tw + 6).c_str());
             }
             ry += 2 * (th + 40);
-            textAt(dl, f.small, rx, ry, kMuted, "Hold a Custom theme to choose its colours and picture.");
+            textAt(dl, f.small, rx, ry - 8, kMuted, "Hold a Custom theme to choose its colours and picture.");
+            if (!seas.empty()) {   // the seasonal row's heading, and its pages
+                textAt(dl, f.bold, rx, ry + 12, kInk, "Seasonal");
+                textAt(dl, f.small, rx + 78, ry + 15, kMuted, "while it lasts");
+                if (seasPages > 1) {
+                    char pg[16]; std::snprintf(pg, sizeof pg, "%d / %d", seasPage + 1, seasPages);
+                    const float bx = rx + colW;
+                    if (pill(dl, f, "##seasnext", ">", ImVec2(bx - 30, ry + 8), ImVec2(bx, ry + 32), false, seasPage + 1 < seasPages)) ++seasPage;
+                    textCentered(dl, f.small, bx - 62, ry + 13, kMuted, pg);
+                    if (pill(dl, f, "##seasprev", "<", ImVec2(bx - 124, ry + 8), ImVec2(bx - 94, ry + 32), false, seasPage > 0)) --seasPage;
+                }
+            }
         }
         return;
     }
@@ -7855,6 +7955,7 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
 void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     if (!ImGui::GetIO().MouseDown[0]) g_touchScrolling = false;
     logStep(s);   // (the logbook keeps watching, whatever page is shown)
+    seasonalStep();   // (a seasonal theme that has ended gives way; one that has begun is announced once)
     acarsStep(s, act);   // (and ACARS keeps listening)
     {   // a Custom theme's picture: the one the theme shown (or being edited) wants; its average colour becomes its background once
         g_bgTex = s.bgTex; g_bgW = s.bgW; g_bgH = s.bgH; g_bgPic = s.bgPicture;
@@ -8826,6 +8927,34 @@ void acarsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
     pageKeyboard(dl, f, w, h, act);
 }
 
+void seasonalStep() {
+    if (g_settings.wallpaper >= kSeasonal0 && !seasonalAvailable(g_settings.wallpaper - kSeasonal0)) {   // its season over: the theme before
+        g_settings.wallpaper = std::max(0, std::min(kSeasonal0 - 1, g_settings.wallpaperBase));
+        g_settings.accent = std::min(g_settings.wallpaper, 4); g_settingsChanged = true;
+    }
+    static bool told = false;   // once each start, when the tablet is on: a theme whose season it is, not announced yet this year
+    if (told || g_power != POWER_ON) return;
+    told = true;
+    const std::time_t now = std::time(nullptr);
+    std::tm lt{};
+#if defined(_WIN32)
+    localtime_s(&lt, &now);
+#else
+    localtime_r(&now, &lt);
+#endif
+    const int year = lt.tm_year + 1900;
+    for (int k = 0; k < kSeasonalN; ++k) {
+        if (!seasonalOn(k, year, lt.tm_mon + 1, lt.tm_mday)) continue;   // (the real date, even where all are offered)
+        const std::string key = std::to_string(k) + "-" + std::to_string(k == 0 && lt.tm_mon == 11 ? year + 1 : year);   // (New Year's Eve counts with the new year)
+        const std::string& t = g_settings.seasonalTold;
+        if ((" " + t + " ").find(" " + key + " ") != std::string::npos) continue;
+        g_settings.seasonalTold = t.empty() ? key : t + " " + key;
+        if (g_settings.seasonalTold.size() > 400) g_settings.seasonalTold.erase(0, g_settings.seasonalTold.find(' ', g_settings.seasonalTold.size() - 400) + 1);
+        g_settingsChanged = true;
+        const bool month = k >= 14;
+        postNote("Color theme", std::string("The ") + kSeasonal[k].name + (month ? " theme is here for the month" : " theme is here for the holiday") + ": Settings, Display, Seasonal", APP_SETTINGS);
+    }
+}
 void resetLogAndTimers() { g_acLog.clear(); g_acStation.clear(); g_acTo.clear(); g_acText.clear(); g_acAtis.clear(); g_acCall.clear(); g_acLogon = 0; g_acLogonTo.clear(); g_log.clear(); g_logChanged = true; g_live = LogLive(); g_swStart = -1; g_swAcc = 0; g_cdStart = -1; g_cdSet = g_cdLeft = 60; g_cdRang = false; }
 void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
     const float top = kStatusH + kHeaderH;
@@ -9320,6 +9449,9 @@ void pictureColors(const unsigned char* rgba, int w, int h, int& average, int& a
     auto chan = [&](float c) { const float t = mx > mn ? (c - mn) / (mx - mn) : 0; return 0.95f * (1 - s + s * t); };
     accent = ((int)std::lround(chan(R) * 255) << 16) | ((int)std::lround(chan(G) * 255) << 8) | (int)std::lround(chan(B) * 255);
 }
+void setSeasonalPreview(bool all) { g_seasonalAll = all; }
+bool seasonalOnDate(int k, int year, int month, int day) { return seasonalOn(k, year, month, day); }
+const char* seasonalName(int k) { return k >= 0 && k < kSeasonalN ? kSeasonal[k].name : ""; }
 bool takeLogbookChanged() { const bool c = g_logChanged; g_logChanged = false; return c; }
 std::string notesToText() {
     std::string out;
@@ -9436,6 +9568,7 @@ std::string settingsToText() {
         std::string u = g_settings.simbriefUser;
         for (char& c : u) if (c == '\n' || c == '\r') c = ' ';
         out += "simbrief_user=" + u + "\n";
+        out += "wallpaper_base=" + std::to_string(g_settings.wallpaperBase) + "\nseasonal_told=" + g_settings.seasonalTold + "\n";
         { std::string v = g_settings.hoppieCode; for (char& c : v) if (c == '\n' || c == '\r') c = ' '; out += "hoppie_code=" + v + "\n"; }
     }
     out += std::string("map_airspaces=") + (g_settings.mapAirspaces ? "1" : "0") + "\n";
@@ -9581,6 +9714,8 @@ void settingsFromText(const std::string& text) {
             else if (what == "picture") ct.picture = val;
         }
         else if (key == "wallpaper") { g_settings.wallpaper = std::max(0, std::min(kThemes - 1, v)); g_settings.accent = g_settings.wallpaper; }
+        else if (key == "wallpaper_base") g_settings.wallpaperBase = std::max(0, std::min(kSeasonal0 - 1, v));
+        else if (key == "seasonal_told") g_settings.seasonalTold = val;
         else if (key == "accent") g_settings.accent = std::max(0, std::min(4, v));
         else if (key == "battery") g_batt = (float)std::max(0, std::min(100, v));
         else if (key == "charger") g_charger = v != 0;

@@ -976,6 +976,29 @@ int main(int argc, char** argv) {
             tap(st, 80, 154);   // Display
             settings().autoDim = true;
             shot(st, APP_SETTINGS, "settings_display");
+            {   // the seasonal themes: each on its own dates (2026: MLK Jan 19, Presidents' Feb 16, Easter Apr 5, Memorial May 25, Labor Sep 7,
+                // Thanksgiving Nov 26); all of them offered in the emulator
+                struct D { int k, y, m, d; bool on; };
+                const D ds[] = {{0, 2026, 12, 31, true}, {0, 2027, 1, 2, true}, {0, 2027, 1, 3, false}, {1, 2026, 1, 19, true}, {1, 2026, 1, 20, false},
+                    {2, 2026, 2, 14, true}, {2, 2026, 2, 15, false}, {3, 2026, 2, 16, true}, {4, 2026, 3, 17, true}, {5, 2026, 4, 5, true}, {5, 2026, 3, 29, true},
+                    {5, 2026, 4, 7, false}, {6, 2026, 5, 25, true}, {6, 2026, 5, 22, false}, {7, 2026, 6, 19, true}, {8, 2026, 7, 4, true}, {9, 2026, 9, 7, true},
+                    {9, 2026, 9, 8, false}, {10, 2026, 10, 31, true}, {10, 2026, 11, 1, false}, {11, 2026, 11, 11, true}, {12, 2026, 11, 26, true}, {12, 2026, 11, 20, false},
+                    {13, 2026, 12, 25, true}, {13, 2026, 12, 27, false}, {14, 2026, 6, 1, true}, {14, 2026, 7, 1, false}, {15, 2026, 10, 15, true}, {15, 2026, 11, 1, false}};
+                for (const D& d : ds) if (seasonalOnDate(d.k, d.y, d.m, d.d) != d.on) { std::printf("FAIL: %s on %d-%02d-%02d should be %s\n", seasonalName(d.k), d.y, d.m, d.d, d.on ? "on" : "off"); ++failures; }
+                setSeasonalPreview(true);
+                shot(st, APP_SETTINGS, "settings_display_seasonal");
+                const int keepWp = settings().wallpaper;
+                settings().wallpaper = 10 + 13; shot(st, APP_HOME, "home_christmas");
+                settings().wallpaper = 10 + 15; shot(st, APP_HOME, "home_breast_cancer");
+                settings().wallpaper = 10 + 10; shot(st, APP_HOME, "home_halloween");
+                setSeasonalPreview(false);
+                settings().wallpaper = 10 + 0; settings().wallpaperBase = 3;
+                for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); }
+                std::time_t nowT = std::time(nullptr); std::tm lt = *std::localtime(&nowT);
+                if (!seasonalOnDate(0, lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday) && settings().wallpaper != 3) { std::printf("FAIL: a seasonal theme out of season gives way to the one before (%d)\n", settings().wallpaper); ++failures; }
+                settings().wallpaper = keepWp;
+                openApp(APP_SETTINGS);
+            }
             {   // a Custom held: its editor, with the pictures from the backgrounds folder
                 const int keepWp = settings().wallpaper;
                 SimState sb = st; sb.backgroundFiles = {"aurora.jpg", "my-livery.png"}; sb.backgroundsFolder = "E:/X-Plane 12/Resources/plugins/XPTablet/backgrounds";
