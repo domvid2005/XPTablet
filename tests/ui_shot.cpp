@@ -996,11 +996,17 @@ int main(int argc, char** argv) {
                     {5, 2026, 4, 7, false}, {6, 2026, 5, 25, true}, {6, 2026, 5, 22, false}, {7, 2026, 6, 19, true}, {8, 2026, 7, 4, true}, {9, 2026, 9, 7, true},
                     {9, 2026, 9, 8, false}, {10, 2026, 10, 31, true}, {10, 2026, 11, 1, false}, {11, 2026, 11, 11, true}, {12, 2026, 11, 26, true}, {12, 2026, 11, 20, false},
                     {13, 2026, 12, 1, true}, {13, 2026, 12, 24, true}, {13, 2026, 12, 25, true}, {13, 2026, 12, 26, false}, {14, 2026, 6, 1, true}, {14, 2026, 7, 1, false}, {15, 2026, 10, 15, true}, {15, 2026, 11, 1, false}};
+                {   // the four seasons, by the calendar's months: one is always on, never two
+                    static const D ss[] = {{16, 2027, 3, 1, true}, {16, 2027, 5, 31, true}, {16, 2027, 6, 1, false}, {17, 2027, 6, 1, true}, {17, 2027, 8, 31, true}, {17, 2027, 9, 1, false},
+                                           {18, 2026, 11, 21, true}, {18, 2026, 12, 1, false}, {19, 2026, 12, 1, true}, {19, 2027, 1, 15, true}, {19, 2027, 2, 28, true}, {19, 2027, 3, 1, false}};
+                    for (const D& d : ss) if (seasonalOnDate(d.k, d.y, d.m, d.d) != d.on) { std::printf("FAIL: %s on %d-%02d-%02d should be %s\n", seasonalName(d.k), d.y, d.m, d.d, d.on ? "on" : "off"); ++failures; }
+                    for (int m = 1; m <= 12; ++m) { int on = 0; for (int k = 16; k < 20; ++k) on += seasonalOnDate(k, 2027, m, 15) ? 1 : 0; if (on != 1) { std::printf("FAIL: exactly one season in month %d (%d)\n", m, on); ++failures; } }
+                }
                 for (const D& d : ds) if (seasonalOnDate(d.k, d.y, d.m, d.d) != d.on) { std::printf("FAIL: %s on %d-%02d-%02d should be %s\n", seasonalName(d.k), d.y, d.m, d.d, d.on ? "on" : "off"); ++failures; }
                 setSeasonalPreview(true);
                 shot(st, APP_SETTINGS, "settings_display_seasonal");
                 const int keepWp = settings().wallpaper;
-                for (int k = 0; k < 16; ++k) { settings().wallpaper = 10 + k; char nm[32]; std::snprintf(nm, sizeof nm, "home_season%02d", k); shot(st, APP_HOME, nm); }
+                for (int k = 0; k < 20; ++k) { settings().wallpaper = 10 + k; char nm[32]; std::snprintf(nm, sizeof nm, "home_season%02d", k); shot(st, APP_HOME, nm); }
                 settings().wallpaper = 10 + 10; shot(st, APP_HOME, "home_halloween");
                 {   // Christmas: the user's aircraft is a sleigh (the Ground page, the map, the route bar); traffic stays as it is
                     settings().wallpaper = 10 + 13;

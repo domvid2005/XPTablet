@@ -6,6 +6,7 @@
 #include "acars.h"
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <set>
 #include <array>
@@ -243,7 +244,7 @@ const Backdrop kBackdrops[5] = {
 struct Accent { const char* name; int r, g, b; };
 // each background has its accent: Navy the blue XPTablet always had, the others the logo colour their sky is made of
 const Accent kAccents[5] = {{"Blue", 70, 140, 255}, {"Violet", 150, 100, 235}, {"Magenta", 205, 80, 170}, {"Coral", 240, 96, 96}, {"Gold", 236, 176, 56}};
-// ---- the seasonal themes: one for each major US holiday, and two awareness months; each offered only while it is on (by the
+// ---- the seasonal themes: one for each major US holiday, two awareness months and the four seasons; each offered only while it is on (by the
 // computer's own date), and the theme chosen before it comes back when it ends
 struct Seasonal { const char* name; Backdrop bd; Accent ac; };
 const Seasonal kSeasonal[] = {
@@ -259,10 +260,15 @@ const Seasonal kSeasonal[] = {
     {"Labor Day", {"Labor Day", IM_COL32(10, 14, 22, 255), IM_COL32(58, 74, 96, 255), IM_COL32(44, 56, 74, 255), IM_COL32(28, 36, 50, 255)}, {"Hi-vis", 255, 140, 40}},
     {"Halloween", {"Halloween", IM_COL32(10, 4, 18, 255), IM_COL32(70, 28, 96, 255), IM_COL32(40, 16, 56, 255), IM_COL32(14, 8, 16, 255)}, {"Pumpkin", 255, 128, 24}},
     {"Veterans Day", {"Veterans Day", IM_COL32(10, 14, 12, 255), IM_COL32(64, 76, 56, 255), IM_COL32(46, 56, 42, 255), IM_COL32(28, 34, 26, 255)}, {"Gold", 222, 180, 80}},
-    {"Thanksgiving", {"Thanksgiving", IM_COL32(24, 12, 8, 255), IM_COL32(150, 76, 30, 255), IM_COL32(110, 52, 24, 255), IM_COL32(66, 32, 18, 255)}, {"Harvest", 244, 160, 52}},
+    {"Thanksgiving", {"Thanksgiving", IM_COL32(26, 12, 22, 255), IM_COL32(150, 70, 44, 255), IM_COL32(104, 48, 30, 255), IM_COL32(60, 28, 22, 255)}, {"Harvest", 244, 160, 52}},
     {"Christmas", {"Christmas", IM_COL32(4, 16, 12, 255), IM_COL32(24, 80, 52, 255), IM_COL32(18, 60, 40, 255), IM_COL32(10, 36, 24, 255)}, {"Holly", 222, 52, 60}},
     {"Men's Mental Health", {"Men's Mental Health", IM_COL32(6, 14, 34, 255), IM_COL32(30, 74, 150, 255), IM_COL32(22, 56, 116, 255), IM_COL32(14, 36, 78, 255)}, {"Blue", 70, 160, 255}},
     {"Breast Cancer Awareness", {"Breast Cancer Awareness", IM_COL32(30, 10, 24, 255), IM_COL32(170, 70, 120, 255), IM_COL32(130, 50, 96, 255), IM_COL32(80, 30, 60, 255)}, {"Pink", 255, 130, 180}},
+    // the four seasons (by the calendar's months, as the weather services count them: spring March to May, and so on)
+    {"Spring", {"Spring", IM_COL32(34, 72, 110, 255), IM_COL32(128, 190, 190, 255), IM_COL32(72, 140, 100, 255), IM_COL32(46, 104, 76, 255)}, {"Blossom", 255, 150, 190}},
+    {"Summer", {"Summer", IM_COL32(14, 58, 120, 255), IM_COL32(84, 170, 224, 255), IM_COL32(40, 132, 104, 255), IM_COL32(24, 96, 80, 255)}, {"Sun", 255, 196, 60}},
+    {"Fall", {"Fall", IM_COL32(30, 16, 12, 255), IM_COL32(170, 88, 34, 255), IM_COL32(122, 58, 26, 255), IM_COL32(74, 36, 20, 255)}, {"Maple", 236, 120, 40}},
+    {"Winter", {"Winter", IM_COL32(8, 18, 42, 255), IM_COL32(74, 104, 152, 255), IM_COL32(120, 142, 176, 255), IM_COL32(84, 104, 140, 255)}, {"Ice", 130, 200, 255}},
 };
 constexpr int kSeasonalN = (int)(sizeof kSeasonal / sizeof kSeasonal[0]);
 constexpr int kSeasonal0 = 10;   // the first seasonal theme's number
@@ -305,6 +311,10 @@ bool seasonalOn(int s, int year, int month, int day) {
     case 13: return month == 12 && day <= 25;                                                   // Christmas: all December, Christmas Eve and the day itself
     case 14: return month == 6;                                                                 // Men's Mental Health Month (US Men's Health Month): June
     case 15: return month == 10;                                                                // Breast Cancer Awareness Month: October
+    case 16: return month >= 3 && month <= 5;                                                   // Spring: March to May
+    case 17: return month >= 6 && month <= 8;                                                   // Summer: June to August
+    case 18: return month >= 9 && month <= 11;                                                  // Fall: September to November
+    case 19: return month == 12 || month <= 2;                                                  // Winter: December to February
     default: return false;
     }
 }
@@ -446,10 +456,97 @@ void decoFlower(ImDrawList* dl, ImVec2 c, float r, ImU32 petal, ImU32 mid) {
     for (int i = 0; i < 5; ++i) { const float a = i * 1.2566f; dl->AddCircleFilled(ImVec2(c.x + std::cos(a) * r * 0.5f, c.y + std::sin(a) * r * 0.5f), r * 0.45f, petal, 12); }
     dl->AddCircleFilled(c, r * 0.3f, mid, 12);
 }
+void decoGourd(ImDrawList* dl, ImVec2 c, float r, ImU32 col, ImU32 rib) {   // a pumpkin as it grows: its lobes, a stem, no face
+    dl->AddEllipseFilled(ImVec2(c.x - r * 0.46f, c.y), ImVec2(r * 0.52f, r * 0.72f), rib);
+    dl->AddEllipseFilled(ImVec2(c.x + r * 0.46f, c.y), ImVec2(r * 0.52f, r * 0.72f), rib);
+    dl->AddEllipseFilled(c, ImVec2(r * 0.58f, r * 0.78f), col);
+    dl->AddEllipseFilled(ImVec2(c.x - r * 0.12f, c.y - r * 0.2f), ImVec2(r * 0.16f, r * 0.42f), IM_COL32(255, 255, 255, 34));
+    dl->AddRectFilled(ImVec2(c.x - r * 0.08f, c.y - r * 1.04f), ImVec2(c.x + r * 0.10f, c.y - r * 0.68f), IM_COL32(86, 100, 40, 255), r * 0.05f);
+}
+void decoWheat(ImDrawList* dl, ImVec2 base, float hgt, float lean, ImU32 col) {   // a stalk of wheat: its ear of grains at the top
+    const ImVec2 top(base.x + lean * hgt, base.y - hgt);
+    dl->AddLine(base, top, col, std::max(1.0f, hgt * 0.022f));
+    for (int i = 0; i < 6; ++i) {
+        const float t = 1.0f - i * 0.055f;
+        const ImVec2 p(base.x + lean * hgt * t, base.y - hgt * t);
+        for (int sd = -1; sd <= 1; sd += 2) dl->AddEllipseFilled(ImVec2(p.x + sd * hgt * 0.03f, p.y), ImVec2(hgt * 0.022f, hgt * 0.045f), col, sd * 0.5f + lean, 8);
+    }
+}
+// a horn of plenty on its side, its mouth to the left: wicker rings narrowing to a curled tail, and the harvest spilling out
+void decoCornucopia(ImDrawList* dl, ImVec2 c, float s) {
+    const int n = 16;
+    for (int j = 0; j <= n; ++j) {   // from the tail to the mouth, each ring over the one before
+        const float t = (float)j / n, e = 1 - t;
+        const ImVec2 p(c.x + s * (1.02f * e - 0.10f * e * e * e), c.y - s * (0.62f * e * e + 0.20f * e * e * e * e));
+        const float r = s * (0.07f + 0.35f * t);
+        dl->AddCircleFilled(p, r, j % 2 ? IM_COL32(176, 118, 60, 255) : IM_COL32(150, 96, 46, 255), 24);
+        dl->AddCircle(p, r, IM_COL32(104, 62, 28, 150), 24, std::max(1.0f, s * 0.012f));
+    }
+    dl->AddEllipseFilled(ImVec2(c.x - s * 0.02f, c.y), ImVec2(s * 0.20f, s * 0.40f), IM_COL32(58, 32, 16, 255), 0, 28);   // its mouth
+    dl->AddEllipse(ImVec2(c.x - s * 0.02f, c.y), ImVec2(s * 0.20f, s * 0.40f), IM_COL32(204, 150, 84, 255), 0, 28, std::max(1.0f, s * 0.03f));
+    // the harvest: a pumpkin, apples, a pear, grapes, an ear of corn
+    decoGourd(dl, ImVec2(c.x - s * 0.52f, c.y + s * 0.12f), s * 0.30f, IM_COL32(232, 120, 30, 255), IM_COL32(196, 90, 20, 255));
+    dl->AddEllipseFilled(ImVec2(c.x - s * 0.30f, c.y + s * 0.02f), ImVec2(s * 0.09f, s * 0.26f), IM_COL32(240, 200, 70, 255), 1.05f, 16);   // corn
+    dl->AddEllipseFilled(ImVec2(c.x - s * 0.20f, c.y + s * 0.08f), ImVec2(s * 0.07f, s * 0.20f), IM_COL32(120, 150, 60, 255), 0.75f, 14);   // (its husk)
+    dl->AddCircleFilled(ImVec2(c.x - s * 0.14f, c.y + s * 0.24f), s * 0.14f, IM_COL32(200, 44, 44, 255), 20);                               // apples
+    dl->AddCircleFilled(ImVec2(c.x - s * 0.18f, c.y + s * 0.20f), s * 0.04f, IM_COL32(255, 255, 255, 60), 10);
+    dl->AddCircleFilled(ImVec2(c.x + s * 0.02f, c.y + s * 0.30f), s * 0.12f, IM_COL32(170, 196, 70, 255), 20);                              // a pear
+    dl->AddCircleFilled(ImVec2(c.x + s * 0.02f, c.y + s * 0.17f), s * 0.07f, IM_COL32(170, 196, 70, 255), 16);
+    for (int g = 0; g < 7; ++g) dl->AddCircleFilled(ImVec2(c.x - s * (0.44f - (g % 3) * 0.085f + (g / 3) * 0.04f), c.y + s * (0.36f + (g / 3) * 0.075f)), s * 0.05f, IM_COL32(120, 60, 150, 255), 12);   // grapes
+}
+void decoFlake(ImDrawList* dl, ImVec2 c, float r, float rot, ImU32 col) {   // a snowflake: six arms, a pair of barbs on each
+    const float th = std::max(1.0f, r * 0.10f);
+    for (int i = 0; i < 6; ++i) {
+        const float a = rot + i * 1.0472f, ca = std::cos(a), sa = std::sin(a);
+        dl->AddLine(c, ImVec2(c.x + ca * r, c.y + sa * r), col, th);
+        const ImVec2 m(c.x + ca * r * 0.62f, c.y + sa * r * 0.62f);
+        for (int sd = -1; sd <= 1; sd += 2) { const float b = a + sd * 0.9f; dl->AddLine(m, ImVec2(m.x + std::cos(b) * r * 0.30f, m.y + std::sin(b) * r * 0.30f), col, th); }
+    }
+}
+void decoCloud(ImDrawList* dl, ImVec2 c, float r, ImU32 col) {
+    dl->AddCircleFilled(ImVec2(c.x - r * 0.9f, c.y + r * 0.15f), r * 0.55f, col, 20); dl->AddCircleFilled(ImVec2(c.x - r * 0.25f, c.y - r * 0.2f), r * 0.75f, col, 24);
+    dl->AddCircleFilled(ImVec2(c.x + r * 0.55f, c.y), r * 0.62f, col, 20); dl->AddCircleFilled(ImVec2(c.x + r * 1.1f, c.y + r * 0.2f), r * 0.42f, col, 18);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.9f, c.y + r * 0.1f), ImVec2(c.x + r * 1.1f, c.y + r * 0.62f), col, r * 0.3f);
+}
+void decoRoundTree(ImDrawList* dl, ImVec2 base, float r, ImU32 col) {   // a broadleaf tree: a trunk and a round crown
+    dl->AddRectFilled(ImVec2(base.x - r * 0.10f, base.y - r * 0.9f), ImVec2(base.x + r * 0.10f, base.y), IM_COL32(70, 42, 26, 255));
+    dl->AddCircleFilled(ImVec2(base.x - r * 0.38f, base.y - r * 1.0f), r * 0.50f, col, 20); dl->AddCircleFilled(ImVec2(base.x + r * 0.38f, base.y - r * 1.0f), r * 0.50f, col, 20);
+    dl->AddCircleFilled(ImVec2(base.x, base.y - r * 1.38f), r * 0.58f, col, 22);
+}
+void decoBalloon(ImDrawList* dl, ImVec2 c, float r, ImU32 a, ImU32 b) {   // a hot-air balloon: its striped envelope, the lines, the basket
+    dl->AddCircleFilled(c, r, a, 28);
+    dl->AddEllipseFilled(c, ImVec2(r * 0.62f, r), b, 0, 24); dl->AddEllipseFilled(c, ImVec2(r * 0.26f, r), a, 0, 20);
+    dl->AddTriangleFilled(ImVec2(c.x - r * 0.72f, c.y + r * 0.68f), ImVec2(c.x + r * 0.72f, c.y + r * 0.68f), ImVec2(c.x, c.y + r * 1.5f), a);
+    dl->AddLine(ImVec2(c.x - r * 0.3f, c.y + r * 1.2f), ImVec2(c.x - r * 0.2f, c.y + r * 1.62f), IM_COL32(60, 40, 30, 255), std::max(1.0f, r * 0.04f));
+    dl->AddLine(ImVec2(c.x + r * 0.3f, c.y + r * 1.2f), ImVec2(c.x + r * 0.2f, c.y + r * 1.62f), IM_COL32(60, 40, 30, 255), std::max(1.0f, r * 0.04f));
+    dl->AddRectFilled(ImVec2(c.x - r * 0.24f, c.y + r * 1.6f), ImVec2(c.x + r * 0.24f, c.y + r * 1.9f), IM_COL32(120, 80, 44, 255), r * 0.05f);
+}
 void seasonalDecor(ImDrawList* dl, ImVec2 o, float w, float h, int k, int stage) {
     const float u = h / 480.0f;   // (the screen is 480 tall: everything in proportion)
     auto at = [&](float fx, float fy) { return ImVec2(o.x + fx * w, o.y + fy * h); };
     auto stars = [&](int n, float maxY, ImU32 col) { for (int i = 0; i < n; ++i) dl->AddCircleFilled(at(decoRnd(i, k + 1), decoRnd(i, k + 2) * maxY), std::max(0.6f, (0.8f + decoRnd(i, 3) * 1.4f) * u), col, 6); };
+    // Things adrift in the air (snow, leaves, petals), slowly: each on its own lane, swaying a little, turning, and coming round
+    // again. secs: how long one takes to cross the screen; up: rising instead of falling. draw(where, a size 0..1, its turn, which,
+    // how much of it shows: it fades in and out at the edges).
+    const float tm = (float)ImGui::GetTime();
+    auto adrift = [&](int n, int salt, float secs, bool up, const std::function<void(ImVec2, float, float, int, float)>& draw) {
+        for (int i = 0; i < n; ++i) {
+            const float ph = decoRnd(i, salt), sp = 0.7f + 0.6f * decoRnd(i, salt + 1);
+            float t = ph + tm * sp / secs;
+            t -= std::floor(t);
+            const float y = (up ? 1 - t : t) * 1.14f - 0.07f;
+            const float x = decoRnd(i, salt + 2) + std::sin(tm * (0.18f + 0.2f * decoRnd(i, salt + 3)) + ph * 6.2832f) * 0.035f + (t - 0.5f) * 0.06f * (decoRnd(i, salt + 4) - 0.5f);
+            const float show = std::min(1.0f, std::min(t, 1 - t) * 10.0f);
+            draw(at(x, y), decoRnd(i, salt + 5), ph * 6.2832f + tm * (0.15f + 0.3f * decoRnd(i, salt + 6)) * (i % 2 ? 1.0f : -1.0f), i, show);
+        }
+    };
+    auto fade = [](ImU32 col, float k2) { return (col & 0x00FFFFFF) | ((ImU32)(((col >> 24) & 255) * std::max(0.0f, std::min(1.0f, k2))) << 24); };
+    // a cloud crossing the sky, very slowly, and round again
+    auto cloudAt = [&](int i, float fy, float r, float secs, ImU32 col) {
+        float t = decoRnd(i, 71) + tm / secs;
+        t -= std::floor(t);
+        decoCloud(dl, at(t * 1.4f - 0.2f, fy), r * u, fade(col, std::min(1.0f, std::min(t, 1 - t) * 8.0f)));
+    };
     switch (k) {
     case 0:   // New Year: stars and fireworks
         if (stage == 0) { stars(60, 0.55f, IM_COL32(255, 255, 255, 140));
@@ -464,7 +561,7 @@ void seasonalDecor(ImDrawList* dl, ImVec2 o, float w, float h, int k, int stage)
         }
         break;
     case 2:   // Valentine's: hearts floating up
-        if (stage == 0) for (int i = 0; i < 14; ++i) decoHeart(dl, at(0.05f + decoRnd(i, 9) * 0.9f, 0.08f + decoRnd(i, 10) * 0.55f), (8 + decoRnd(i, 11) * 16) * u, i % 3 ? IM_COL32(255, 120, 160, 110) : IM_COL32(255, 200, 215, 90));
+        if (stage == 0) adrift(14, 9, 46.0f, true, [&](ImVec2 p, float sz, float, int i, float show) { decoHeart(dl, p, (8 + sz * 16) * u, fade(i % 3 ? IM_COL32(255, 120, 160, 110) : IM_COL32(255, 200, 215, 90), show)); });
         break;
     case 3: case 11:   // Presidents' Day, Veterans Day: an arc of stars, and a flag's stripes waving faintly across the sky
         if (stage == 0) {
@@ -561,22 +658,84 @@ void seasonalDecor(ImDrawList* dl, ImVec2 o, float w, float h, int k, int stage)
         if (stage == 0) { dl->AddCircleFilled(at(0.78f, 0.58f), 62 * u, IM_COL32(255, 236, 190, 230), 48); dl->AddCircleFilled(at(0.78f, 0.58f), 80 * u, IM_COL32(255, 220, 160, 30), 48);
             for (int i = 0; i < 6; ++i) decoBat(dl, at(0.1f + decoRnd(i, 9) * 0.8f, 0.08f + decoRnd(i, 10) * 0.4f), (14 + decoRnd(i, 11) * 10) * u, IM_COL32(12, 6, 16, 240)); }
         break;
-    case 12:   // Thanksgiving: autumn leaves falling
-        if (stage == 0) { static const ImU32 lv[4] = {IM_COL32(230, 120, 40, 200), IM_COL32(200, 70, 30, 200), IM_COL32(240, 180, 60, 200), IM_COL32(170, 90, 40, 200)};
-            for (int i = 0; i < 22; ++i) decoLeaf(dl, at(0.03f + decoRnd(i, 9) * 0.94f, 0.04f + decoRnd(i, 10) * 0.7f), (9 + decoRnd(i, 11) * 9) * u, decoRnd(i, 12) * 6.28f, lv[i % 4]); }
+    case 12:   // Thanksgiving: a harvest moon behind the hills; before them a horn of plenty, pumpkins and a sheaf of wheat; a few leaves coming down
+        if (stage == 0) {
+            const ImVec2 m = at(0.83f, 0.61f);   // (low, its foot behind the hills)
+            dl->AddCircleFilled(m, 92 * u, IM_COL32(255, 196, 120, 22), 48); dl->AddCircleFilled(m, 70 * u, IM_COL32(255, 204, 130, 34), 48);
+            dl->AddCircleFilled(m, 52 * u, IM_COL32(255, 222, 164, 235), 48);
+            dl->AddCircleFilled(ImVec2(m.x - 14 * u, m.y - 10 * u), 9 * u, IM_COL32(236, 190, 130, 120), 20); dl->AddCircleFilled(ImVec2(m.x + 16 * u, m.y + 12 * u), 6 * u, IM_COL32(236, 190, 130, 110), 16);
+            static const ImU32 lv[4] = {IM_COL32(230, 120, 40, 210), IM_COL32(200, 70, 30, 210), IM_COL32(240, 180, 60, 210), IM_COL32(170, 90, 40, 210)};
+            adrift(9, 9, 34.0f, false, [&](ImVec2 p, float sz, float rot, int i, float show) { decoLeaf(dl, p, (8 + sz * 7) * u, rot, fade(lv[i % 4], show)); });
+        } else {
+            // at the left: the sheaf of wheat and the pumpkins beside it
+            for (int i = 0; i < 9; ++i) decoWheat(dl, at(0.085f + i * 0.004f, 0.985f), (92 + decoRnd(i, 5) * 26) * u, (i - 4) * 0.075f, IM_COL32(232, 188, 96, 255));
+            dl->AddRectFilled(ImVec2(at(0.085f, 0).x - 4 * u, at(0, 0.90f).y), ImVec2(at(0.085f, 0).x + 20 * u, at(0, 0.918f).y), IM_COL32(170, 60, 40, 255), 2 * u);   // its band
+            decoGourd(dl, at(0.185f, 0.925f), 34 * u, IM_COL32(232, 120, 30, 255), IM_COL32(196, 90, 20, 255));
+            decoGourd(dl, at(0.245f, 0.945f), 22 * u, IM_COL32(240, 226, 196, 255), IM_COL32(214, 196, 160, 255));   // (a white one)
+            decoGourd(dl, at(0.035f, 0.955f), 20 * u, IM_COL32(214, 96, 30, 255), IM_COL32(176, 72, 20, 255));
+            // at the right: the horn of plenty
+            decoCornucopia(dl, at(0.85f, 0.885f), 74 * u);
+        }
         break;
     case 13:   // Christmas: snow falling, firs on the hills, a bright star
         if (stage == 0) { decoStar(dl, at(0.5f, 0.12f), 18 * u, IM_COL32(255, 230, 150, 240)); dl->AddCircleFilled(at(0.5f, 0.12f), 30 * u, IM_COL32(255, 230, 150, 30), 32); }
         else { for (int i = 0; i < 9; ++i) decoTree(dl, at(0.04f + i * 0.115f + decoRnd(i, 3) * 0.03f, 1.0f), (60 + decoRnd(i, 4) * 40) * u, IM_COL32(12, 52, 30, 255));
-            for (int i = 0; i < 90; ++i) dl->AddCircleFilled(at(decoRnd(i, 30), decoRnd(i, 31)), (1 + decoRnd(i, 32) * 2.2f) * u, IM_COL32(255, 255, 255, 190), 8); }
-        break;
-    case 14:   // Men's Mental Health: a blue ribbon in a soft light
-        if (stage == 0) { dl->AddCircleFilled(at(0.72f, 0.58f), 110 * u, IM_COL32(120, 180, 255, 26), 48); dl->AddCircleFilled(at(0.72f, 0.58f), 70 * u, IM_COL32(120, 180, 255, 30), 48);
-            decoRibbon(dl, at(0.72f, 0.58f), 70 * u, IM_COL32(80, 160, 255, 255)); stars(30, 0.6f, IM_COL32(255, 255, 255, 90)); }
+            adrift(80, 30, 40.0f, false, [&](ImVec2 p, float sz, float, int, float show) { dl->AddCircleFilled(p, (1 + sz * 2.2f) * u, fade(IM_COL32(255, 255, 255, 190), show), 8); }); }
         break;
     case 15:   // Breast Cancer Awareness: a pink ribbon in a soft light
         if (stage == 0) { dl->AddCircleFilled(at(0.72f, 0.58f), 110 * u, IM_COL32(255, 160, 200, 26), 48); dl->AddCircleFilled(at(0.72f, 0.58f), 70 * u, IM_COL32(255, 160, 200, 30), 48);
             decoRibbon(dl, at(0.72f, 0.58f), 70 * u, IM_COL32(255, 130, 180, 255)); stars(30, 0.6f, IM_COL32(255, 255, 255, 90)); }
+        break;
+    case 16:   // Spring: a soft sun and slow clouds; blossom trees and flowers on the hills; petals adrift
+        if (stage == 0) {
+            const ImVec2 sn = at(0.76f, 0.70f);   // (rising in the valley between two hills)
+            dl->AddCircleFilled(sn, 84 * u, IM_COL32(255, 244, 200, 30), 48); dl->AddCircleFilled(sn, 40 * u, IM_COL32(255, 244, 206, 235), 40);
+            cloudAt(0, 0.53f, 20, 260, IM_COL32(255, 255, 255, 120)); cloudAt(1, 0.57f, 14, 340, IM_COL32(255, 255, 255, 100));
+        } else {
+            for (int i = 0; i < 4; ++i) decoRoundTree(dl, at(0.06f + i * 0.30f + decoRnd(i, 6) * 0.04f, 0.90f + decoRnd(i, 7) * 0.06f), (30 + decoRnd(i, 8) * 12) * u, i % 2 ? IM_COL32(255, 176, 204, 255) : IM_COL32(250, 214, 226, 255));
+            for (int i = 0; i < 16; ++i) decoFlower(dl, at(0.03f + decoRnd(i, 21) * 0.94f, 0.90f + decoRnd(i, 22) * 0.09f), (5 + decoRnd(i, 23) * 4) * u, i % 3 == 0 ? IM_COL32(255, 230, 120, 255) : i % 3 == 1 ? IM_COL32(255, 160, 196, 255) : IM_COL32(236, 236, 255, 255), IM_COL32(250, 190, 60, 255));
+            adrift(22, 40, 38.0f, false, [&](ImVec2 p, float sz, float rot, int i, float show) { dl->AddEllipseFilled(p, ImVec2((3 + sz * 2.5f) * u, (1.8f + sz * 1.4f) * u), fade(i % 2 ? IM_COL32(255, 196, 216, 220) : IM_COL32(255, 232, 240, 220), show), rot, 10); });
+        }
+        break;
+    case 17:   // Summer: the sun, its rays turning slowly; clouds; two hot-air balloons adrift
+        if (stage == 0) {
+            const ImVec2 sn = at(0.76f, 0.63f);   // (in the valley between two hills, clear of the icons' rows)
+            for (int i = 0; i < 12; ++i) { const float a = tm * 0.05f + i * 0.5236f; dl->AddLine(ImVec2(sn.x + std::cos(a) * 40 * u, sn.y + std::sin(a) * 40 * u), ImVec2(sn.x + std::cos(a) * (56 + 8 * (i % 2)) * u, sn.y + std::sin(a) * (56 + 8 * (i % 2)) * u), IM_COL32(255, 226, 120, 150), 3.5f * u); }
+            dl->AddCircleFilled(sn, 48 * u, IM_COL32(255, 236, 150, 36), 48); dl->AddCircleFilled(sn, 32 * u, IM_COL32(255, 220, 96, 245), 44);
+            cloudAt(0, 0.52f, 20, 280, IM_COL32(255, 255, 255, 140)); cloudAt(1, 0.58f, 14, 360, IM_COL32(255, 255, 255, 110));
+            for (int i = 0; i < 2; ++i) {   // the balloons: across the sky in some minutes, bobbing a little
+                float t = decoRnd(i, 81) + tm / (300.0f + i * 80);
+                t -= std::floor(t);
+                const float show = std::min(1.0f, std::min(t, 1 - t) * 8.0f);
+                decoBalloon(dl, at(t * 1.3f - 0.15f, 0.50f + i * 0.05f + std::sin(tm * 0.2f + i * 2.0f) * 0.010f), (19 - i * 5) * u, fade(i ? IM_COL32(240, 96, 80, 255) : IM_COL32(255, 196, 60, 255), show), fade(i ? IM_COL32(255, 236, 200, 255) : IM_COL32(60, 150, 220, 255), show));
+            }
+        } else for (int i = 0; i < 5; ++i) decoRoundTree(dl, at(0.05f + i * 0.23f + decoRnd(i, 6) * 0.05f, 0.92f + decoRnd(i, 7) * 0.05f), (26 + decoRnd(i, 8) * 12) * u, i % 2 ? IM_COL32(30, 110, 70, 255) : IM_COL32(44, 132, 84, 255));
+        break;
+    case 18:   // Fall: a low sun's glow; trees turned on the hills; leaves coming down
+        if (stage == 0) { dl->AddCircleFilled(at(0.5f, 0.66f), 190 * u, IM_COL32(255, 170, 70, 26), 48); dl->AddCircleFilled(at(0.5f, 0.66f), 120 * u, IM_COL32(255, 180, 80, 34), 48); }
+        else {
+            static const ImU32 tr[4] = {IM_COL32(214, 96, 30, 255), IM_COL32(196, 60, 34, 255), IM_COL32(232, 164, 50, 255), IM_COL32(170, 84, 36, 255)};
+            for (int i = 0; i < 6; ++i) decoRoundTree(dl, at(0.04f + i * 0.19f + decoRnd(i, 6) * 0.04f, 0.91f + decoRnd(i, 7) * 0.06f), (26 + decoRnd(i, 8) * 14) * u, tr[i % 4]);
+            static const ImU32 lv[4] = {IM_COL32(236, 124, 40, 225), IM_COL32(206, 72, 30, 225), IM_COL32(244, 186, 60, 225), IM_COL32(176, 92, 40, 225)};
+            adrift(24, 9, 30.0f, false, [&](ImVec2 p, float sz, float rot, int i, float show) { decoLeaf(dl, p, (8 + sz * 9) * u, rot, fade(lv[i % 4], show)); });
+        }
+        break;
+    case 19:   // Winter: a pale moon and stars; firs under snow; snow coming down, some of it flakes turning
+        if (stage == 0) { stars(40, 0.5f, IM_COL32(255, 255, 255, 120));
+            dl->AddCircleFilled(at(0.29f, 0.555f), 46 * u, IM_COL32(220, 232, 255, 28), 40); dl->AddCircleFilled(at(0.29f, 0.555f), 24 * u, IM_COL32(232, 240, 255, 235), 36); }   // (the moon, by the highest hill)
+        else {
+            for (int i = 0; i < 8; ++i) {
+                const ImVec2 b = at(0.05f + i * 0.13f + decoRnd(i, 3) * 0.03f, 1.0f);
+                const float r = (56 + decoRnd(i, 4) * 40) * u;
+                decoTree(dl, b, r, IM_COL32(22, 58, 66, 255));
+                dl->AddTriangleFilled(ImVec2(b.x, b.y - r * 1.80f), ImVec2(b.x - r * 0.125f, b.y - r * 1.52f), ImVec2(b.x + r * 0.125f, b.y - r * 1.52f), IM_COL32(236, 244, 255, 255));   // snow on its top
+                for (int tI = 0; tI < 2; ++tI) { const float y0 = b.y - r * 0.2f - tI * r * 0.45f, ww = r * (0.55f - tI * 0.12f);   // and along its lower boughs
+                    dl->AddLine(ImVec2(b.x - ww * 0.92f, y0 - r * 0.02f), ImVec2(b.x - ww * 0.45f, y0 - r * 0.35f), IM_COL32(236, 244, 255, 200), std::max(1.0f, r * 0.05f));
+                    dl->AddLine(ImVec2(b.x + ww * 0.92f, y0 - r * 0.02f), ImVec2(b.x + ww * 0.45f, y0 - r * 0.35f), IM_COL32(236, 244, 255, 200), std::max(1.0f, r * 0.05f)); }
+            }
+            adrift(70, 30, 44.0f, false, [&](ImVec2 p, float sz, float, int, float show) { dl->AddCircleFilled(p, (1 + sz * 2.0f) * u, fade(IM_COL32(255, 255, 255, 200), show), 8); });
+            adrift(9, 50, 60.0f, false, [&](ImVec2 p, float sz, float rot, int, float show) { decoFlake(dl, p, (6 + sz * 6) * u, rot, fade(IM_COL32(255, 255, 255, 170), show)); });
+        }
         break;
     default: break;
     }
@@ -9637,14 +9796,13 @@ void seasonalStep() {
     const int year = lt.tm_year + 1900;
     for (int k = 0; k < kSeasonalN; ++k) {
         if (!seasonalOn(k, year, lt.tm_mon + 1, lt.tm_mday)) continue;   // (the real date, even where all are offered)
-        const std::string key = std::to_string(k) + "-" + std::to_string(k == 0 && lt.tm_mon == 11 ? year + 1 : year);   // (New Year's Eve counts with the new year)
+        const std::string key = std::to_string(k) + "-" + std::to_string((k == 0 || k == 19) && lt.tm_mon == 11 ? year + 1 : year);   // (New Year's Eve, and a winter's December, count with the new year)
         const std::string& t = g_settings.seasonalTold;
         if ((" " + t + " ").find(" " + key + " ") != std::string::npos) continue;
         g_settings.seasonalTold = t.empty() ? key : t + " " + key;
         if (g_settings.seasonalTold.size() > 400) g_settings.seasonalTold.erase(0, g_settings.seasonalTold.find(' ', g_settings.seasonalTold.size() - 400) + 1);
         g_settingsChanged = true;
-        const bool month = k >= 14;
-        postNote("Color Theme", std::string("The ") + kSeasonal[k].name + (month ? " theme is here for the month" : " theme is here for the holiday") + ": Settings, Display, Seasonal", APP_SETTINGS);
+        postNote("Color Theme", std::string("The ") + kSeasonal[k].name + (k >= 16 ? " theme is here for the season" : k >= 14 ? " theme is here for the month" : " theme is here for the holiday") + ": Settings, Display, Seasonal", APP_SETTINGS);
     }
 }
 void resetLogAndTimers() { g_acLog.clear(); g_acStation.clear(); g_acTo.clear(); g_acText.clear(); g_acAtis.clear(); g_acCall.clear(); g_acLogon = 0; g_acLogonTo.clear(); g_log.clear(); g_logChanged = true; g_live = LogLive(); g_swStart = -1; g_swAcc = 0; g_cdStart = -1; g_cdSet = g_cdLeft = 60; g_cdRang = false; }
