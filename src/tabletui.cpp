@@ -137,6 +137,7 @@ double localOffsetAt(const MapState& m, double lat, double lon, bool& estimate);
 void fillConcave(ImDrawList* dl, std::vector<ImVec2> v, ImU32 col);
 std::string zoneOf(double lat, double lon, double offS, long long utc);
 ImTextureID g_logo = 0;   // XPTablet's logo texture (from the host)
+ImTextureID g_logoMask = 0;   // the logo in white, drawn in the theme's colours (Noir, Cloud, the Customs and the seasonal themes)
 ImTextureID g_icons = 0;  // the icons' atlas (tools/make_icons_rgba.py): 4 cells across; pictograms (white, tinted) then the services' tiles
 // the atlas cell of an app's pictogram (Material Design Icons), or -1: drawn from lines instead
 int glyphCell(int app) {
@@ -627,14 +628,33 @@ void statusLogoRect(float w, ImVec2& a, ImVec2& size) {
     size = ImVec2(ww, hh);
 }
 
+// the logo: as made (the five themes drawn from its colours), else XP in white and TABLET in the theme's accent, light to bright
+void drawLogo(ImDrawList* dl, ImVec2 a, ImVec2 b, int alpha) {
+    if (!g_logoMask || themeIndex() < 5) { dl->AddImage(g_logo, a, b, ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, alpha)); return; }
+    int lw, lh, lv; float from = 0.5f;
+    logoMaskPixels(lw, lh, lv, from);
+    const float sx = a.x + (b.x - a.x) * from;
+    dl->AddImage(g_logoMask, a, ImVec2(sx, b.y), ImVec2(0, 0), ImVec2(from, 1), IM_COL32(255, 255, 255, alpha));
+    const int n = 6;   // TABLET in slices, its colour running from the accent's light tone to the accent
+    for (int i = 0; i < n; ++i) {
+        const float u0 = from + (1 - from) * i / n, u1 = from + (1 - from) * (i + 1) / n;
+        const ImU32 c = mixCol(accentLite(255), accentCol(255), (i + 0.5f) / n);
+        dl->AddImage(g_logoMask, ImVec2(a.x + (b.x - a.x) * u0, a.y), ImVec2(a.x + (b.x - a.x) * u1, b.y), ImVec2(u0, 0), ImVec2(u1, 1), (c & 0x00FFFFFF) | ((ImU32)alpha << 24));
+    }
+}
 void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
     dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, kStatusH), IM_COL32(0, 0, 0, 90));
     {   // a touch of the theme: its sky's darkest tone and a faint glow of its accent (the logo and layout are unchanged)
         const Backdrop bd = themeBackdrop(g_settings.wallpaper);
-        dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, kStatusH), (bd.top & 0x00FFFFFF) | (70u << 24));
+        if (themeIndex() < 5) dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, kStatusH), (bd.top & 0x00FFFFFF) | (70u << 24));
+        else {   // Noir, Cloud, the Customs and the seasonal themes: the bar in the theme's own colours (deep enough for white text)
+            const ImU32 c0 = mixCol(mixCol(bd.top, bd.bot, 0.35f), IM_COL32(0, 0, 0, 255), 0.45f);
+            dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, kStatusH), (c0 & 0x00FFFFFF) | (215u << 24));
+            dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(w, kStatusH), accentCol(0), accentCol(34), accentCol(34), accentCol(0));
+        }
         // a clear edge under it: a dark line, then a hairline of the accent's light tone (no gradient)
         dl->AddRectFilled(ImVec2(0, kStatusH - 2), ImVec2(w, kStatusH - 1), IM_COL32(0, 0, 0, 110));
-        dl->AddRectFilled(ImVec2(0, kStatusH - 1), ImVec2(w, kStatusH), accentLite(70));
+        dl->AddRectFilled(ImVec2(0, kStatusH - 1), ImVec2(w, kStatusH), accentLite(themeIndex() < 5 ? 70 : 140));
     }
     const float y = std::floor((kStatusH - fontPx(f.small)) * 0.5f);
     const ImU32 col = IM_COL32(232, 238, 248, 255);
@@ -688,7 +708,7 @@ void statusBar(ImDrawList* dl, const Fonts& f, const SimState& s, float w) {
     if (g_logo) {
         ImVec2 a, sz;
         statusLogoRect(w, a, sz);
-        if (g_power != POWER_REVEAL) dl->AddImage(g_logo, a, ImVec2(a.x + sz.x, a.y + sz.y));   // (while waking, it is on its way up)
+        if (g_power != POWER_REVEAL) drawLogo(dl, a, ImVec2(a.x + sz.x, a.y + sz.y), 255);   // (while waking, it is on its way up)
     } else {
         textCentered(dl, f.bold, w * 0.5f, y, col, "XPTablet");
     }
@@ -7985,7 +8005,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     g_embed = EmbedArea();
     g_wx = s.wxPlane;
     g_wxLogo = f.wxLogo;
-    g_logo = f.logo;
+    g_logo = f.logo; g_logoMask = f.logoMask;
     g_icons = f.icons;
     g_mac = s.mac;
     g_media = &s.media;
@@ -8095,7 +8115,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
                 int lw = 0, lh = 0, lv = 0;
                 logoPixels(lw, lh, lv);
                 const float hh = 44.0f, ww = hh * (float)lw / (float)std::max(1, lh);
-                dl->AddImage(g_logo, ImVec2(w * 0.5f - ww * 0.5f, h * 0.42f - hh * 0.5f), ImVec2(w * 0.5f + ww * 0.5f, h * 0.42f + hh * 0.5f), ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, A));
+                drawLogo(dl, ImVec2(w * 0.5f - ww * 0.5f, h * 0.42f - hh * 0.5f), ImVec2(w * 0.5f + ww * 0.5f, h * 0.42f + hh * 0.5f), A);
             }
             const float bw = 180, by = h * 0.42f + 50;
             dl->AddRectFilled(ImVec2(w * 0.5f - bw * 0.5f, by), ImVec2(w * 0.5f + bw * 0.5f, by + 4), IM_COL32(255, 255, 255, (int)(46 * al)), 2.0f);
@@ -8210,7 +8230,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
                 statusLogoRect(w, a1, s1);
                 const float hh = 44.0f + (s1.y - 44.0f) * e, ww = hh * s1.x / s1.y;
                 const float cy = h * 0.42f + (a1.y + s1.y * 0.5f - h * 0.42f) * e;
-                dl->AddImage(g_logo, ImVec2(w * 0.5f - ww * 0.5f, cy - hh * 0.5f), ImVec2(w * 0.5f + ww * 0.5f, cy + hh * 0.5f));
+                drawLogo(dl, ImVec2(w * 0.5f - ww * 0.5f, cy - hh * 0.5f), ImVec2(w * 0.5f + ww * 0.5f, cy + hh * 0.5f), 255);
             }
         }
     }
@@ -9337,6 +9357,28 @@ const unsigned char* logoPixels(int& w, int& h, int& levels) {   // "XPTL", widt
     if (xpt_asset_logo_size < 16 || std::memcmp(b, "XPTL", 4) != 0) { w = h = levels = 0; return nullptr; }
     w = u32(4); h = u32(8); levels = u32(12);
     return b + 16;
+}
+const unsigned char* logoMaskPixels(int& w, int& h, int& levels, float& tabletFrom) {
+    static std::vector<unsigned char> mask;
+    static float from = 0.5f;
+    const unsigned char* p = logoPixels(w, h, levels);
+    if (!p) return nullptr;
+    if (mask.empty()) {
+        size_t n = 0; int lw = w, lh = h;
+        for (int l = 0; l < levels; ++l) { n += (size_t)lw * lh * 4; lw = std::max(1, lw / 2); lh = std::max(1, lh / 2); }
+        mask.assign(p, p + n);
+        for (size_t i = 0; i < n; i += 4) mask[i] = mask[i + 1] = mask[i + 2] = 255;
+        int first = w;   // TABLET: the first column with a coloured (not white) letter in it
+        for (int x = 0; x < w && first == w; ++x)
+            for (int y = 0; y < h; ++y) {
+                const unsigned char* q = p + ((size_t)y * w + x) * 4;
+                const int mx = std::max(q[0], std::max(q[1], q[2])), mn = std::min(q[0], std::min(q[1], q[2]));
+                if (q[3] > 128 && mx - mn > 60) { first = x; break; }
+            }
+        from = first < w ? (float)first / w : 0.5f;
+    }
+    tabletFrom = from;
+    return mask.data();
 }
 const unsigned char* iconsPixels(int& w, int& h, int& levels) {
     const unsigned char* b = xpt_asset_icons;

@@ -73,9 +73,9 @@ void raster(Canvas& cv, const std::vector<Batch>& batches, const unsigned char* 
                         for (int k = 0; k < 3; ++k) tc[k] = q[k] / 255.0f;
                         a = col[3] * q[3] / 255.0f;
                     }
-                    if ((intptr_t)bt.tex == 3 || (intptr_t)bt.tex == 4) {   // XPTablet's logo or the icons' atlas, its first level, bilinear
+                    if ((intptr_t)bt.tex == 3 || (intptr_t)bt.tex == 4 || (intptr_t)bt.tex == 5) {   // XPTablet's logo or the icons' atlas, its first level, bilinear
                         int lw = 0, lh = 0, lv = 0;
-                        const unsigned char* px = (intptr_t)bt.tex == 3 ? logoPixels(lw, lh, lv) : iconsPixels(lw, lh, lv);
+                        float lfrom = 0; const unsigned char* px = (intptr_t)bt.tex == 3 ? logoPixels(lw, lh, lv) : (intptr_t)bt.tex == 5 ? logoMaskPixels(lw, lh, lv, lfrom) : iconsPixels(lw, lh, lv);
                         const float fx2 = u * lw - 0.5f, fy2 = w * lh - 0.5f;
                         const int jx = (int)std::floor(fx2), jy = (int)std::floor(fy2);
                         const float bx = fx2 - jx, by = fy2 - jy;
@@ -146,6 +146,7 @@ int main(int argc, char** argv) {
     Fonts fonts = loadFonts(scale);
     fonts.wxLogo = (ImTextureID)(intptr_t)2;
     fonts.logo = (ImTextureID)(intptr_t)3;
+    fonts.logoMask = (ImTextureID)(intptr_t)5;
     fonts.icons = (ImTextureID)(intptr_t)4;
     unsigned char* tex = nullptr;
     int tw = 0, th = 0;
