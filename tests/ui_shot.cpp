@@ -1009,6 +1009,12 @@ int main(int argc, char** argv) {
                     shot(xs, APP_MAP, "christmas_map");
                     settings().wallpaper = 10 + 10;   // Halloween: the witch on her broom
                     shot(xs, APP_GROUND, "halloween_ground");
+                    settings().wallpaper = 10 + 12;   // Thanksgiving: a turkey
+                    shot(xs, APP_GROUND, "thanksgiving_ground");
+                    shot(xs, APP_MAP, "thanksgiving_map");
+                    settings().wallpaper = 10 + 8;    // Independence Day: a firework rocket
+                    shot(xs, APP_GROUND, "july4_ground");
+                    shot(xs, APP_ROUTES, "july4_flight_plan");
                     auto run = [&](float secs) { for (float tt = 0; tt < secs; tt += 0.1f) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.1f; io.AddMousePosEvent(-1000, -1000);
                         ImGui::NewFrame(); Actions act; build(fonts, xs, 800, kLogicalH, act); ImGui::Render(); } };
                     celebrate(0); run(1.6f); shot(xs, APP_HOME, "celebrate_newyear");

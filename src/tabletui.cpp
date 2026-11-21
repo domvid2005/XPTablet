@@ -309,7 +309,7 @@ bool seasonalOn(int s, int year, int month, int day) {
     }
 }
 bool christmasTheme() { return std::max(0, std::min(kThemes - 1, g_settings.wallpaper)) == kSeasonal0 + 13; }
-int specialCraft() { const int t = std::max(0, std::min(kThemes - 1, g_settings.wallpaper)); return t == kSeasonal0 + 13 ? 1 : t == kSeasonal0 + 10 ? 2 : 0; }
+int specialCraft() { const int t = std::max(0, std::min(kThemes - 1, g_settings.wallpaper)); return t == kSeasonal0 + 13 ? 1 : t == kSeasonal0 + 10 ? 2 : t == kSeasonal0 + 12 ? 3 : t == kSeasonal0 + 8 ? 4 : 0; }
 bool seasonalAvailable(int s) {
     if (g_seasonalAll) return true;
     const std::time_t now = std::time(nullptr);
@@ -3179,10 +3179,70 @@ void drawWitch(ImDrawList* dl, ImVec2 c, float len, float ang, int alpha = 255) 
     dl->AddBezierCubic(P(0, 26), P(6, 30), P(8, 24), P(5, 20), A(IM_COL32(18, 14, 20, 255)), std::max(1.0f, 1.4f * k));
     ell(-1.0f, 16.6f, 0.6f, 0.6f, IM_COL32(250, 220, 80, 255)); ell(1.0f, 16.6f, 0.6f, 0.6f, IM_COL32(250, 220, 80, 255));
 }
-// the seasonal stand-ins for the user's aircraft: 1 Christmas's sleigh, 2 Halloween's witch, 0 none (the aircraft itself)
+// ---- Thanksgiving: the user's aircraft is a turkey, from above (our own simple drawing): its tail fanned wide behind it in bands
+// of brown, orange and cream, its wings at its sides, its head forward with the red wattle and the beak
+void drawTurkey(ImDrawList* dl, ImVec2 c, float len, float ang, int alpha = 255) {
+    const float k = len / 100.0f, ca = std::cos(ang), sa = std::sin(ang);
+    auto P = [&](float x, float y) { x *= k; y *= k; return ImVec2(c.x + x * ca - y * sa, c.y + x * sa + y * ca); };   // y: forward is -y
+    auto A = [&](ImU32 col) { return (col & 0x00FFFFFF) | ((ImU32)(((col >> 24) & 255) * alpha / 255) << 24); };
+    auto ell = [&](float x, float y, float rx, float ry, ImU32 col) {
+        ImVec2 p[20];
+        for (int i = 0; i < 20; ++i) { const float t = i * 6.2832f / 20; p[i] = P(x + std::cos(t) * rx, y + std::sin(t) * ry); }
+        dl->AddConvexPolyFilled(p, 20, A(col));
+    };
+    // the tail: eleven feathers fanned out from behind the body, each in three bands (cream tip, orange, dark brown root)
+    const float fx = 0, fy = 10;
+    for (int i = -5; i <= 5; ++i) {
+        const float a0 = 1.5708f + (i - 0.46f) * 0.27f, a1 = 1.5708f + (i + 0.46f) * 0.27f;   // (around straight back: +y)
+        auto at = [&](float a, float r) { return P(fx + std::cos(a) * r, fy + std::sin(a) * r); };
+        static const float rr[4] = {8, 24, 33, 39};
+        static const ImU32 band[3] = {IM_COL32(96, 56, 30, 255), IM_COL32(214, 120, 44, 255), IM_COL32(244, 226, 190, 255)};
+        for (int b = 0; b < 3; ++b) { const ImVec2 q[4] = {at(a0, rr[b]), at(a1, rr[b]), at(a1, rr[b + 1]), at(a0, rr[b + 1])}; dl->AddConvexPolyFilled(q, 4, A(i % 2 ? band[b] : mixCol(band[b], IM_COL32(60, 34, 18, 255), 0.18f))); }
+    }
+    for (int sd = -1; sd <= 1; sd += 2) ell(sd * 11.0f, 3, 6.0f, 12.5f, IM_COL32(104, 62, 34, 255));   // its wings
+    for (int sd = -1; sd <= 1; sd += 2) for (int j = 0; j < 3; ++j) dl->AddLine(P(sd * (9.0f + j * 1.8f), -2 + j * 2.0f), P(sd * (10.5f + j * 1.8f), 12), A(IM_COL32(70, 40, 22, 255)), std::max(1.0f, 1.1f * k));
+    ell(0, 2, 12.0f, 17.0f, IM_COL32(134, 82, 44, 255));    // its body
+    ell(0, -2, 8.0f, 10.0f, IM_COL32(150, 96, 54, 255));    // (the lighter breast)
+    ell(0, -17, 4.2f, 6.0f, IM_COL32(120, 74, 42, 255));    // its neck
+    ell(0, -24, 4.6f, 5.0f, IM_COL32(86, 120, 170, 255));   // its head (a tom's is blue and red)
+    { const ImVec2 bk[3] = {P(-2.2f, -27.5f), P(2.2f, -27.5f), P(0, -34)}; dl->AddConvexPolyFilled(bk, 3, A(IM_COL32(236, 170, 60, 255))); }   // the beak
+    ell(1.9f, -28.5f, 1.5f, 3.0f, IM_COL32(210, 44, 48, 255));   // the wattle, hanging beside it
+    ell(-2.0f, -25, 0.8f, 0.8f, IM_COL32(20, 16, 14, 255)); ell(2.0f, -25, 0.8f, 0.8f, IM_COL32(20, 16, 14, 255));   // its eyes
+}
+
+// ---- Independence Day: the user's aircraft is a firework rocket, from above (our own simple drawing): a red cone, a tube in red,
+// white and blue with a star, its stick trailing, and the fuse's flame and sparks behind it
+void drawFirework(ImDrawList* dl, ImVec2 c, float len, float ang, int alpha = 255) {
+    const float k = len / 100.0f, ca = std::cos(ang), sa = std::sin(ang);
+    auto P = [&](float x, float y) { x *= k; y *= k; return ImVec2(c.x + x * ca - y * sa, c.y + x * sa + y * ca); };   // y: forward is -y
+    auto A = [&](ImU32 col) { return (col & 0x00FFFFFF) | ((ImU32)(((col >> 24) & 255) * alpha / 255) << 24); };
+    auto quad = [&](float x0, float y0, float x1, float y1, ImU32 col) { const ImVec2 q[4] = {P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1)}; dl->AddConvexPolyFilled(q, 4, A(col)); };
+    dl->AddLine(P(3.5f, 4), P(3.5f, 50), A(IM_COL32(196, 160, 110, 255)), std::max(1.5f, 2.4f * k));   // the stick, tied to its side
+    // the flame at the tail and its sparks
+    { const ImVec2 fl[3] = {P(-5, 12), P(5, 12), P(0, 34)}; dl->AddConvexPolyFilled(fl, 3, A(IM_COL32(255, 150, 40, 255))); }
+    { const ImVec2 fl[3] = {P(-2.8f, 12), P(2.8f, 12), P(0, 25)}; dl->AddConvexPolyFilled(fl, 3, A(IM_COL32(255, 236, 130, 255))); }
+    static const float sp[7][3] = {{-6, 30, 1.5f}, {5.5f, 34, 1.3f}, {-2, 40, 1.6f}, {7, 43, 1.0f}, {-7.5f, 45, 1.1f}, {1, 48, 1.3f}, {-4, 36, 0.9f}};
+    for (const auto& q : sp) dl->AddCircleFilled(P(q[0], q[1]), std::max(0.8f, q[2] * k), A(IM_COL32(255, 220, 110, 255)), 8);
+    // the tube: bands of red, white and blue
+    quad(-6.5f, -30, 6.5f, 12, IM_COL32(244, 244, 248, 255));
+    quad(-6.5f, -30, 6.5f, -18, IM_COL32(36, 64, 150, 255));
+    quad(-6.5f, -10, 6.5f, -3, IM_COL32(206, 44, 54, 255));
+    quad(-6.5f, 4, 6.5f, 12, IM_COL32(206, 44, 54, 255));
+    {   // a white star on the blue
+        ImVec2 st[10];
+        for (int i = 0; i < 10; ++i) { const float a = -1.5708f + i * 0.62832f, r = i % 2 ? 1.7f : 4.2f; st[i] = P(std::cos(a) * r, -24 + std::sin(a) * r); }
+        for (int i = 0; i < 10; ++i) { const ImVec2 tri[3] = {P(0, -24), st[i], st[(i + 1) % 10]}; dl->AddConvexPolyFilled(tri, 3, A(IM_COL32(255, 255, 255, 255))); }
+    }
+    { const ImVec2 cone[3] = {P(-7.5f, -30), P(7.5f, -30), P(0, -49)}; dl->AddConvexPolyFilled(cone, 3, A(IM_COL32(206, 44, 54, 255))); }   // its cone
+    dl->AddLine(P(-6.5f, -30), P(6.5f, -30), A(IM_COL32(250, 214, 110, 255)), std::max(1.0f, 1.4f * k));   // a gold band under it
+}
+
+// the seasonal stand-ins for the user's aircraft: 1 Christmas's sleigh, 2 Halloween's witch, 3 Thanksgiving's turkey, 4 Independence
+// Day's firework, 0 none (the aircraft itself)
 int specialCraft();
 void drawCraft(ImDrawList* dl, ImVec2 c, float len, float ang, int alpha = 255) {
-    if (specialCraft() == 2) drawWitch(dl, c, len, ang, alpha); else drawSleigh(dl, c, len, ang, alpha);
+    const int sc = specialCraft();
+    if (sc == 2) drawWitch(dl, c, len, ang, alpha); else if (sc == 3) drawTurkey(dl, c, len, ang, alpha); else if (sc == 4) drawFirework(dl, c, len, ang, alpha); else drawSleigh(dl, c, len, ang, alpha);
 }
 
 void planeTopDown(ImDrawList* dl, ImVec2 nose, float px, const PlaneSpec& p, ImU32 col, ImU32 shade2) {
@@ -6566,8 +6626,9 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             float y = nose.y + frac * acLen * px;
             float hw = hwPx;   // the fuselage's edge at this door (it narrows towards the tail)
             if (shape && hw0 > 0) { const float hh = fuselageHalf(*shape, frac, hw0); if (hh > 0) hw = hh * kx * px; }
-            if (const int sc = specialCraft()) {   // the season's sleigh or witch: the door on its side (not on a reindeer, or the broom's stick)
-                static const float fr[2][3] = {{0.685f, 0.889f, 0.79f}, {0.47f, 0.66f, 0.57f}}, hwU[2][3] = {{14.5f, 15.0f, 14.5f}, {8.5f, 13.5f, 11.0f}};
+            if (const int sc = specialCraft()) {   // the season's sleigh, witch, turkey or firework: the door on its side (not on a reindeer, the broom's stick, the tail)
+                static const float fr[4][3] = {{0.685f, 0.889f, 0.79f}, {0.47f, 0.66f, 0.57f}, {0.42f, 0.62f, 0.52f}, {0.28f, 0.58f, 0.43f}},
+                                   hwU[4][3] = {{14.5f, 15.0f, 14.5f}, {8.5f, 13.5f, 11.0f}, {10.5f, 16.0f, 17.0f}, {6.5f, 6.5f, 6.5f}};
                 y = nose.y + fr[sc - 1][k] * acLen * px;
                 hw = hwU[sc - 1][k] * acLen * px / (sc == 1 ? 108.0f : 100.0f);
             }
