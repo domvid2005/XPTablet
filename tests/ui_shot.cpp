@@ -1153,6 +1153,16 @@ int main(int argc, char** argv) {
                 LocalDevice i; i.name = "Dom's iPhone"; i.kind = "iPhone"; i.lastSeen = "Today 14:32";
                 lc.local.devices = {p, i};
                 shot(lc, APP_SETTINGS, "settings_local_connect");
+                // the address is dots until its eye is tapped; it stays shown (a toggle, not a hold); tapped again, dots again
+                if (settingsReveal() != 0) { std::printf("FAIL: Settings' hidden fields start hidden (%u)\n", settingsReveal()); ++failures; }
+                tap(lc, 459, 250);
+                for (int k = 0; k < 12; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, lc, 800, kLogicalH, act); ImGui::Render(); }
+                if (settingsReveal() != 8u) { std::printf("FAIL: the eye shows Local Connect's address and it stays shown (%u)\n", settingsReveal()); ++failures; }
+                {   // (pictured as it stands: shot() would open Settings afresh)
+                    std::vector<Batch> b; clipDrawData(ImGui::GetDrawData(), b); Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_settings_local_connect_shown.png");
+                }
+                tap(lc, 459, 250);
+                if (settingsReveal() != 0) { std::printf("FAIL: the eye tapped again hides the address (%u)\n", settingsReveal()); ++failures; }
                 // the status bar's battery: the phone's 64 %, and back to the tablet's own once it goes
                 setBattery(37);
                 for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, lc, 800, kLogicalH, act); ImGui::Render(); }

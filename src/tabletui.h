@@ -517,6 +517,7 @@ void setSeasonalPreview(bool all);
 int settingsTabShown();   // the Settings page's tab (for the tests)
 void celebrate(int which);   // the midnight celebration now: 0 New Year, 1 Christmas (it starts by itself at midnight; this is for a preview)
 bool celebrationShown();     // it is up (it stays until its Dismiss button is pressed)
+unsigned settingsReveal();   // which of Settings' hidden fields are shown now (a bit each: SimBrief, Hoppie, Volanta, Local Connect's address)
 bool seasonalOnDate(int theme, int year, int month, int day);   // seasonal theme n (0 New Year .. 15 Breast Cancer Awareness) on that date
 const char* seasonalName(int theme);   // every seasonal colour theme offered whatever the date (the browser emulator)
 // A Custom background's colours, from its pixels (RGBA): its average made deeper (the background), and its most striking colour made

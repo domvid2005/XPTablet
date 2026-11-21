@@ -7719,6 +7719,46 @@ void fadeSince(ImDrawList* dl, int vtx0, float t) {
         v.col = (v.col & ~IM_COL32_A_MASK) | (a << IM_COL32_A_SHIFT);
     }
 }
+// ---- things kept out of sight in Settings (the SimBrief ID, Hoppie's code, Volanta's address, Local Connect's address): dots until
+// their eye is tapped, dots again when it is tapped once more (a toggle), and hidden again whenever another tab is opened
+unsigned g_reveal = 0;   // a bit for each: 0 SimBrief, 1 Hoppie, 2 Volanta, 3 Local Connect's address
+bool eyeToggle(ImDrawList* dl, const char* id, ImVec2 ea, ImVec2 eb, bool shown) {
+    ImGui::SetCursorScreenPos(ea);
+    const bool hit = ImGui::InvisibleButton(id, ImVec2(eb.x - ea.x, eb.y - ea.y));
+    const bool hot = ImGui::IsItemHovered(), down = ImGui::IsItemActive();
+    const Ease e = eased(id, shown, hot, down);
+    dl->AddRectFilled(ea, eb, mixCol(IM_COL32(255, 255, 255, 14), IM_COL32(255, 255, 255, 34), std::max(e.hot, e.on * 0.6f)), 8.0f);
+    const ImVec2 ec(std::floor((ea.x + eb.x) * 0.5f), std::floor((ea.y + eb.y) * 0.5f));
+    const ImU32 col = mixCol(kMuted, accentLite(255), e.on);
+    dl->PathArcTo(ImVec2(ec.x, ec.y + 6), 11, 3.14159f * 1.22f, 3.14159f * 1.78f, 12); dl->PathStroke(col, 0, 1.6f);
+    dl->PathArcTo(ImVec2(ec.x, ec.y - 6), 11, 3.14159f * 0.22f, 3.14159f * 0.78f, 12); dl->PathStroke(col, 0, 1.6f);
+    dl->AddCircleFilled(ec, 3.2f, col, 0);
+    if (e.on < 0.98f) {   // hidden: a stroke through the eye (drawn away as it opens)
+        const float k = 1 - e.on;
+        dl->AddLine(ImVec2(ec.x - 9 * k, ec.y + 8 * k), ImVec2(ec.x + 9 * k, ec.y - 8 * k), (col & 0x00FFFFFF) | ((ImU32)(255 * k) << 24), 1.8f);
+    }
+    return hit;
+}
+// a text field hidden as dots, its eye at its right; shown as typed while it is typed into. True while it is being typed into.
+bool hiddenField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v, ImVec2 a, ImVec2 b, const char* hint, int bit) {
+    static std::string dots[8];
+    const bool typing = g_kbd && g_kbdTarget == 2 && g_typeInto == &v;
+    const bool shown = (g_reveal >> bit) & 1u;
+    const ImVec2 fb(b.x - 44, b.y);
+    if (typing || shown) textField(dl, f, id, v, a, fb, hint, false, 0);
+    else {
+        std::string& d = dots[bit & 7];
+        d.clear();
+        for (size_t i = 0; i < v.size() && i < 40; ++i) d += "\xE2\x80\xA2";
+        textField(dl, f, id, d, a, fb, hint, false, 0);
+        if (g_typeInto == &d) g_typeInto = &v;   // (tapped: it is typed into, shown as typed)
+    }
+    char eid[48];
+    std::snprintf(eid, sizeof eid, "%s_eye", id);
+    if (eyeToggle(dl, eid, ImVec2(b.x - 40, a.y + 2), ImVec2(b.x - 2, b.y - 2), shown)) g_reveal ^= 1u << bit;
+    return typing;
+}
+
 void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     static int shownTab = -1; static double tabT0 = -10;
     if (g_settingsTab != shownTab) { shownTab = g_settingsTab; tabT0 = ImGui::GetTime(); }
@@ -7767,7 +7807,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             char id[16];
             std::snprintf(id, sizeof id, "##set%d", i);
             ImGui::SetCursorScreenPos(a);
-            if (ImGui::InvisibleButton(id, ImVec2(e.x - a.x, e.y - a.y)) && g_settingsTab != i) { g_settingsTab = i; g_kbd = false; g_typeInto = nullptr; }
+            if (ImGui::InvisibleButton(id, ImVec2(e.x - a.x, e.y - a.y)) && g_settingsTab != i) { g_settingsTab = i; g_kbd = false; g_typeInto = nullptr; g_reveal = 0; }
             const bool on = g_settingsTab == i, hot = ImGui::IsItemHovered();
             const Ease ez = eased(id, on, hot && !on, ImGui::IsItemActive());
             if (ez.hot > 0.01f) dl->AddRectFilled(a, e, IM_COL32(255, 255, 255, (int)(18 * ez.hot + 14 * ez.down)), 10.0f);   // hover fades in and out
@@ -7900,51 +7940,17 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, what, nullptr, w - 12 - lx);
             y += 38;
             const bool typing = g_kbd && g_kbdTarget == 2 && g_typeInto == &v;
-            static std::string d;   // (the dots shown for it)
-            if (typing) textField(dl, f, id, v, ImVec2(lx, y), ImVec2(w - 12, y + 34), hint, false, 0);
-            else {
-                d.assign(std::min<size_t>(v.size(), 40) * 3, ' '); d.clear();
-                for (size_t i = 0; i < v.size() && i < 40; ++i) d += "\xE2\x80\xA2";
-                textField(dl, f, id, d, ImVec2(lx, y), ImVec2(w - 12, y + 34), hint, false, 0);
-                if (g_typeInto == &d) g_typeInto = &v;   // (tapped: typed into, shown as typed)
-            }
+            hiddenField(dl, f, id, v, ImVec2(lx, y), ImVec2(w - 12, y + 34), hint, 1);
             y += 46;
             return typing;
         };
         const bool sbTyping = g_kbd && g_kbdTarget == 2 && g_typeInto == &g_settings.simbriefUser;
-        {   // SimBrief: the ID the Flight Plan page imports with (hidden as dots unless typed or the eye is held), and an import now
+        {   // SimBrief: the ID the Flight Plan page imports with (hidden as dots unless typed or its eye is on), and an import now
         textAt(dl, f.bold, lx, y, kInk, "SimBrief ID");
         y += 22;
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Your SimBrief user name or pilot ID (Account settings on simbrief.com). The Flight Plan page imports your latest plan with it.", nullptr, w - 12 - lx);
         y += 36;
-        {   // hidden as dots unless it is being typed, or the eye is held
-            const ImVec2 fa(lx, y), fb(w - 12 - 200, y + 36);
-            const ImVec2 ea(fb.x - 40, fa.y + 2), eb(fb.x - 2, fb.y - 2);
-            ImGui::SetCursorScreenPos(ea);
-            ImGui::SetNextItemAllowOverlap();
-            static bool eyeHeld = false;
-            const bool eyeWas = eyeHeld;
-            (void)eyeWas;
-            if (sbTyping || eyeHeld) textField(dl, f, "##sbuser", g_settings.simbriefUser, fa, ImVec2(fb.x - 42, fb.y), "Tap to enter your SimBrief ID", false, 0);
-            else {
-                static std::string dots;
-                dots.clear();
-                for (size_t i = 0; i < g_settings.simbriefUser.size(); ++i) dots += "\xE2\x80\xA2";
-                textField(dl, f, "##sbuser", dots, fa, ImVec2(fb.x - 42, fb.y), "Tap to enter your SimBrief ID", false, 0);
-                if (g_typeInto == &dots) g_typeInto = &g_settings.simbriefUser;   // (tapped: it is typed into, shown as typed)
-            }
-            ImGui::SetCursorScreenPos(ea);
-            ImGui::InvisibleButton("##sbeye", ImVec2(eb.x - ea.x, eb.y - ea.y));
-            eyeHeld = ImGui::IsItemActive();
-            const bool eyeHot = ImGui::IsItemHovered() || eyeHeld;
-            dl->AddRectFilled(ea, eb, IM_COL32(255, 255, 255, eyeHeld ? 40 : eyeHot ? 26 : 14), 8.0f);
-            const ImVec2 ec((ea.x + eb.x) * 0.5f, (ea.y + eb.y) * 0.5f);
-            const ImU32 ecol = eyeHeld ? accentLite(255) : kMuted;
-            dl->PathArcTo(ImVec2(ec.x, ec.y + 6), 11, 3.14159f * 1.22f, 3.14159f * 1.78f, 12); dl->PathStroke(ecol, 0, 1.6f);
-            dl->PathArcTo(ImVec2(ec.x, ec.y - 6), 11, 3.14159f * 0.22f, 3.14159f * 0.78f, 12); dl->PathStroke(ecol, 0, 1.6f);
-            dl->AddCircleFilled(ec, 3.2f, ecol, 0);
-            if (!eyeHeld && !sbTyping) {}
-        }
+        hiddenField(dl, f, "##sbuser", g_settings.simbriefUser, ImVec2(lx, y), ImVec2(w - 12 - 200, y + 36), "Tap to enter your SimBrief ID", 0);
         if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; }
         if (pill(dl, f, "##sbimport", s.plan.busy ? "Importing..." : "Import Flight Plan", ImVec2(w - 12 - 192, y + 2), ImVec2(w - 12, y + 34), true, !g_settings.simbriefUser.empty() && !s.plan.busy)) {
             act.planImport = true; g_kbd = false; g_typeInto = nullptr;
@@ -7976,7 +7982,11 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             dl->AddRect(a, e, IM_COL32(255, 255, 255, 30), 12.0f, 0, 1.0f);
             const bool on = g_settings.localConnect && L.status == 2 && !L.address.empty();
             const char* txt = !g_settings.localConnect ? "Switch Local Connect on" : on ? L.address.c_str() : L.status == 1 ? "Starting..." : L.address.empty() ? "No network found" : L.address.c_str();
+            const bool shown = (g_reveal >> 3) & 1u;   // (hidden as dots until its eye is on: a screen being shared need not show it)
+            static std::string dots;
+            if (on && !shown) { dots.clear(); for (size_t i = 0; i < L.address.size() && i < 28; ++i) dots += "\xE2\x80\xA2"; txt = dots.c_str(); }
             textAt(dl, on ? f.title : f.body, a.x + 14, std::floor((a.y + e.y) * 0.5f - fontPx(on ? f.title : f.body) * 0.5f), on ? kInk : kMuted, txt);
+            if (on && eyeToggle(dl, "##lcaddr_eye", ImVec2(e.x - 44, a.y + 4), ImVec2(e.x - 4, e.y - 4), shown)) g_reveal ^= 1u << 3;
             y += 54;
         }
         // the status: a dot and a line
@@ -8227,7 +8237,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     textAt(dl, f.bold, lx, y, kInk, "Volanta Overlay");
     textAt(dl, f.small, lx + 150, y + 2, kMuted, "For the home screen's Volanta widget (Volanta, Settings, Stream overlay)");
     y += 22;
-    textField(dl, f, "##volov", g_settings.volantaOverlay, ImVec2(lx, y), ImVec2(w - 12 - 200, y + 32), "http://localhost:53011", false, 0);
+    hiddenField(dl, f, "##volov", g_settings.volantaOverlay, ImVec2(lx, y), ImVec2(w - 12 - 200, y + 32), "http://localhost:53011", 2);
     if (g_kbd && g_kbdTarget == 2 && g_typeInto == &g_settings.volantaOverlay) { if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; } pageKeyboard(dl, f, w, h, act); return; }
     y += 42;
     textAt(dl, f.bold, lx, y, kInk, "Data");
@@ -10054,6 +10064,7 @@ void setSeasonalPreview(bool all) { g_seasonalAll = all; }
 int settingsTabShown() { return g_settingsTab; }
 void celebrate(int which) { g_celebrate = which; g_celebT0 = ImGui::GetTime(); g_celebOutT0 = -1; }
 bool celebrationShown() { return g_celebrate >= 0; }
+unsigned settingsReveal() { return g_reveal; }
 bool seasonalOnDate(int k, int year, int month, int day) { return seasonalOn(k, year, month, day); }
 const char* seasonalName(int k) { return k >= 0 && k < kSeasonalN ? kSeasonal[k].name : ""; }
 bool takeLogbookChanged() { const bool c = g_logChanged; g_logChanged = false; return c; }
