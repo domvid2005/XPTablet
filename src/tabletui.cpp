@@ -75,27 +75,29 @@ const char* surfaceName(int s);
 extern std::string g_aptSel;
 extern float g_aptScroll;
 
+// XPTablet's own icons each have a colour of their own: no two a shade of the same one (a light and a deep tone far apart, as sky
+// blue and navy, may both be used; the brands' tiles keep their brands' colours)
 struct AppDef { const char* id; const char* name; ImU32 color; const char* url; };   // id: its name in the settings file; url: a web app
 const AppDef kApps[APP_COUNT] = {
-    {"map", "Map", IM_COL32(52, 168, 110, 255), nullptr},                  {"airports", "Airports", IM_COL32(64, 132, 230, 255), nullptr},
-    {"charts", "ChartFox", IM_COL32(236, 152, 50, 255), "https://chartfox.org"},            {"documents", "Documents", IM_COL32(120, 132, 156, 255), nullptr},
-    {"routes", "Flight Plan", IM_COL32(150, 96, 250, 255), nullptr},            {"weather", "Weather", IM_COL32(40, 180, 214, 255), nullptr},
+    {"map", "Map", IM_COL32(46, 170, 96, 255), nullptr},                  {"airports", "Airports", IM_COL32(86, 180, 250, 255), nullptr},
+    {"charts", "ChartFox", IM_COL32(236, 152, 50, 255), "https://chartfox.org"},            {"documents", "Documents", IM_COL32(186, 152, 108, 255), nullptr},
+    {"routes", "Flight Plan", IM_COL32(150, 96, 250, 255), nullptr},            {"weather", "Weather", IM_COL32(0, 196, 200, 255), nullptr},
     {"ground", "Aircraft", IM_COL32(246, 190, 48, 255), nullptr},            {"checklists", "Checklists", IM_COL32(214, 64, 160, 255), nullptr},
-    {"performance", "Performance", IM_COL32(236, 92, 104, 255), nullptr},  {"traffic", "Traffic", IM_COL32(40, 190, 170, 255), nullptr},
-    {"notes", "Notes", IM_COL32(255, 138, 40, 255), nullptr},   // orange (Cabin keeps the yellow)
+    {"performance", "Performance", IM_COL32(22, 100, 66, 255), nullptr},  {"traffic", "Traffic", IM_COL32(255, 124, 104, 255), nullptr},
+    {"notes", "Notes", IM_COL32(255, 138, 40, 255), nullptr},
     {"simbrief", "SimBrief", IM_COL32(196, 58, 66, 255), "https://dispatch.simbrief.com"},
     {"livemap", "Volanta", IM_COL32(112, 72, 255, 255), "https://fly.volanta.app"},   // Volanta's violet (approximated)
     {"foreflight", "ForeFlight", IM_COL32(30, 140, 222, 255), "https://plan.foreflight.com"},
-    {"browser", "Browser", IM_COL32(72, 110, 240, 255), nullptr},          {"settings", "Settings", IM_COL32(110, 120, 140, 255), nullptr},
+    {"browser", "Browser", IM_COL32(0, 112, 124, 255), nullptr},          {"settings", "Settings", IM_COL32(122, 130, 146, 255), nullptr},
     {"navigraph", "Navigraph", IM_COL32(28, 52, 92, 255), "https://charts.navigraph.com"},
     {"vatsim", "VATSIM Radar", IM_COL32(18, 28, 52, 255), "https://vatsim-radar.com"},
     {"skyvector", "SkyVector", IM_COL32(32, 132, 108, 255), "https://skyvector.com"},
-    {"music", "Media", IM_COL32(250, 45, 85, 255), nullptr},   // (its id stays "music": saved home screens keep it)
-    {"dispatch", "Dispatch", IM_COL32(58, 110, 200, 255), nullptr},   // the SimBrief briefing (its PDF)
-    {"navsearch", "Navaids", IM_COL32(24, 150, 170, 255), nullptr},   // X-Plane's navaids, fixes and airports, searched
-    {"appstore", "App Store", IM_COL32(84, 76, 232, 255), nullptr},   // bright indigo, a white bag (as the other icons: one white glyph on a bright tile)
-    {"games", "Games", IM_COL32(236, 72, 120, 255), nullptr},
-    {"datis", "D-ATIS", IM_COL32(40, 160, 140, 255), "https://datis.clowd.io"},
+    {"music", "Media", IM_COL32(236, 48, 56, 255), nullptr},   // (its id stays "music": saved home screens keep it)
+    {"dispatch", "Dispatch", IM_COL32(128, 86, 58, 255), nullptr},   // the SimBrief briefing (its PDF)
+    {"navsearch", "Navaids", IM_COL32(132, 190, 40, 255), nullptr},   // X-Plane's navaids, fixes and airports, searched
+    {"appstore", "App Store", IM_COL32(70, 56, 160, 255), nullptr},   // deep indigo, a white bag (as the other icons: one white glyph on its tile)
+    {"games", "Games", IM_COL32(255, 128, 176, 255), nullptr},
+    {"datis", "D-ATIS", IM_COL32(124, 130, 50, 255), "https://datis.clowd.io"},
     {"spotify", "Spotify", IM_COL32(30, 185, 84, 255), "https://open.spotify.com"},
     {"ytmusic", "YouTube Music", IM_COL32(230, 33, 23, 255), "https://music.youtube.com"},
     {"applemusic", "Apple Music", IM_COL32(250, 60, 90, 255), "https://music.apple.com"},
@@ -104,9 +106,9 @@ const AppDef kApps[APP_COUNT] = {
     {"vatsimhub", "VATSIM", IM_COL32(40, 70, 160, 255), nullptr},   // with AIP / Stats bubbles
     {"nattrak", "natTrak", IM_COL32(20, 90, 150, 255), "https://nattrak.vatsim.net"},
     {"ivao", "IVAO Webeye", IM_COL32(20, 80, 200, 255), "https://webeye.ivao.aero"},
-    {"timers", "Timers", IM_COL32(255, 149, 0, 255), nullptr},
-    {"logbook", "Logbook", IM_COL32(120, 84, 60, 255), nullptr},
-    {"acars", "ACARS", IM_COL32(52, 120, 140, 255), nullptr},
+    {"timers", "Timers", IM_COL32(30, 50, 110, 255), nullptr},
+    {"logbook", "Logbook", IM_COL32(132, 32, 52, 255), nullptr},
+    {"acars", "ACARS", IM_COL32(34, 36, 42, 255), nullptr},
     {"xpilot", "xPilot", IM_COL32(30, 44, 70, 255), nullptr},   // xPilot's own windows: a page of the VATSIM app (not in the App Store, never on the home screen)
     {"fr24", "Flightradar24", IM_COL32(16, 16, 18, 255), "https://www.flightradar24.com"},   // real-world traffic, live
 };
