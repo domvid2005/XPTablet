@@ -97,7 +97,7 @@ const AppDef kApps[APP_COUNT] = {
     {"navsearch", "Navaids", IM_COL32(132, 190, 40, 255), nullptr},   // X-Plane's navaids, fixes and airports, searched
     {"appstore", "App Store", IM_COL32(70, 56, 160, 255), nullptr},   // deep indigo, a white bag (as the other icons: one white glyph on its tile)
     {"games", "Games", IM_COL32(255, 128, 176, 255), nullptr},
-    {"datis", "D-ATIS", IM_COL32(124, 130, 50, 255), "https://datis.clowd.io"},
+    {"datis", "D-ATIS", IM_COL32(64, 68, 76, 255), "https://datis.clowd.io"},
     {"spotify", "Spotify", IM_COL32(30, 185, 84, 255), "https://open.spotify.com"},
     {"ytmusic", "YouTube Music", IM_COL32(230, 33, 23, 255), "https://music.youtube.com"},
     {"applemusic", "Apple Music", IM_COL32(250, 60, 90, 255), "https://music.apple.com"},
@@ -108,7 +108,7 @@ const AppDef kApps[APP_COUNT] = {
     {"ivao", "IVAO Webeye", IM_COL32(20, 80, 200, 255), "https://webeye.ivao.aero"},
     {"timers", "Timers", IM_COL32(30, 50, 110, 255), nullptr},
     {"logbook", "Logbook", IM_COL32(132, 32, 52, 255), nullptr},
-    {"acars", "ACARS", IM_COL32(34, 36, 42, 255), nullptr},
+    {"acars", "ACARS", IM_COL32(124, 130, 50, 255), nullptr},
     {"xpilot", "xPilot", IM_COL32(30, 44, 70, 255), nullptr},   // xPilot's own windows: a page of the VATSIM app (not in the App Store, never on the home screen)
     {"fr24", "Flightradar24", IM_COL32(16, 16, 18, 255), "https://www.flightradar24.com"},   // real-world traffic, live
 };
