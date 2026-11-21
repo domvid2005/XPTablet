@@ -89,7 +89,7 @@ add_custom_command(
   DEPENDS ${XPT_ASSET_FILES} ${CMAKE_SOURCE_DIR}/cmake/embed_assets.cmake
   COMMENT "Embedding the tablet's fonts")
 # The tablet itself: its screens and the triangle clipper. No X-Plane calls, so the tests build it too.
-add_library(xpt_ui STATIC src/tabletui.cpp src/arcade.cpp src/tabrender.cpp src/metar.cpp src/aptgeo.cpp src/airspace_parse.cpp src/airlines.cpp src/tz.cpp ${CMAKE_BINARY_DIR}/xpt_assets.c)
+add_library(xpt_ui STATIC src/tabletui.cpp src/arcade.cpp src/acars.cpp src/tabrender.cpp src/metar.cpp src/aptgeo.cpp src/airspace_parse.cpp src/airlines.cpp src/tz.cpp ${CMAKE_BINARY_DIR}/xpt_assets.c)
 target_include_directories(xpt_ui PUBLIC src)
 target_link_libraries(xpt_ui PUBLIC xpt_imgui)
 

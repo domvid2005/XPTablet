@@ -3,6 +3,7 @@
 #include "airlines.h"
 #include "imgui_internal.h"
 #include "arcade.h"
+#include "acars.h"
 
 #include <algorithm>
 #include <map>
@@ -49,6 +50,7 @@ float itemHover();                                          // the last item's h
 float openness(const char* id, bool open, float rate = 14.0f);   // a menu opening and closing, eased
 void resetTablet();   // Reset All (below)
 void resetLogAndTimers();   // Reset All: the logbook and the timers (below)
+void acarsStep(const SimState& s, Actions& act);   // ACARS: what came up, into its log (below)
 void logStep(const SimState& s);   // the logbook's watch on the flight (below)
 // a finger's drag up or down over a list scrolls it, even begun on one of its rows (whose tap is then let go); the mouse's too
 bool g_touchScrolling = false;
@@ -6511,6 +6513,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"natTrak icon", "The natTrak logo belongs to VATSIM's natTrak (nattrak.vatsim.net), used only to show their web app", "Trademark"},
         {"IVAO icon", "The IVAO logo is a trademark of the International Virtual Aviation Organisation (ivao.aero), used only to show their Webeye map", "Trademark"},
         {"Spotify, YouTube, YouTube Music, Apple Music and SoundCloud icons", "Their logos are trademarks of Spotify AB, Google LLC, Apple Inc. and SoundCloud Global Limited, used only to show their web players", "Trademark"},
+        {"ACARS and CPDLC", "Hoppie's ACARS network (hoppie.nl): telex, pre-departure clearances and CPDLC, with your own logon code; for flight simulation only", "Free service"},
         {"openAIP overlay", "Aeronautical map tiles from openAIP (openaip.net), with your own API key; drawn over the map as served", "CC BY-NC 4.0"},
         {"VATSIM ATC and airspaces", "VATSIM data feed (data.vatsim.net); FIR and airspace boundaries from the VATSpy Data Project (github.com/vatsimnetwork/vatspy-data-project), fetched and shown as published", "CC BY-SA 4.0"},
         {"Jetways", "openSAM by Holger Teutsch (hotbso) and contributors (github.com/hotbso/openSAM), its commands and datarefs (no openSAM code is in XPTablet)", "LGPL-2.1"},
@@ -7829,6 +7832,7 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
 void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     if (!ImGui::GetIO().MouseDown[0]) g_touchScrolling = false;
     logStep(s);   // (the logbook keeps watching, whatever page is shown)
+    acarsStep(s, act);   // (and ACARS keeps listening)
     {   // a Custom theme's picture: the one the theme shown (or being edited) wants; its average colour becomes its background once
         g_bgTex = s.bgTex; g_bgW = s.bgW; g_bgH = s.bgH; g_bgPic = s.bgPicture;
         const int slot = g_customEdit >= 0 ? g_customEdit : (g_settings.wallpaper >= 7 && g_settings.wallpaper <= 9 ? g_settings.wallpaper - 7 : -1);
@@ -8621,7 +8625,129 @@ void timersPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     for (const Row& r : rows) { textAt(dl, f.body, 28, y, kMuted, r.k ? r.k : ""); textAt(dl, f.bold, 220, y, kInk, r.v.c_str()); y += 30; }
 }
 
-void resetLogAndTimers() { g_log.clear(); g_logChanged = true; g_live = LogLive(); g_swStart = -1; g_swAcc = 0; g_cdStart = -1; g_cdSet = g_cdLeft = 60; g_cdRang = false; }
+// ---- ACARS: Hoppie's network. A CPDLC logon to a station, a pre-departure clearance asked for, telex either way; uplinks answered
+std::vector<AcarsMsg> g_acLog;          // up and down, oldest first
+size_t g_acSeen = 0;                    // how much of the host's inbox is in the log
+std::string g_acStation, g_acTo, g_acText, g_acAtis, g_acCall;
+int g_acLogon = 0, g_acMin = 0;         // CPDLC: 0 not logged on, 1 asked, 2 logged on (to g_acLogonTo); the next message number
+std::string g_acLogonTo;
+float g_acScroll = 0;
+std::string acCallsign(const SimState& s) { return !g_acCall.empty() ? g_acCall : s.plan.loaded ? s.plan.callsign : std::string(); }
+void acSend(const SimState& s, Actions& act, const std::string& to, const std::string& type, const std::string& packet, const std::string& shown) {
+    act.acarsOut.push_back({to, type, packet});
+    AcarsMsg m; m.up = false; m.station = to; m.type = type; m.text = shown; m.utc = s.map.utc;
+    g_acLog.push_back(m);
+}
+void acarsStep(const SimState& s, Actions& act) {
+    const bool on = installed(APP_ACARS) && !g_settings.hoppieCode.empty() && !acCallsign(s).empty();
+    act.acarsFrom = on ? acCallsign(s) : std::string();
+    while (g_acSeen < s.acars.inbox.size()) {   // the new uplinks into the log: a logon's answer moves the CPDLC state on
+        AcarsMsg m = s.acars.inbox[g_acSeen++];
+        if (m.utc <= 0) m.utc = s.map.utc;
+        if (m.type == "cpdlc") {
+            if (m.text.find("LOGON ACCEPTED") != std::string::npos) { g_acLogon = 2; g_acLogonTo = m.station; }
+            else if (m.text.find("LOGOFF") != std::string::npos || m.text.find("LOGON REJECTED") != std::string::npos || m.text.find("UNABLE") == 0) { if (m.station == g_acLogonTo) g_acLogon = 0; }
+            else if (m.text.compare(0, 9, "HANDOVER ") == 0) { g_acLogon = 0; g_acStation = m.text.substr(9); while (!g_acStation.empty() && g_acStation[0] == '@') g_acStation.erase(0, 1); }
+        }
+        g_acLog.push_back(m);
+        postNote("ACARS", m.station + ": " + m.text.substr(0, 90), APP_ACARS);
+        ++g_chimeSeq;
+    }
+}
+void acarsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const float top = kStatusH + kHeaderH + 10;
+    const std::string cs = acCallsign(s);
+    const bool code = !g_settings.hoppieCode.empty(), ready = code && !cs.empty();
+    card(dl, ImVec2(12, top), ImVec2(w - 12, top + 140), f, "DATALINK");
+    std::string st;
+    if (!code) st = "Add your Hoppie logon code in Settings, Accounts (hoppie.nl, free)";
+    else if (cs.empty()) st = "Type a callsign, or import a SimBrief plan";
+    else st = cs + "  \xC2\xB7  " + (s.acars.status.empty() ? std::string("Connecting to Hoppie...") : s.acars.status)
+              + (g_acLogon == 2 ? "  \xC2\xB7  CPDLC: " + g_acLogonTo : g_acLogon == 1 ? "  \xC2\xB7  CPDLC logon to " + g_acLogonTo + "..." : std::string());
+    textAt(dl, f.small, 28, top + 30, ready ? (g_acLogon == 2 ? kGood : kInk) : kWarn, st.c_str());
+    auto up = [](std::string& v) { for (char& c : v) c = (char)std::toupper((unsigned char)c); };
+    up(g_acStation); up(g_acTo); up(g_acCall); up(g_acAtis); up(g_acText);
+    float y = top + 54, x = 28;
+    textField(dl, f, "##accall", g_acCall, ImVec2(x, y), ImVec2(x + 112, y + 32), s.plan.loaded && !s.plan.callsign.empty() ? s.plan.callsign.c_str() : "Callsign", false); x += 120;
+    textField(dl, f, "##acstn", g_acStation, ImVec2(x, y), ImVec2(x + 100, y + 32), "Station", false); x += 108;
+    const bool logged = g_acLogon != 0;
+    if (pill(dl, f, "##aclogon", logged ? "CPDLC Logoff" : "CPDLC Logon", ImVec2(x, y), ImVec2(x + 132, y + 32), g_acLogon == 2, ready && (logged || g_acStation.size() >= 3))) {
+        if (logged) { acSend(s, act, g_acLogonTo, "cpdlc", cpdlcPacket(++g_acMin, 0, "N", "LOGOFF"), "LOGOFF"); g_acLogon = 0; }
+        else { g_acLogonTo = g_acStation; g_acLogon = 1; acSend(s, act, g_acStation, "cpdlc", cpdlcPacket(++g_acMin, 0, "Y", "REQUEST LOGON"), "REQUEST LOGON"); }
+    }
+    x += 140;
+    textField(dl, f, "##acatis", g_acAtis, ImVec2(x, y), ImVec2(x + 64, y + 32), "ATIS", false); x += 72;
+    if (g_acAtis.size() > 1) g_acAtis.resize(1);
+    if (pill(dl, f, "##acpdc", "Request PDC", ImVec2(x, y), ImVec2(w - 28, y + 32), false, ready && g_acStation.size() >= 3 && s.plan.loaded)) {
+        std::string t = "REQUEST PREDEP CLEARANCE " + cs + " " + (s.acfIcao.empty() ? std::string("ZZZZ") : s.acfIcao) + " TO " + s.plan.dest + " AT " + s.plan.origin;
+        if (!g_acAtis.empty()) t += " ATIS " + g_acAtis;
+        acSend(s, act, g_acStation, "telex", t, t);
+    }
+    y += 44; x = 28;
+    textField(dl, f, "##acto", g_acTo, ImVec2(x, y), ImVec2(x + 112, y + 32), "To", false); x += 120;
+    textField(dl, f, "##actext", g_acText, ImVec2(x, y), ImVec2(w - 132, y + 32), "Telex message", false);
+    if (pill(dl, f, "##acsend", "Send", ImVec2(w - 124, y), ImVec2(w - 28, y + 32), false, ready && g_acTo.size() >= 3 && !g_acText.empty())) {
+        acSend(s, act, g_acTo, "telex", g_acText, g_acText); g_acText.clear();
+        if (g_typeInto == &g_acText) { g_kbd = false; g_typeInto = nullptr; }
+    }
+    // the messages, newest first; an uplink that wants an answer has its buttons
+    const float la = top + 152, lb = h - 12;
+    card(dl, ImVec2(12, la), ImVec2(w - 12, lb), f, "MESSAGES");
+    const float listTop = la + 30, rowH = 52;
+    ImGui::SetCursorScreenPos(ImVec2(12, listTop));
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("##acbg", ImVec2(w - 24, std::max(1.0f, lb - listTop - 4)));
+    if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_acScroll -= ImGui::GetIO().MouseWheel * 40;
+    touchScroll(g_acScroll, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+    // each row as tall as its text (a clearance runs to a few lines)
+    auto wants = [](const AcarsMsg& m) { return m.up && m.type == "cpdlc" && (m.ra == "WU" || m.ra == "AN" || m.ra == "R" || m.ra == "Y") && (m.answer.empty() || m.answer == "STANDBY"); };
+    auto shown = [](const AcarsMsg& m) { return m.answer.empty() ? m.text : m.text + "   [" + m.answer + "]"; };
+    std::vector<float> rh(g_acLog.size());
+    float content = 0;
+    for (size_t i = 0; i < g_acLog.size(); ++i) {
+        const float tr = wants(g_acLog[i]) ? w - 300 : w - 36;
+        rh[i] = std::max(rowH, 26 + f.body->CalcTextSizeA(fontPx(f.body), FLT_MAX, tr - 28, shown(g_acLog[i]).c_str()).y + 10);
+        content += rh[i];
+    }
+    g_acScroll = std::max(0.0f, std::min(g_acScroll, std::max(0.0f, content - (lb - listTop - 8))));
+    if (g_acLog.empty()) textAt(dl, f.small, 28, listTop + 6, kMuted, ready ? "No messages yet. Log on to a station, ask for a clearance, or send a telex." : "Messages from Hoppie's network show here.");
+    dl->PushClipRect(ImVec2(12, listTop), ImVec2(w - 12, lb - 4), true);
+    float ryAt = listTop + 4 - g_acScroll;
+    for (int i = (int)g_acLog.size() - 1, r = 0; i >= 0; --i, ++r) {
+        AcarsMsg& m = g_acLog[i];
+        const float ry = ryAt, rowHi = rh[i];
+        ryAt += rowHi;
+        if (ry > lb || ry + rowHi < listTop) continue;
+        if (r % 2 == 0) dl->AddRectFilled(ImVec2(20, ry - 4), ImVec2(w - 20, ry + rowHi - 8), IM_COL32(255, 255, 255, 10), 8.0f);
+        char head[96]; std::snprintf(head, sizeof head, "%s  %s %s  %s", hhmm(m.utc).c_str(), m.up ? "\xE2\x86\x93 from" : "\xE2\x86\x91 to", m.station.c_str(), m.type == "cpdlc" ? "CPDLC" : "telex");
+        textAt(dl, f.small, 28, ry, m.up ? accentLite(255) : kMuted, head);
+        const bool wantsIt = wants(m);
+        const float textR = wantsIt ? w - 300 : w - 36;
+        const std::string t = shown(m);
+        dl->AddText(f.body, fontPx(f.body), ImVec2(28, ry + 18), kInk, t.c_str(), nullptr, textR - 28);
+        if (wantsIt) {
+            const char* a[3]; int n = 0;
+            if (m.ra == "WU") { a[0] = "WILCO"; a[1] = "UNABLE"; a[2] = "STANDBY"; n = 3; }
+            else if (m.ra == "AN") { a[0] = "AFFIRM"; a[1] = "NEGATIVE"; a[2] = "STANDBY"; n = 3; }
+            else { a[0] = "ROGER"; n = 1; }
+            if (m.answer == "STANDBY") n = std::min(n, 2);
+            float bx = w - 28;
+            for (int k = n - 1; k >= 0; --k) {
+                const float bw = 84; bx -= bw;
+                char id[32]; std::snprintf(id, sizeof id, "##acr%d_%d", i, k);
+                if (pill(dl, f, id, a[k], ImVec2(bx, ry + 6), ImVec2(bx + bw, ry + 36), k == 0, ready)) {
+                    m.answer = a[k];
+                    acSend(s, act, m.station, "cpdlc", cpdlcPacket(++g_acMin, m.min, "N", a[k]), a[k]);
+                }
+                bx -= 6;
+            }
+        }
+    }
+    dl->PopClipRect();
+    pageKeyboard(dl, f, w, h, act);
+}
+
+void resetLogAndTimers() { g_acLog.clear(); g_acStation.clear(); g_acTo.clear(); g_acText.clear(); g_acAtis.clear(); g_acCall.clear(); g_acLogon = 0; g_acLogonTo.clear(); g_log.clear(); g_logChanged = true; g_live = LogLive(); g_swStart = -1; g_swAcc = 0; g_cdStart = -1; g_cdSet = g_cdLeft = 60; g_cdRang = false; }
 void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
     const float top = kStatusH + kHeaderH;
     const float dt = ImGui::GetIO().DeltaTime;
@@ -8891,6 +9017,7 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
         else if (app == APP_GAMES) gamesPage(dl, f, w, h);
         else if (app == APP_TIMERS) timersPage(dl, f, s, w, h);
         else if (app == APP_LOGBOOK) logbookPage(dl, f, s, w, h);
+        else if (app == APP_ACARS) acarsPage(dl, f, s, w, h, act);
         else if (app == APP_VATSIMHUB) vatsimHubPage(dl, f, w, h);
         else placeholderPage(dl, f, app, w, h);
     }

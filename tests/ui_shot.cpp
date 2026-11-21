@@ -21,6 +21,7 @@
 #include "imgui_internal.h"   // (the error log: ImGui's own record of unbalanced calls, which it shows on screen in the sim)
 #include "tabletui.h"
 #include "arcade.h"
+#include "acars.h"
 #include "simbrief.h"
 #include "airspace_parse.h"
 #include "airlines.h"
@@ -444,6 +445,39 @@ int main(int argc, char** argv) {
           settings().wallpaper = 8; shot(t, APP_HOME, "home_custom");
           settings().wallpaper = keep; }
         shot(t, APP_GAMES, "games");
+        {   // ACARS: Hoppie's answers read, the URL made; the page logs on, asks for a PDC, answers a climb with WILCO
+            std::vector<AcarsMsg> got; std::string err;
+            if (!acarsParse("ok {KSBN telex {PDC AAV12 CLRD TO KDTW}} {KSBN cpdlc {/data2/7//WU/CLIMB TO @FL240@}}", got, err) || got.size() != 2 || got[0].text != "PDC AAV12 CLRD TO KDTW"
+                || got[1].min != 7 || got[1].ra != "WU" || got[1].text != "CLIMB TO FL240") { std::printf("FAIL: ACARS poll answer read (%d)\n", (int)got.size()); ++failures; }
+            got.clear(); if (acarsParse("error {illegal logon code}", got, err) || err != "illegal logon code") { std::printf("FAIL: ACARS error read: %s\n", err.c_str()); ++failures; }
+            if (acarsUrl("ab c", "AAV12", "KSBN", "telex", "HI/THERE") != "https://www.hoppie.nl/acars/system/connect.html?logon=ab+c&from=AAV12&to=KSBN&type=telex&packet=HI%2FTHERE") { std::printf("FAIL: ACARS url\n"); ++failures; }
+            if (cpdlcPacket(3, 7, "N", "WILCO") != "/data2/3/7/N/WILCO" || cpdlcPacket(4, 0, "Y", "REQUEST LOGON") != "/data2/4//Y/REQUEST LOGON") { std::printf("FAIL: CPDLC packet\n"); ++failures; }
+            const auto keepInst = settings().installed; settings().installed.push_back("acars"); settings().hoppieCode = "secret";
+            SimState u = t; u.plan.loaded = true; u.plan.callsign = "AAV12"; u.plan.origin = "KSBN"; u.plan.dest = "KDTW"; u.acfIcao = "A20N"; u.map.utc = 1763640000;
+            std::vector<Actions::AcarsOut> sent; std::string from;
+            auto fr = [&](float x, float y, bool d) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, d);
+                ImGui::NewFrame(); Actions act; build(fonts, u, 800, kLogicalH, act); ImGui::Render(); for (auto& o : act.acarsOut) sent.push_back(o); from = act.acarsFrom; };
+            auto tap = [&](float x, float y) { fr(x, y, false); fr(x, y, true); fr(x, y, true); fr(x, y, false); };
+            openApp(APP_ACARS); fr(-100, -100, false);
+            if (from != "AAV12") { std::printf("FAIL: ACARS polls as the plan's callsign (%s)\n", from.c_str()); ++failures; }
+            tap(200, 154); for (char c : std::string("ksbn")) tabletKey(c, true); tabletKey(13, false);   // the station field, typed (Enter puts the keys away)
+            fr(-100, -100, false);
+            tap(330, 154);                                     // CPDLC Logon
+            tap(700, 154);                                     // Request PDC
+            if (sent.size() != 2 || sent[0].to != "KSBN" || sent[0].packet.find("/Y/REQUEST LOGON") == std::string::npos || sent[1].packet.find("REQUEST PREDEP CLEARANCE AAV12 A20N TO KDTW AT KSBN") != 0) {
+                std::printf("FAIL: ACARS logon and PDC sent (%d)\n", (int)sent.size()); for (auto& o : sent) std::printf("  %s %s %s\n", o.to.c_str(), o.type.c_str(), o.packet.c_str()); ++failures; }
+            AcarsMsg acc; acc.station = "KSBN"; acc.type = "cpdlc"; acc.text = "LOGON ACCEPTED"; acc.ra = "NE"; acc.min = 1; u.acars.inbox.push_back(acc);
+            AcarsMsg pdc; pdc.station = "KSBN"; pdc.type = "telex"; pdc.text = "PDC AAV12 CLRD TO KDTW VIA GIJ THEN AS FILED. SQUAWK 4521"; u.acars.inbox.push_back(pdc);
+            AcarsMsg clb; clb.station = "KSBN"; clb.type = "cpdlc"; clb.text = "CLIMB TO AND MAINTAIN FL240"; clb.ra = "WU"; clb.min = 9; u.acars.inbox.push_back(clb);
+            u.acars.status = "Connected, checked every minute";
+            fr(-100, -100, false); fr(-100, -100, false);
+            shot(u, APP_ACARS, "acars");
+            sent.clear();
+            tap(550, 291);   // WILCO, on the climb (the newest message, at the top)
+            if (sent.size() != 1 || sent[0].packet.find("/9/N/WILCO") == std::string::npos) { std::printf("FAIL: ACARS WILCO (%d %s)\n", (int)sent.size(), sent.empty() ? "" : sent[0].packet.c_str()); ++failures; }
+            fr(-100, -100, false); shot(u, APP_ACARS, "acars_wilco");
+            settings().installed = keepInst; settings().hoppieCode.clear();
+        }
         {   // the plan's procedures from a CIFP file: KSBN's SID by its runway and the route's transition, KORD's STAR and ILS 28C to the runway
             FlightPlan p; p.loaded = true; p.origin = "KSBN"; p.originRunway = "27"; p.sid = "SBN2"; p.dest = "KORD"; p.destRunway = "28C"; p.star = "WATSN4";
             struct Fx { const char* id; double lat, lon; };

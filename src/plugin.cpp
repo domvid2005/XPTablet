@@ -43,7 +43,10 @@
 #include "vatsim.h"
 #include "airspace.h"
 #include "localnet.h"
+#include <condition_variable>
+#include <deque>
 #include "simbrief.h"
+#include "acars.h"
 #include "media.h"
 #include "ourairports.h"
 #include "stb_image.h"
@@ -808,6 +811,56 @@ void simbriefFetch(const std::string& user, bool quiet = false) {
 // The plan's route for the map: the departure, its fixes, the destination
 void planToRoute() {
     xpt::planToRoute(g_sim.plan, g_sim.map);
+}
+
+// ---- Hoppie's ACARS: one worker sends what the tablet asks to and polls every minute while ACARS is on ------------------------
+struct AcarsReq { std::string logon, from, to, type, packet; };
+std::mutex g_acMx;
+std::condition_variable g_acCv;
+std::deque<AcarsReq> g_acQ;
+std::vector<xpt::AcarsMsg> g_acIn;   // come up, not yet handed to the tablet
+std::string g_acStatus;
+std::thread g_acThread;
+std::atomic<bool> g_acStop{false};
+void acarsWorker() {
+    for (;;) {
+        AcarsReq r;
+        {
+            std::unique_lock<std::mutex> lk(g_acMx);
+            g_acCv.wait(lk, [] { return g_acStop || !g_acQ.empty(); });
+            if (g_acStop) return;
+            r = g_acQ.front(); g_acQ.pop_front();
+        }
+        std::string body, err; long status = 0;
+        const bool ok = wx::httpGet(xpt::acarsUrl(r.logon, r.from, r.to, r.type, r.packet), body, status, err, 20, 256 * 1024);
+        std::vector<xpt::AcarsMsg> got; std::string perr;
+        const bool parsed = ok && xpt::acarsParse(body, got, perr);
+        std::lock_guard<std::mutex> lk(g_acMx);
+        if (!ok) g_acStatus = "Hoppie unreachable" + (err.empty() ? std::string() : ": " + err);
+        else if (!parsed) g_acStatus = "Hoppie: " + perr;
+        else { if (r.type == "poll") g_acStatus = "Connected, checked every minute"; for (auto& m : got) g_acIn.push_back(m); }
+    }
+}
+void acarsStep(const xpt::Actions& act) {
+    static double lastPoll = -1e9;
+    const double now = XPLMGetElapsedTime();
+    const bool on = !act.acarsFrom.empty();
+    if (on && !g_acThread.joinable()) { g_acStop = false; g_acThread = std::thread(acarsWorker); }
+    {
+        std::lock_guard<std::mutex> lk(g_acMx);
+        for (const auto& o : act.acarsOut) if (on) g_acQ.push_back({xpt::settings().hoppieCode, act.acarsFrom, o.to, o.type, o.packet});
+        if (on && now - lastPoll > 60) { lastPoll = now; g_acQ.push_back({xpt::settings().hoppieCode, act.acarsFrom, "SERVER", "poll", ""}); }
+        if (!on) { lastPoll = -1e9; g_acStatus.clear(); }
+        for (auto& m : g_acIn) g_sim.acars.inbox.push_back(m);
+        g_acIn.clear();
+        g_sim.acars.status = g_acStatus;
+    }
+    g_acCv.notify_one();
+}
+void acarsStop() {
+    { std::lock_guard<std::mutex> lk(g_acMx); g_acStop = true; g_acQ.clear(); }
+    g_acCv.notify_all();
+    if (g_acThread.joinable()) g_acThread.join();
 }
 
 // The plan's SID, STAR and approach for the map: built again when the plan (or its runways) changes, from the CIFP and the nav data
@@ -1626,6 +1679,7 @@ void ensureFrame() {
     mapStep(act);
     planStep(act);
     proceduresStep();
+    acarsStep(act);
     mediaStep(act);
     backgroundStep(act);
     {   // the Map's traffic card: its aircraft on VATSIM (and its filed route); VATSIM's world as traffic when chosen
@@ -2727,6 +2781,7 @@ PLUGIN_API void XPluginDisable(void) {
     xpt::media::stop();
     browserStop();
     mapStop();
+    acarsStop();
     wx::httpGlobalCleanup();
 }
 

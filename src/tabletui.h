@@ -334,6 +334,20 @@ struct LocalConnectState {
     std::string pairName;         // and its name
     std::vector<LocalDevice> devices;
 };
+// Hoppie's ACARS: a message up (from a station) or down (sent); CPDLC's numbers and the reply it wants
+struct AcarsMsg {
+    bool up = true;
+    std::string station, type, text;   // type: telex, cpdlc, ...
+    long long utc = 0;
+    int min = 0, mrn = 0; std::string ra;   // CPDLC: its number, the one it answers, the reply it wants (WU, AN, R, Y, N, NE)
+    std::string answer;                // the reply given (WILCO...), or "" none yet
+};
+struct AcarsState {
+    std::vector<AcarsMsg> inbox;       // what came up, in order (only added to)
+    std::string status;                // "Polling every minute", an error from Hoppie
+    long long lastPoll = 0;            // sim UTC of the last poll
+};
+
 struct SimState {
     std::string acfIcao;          // "A321", "" when unknown
     int zuluSec = -1;             // seconds since 00:00Z, -1 when unknown
@@ -348,6 +362,7 @@ struct SimState {
     float pixelScale = 1.0f;      // screen pixels per layout unit
     int batteryPct = 100;         // the tablet's own battery
     LocalConnectState local;      // Local Connect (Settings)
+    AcarsState acars;             // Hoppie's ACARS (the ACARS app)
     float fuelKg = -1;            // the fuel on board, kg (-1 unknown): the logbook's fuel used
     bool charging = false;        // the aircraft's electrical system is feeding it
     SimWeather wx;
@@ -393,6 +408,9 @@ enum GroundAction { GA_NONE, GA_JETWAY, GA_GPU, GA_CHOCKS, GA_HP_AIR, GA_LP_AIR,
                     GA_BP_PLAN, GA_BP_CONNECT, GA_BP_START, GA_BP_STOP, GA_BP_DISCONNECT, GA_BP_RECONNECT };   // GA_BP_*: BetterPushback's planner, tug, start and stop   // GA_JETWAY_SET: groundIndex a mask of the doors to connect
 
 struct Actions {
+    struct AcarsOut { std::string to, type, packet; };
+    std::vector<AcarsOut> acarsOut;   // ACARS messages to send now (from acarsFrom, with the logon code in Settings, Accounts)
+    std::string acarsFrom;           // the callsign ACARS uses; empty: no polling (no logon code, no callsign, or the app not installed)
     std::string localForget;      // Local Connect: a paired device removed (its name)
     bool localPairDeny = false;   // Local Connect: the device asking to pair is turned away
     int ground = GA_NONE;
