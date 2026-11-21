@@ -445,6 +445,16 @@ int main(int argc, char** argv) {
           settings().wallpaper = 8; shot(t, APP_HOME, "home_custom");
           settings().wallpaper = keep; }
         shot(t, APP_GAMES, "games");
+        {   // xPilot's commands as buttons on the VATSIM page (only those found)
+            SimState u = t; u.xpilotCmds = {"xpilot/toggle_nearby_atc_window", "xpilot/toggle_text_message_console"};
+            const auto keepInst = settings().installed; settings().installed.push_back("vatsimhub");
+            shot(u, APP_VATSIMHUB, "vatsimhub_xpilot");
+            std::string pressed;
+            for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(200, 440); io.AddMouseButtonEvent(0, k == 1 || k == 2);
+                ImGui::NewFrame(); Actions act; build(fonts, u, 800, kLogicalH, act); ImGui::Render(); if (!act.xpilotCmd.empty()) pressed = act.xpilotCmd; }
+            if (pressed != "xpilot/toggle_text_message_console") { std::printf("FAIL: xPilot's Messages button (%s)\n", pressed.c_str()); ++failures; }
+            settings().installed = keepInst;
+        }
         {   // ACARS: Hoppie's answers read, the URL made; the page logs on, asks for a PDC, answers a climb with WILCO
             std::vector<AcarsMsg> got; std::string err;
             if (!acarsParse("ok {KSBN telex {PDC AAV12 CLRD TO KDTW}} {KSBN cpdlc {/data2/7//WU/CLIMB TO @FL240@}}", got, err) || got.size() != 2 || got[0].text != "PDC AAV12 CLRD TO KDTW"

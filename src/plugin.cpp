@@ -857,6 +857,17 @@ void acarsStep(const xpt::Actions& act) {
     }
     g_acCv.notify_one();
 }
+// xPilot's own commands (its message window, nearby ATC...): looked for now and then (it may load after us), pressed for the tablet
+void xpilotStep(const xpt::Actions& act) {
+    static const char* const names[] = {"xpilot/toggle_text_message_console", "xpilot/toggle_nearby_atc_window", "xpilot/toggle_notification_panel",
+                                        "xpilot/contact_atc", "xpilot/toggle_aircraft_labels", "xpilot/toggle_settings_window"};
+    if ((XPLMGetCycleNumber() % 256) == 3) {
+        std::vector<std::string> found;
+        for (const char* n : names) if (XPLMFindCommand(n)) found.push_back(n);
+        if (found != g_sim.xpilotCmds) { g_sim.xpilotCmds = found; logMsg("xPilot: %d command(s) for the tablet", (int)found.size()); }
+    }
+    if (!act.xpilotCmd.empty()) if (XPLMCommandRef c = XPLMFindCommand(act.xpilotCmd.c_str())) XPLMCommandOnce(c);
+}
 void acarsStop() {
     { std::lock_guard<std::mutex> lk(g_acMx); g_acStop = true; g_acQ.clear(); }
     g_acCv.notify_all();
@@ -1680,6 +1691,7 @@ void ensureFrame() {
     planStep(act);
     proceduresStep();
     acarsStep(act);
+    xpilotStep(act);
     mediaStep(act);
     backgroundStep(act);
     {   // the Map's traffic card: its aircraft on VATSIM (and its filed route); VATSIM's world as traffic when chosen

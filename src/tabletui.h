@@ -363,6 +363,7 @@ struct SimState {
     int batteryPct = 100;         // the tablet's own battery
     LocalConnectState local;      // Local Connect (Settings)
     AcarsState acars;             // Hoppie's ACARS (the ACARS app)
+    std::vector<std::string> xpilotCmds;   // xPilot's own commands found in the sim (its message window, nearby ATC...): buttons for them
     float fuelKg = -1;            // the fuel on board, kg (-1 unknown): the logbook's fuel used
     bool charging = false;        // the aircraft's electrical system is feeding it
     SimWeather wx;
@@ -408,6 +409,7 @@ enum GroundAction { GA_NONE, GA_JETWAY, GA_GPU, GA_CHOCKS, GA_HP_AIR, GA_LP_AIR,
                     GA_BP_PLAN, GA_BP_CONNECT, GA_BP_START, GA_BP_STOP, GA_BP_DISCONNECT, GA_BP_RECONNECT };   // GA_BP_*: BetterPushback's planner, tug, start and stop   // GA_JETWAY_SET: groundIndex a mask of the doors to connect
 
 struct Actions {
+    std::string xpilotCmd;           // one of xPilot's commands, pressed once (from SimState::xpilotCmds)
     struct AcarsOut { std::string to, type, packet; };
     std::vector<AcarsOut> acarsOut;   // ACARS messages to send now (from acarsFrom, with the logon code in Settings, Accounts)
     std::string acarsFrom;           // the callsign ACARS uses; empty: no polling (no logon code, no callsign, or the app not installed)

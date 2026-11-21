@@ -8329,7 +8329,16 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h) {
 }
 
 // ---- VATSIM: a page of bubbles, each a part of VATSIM's own sites (they open as the app's tabs) ----------------------------------------
-void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
+// xPilot's commands the tablet knows a name for (only those found in the sim are shown)
+struct XpCmd { const char* cmd; const char* label; };
+const XpCmd kXpCmds[] = {
+    {"xpilot/toggle_text_message_console", "Messages"}, {"xpilot/toggle_nearby_atc_window", "Nearby ATC"},
+    {"xpilot/toggle_notification_panel", "Notifications"}, {"xpilot/contact_atc", "Contact ATC"},
+    {"xpilot/toggle_aircraft_labels", "Aircraft Labels"}, {"xpilot/toggle_settings_window", "xPilot Settings"},
+};
+void vatsimHubPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    std::vector<const XpCmd*> xp;
+    for (const XpCmd& c : kXpCmds) for (const std::string& n : s.xpilotCmds) if (n == c.cmd) xp.push_back(&c);
     struct Bubble { const char* name; const char* what; const char* url; ImU32 col; };
     static const Bubble bubbles[] = {
         {"Stats", "Your hours, flights and the network's numbers", "https://stats.vatsim.net", IM_COL32(40, 120, 220, 255)},
@@ -8337,7 +8346,7 @@ void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         {"Events", "What is on across the network", "https://my.vatsim.net/events", IM_COL32(220, 120, 40, 255)},
         {"Pilot resources", "Guides, charts, maps and tools", "https://vatsim.net/docs/pilots/pilots", IM_COL32(140, 90, 220, 255)},
     };
-    const float top = kStatusH + kHeaderH + 24, bw = std::floor((w - 32 - 16) * 0.5f), bh = 150;
+    const float top = kStatusH + kHeaderH + 24, bw = std::floor((w - 32 - 16) * 0.5f), bh = xp.empty() ? 150.0f : 112.0f;
     for (int i = 0; i < 4; ++i) {
         const ImVec2 a(16 + (i % 2) * (bw + 16), top + (i / 2) * (bh + 16)), b(a.x + bw, a.y + bh);
         char id[24]; std::snprintf(id, sizeof id, "##vbub%d", i);
@@ -8351,6 +8360,18 @@ void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         dl->AddText(f.title, fontPx(f.title), ImVec2(a2.x + 22, a2.y + 22), IM_COL32(255, 255, 255, 255), bubbles[i].name);
         dl->AddText(f.small, fontPx(f.small), ImVec2(a2.x + 22, a2.y + 62), IM_COL32(235, 240, 250, 220), bubbles[i].what, nullptr, bw - 44);
         if (hit) openWeb("VATSIM", bubbles[i].url, false, 100 + APP_VATSIMHUB);
+    }
+    if (!xp.empty()) {   // xPilot, in the sim: its own windows opened from here (it connects in its own app)
+        const ImVec2 a(16, top + 2 * (bh + 16)), b(w - 16, h - 12);
+        card(dl, a, b, f, "XPILOT");
+        textAt(dl, f.small, a.x + 28, a.y + 30, kMuted, "Opens xPilot's own windows in the sim (connecting stays in the xPilot app)");
+        const int n = (int)xp.size();
+        const float gap = 8, pw = std::floor((b.x - a.x - 32 - gap * (n - 1)) / n);
+        for (int i = 0; i < n; ++i) {
+            char id[48]; std::snprintf(id, sizeof id, "##xp_%s", xp[i]->cmd);
+            const float x = a.x + 16 + i * (pw + gap);
+            if (pill(dl, f, id, xp[i]->label, ImVec2(x, b.y - 48), ImVec2(x + pw, b.y - 14), false, true)) act.xpilotCmd = xp[i]->cmd;
+        }
     }
 }
 
@@ -9018,7 +9039,7 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
         else if (app == APP_TIMERS) timersPage(dl, f, s, w, h);
         else if (app == APP_LOGBOOK) logbookPage(dl, f, s, w, h);
         else if (app == APP_ACARS) acarsPage(dl, f, s, w, h, act);
-        else if (app == APP_VATSIMHUB) vatsimHubPage(dl, f, w, h);
+        else if (app == APP_VATSIMHUB) vatsimHubPage(dl, f, s, w, h, act);
         else placeholderPage(dl, f, app, w, h);
     }
 }
