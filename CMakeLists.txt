@@ -126,6 +126,8 @@ if(XPT_BUILD_PLUGIN)
   set(XPT_OUT "${CMAKE_BINARY_DIR}/package/XPTablet/${XPT_PLATFORM_DIR}")
   add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_SOURCE_DIR}/LICENSES.txt" "${XPT_OUT}/LICENSES.txt")
+  add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different   # XPTablet's own (freeware) licence
+    "${CMAKE_SOURCE_DIR}/LICENSE.txt" "${XPT_OUT}/LICENSE.txt")
   # the aircraft top views: a data file read at run time (GPL-3.0, with its licence and README), next to the platform folders
   add_custom_command(TARGET XPTablet POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_SOURCE_DIR}/assets/shapes" "${CMAKE_BINARY_DIR}/package/XPTablet/shapes")

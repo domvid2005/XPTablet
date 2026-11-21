@@ -36,4 +36,9 @@ The plugin lands in `build/package/XPTablet/`. `-DXPT_BUILD_PLUGIN=OFF` builds o
 - `tests/ui_shot.cpp` - draws every screen off-line
 - `tools/make_logo.py` - draws `assets/xptablet_logo.png`
 
-Third-party notices: `LICENSES.txt`.
+## Licence
+
+XPTablet is freeware, copyright (c) 2026 Alpine Aviation: free to download and use, with its source visible here. Selling it,
+re-uploading it elsewhere or publishing changed versions needs written permission. The full terms are in `LICENSE.txt`.
+
+Third-party notices: `LICENSES.txt` (those parts keep their own licences).

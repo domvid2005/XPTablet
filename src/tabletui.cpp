@@ -6493,7 +6493,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
     dl->PushClipRect(ImVec2(ca.x, ca.y + 30), ImVec2(cb.x, cb.y - 2), true);
     struct Credit { const char* what; const char* who; const char* licence; };
     static const Credit kCredits[] = {
-        {"XPTablet", "Alpine Aviation", "Freeware"},
+        {"XPTablet", "\xC2\xA9 2026 Alpine Aviation. Free to use; not for resale or re-upload (LICENSE.txt)", "Freeware"},
         {"Aircraft top views (Ground page)", "AircraftShapesSVG by RexKramer1 and amnesica (BelugaProject), github.com/RexKramer1/AircraftShapesSVG", "GNU GPL v3.0"},
         {"User interface", "Dear ImGui by Omar Cornut and contributors", "MIT"},
         {"Text", "IBM Plex Sans (IBM Corp.), JetBrains Mono (The JetBrains Mono Project Authors)", "SIL Open Font License 1.1"},
