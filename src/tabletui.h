@@ -387,6 +387,7 @@ struct SimState {
     int bgW = 0, bgH = 0;
     std::string bgPicture;
     int bgAverage = -1;           // its average colour (0xRRGGBB, made deeper): the theme's tone with it, -1 not known
+    int bgAccent = -1;            // its strongest colour, made bright enough to read (0xRRGGBB): the theme's accent with it, -1 not known
     struct NavHit { int type = 0; std::string ident, name; double lat = 0, lon = 0; float freq = 0; };   // type: XPLMNavType
     std::vector<NavHit> navHits;  // what the Navigation page's search found
     std::vector<VatsimController> vatsimAtc;   // VATSIM's controllers and ATIS online (when fetched; empty otherwise)
@@ -503,6 +504,9 @@ void tabletKey(int code, bool isChar);   // code: a character, or 8 (back) / 13 
 std::string logbookToText();   // the logbook's flights, one a line (saved by the host: Output/XPTablet/logbook.txt)
 void logbookFromText(const std::string& text);
 bool takeLogbookChanged();
+// A Custom background's colours, from its pixels (RGBA): its average made deeper (the background), and its most striking colour made
+// bright and clear enough for buttons and switches (the accent). Shared by the plugin and the emulator.
+void pictureColors(const unsigned char* rgba, int w, int h, int& average, int& accent);
 std::string notesToText();
 void notesFromText(const std::string& text);
 bool takeNotesChanged();

@@ -452,6 +452,29 @@ int main(int argc, char** argv) {
           settings().wallpaper = 8; shot(t, APP_HOME, "home_custom");
           settings().wallpaper = keep; }
         shot(t, APP_GAMES, "games");
+        {   // a Custom background's colours from its picture: a sunset gives an orange accent, a green aurora a green one, grey the blue
+            const int W = 200, H = 120;
+            auto make = [&](int kind) {
+                std::vector<unsigned char> px((size_t)W * H * 4);
+                for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) {
+                    unsigned char* q = &px[((size_t)y * W + x) * 4]; const float t = (float)y / H;
+                    if (kind == 0) { q[0] = (unsigned char)(250 - 150 * t); q[1] = (unsigned char)(150 - 110 * t); q[2] = (unsigned char)(70 + 80 * t); }
+                    else if (kind == 1) { const bool band = std::fabs(t - 0.4f) < 0.12f; q[0] = 8; q[1] = band ? 210 : 14; q[2] = band ? 110 : 34; }
+                    else { q[0] = q[1] = q[2] = (unsigned char)(60 + 100 * t); }
+                    q[3] = 255;
+                }
+                int avg, acc; pictureColors(px.data(), W, H, avg, acc); return std::make_pair(avg, acc);
+            };
+            auto hueOf = [](int c) { const float R = (c >> 16 & 255) / 255.f, G = (c >> 8 & 255) / 255.f, B = (c & 255) / 255.f, mx = std::max(R, std::max(G, B)), mn = std::min(R, std::min(G, B)), d = mx - mn;
+                if (d <= 0) return -1.0f; float h = mx == R ? std::fmod((G - B) / d, 6.0f) : mx == G ? (B - R) / d + 2 : (R - G) / d + 4; if (h < 0) h += 6; return h * 60; };
+            const auto sun = make(0), aur = make(1), grey = make(2);
+            std::printf("picture colours: sunset bg %06X accent %06X (hue %.0f), aurora bg %06X accent %06X (hue %.0f), grey accent %06X\n", sun.first, sun.second, hueOf(sun.second), aur.first, aur.second, hueOf(aur.second), grey.second);
+            if (hueOf(sun.second) < 0 || hueOf(sun.second) > 50) { std::printf("FAIL: a sunset's accent is orange\n"); ++failures; }
+            if (hueOf(aur.second) < 120 || hueOf(aur.second) > 175) { std::printf("FAIL: an aurora's accent is green\n"); ++failures; }
+            if (grey.second != 0x46A0FF) { std::printf("FAIL: a grey picture's accent is the tablet's blue\n"); ++failures; }
+            const int mxA = std::max(sun.second >> 16 & 255, std::max(sun.second >> 8 & 255, sun.second & 255));
+            if (mxA < 220) { std::printf("FAIL: the accent is bright enough to read\n"); ++failures; }
+        }
         {   // xPilot's commands as buttons on the VATSIM page (only those found)
             SimState u = t; u.xpilotCmds = {"xpilot/toggle_nearby_atc_window", "xpilot/toggle_text_message_console"};
             const auto keepInst = settings().installed; settings().installed.push_back("vatsimhub");

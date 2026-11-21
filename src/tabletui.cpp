@@ -7821,7 +7821,11 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         act.backgroundWanted = slot >= 0 ? g_settings.customs[slot].picture : std::string();
         static std::string matched[3];
         if (slot >= 0 && !act.backgroundWanted.empty() && s.bgPicture == act.backgroundWanted && s.bgAverage >= 0 && matched[slot] != act.backgroundWanted) {
-            if (!matched[slot].empty() || g_customEdit >= 0) { g_settings.customs[slot].bg = s.bgAverage; g_settingsChanged = true; }   // (chosen now: not on loading)
+            if (!matched[slot].empty() || g_customEdit >= 0) {   // (chosen now, not on loading): its background and accent from the picture
+                g_settings.customs[slot].bg = s.bgAverage;
+                if (s.bgAccent >= 0) g_settings.customs[slot].accent = s.bgAccent;
+                g_settingsChanged = true;
+            }
             matched[slot] = act.backgroundWanted;
         }
     }
@@ -9242,6 +9246,38 @@ void logbookFromText(const std::string& text) {
         L.fuelKg = std::atoi(f[14].c_str()); L.nm = (float)std::atof(f[15].c_str()); L.route = f[16];
         g_log.push_back(L);
     }
+}
+void pictureColors(const unsigned char* rgba, int w, int h, int& average, int& accent) {
+    average = accent = -1;
+    if (!rgba || w <= 0 || h <= 0) return;
+    const size_t n = (size_t)w * h;
+    const size_t step = std::max<size_t>(1, n / 40000);   // (about 40 000 pixels looked at)
+    double r = 0, g = 0, b = 0; size_t cnt = 0;
+    double hw[36] = {}, hr[36] = {}, hg[36] = {}, hb[36] = {};   // the hues, weighted by how vivid
+    for (size_t i = 0; i < n; i += step) {
+        const unsigned char* p = rgba + i * 4;
+        r += p[0]; g += p[1]; b += p[2]; ++cnt;
+        const float R = p[0] / 255.0f, G = p[1] / 255.0f, B = p[2] / 255.0f;
+        const float mx = std::max(R, std::max(G, B)), mn = std::min(R, std::min(G, B)), d = mx - mn;
+        if (mx < 0.2f || d < 0.12f) continue;   // (dark or grey: no colour of its own)
+        const float s = d / mx;
+        float hue = mx == R ? std::fmod((G - B) / d, 6.0f) : mx == G ? (B - R) / d + 2 : (R - G) / d + 4;
+        if (hue < 0) hue += 6;
+        const int bin = std::min(35, (int)(hue * 6));
+        const double wt = s * s * mx;
+        hw[bin] += wt; hr[bin] += wt * R; hg[bin] += wt * G; hb[bin] += wt * B;
+    }
+    if (!cnt) return;
+    average = ((int)(r / cnt * 0.8) << 16) | ((int)(g / cnt * 0.8) << 8) | (int)(b / cnt * 0.8);
+    int best = -1; double bw = 0;
+    for (int i = 0; i < 36; ++i) { const double s3 = hw[i] + 0.5 * (hw[(i + 35) % 36] + hw[(i + 1) % 36]); if (s3 > bw) { bw = s3; best = i; } }
+    if (best < 0 || bw < cnt * 0.002) { accent = 0x46A0FF; return; }   // (no real colour in it: the tablet's blue)
+    float R = (float)(hr[best] / hw[best]), G = (float)(hg[best] / hw[best]), B = (float)(hb[best] / hw[best]);
+    // made clear: its hue kept, saturation at least 0.55 and brightness about 0.95
+    const float mx = std::max(R, std::max(G, B)), mn = std::min(R, std::min(G, B));
+    float s = mx > 0 ? (mx - mn) / mx : 0; s = std::max(0.55f, std::min(0.9f, s));
+    auto chan = [&](float c) { const float t = mx > mn ? (c - mn) / (mx - mn) : 0; return 0.95f * (1 - s + s * t); };
+    accent = ((int)std::lround(chan(R) * 255) << 16) | ((int)std::lround(chan(G) * 255) << 8) | (int)std::lround(chan(B) * 255);
 }
 bool takeLogbookChanged() { const bool c = g_logChanged; g_logChanged = false; return c; }
 std::string notesToText() {

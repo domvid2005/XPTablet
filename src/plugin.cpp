@@ -1377,7 +1377,7 @@ void backgroundStep(const xpt::Actions& act) {
     }
     if (act.backgroundWanted == g_sim.bgPicture) return;
     g_sim.bgPicture = act.backgroundWanted;
-    g_sim.bgTex = 0; g_sim.bgW = g_sim.bgH = 0; g_sim.bgAverage = -1;
+    g_sim.bgTex = 0; g_sim.bgW = g_sim.bgH = 0; g_sim.bgAverage = -1; g_sim.bgAccent = -1;
     if (g_sim.bgPicture.empty() || g_sim.bgPicture.find_first_of("/\\") != std::string::npos) return;
     std::string bytes;
     if (!readFile(dir + "/" + g_sim.bgPicture, bytes)) { logMsg("background: could not read %s", g_sim.bgPicture.c_str()); return; }
@@ -1394,12 +1394,7 @@ void backgroundStep(const xpt::Actions& act) {
                                                            img[((size_t)(2 * y + 1) * w + 2 * x) * 4 + c] + img[((size_t)(2 * y + 1) * w + 2 * x + 1) * 4 + c]) / 4);
         img.swap(half); w = nw; h = nh;
     }
-    double r = 0, g = 0, b = 0; size_t cnt = 0;
-    for (size_t i = 0; i + 3 < img.size(); i += 4 * 61) { r += img[i]; g += img[i + 1]; b += img[i + 2]; ++cnt; }
-    if (cnt) {   // its average, made a little deeper (the cards and the pull-down take their tone from it)
-        const int R = (int)(r / cnt * 0.8), G = (int)(g / cnt * 0.8), B = (int)(b / cnt * 0.8);
-        g_sim.bgAverage = (R << 16) | (G << 8) | B;
-    }
+    xpt::pictureColors(img.data(), w, h, g_sim.bgAverage, g_sim.bgAccent);   // its background (average, deeper) and accent (its strongest colour)
     if (!g_bgTex) XPLMGenerateTextureNumbers(&g_bgTex, 1);
     XPLMBindTexture2d(g_bgTex, 0);
     gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR);
