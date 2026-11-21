@@ -89,7 +89,7 @@ add_custom_command(
   DEPENDS ${XPT_ASSET_FILES} ${CMAKE_SOURCE_DIR}/cmake/embed_assets.cmake
   COMMENT "Embedding the tablet's fonts")
 # The tablet itself: its screens and the triangle clipper. No X-Plane calls, so the tests build it too.
-add_library(xpt_ui STATIC src/tabletui.cpp src/arcade.cpp src/acars.cpp src/localwire.cpp src/tabrender.cpp src/metar.cpp src/aptgeo.cpp src/airspace_parse.cpp src/airlines.cpp src/tz.cpp ${CMAKE_BINARY_DIR}/xpt_assets.c)
+add_library(xpt_ui STATIC src/tabletui.cpp src/arcade.cpp src/acars.cpp src/tabrender.cpp src/metar.cpp src/aptgeo.cpp src/airspace_parse.cpp src/airlines.cpp src/tz.cpp ${CMAKE_BINARY_DIR}/xpt_assets.c)
 target_include_directories(xpt_ui PUBLIC src)
 target_link_libraries(xpt_ui PUBLIC xpt_imgui)
 
@@ -102,7 +102,7 @@ else()
   set(XPT_MEDIA_SRC src/media_linux.cpp)
 endif()
 
-# --- Local Connect's server: HTTPS and WebSocket for the tablet on a phone (src/localserver.cpp), on Mbed TLS (Apache-2.0), built
+# --- Local Connect: the tablet mirrored on a phone. Its server (src/localserver.cpp: HTTPS and WebSocket) is on Mbed TLS (Apache-2.0), built
 # in as static libraries. One TLS library for the three platforms (the plugin's HTTPS client side differs on each).
 option(XPT_LOCAL_CONNECT "Build Local Connect's server (fetches Mbed TLS)" ON)
 if(XPT_LOCAL_CONNECT)
@@ -119,9 +119,10 @@ if(XPT_LOCAL_CONNECT)
     GIT_TAG v3.6.8
     GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(mbedtls)
-  add_library(xpt_local STATIC src/localserver.cpp src/localbridge.cpp src/localnet.cpp)
+  add_library(xpt_local STATIC src/localserver.cpp src/localmirror.cpp src/localnet.cpp)
   target_include_directories(xpt_local PUBLIC src)
-  target_link_libraries(xpt_local PUBLIC xpt_ui mbedtls mbedx509 mbedcrypto Threads::Threads)
+  target_include_directories(xpt_local PRIVATE third_party/stb)
+  target_link_libraries(xpt_local PUBLIC mbedtls mbedx509 mbedcrypto Threads::Threads)
   if(WIN32)
     target_compile_definitions(xpt_local PRIVATE NOMINMAX=1 WIN32_LEAN_AND_MEAN=1)
     target_link_libraries(xpt_local PUBLIC ws2_32 bcrypt)
@@ -289,16 +290,12 @@ if(XPT_BUILD_TESTS)
     target_link_libraries(ui_shot PRIVATE ZLIB::ZLIB)
   endif()
   add_test(NAME tablet_screens COMMAND ui_shot ${CMAKE_BINARY_DIR})
-  # Local Connect's wire format: the state and the requests go out and come back the same; what is cut short or made up is refused
-  add_executable(wire_test tests/wire_test.cpp)
-  target_link_libraries(wire_test PRIVATE xpt_ui)
-  add_test(NAME local_connect_wire COMMAND wire_test)
   if(XPT_LOCAL_CONNECT)   # the server over real TLS on this machine: the page, pairing, the token, the refusals
     add_executable(localserver_test tests/localserver_test.cpp)
     target_link_libraries(localserver_test PRIVATE xpt_local)
     add_test(NAME local_connect_server COMMAND localserver_test)
-    # a stand-in for the plugin (the real server and bridge, a sample flight): tests/e2e_localconnect.mjs drives a browser against it
+    # a stand-in for the plugin (the real tablet, server and mirror): tests/e2e_localconnect.mjs drives a browser against it
     add_executable(local_host tests/local_host.cpp)
-    target_link_libraries(local_host PRIVATE xpt_local)
+    target_link_libraries(local_host PRIVATE xpt_local xpt_ui)
   endif()
 endif()

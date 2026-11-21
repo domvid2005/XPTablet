@@ -26,75 +26,14 @@
 #include "airspace_parse.h"
 #include "airlines.h"
 #include "tabrender.h"
+#include "soft_raster.h"
 
 using namespace xpt;
 
 namespace {
 
-struct Canvas {
-    int w, h;
-    std::vector<float> rgb;
-    Canvas(int W, int H) : w(W), h(H), rgb((size_t)W * H * 3, 0.0f) {}
-};
-
-void raster(Canvas& cv, const std::vector<Batch>& batches, const unsigned char* tex, int tw, int th, float scale) {
-    for (const Batch& bt : batches)
-        for (size_t e = 0; e + 2 < bt.v.size(); e += 3) {
-            const ImDrawVert* v = &bt.v[e];
-            float X[3], Y[3];
-            for (int k = 0; k < 3; ++k) { X[k] = v[k].pos.x * scale; Y[k] = v[k].pos.y * scale; }
-            const float area = (X[1] - X[0]) * (Y[2] - Y[0]) - (X[2] - X[0]) * (Y[1] - Y[0]);
-            if (std::fabs(area) < 1e-6f) continue;
-            const int x0 = std::max(0, (int)std::floor(std::min({X[0], X[1], X[2]}))), x1 = std::min(cv.w - 1, (int)std::ceil(std::max({X[0], X[1], X[2]})));
-            const int y0 = std::max(0, (int)std::floor(std::min({Y[0], Y[1], Y[2]}))), y1 = std::min(cv.h - 1, (int)std::ceil(std::max({Y[0], Y[1], Y[2]})));
-            for (int y = y0; y <= y1; ++y)
-                for (int x = x0; x <= x1; ++x) {
-                    const float px = x + 0.5f, py = y + 0.5f;
-                    const float b0 = ((X[1] - px) * (Y[2] - py) - (X[2] - px) * (Y[1] - py)) / area;
-                    const float b1 = ((X[2] - px) * (Y[0] - py) - (X[0] - px) * (Y[2] - py)) / area;
-                    const float b2 = 1.0f - b0 - b1;
-                    if (b0 < -1e-4f || b1 < -1e-4f || b2 < -1e-4f) continue;
-                    float col[4];
-                    for (int k = 0; k < 4; ++k)
-                        col[k] = (b0 * ((v[0].col >> (8 * k)) & 255) + b1 * ((v[1].col >> (8 * k)) & 255) + b2 * ((v[2].col >> (8 * k)) & 255)) / 255.0f;
-                    const float u = b0 * v[0].uv.x + b1 * v[1].uv.x + b2 * v[2].uv.x, w = b0 * v[0].uv.y + b1 * v[1].uv.y + b2 * v[2].uv.y;
-                    const float fx = u * tw - 0.5f, fy = w * th - 0.5f;   // bilinear sample of the alpha atlas
-                    const int ix = (int)std::floor(fx), iy = (int)std::floor(fy);
-                    const float ax = fx - ix, ay = fy - iy;
-                    auto T = [&](int a, int b) { a = std::max(0, std::min(tw - 1, a)); b = std::max(0, std::min(th - 1, b)); return tex[(size_t)b * tw + a] / 255.0f; };
-                    const float ta = (T(ix, iy) * (1 - ax) + T(ix + 1, iy) * ax) * (1 - ay) + (T(ix, iy + 1) * (1 - ax) + T(ix + 1, iy + 1) * ax) * ay;
-                    float a = col[3] * ta;
-                    float tc[3] = {1, 1, 1};
-                    if ((intptr_t)bt.tex == 2) {   // the WXPlane icon's picture: 256 x 256 RGBA
-                        unsigned int nb = 0;
-                        const unsigned char* px = wxLogoPixels(nb);
-                        const int lx = std::max(0, std::min(255, (int)(u * 256))), ly = std::max(0, std::min(255, (int)(w * 256)));
-                        const unsigned char* q = px + ((size_t)ly * 256 + lx) * 4;
-                        for (int k = 0; k < 3; ++k) tc[k] = q[k] / 255.0f;
-                        a = col[3] * q[3] / 255.0f;
-                    }
-                    if ((intptr_t)bt.tex == 3 || (intptr_t)bt.tex == 4 || (intptr_t)bt.tex == 5) {   // XPTablet's logo or the icons' atlas, its first level, bilinear
-                        int lw = 0, lh = 0, lv = 0;
-                        float lfrom = 0; const unsigned char* px = (intptr_t)bt.tex == 3 ? logoPixels(lw, lh, lv) : (intptr_t)bt.tex == 5 ? logoMaskPixels(lw, lh, lv, lfrom) : iconsPixels(lw, lh, lv);
-                        const float fx2 = u * lw - 0.5f, fy2 = w * lh - 0.5f;
-                        const int jx = (int)std::floor(fx2), jy = (int)std::floor(fy2);
-                        const float bx = fx2 - jx, by = fy2 - jy;
-                        float acc[4] = {0, 0, 0, 0};
-                        for (int dy = 0; dy < 2; ++dy) for (int dx = 0; dx < 2; ++dx) {
-                            const int sx = std::max(0, std::min(lw - 1, jx + dx)), sy = std::max(0, std::min(lh - 1, jy + dy));
-                            const float wgt = (dx ? bx : 1 - bx) * (dy ? by : 1 - by);
-                            const unsigned char* q = px + ((size_t)sy * lw + sx) * 4;
-                            for (int k = 0; k < 3; ++k) acc[k] += wgt * q[k] * q[3] / 255.0f;
-                            acc[3] += wgt * q[3];
-                        }
-                        for (int k = 0; k < 3; ++k) tc[k] = acc[3] > 0 ? acc[k] / acc[3] : 0;
-                        a = col[3] * acc[3] / 255.0f;
-                    }
-                    float* o = &cv.rgb[((size_t)y * cv.w + x) * 3];
-                    for (int k = 0; k < 3; ++k) o[k] = o[k] * (1 - a) + col[k] * tc[k] * a;
-                }
-        }
-}
+using xpt_test::Canvas;
+using xpt_test::raster;
 
 #ifdef XPT_UI_PNG
 void be32(std::string& s, uint32_t v) { for (int i = 3; i >= 0; --i) s.push_back((char)((v >> (8 * i)) & 255)); }
@@ -1172,44 +1111,6 @@ int main(int argc, char** argv) {
                 LocalDevice i; i.name = "Dom's iPhone"; i.kind = "iPhone"; i.lastSeen = "Today 14:32";
                 lc.local.devices = {p, i};
                 shot(lc, APP_SETTINGS, "settings_local_connect");
-                {   // a paired device's copy: what only the computer can show is left out (web apps, Browser, Documents, the briefing PDF)
-                    const Settings keep = settings();
-                    setRemoteClient(true);
-                    layoutHomeCompact();   // (as the device's page does the first time it takes the computer's arrangement)
-                    { bool hole = false, seenEnd = false; for (int e : settings().order) { if (e < 0) seenEnd = true; else if (seenEnd) hole = true; if (e >= 0 && e < APP_COUNT && !appVisible(e)) hole = true; }
-                      if (hole) { std::printf("FAIL: a device's home screen has no open places where the computer's apps were\n"); ++failures; } }
-                    if (appVisible(APP_CHARTS) || appVisible(APP_SIMBRIEF) || appVisible(APP_BROWSER) || appVisible(APP_DOCUMENTS) || appVisible(APP_DISPATCH) || appVisible(APP_DATIS) || appVisible(APP_FOREFLIGHT)) { std::printf("FAIL: a device shows no web apps, Browser, Documents or Dispatch\n"); ++failures; }
-                    if (!appVisible(APP_MAP) || !appVisible(APP_ROUTES) || !appVisible(APP_GROUND) || !appVisible(APP_NOTES) || !appVisible(APP_SETTINGS) || !appVisible(APP_APPSTORE)) { std::printf("FAIL: a device keeps the tablet's own apps\n"); ++failures; }
-                    openApp(APP_CHARTS);
-                    if (currentApp() != APP_HOME) { std::printf("FAIL: a web app does not open on a device\n"); ++failures; }
-                    shot(st, APP_HOME, "device_home");
-                    shot(st, APP_APPSTORE, "device_appstore");
-                    shot(st, APP_VATSIMHUB, "device_vatsim");
-                    shot(st, APP_ROUTES, "device_flight_plan");
-                    setRemoteClient(false);
-                    settings() = keep;
-                    if (!appVisible(APP_BROWSER) || !appVisible(APP_DOCUMENTS)) { std::printf("FAIL: the computer's tablet keeps them\n"); ++failures; }
-                    openApp(APP_SETTINGS);
-                }
-                {   // on a paired device, before the tablet is live: the code is typed on its own keys; the sixth digit sends it
-                    std::string code = "48";
-                    int got = 0;
-                    auto fr = [&](float x, float y, bool down, int phase, const char* msg) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, down);
-                        ImGui::NewFrame(); const int r = localClientScreen(fonts, 800, kLogicalH, phase, msg, code); ImGui::Render(); if (r) got = r; };
-                    auto key = [&](int i) { const float x = 254 + (i % 3) * 100 + 46, y = 196 + (i / 3) * 50 + 21; fr(x, y, false, 1, ""); fr(x, y, true, 1, ""); fr(x, y, true, 1, ""); fr(x, y, false, 1, ""); fr(-1000, -1000, false, 1, ""); };
-                    key(1); key(8); key(0);   // 2, 9, 1
-                    if (code != "48291" || got != 0) { std::printf("FAIL: the pairing screen's keys type the code (%s, %d)\n", code.c_str(), got); ++failures; }
-                    key(11);                  // Back
-                    if (code != "4829") { std::printf("FAIL: Back takes a digit away (%s)\n", code.c_str()); ++failures; }
-                    fr(-1000, -1000, false, 1, "That is not the code. Tries left: 4.");
-                    { std::vector<Batch> b; clipDrawData(ImGui::GetDrawData(), b); Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_local_pairing.png"); }
-                    key(0); key(2);           // 1, 3: the sixth digit
-                    if (code != "482913" || got != 1) { std::printf("FAIL: the sixth digit sends the code (%s, %d)\n", code.c_str(), got); ++failures; }
-                    got = 0;
-                    fr(400, 316, false, 2, "Too many wrong codes. Wait a minute, then reload."); fr(400, 316, true, 2, "x"); fr(400, 316, true, 2, "x"); fr(400, 316, false, 2, "x"); fr(-1000, -1000, false, 2, "Too many wrong codes. Wait a minute, then reload.");
-                    if (got != 2) { std::printf("FAIL: Try Again is pressed on the turned-away screen (%d)\n", got); ++failures; }
-                    { std::vector<Batch> b; clipDrawData(ImGui::GetDrawData(), b); Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_local_refused.png"); }
-                }
                 // the address is dots until its eye is tapped; it stays shown (a toggle, not a hold); tapped again, dots again
                 if (settingsReveal() != 0) { std::printf("FAIL: Settings' hidden fields start hidden (%u)\n", settingsReveal()); ++failures; }
                 tap(lc, 459, 278);

@@ -6,4 +6,3 @@ __pycache__/
 # the emulator stays on the developer's machine (not on GitHub)
 emulator/
 docs/EMULATOR.md
-build-localclient/

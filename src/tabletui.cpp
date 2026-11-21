@@ -205,12 +205,6 @@ int appIcon(int app) {
 // the home screen's places (below)
 
 int g_app = APP_HOME;
-bool g_remoteClient = false;   // this tablet is a paired device's copy (Local Connect): the computer's keeps the logbook
-// On a paired device (Local Connect) the pages that are pictures made by the computer cannot be shown: the web apps and the Browser
-// (the computer's own Chromium), Documents and the briefing PDF. They are left out there: no icon, no App Store entry, no button.
-bool deviceCannot(int app) { return app >= 0 && app < APP_COUNT && (kApps[app].url || app == APP_BROWSER || app == APP_DOCUMENTS || app == APP_DISPATCH); }
-bool widgetShown(int kind) { return !(g_remoteClient && kind == W_VOLANTA); }   // (Volanta's overlay is a web page too)
-std::string g_mapCredit = "\xC2\xA9 OpenStreetMap contributors";   // the street map's credit (a host using other tiles of the same data sets its own)
 int g_chimeSeq = 0;   // counted up for each notification's chime (and Test); the host plays it at the volume set in Settings, Notifications
 // a web page full screen (a video's button): it takes the whole tablet, status bar and title bar too
 bool videoFull(const SimState& s) { return g_app == APP_BROWSER && s.browser.status == 1 && s.browser.fullscreen && !g_webHold; }
@@ -1163,10 +1157,7 @@ void normalizeLayout(int capacity) {
     bool seen[APP_COUNT] = {};
     std::vector<int> fav;
     bool favWidget[W_COUNT] = {};
-    // (a paired device arranges its own home screen: what cannot be shown there has no place on it)
-    auto gone = [&](int e) { return g_remoteClient && ((isApp(e) && deviceCannot(e)) || (isWidget(e) && !widgetShown(e - kWidget0))); };
     for (int a : g_settings.favorites) {   // apps, and the bar's two widgets (no folders)
-        if (gone(a)) continue;
         if (isApp(a) && !seen[a]) { seen[a] = true; fav.push_back(a); }
         else if (dockWidget(a) && !favWidget[a - kWidget0]) { favWidget[a - kWidget0] = true; fav.push_back(a); }
     }
@@ -1180,16 +1171,16 @@ void normalizeLayout(int capacity) {
     g_settings.favorites.swap(fav);
     for (auto& fo : folders) {   // a folder's apps: each once, and only apps
         std::vector<int> keep;
-        for (int a : fo.apps) if (isApp(a) && !seen[a] && installed(a) && !gone(a)) { seen[a] = true; keep.push_back(a); }
+        for (int a : fo.apps) if (isApp(a) && !seen[a] && installed(a)) { seen[a] = true; keep.push_back(a); }
         fo.apps.swap(keep);
     }
     std::vector<char> folderSeen(folders.size(), 0);
     bool widgetSeen[W_COUNT] = {};
     for (int k = 0; k < W_COUNT; ++k) widgetSeen[k] = favWidget[k];   // (one in the bar is not on a page too)
     for (int& a : order) {
-        if (isWidget(a)) { if (widgetSeen[a - kWidget0] || gone(a)) a = -1; else widgetSeen[a - kWidget0] = true; continue; }
+        if (isWidget(a)) { if (widgetSeen[a - kWidget0]) a = -1; else widgetSeen[a - kWidget0] = true; continue; }
         if (isFolder(a)) { if (folderSeen[a - kFolder0]) a = -1; else folderSeen[a - kFolder0] = 1; continue; }
-        if (!isApp(a) || seen[a] || !installed(a) || gone(a)) a = -1; else seen[a] = true;
+        if (!isApp(a) || seen[a] || !installed(a)) a = -1; else seen[a] = true;
     }
     g_settings.homePages = std::max(1, std::max(g_settings.homePages, ((int)order.size() + capacity - 1) / capacity));
     order.resize((size_t)(g_settings.homePages * capacity), -1);
@@ -1401,7 +1392,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
     const float gy0 = kStatusH + std::max(6.0f, std::floor((areaBot - kStatusH - rows * cellH) * 0.5f));
     const int drag = g_dragging ? g_pressApp : -1;
     std::vector<int> dock;
-    for (int a : g_settings.favorites) if (((isApp(a) && appVisible(a)) || (dockWidget(a) && widgetShown(a - kWidget0))) && a != drag) dock.push_back(a);
+    for (int a : g_settings.favorites) if (((isApp(a) && appVisible(a)) || dockWidget(a)) && a != drag) dock.push_back(a);
     int dockUsed = 0;   // the places the bar's entries take
     for (int a : dock) dockUsed += favSpan(a);
     const ImVec2 bubA(16, h - 44), bubB(g_dragging ? 150.0f : 96.0f, h - 12);   // (as wide as Done; wider with a word while carrying)        // arranging: + (New Folder, Add Widget); a bin for an empty folder or a widget carried
@@ -1481,7 +1472,6 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
                 }
             } else if (gi == target && drag >= 0)
                 dl->AddRectFilled(ImVec2(c.x - tile * 0.5f - 4, c.y - tile * 0.5f - 4), ImVec2(c.x + tile * 0.5f + 4, c.y + tile * 0.5f + 4), isFolder(e) && isApp(drag) ? accentCol(110) : IM_COL32(255, 255, 255, 60), tile * 0.28f);
-            if (isWidget(e) && e != drag && !widgetShown(e - kWidget0)) continue;   // (not on a device: its place is left empty there)
             if (isWidget(e) && e != drag) {
                 int wc, wr; widgetCells(e - kWidget0, wc, wr);
                 // (the icons' own edges: from the first one's corner to the last one's, the icons' rounding)
@@ -1823,7 +1813,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         const ImVec2 c(w * 0.5f, (kStatusH + h) * 0.5f - 10), a(c.x - pw * 0.5f, c.y - ph * 0.5f), b(c.x + pw * 0.5f, c.y + ph * 0.5f);
         dl->AddRectFilled(a, b, themeTone(14, 26, 50, 230), 24.0f);
         textCentered(dl, f.body, c.x, a.y + 22, kInk, fo.name.c_str());
-        for (size_t i = 0, k = 0; i < fo.apps.size(); ++i) { if (g_remoteClient && !appVisible(fo.apps[i])) continue; drawTile(dl, f, fo.apps[i], ImVec2(a.x + 20 + (k % 4) * 100 + 50, a.y + 70 + (k / 4) * 96 + tile * 0.5f), tile, true, 1.0f, 1.0f); ++k; }
+        for (size_t i = 0; i < fo.apps.size(); ++i) drawTile(dl, f, fo.apps[i], ImVec2(a.x + 20 + (i % 4) * 100 + 50, a.y + 70 + (i / 4) * 96 + tile * 0.5f), tile, true, 1.0f, 1.0f);
         popIn(dl, vc + 4, c, e);   // (the veil fades on its own)
     } else if (g_openFolder < 0) closingFolder = -1;
     if (g_openFolder >= 0 && g_openFolder < (int)g_settings.folders.size()) {
@@ -1834,9 +1824,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
         ImGui::SetNextItemAllowOverlap();   // (the card and its name field, after it, take their own presses)
         const bool outside = ImGui::InvisibleButton("##folderveil", ImVec2(w, h - kStatusH));
-        std::vector<int> vis;   // (which of its apps are shown here: all of them, but on a device only those that work there)
-        for (int i = 0; i < (int)fo.apps.size(); ++i) if (!(g_remoteClient && !appVisible(fo.apps[i]))) vis.push_back(i);
-        const int n = (int)vis.size(), fc = 4, fr = std::max(1, (n + fc - 1) / fc);
+        const int n = (int)fo.apps.size(), fc = 4, fr = std::max(1, (n + fc - 1) / fc);
         const float cw = 100, ch = 96, pw = fc * cw + 40, ph = fr * ch + 96;
         const bool naming = g_kbd && g_kbdTarget == 2 && g_typeInto == &fo.name;   // its name being typed: the card moves up over the keys
         const ImVec2 c(w * 0.5f, naming ? kStatusH + 12 + ph * 0.5f : (kStatusH + h) * 0.5f - 10);
@@ -1850,9 +1838,8 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         textField(dl, f, "##foldername", fo.name, ImVec2(c.x - 120, a.y + 14), ImVec2(c.x + 120, a.y + 48), "Folder Name", false, 0);
         if (fo.name.size() > 24) fo.name.resize(24);
         int takeOut = -1;
-        for (int k = 0; k < n; ++k) {
-            const int i = vis[k];
-            const ImVec2 ic(a.x + 20 + (k % fc) * cw + cw * 0.5f, a.y + 70 + (k / fc) * ch + tile * 0.5f);
+        for (int i = 0; i < n; ++i) {
+            const ImVec2 ic(a.x + 20 + (i % fc) * cw + cw * 0.5f, a.y + 70 + (i / fc) * ch + tile * 0.5f);
             char id[24]; std::snprintf(id, sizeof id, "##fapp%d", i);
             ImGui::SetCursorScreenPos(ImVec2(ic.x - cw * 0.5f, ic.y - tile * 0.5f - 4));
             ImGui::SetNextItemAllowOverlap();
@@ -4781,7 +4768,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             popIn(dl, menuV0, ImVec2(r0.x + 10 + cw, r0.y + 46 + (g_mapMenuNow - 1) * 36.0f + 15), menuT);
         }
         // where the map comes from, and whether the airports are still being found
-        const char* attr = noMap ? "" : satImg ? "Imagery: Esri, Maxar, Earthstar Geographics" : g_mapCredit.c_str();
+        const char* attr = noMap ? "" : satImg ? "Imagery: Esri, Maxar, Earthstar Geographics" : "\xC2\xA9 OpenStreetMap contributors";
         if (*attr) {
             const ImVec2 as = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, attr);
             dl->AddRectFilled(ImVec2(r1.x - as.x - 12, r1.y - as.y - 6), r1, IM_COL32(255, 255, 255, 190), 4.0f, ImDrawFlags_RoundCornersTopLeft);
@@ -6226,7 +6213,7 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     // a diversion: SimBrief's latest plan (made for the new destination), from where the aircraft is; Undo goes back to the plan before
     if (s.planOriginal.loaded) { if (button("##fpundo", "Undo Divert", true, true)) act.planUndoDivert = true; }
     else if (button("##fpdivert", "Divert", false, p.loaded && haveId && !p.busy)) act.planDivert = true;
-    if (!g_remoteClient && button("##fppdf", "Briefing PDF", false, p.loaded && !p.pdfUrl.empty())) { openDispatch(true); return; }   // (the PDF is shown by the computer's browser)
+    if (button("##fppdf", "Briefing PDF", false, p.loaded && !p.pdfUrl.empty())) { openDispatch(true); return; }
     if (button("##fpmap", "Show On Map", false, p.loaded && !p.legs.empty())) {
         double la = 0, lo = 0;
         for (const FlightPlan::Leg& l : p.legs) { la += l.lat; lo += l.lon; }
@@ -7001,7 +6988,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"SimBrief Icon", "The SimBrief logo is a trademark of SimBrief (Navigraph), used only to show their web app", "Trademark"},
         {"VATSIM Radar Icon", "The VATSIM Radar logo belongs to VATSIM Radar (vatsim-radar.com), used only to show their web map", "Trademark"},
         {"VATSIM Icon", "The VATSIM logo is a trademark of VATSIM, Inc. (vatsim.net), used only to show their pages", "Trademark"},
-        {"Local Connect", "Mbed TLS (trustedfirmware.org/projects/mbed-tls): the encryption between the computer and paired devices. On devices the street map is CARTO's tiles of OpenStreetMap's data (carto.com/attributions)", "Apache-2.0; CARTO terms"},
+        {"Local Connect", "Mbed TLS (trustedfirmware.org/projects/mbed-tls): the encryption between the computer and paired devices. stb_image_write by Sean Barrett: the tablet's picture for them", "Apache-2.0; MIT / public domain"},
         {"Flightradar24 Icon", "The Flightradar24 logo belongs to Flightradar24 AB (flightradar24.com), used only to show their web app", "Trademark"},
         {"natTrak Icon", "The natTrak logo belongs to VATSIM's natTrak (nattrak.vatsim.net), used only to show their web app", "Trademark"},
         {"IVAO Icon", "The IVAO logo is a trademark of the International Virtual Aviation Organisation (ivao.aero), used only to show their Webeye map", "Trademark"},
@@ -7769,8 +7756,6 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
         if (pill(dl, f, id, fitText(f.small, label, bw - 16).c_str(), ImVec2(px, py - 4), ImVec2(px + bw, py + 24), ct.picture == file, true) && ct.picture != file) { ct.picture = file; g_settingsChanged = true; }
         px += bw + 6;
     };
-    if (g_remoteClient) textAt(dl, f.small, px, py + 3, kMuted, "Pictures are chosen on the computer's tablet.");
-    else {
     {   // the refresh: the folder looked at again (pictures added since show), beside the word Picture
         const ImVec2 ra(a.x + 20 + 64, py - 4), rb(ra.x + 28, py + 24);
         if (iconButton("##ctlook", ra, rb, true)) act.backgroundsList = true;
@@ -7781,7 +7766,6 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
     for (size_t i = 0; i < s.backgroundFiles.size() && i < 12; ++i) { char id[24]; std::snprintf(id, sizeof id, "##ctp%zu", i); pick(id, s.backgroundFiles[i], s.backgroundFiles[i]); }
     const std::string where = "Import a picture (PNG or JPG): put it in the backgrounds folder in XPTablet's plugin folder, " + (s.backgroundsFolder.empty() ? std::string("plugins/XPTablet/backgrounds") : s.backgroundsFolder);
     dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 20, b.y - 44), kMuted, where.c_str(), nullptr, b.x - a.x - 40);
-    }
     if (hexTyping) { dl->AddRectFilled(ImVec2(0, h - kKbdH), ImVec2(w, h), themeTone(8, 16, 30, 255)); pageKeyboard(dl, f, w, h, act); }   // (a solid backing: the card does not show through the keys; before the card's press catcher, so the keys take their presses)
 }
 
@@ -8050,7 +8034,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         float y = top;
         toggle("##lcon", lx, y, colW, g_settings.localConnect ? "Local Connect: On" : "Local Connect: Off", g_settings.localConnect, true);
         y += 42;
-        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Use this tablet on your phone or iPad: on the same Wi-Fi, open the address below in Safari or Chrome. The browser warns once that the connection is not private (the certificate is your own computer's): choose Advanced or Show Details, then continue. Only your home network can reach it, and each device is paired once with a code shown here.", nullptr, colW);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Use this tablet on your phone or iPad: on the same Wi-Fi, open the address below in Safari or Chrome. The browser warns once that the connection is not private (the certificate is your own computer's): choose Advanced or Show Details, then continue. The device shows this tablet and works it by touch. Only your home network can reach it, and each device is paired once with a code shown here.", nullptr, colW);
         y += 100;
         textAt(dl, f.bold, lx, y, kInk, "Address");
         y += 24;
@@ -8311,7 +8295,6 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
 
     // ---- Data: SimBrief, and where the tablet's data comes from
     float y = top;
-    if (!g_remoteClient) {
     // Volanta's stream overlay (its widget on the home screen): the address the Volanta app serves it at
     textAt(dl, f.bold, lx, y, kInk, "Volanta Overlay");
     textAt(dl, f.small, lx + 150, y + 2, kMuted, "For the home screen's Volanta widget (Volanta, Settings, Stream overlay)");
@@ -8319,7 +8302,6 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     hiddenField(dl, f, "##volov", g_settings.volantaOverlay, ImVec2(lx, y), ImVec2(w - 12 - 200, y + 32), "http://localhost:53011", 2);
     if (g_kbd && g_kbdTarget == 2 && g_typeInto == &g_settings.volantaOverlay) { if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; } pageKeyboard(dl, f, w, h, act); return; }
     y += 42;
-    }
     textAt(dl, f.bold, lx, y, kInk, "Data");
     y += 24;
     for (const auto& kv : s.dataInfo) {
@@ -8327,12 +8309,12 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx + 130, y), kInk, kv.second.c_str(), nullptr, w - 12 - lx - 130 - 170);
         y += 21;
     }
-    if (!g_remoteClient && pill(dl, f, "##clrtiles", "Clear Map Cache", ImVec2(w - 12 - 150, top + 150), ImVec2(w - 12, top + 182), false, true)) act.clearTileCache = true;
+    if (pill(dl, f, "##clrtiles", "Clear Map Cache", ImVec2(w - 12 - 150, top + 150), ImVec2(w - 12, top + 182), false, true)) act.clearTileCache = true;
     // the browser's cookies, logins, history and cache, all of it: asked twice, as it signs out of every site
     static double askedAt = -100;
     const double now = ImGui::GetTime();
     const bool asking = now - askedAt < 4.0;
-    if (!g_remoteClient && pill(dl, f, "##clrweb", asking ? "Tap Again: Erase" : "Reset Browser Data", ImVec2(w - 12 - 150, top + 190), ImVec2(w - 12, top + 222), asking, true)) {
+    if (pill(dl, f, "##clrweb", asking ? "Tap Again: Erase" : "Reset Browser Data", ImVec2(w - 12 - 150, top + 190), ImVec2(w - 12, top + 222), asking, true)) {
         if (asking) { act.resetBrowserData = true; askedAt = -100; postNote("Browser Data Erased", "Signed out of every site; cookies, history and cache cleared.", APP_SETTINGS); }
         else askedAt = now;
     }
@@ -8367,7 +8349,6 @@ void resetTablet() {   // Reset All (Settings, Data): defaults everywhere, then 
 }
 
 void openWeb(const char* site, const char* url, bool chrome, int group) {
-    if (g_remoteClient) return;   // (web pages are the computer's)
     g_site = site; g_url = url; g_chrome = chrome; g_webGroup = group;
     g_navPending = url; g_navForce = false;
     if (g_kbdTarget == 1 || g_kbdTarget == 2) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; }
@@ -9050,7 +9031,6 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
         static const char* cats[6] = {"All", "Charts", "Flight Planning", "Networks", "Music & Video", "Games"};
         float x = 16;
         for (int c = 0; c < 6; ++c) {
-            if (c > 0 && g_remoteClient) { bool any = false; for (const Item& it : items) any = any || (it.cat == c && !deviceCannot(it.app)); if (!any) { if (g_storeCat == c) g_storeCat = 0; continue; } }
             const float bw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, cats[c]).x + 32;
             char id[16]; std::snprintf(id, sizeof id, "##scat%d", c);
             if (pill(dl, f, id, cats[c], ImVec2(x, top), ImVec2(x + bw, top + 30), g_storeCat == c, true) && g_storeCat != c) { g_storeCat = c; g_storeScroll = 0; }
@@ -9065,7 +9045,6 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
     const std::string q = lower(g_storeSearch);
     std::vector<const Item*> shown;
     for (const Item& it : items) {
-        if (g_remoteClient && deviceCannot(it.app)) continue;    // (a device's store offers what works on a device)
         if (g_storeCat != 0 && it.cat != g_storeCat) continue;   // (the category chosen, with or without a search)
         if (q.empty() || lower(appName(it.app)).find(q) != std::string::npos || lower(it.what).find(q) != std::string::npos) shown.push_back(&it);
     }
@@ -9114,10 +9093,8 @@ void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         {"xPilot", "Its messages, nearby ATC and more, opened in the sim", nullptr, IM_COL32(30, 44, 70, 255)},
     };
     const float top = kStatusH + kHeaderH + 16, gap = 14, bw = std::floor((w - 32 - 2 * gap) / 3), bh = std::floor((h - top - 14 - gap) / 2);
-    for (int i = 0, at = 0; i < 6; ++i) {
-        if (g_remoteClient && bubbles[i].url) continue;   // (on a device: xPilot's, the others being web pages)
-        const int k = at++;
-        const ImVec2 a(16 + (k % 3) * (bw + gap), top + (k / 3) * (bh + gap)), b(a.x + bw, a.y + bh);
+    for (int i = 0; i < 6; ++i) {
+        const ImVec2 a(16 + (i % 3) * (bw + gap), top + (i / 3) * (bh + gap)), b(a.x + bw, a.y + bh);
         char id[24]; std::snprintf(id, sizeof id, "##vbub%d", i);
         ImGui::SetCursorScreenPos(a);
         const bool hit = ImGui::InvisibleButton(id, ImVec2(bw, bh));
@@ -9294,7 +9271,6 @@ std::string whereAirport(const SimState& s, bool departing) {
     return best;
 }
 void logStep(const SimState& s) {
-    if (g_remoteClient) return;   // (a device shows the computer's logbook; it does not log the flight a second time)
     const MapState& m = s.map;
     const GroundState& g = s.ground;
     if (!m.havePos || m.utc <= 0) return;
@@ -10055,7 +10031,6 @@ const char* appName(int app) {
 }
 
 bool appVisible(int app) {
-    if (g_remoteClient && deviceCannot(app)) return false;
     switch (app) {
     case APP_CHARTS: return g_settings.showCharts;
     case APP_NAVIGRAPH: return g_settings.showNavigraph;
@@ -10073,7 +10048,6 @@ bool appVisible(int app) {
 }
 bool appInstalled(int app) { return installed(app); }
 void layoutHome() { normalizeLayout(); }
-void layoutHomeCompact() { normalizeLayout(); compressLayout(g_gridCapacity); g_slideT0 = -10; }   // (no open places, nothing sliding)
 void pushInWidget(int widget, int start, int cap) { pushInWidgetAt(widget, start, cap); }
 
 // Charts, Live Map, SimBrief and ForeFlight are sites shown as pages of their own. The Browser icon opens the full browser.
@@ -10153,64 +10127,6 @@ int settingsTabShown() { return g_settingsTab; }
 void celebrate(int which) { g_celebrate = which; g_celebT0 = ImGui::GetTime(); g_celebOutT0 = -1; }
 bool celebrationShown() { return g_celebrate >= 0; }
 unsigned settingsReveal() { return g_reveal; }
-
-// ---- Local Connect, on the device: before the tablet is live ----
-void setRemoteClient(bool on) { g_remoteClient = on; }
-void setMapCredit(const std::string& credit) { g_mapCredit = credit; }
-const char* currentWebUrl() { return (g_app >= 0 && g_app < APP_COUNT && kApps[g_app].url) ? kApps[g_app].url : ""; }
-const char* currentWebName() { return (g_app >= 0 && g_app < APP_COUNT && kApps[g_app].url) ? kApps[g_app].name : ""; }
-int localClientScreen(const Fonts& f, float w, float h, int phase, const std::string& message, std::string& code) {
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImVec2(w, h));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("##tablet", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                                          ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollWithMouse);
-    g_logo = f.logo; g_logoMask = f.logoMask;
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    wallpaper(dl, w, h);
-    int result = 0;
-    const float cx = std::floor(w * 0.5f);
-    {   // the logo, as on the status bar, larger
-        int lw = 4, lh = 1, lv = 0; float from = 0.5f;
-        logoMaskPixels(lw, lh, lv, from);
-        const float hh = 30, ww = std::floor(hh * lw / std::max(1, lh));
-        drawLogo(dl, ImVec2(cx - ww * 0.5f, 26), ImVec2(cx + ww * 0.5f, 26 + hh), 255);
-    }
-    if (phase == 1) {
-        textCentered(dl, f.title, cx, 74, kInk, "Enter The Pairing Code");
-        textCentered(dl, f.small, cx, 104, kMuted, "It is shown in X-Plane, on XPTablet: Settings, Local Connect.");
-        const float bw = 40, bh = 46, gap = 8, x0 = cx - (6 * bw + 5 * gap) * 0.5f, y0 = 132;
-        for (int i = 0; i < 6; ++i) {   // the six places, the next one outlined in the accent
-            const ImVec2 a(x0 + i * (bw + gap), y0), b(a.x + bw, y0 + bh);
-            dl->AddRectFilled(a, b, themeTone(10, 20, 38, 255), 10.0f);
-            dl->AddRect(a, b, i == (int)code.size() ? accentLite(230) : IM_COL32(255, 255, 255, 34), 10.0f, 0, i == (int)code.size() ? 1.6f : 1.0f);
-            if (i < (int)code.size()) { const char d[2] = {code[i], 0}; textCentered(dl, f.title, (a.x + b.x) * 0.5f, std::floor((a.y + b.y - fontPx(f.title)) * 0.5f), kInk, d); }
-        }
-        const float kw = 92, kh = 42, kg = 8, kx = cx - (3 * kw + 2 * kg) * 0.5f, ky = y0 + bh + 18;
-        static const char* keys[12] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "Clear", "0", "Back"};
-        for (int i = 0; i < 12; ++i) {
-            const ImVec2 a(kx + (i % 3) * (kw + kg), ky + (i / 3) * (kh + kg)), b(a.x + kw, a.y + kh);
-            char id[24];
-            std::snprintf(id, sizeof id, "##lckey%d", i);
-            if (!pill(dl, f, id, keys[i], a, b, false, true)) continue;
-            if (i == 9) code.clear();
-            else if (i == 11) { if (!code.empty()) code.pop_back(); }
-            else if (code.size() < 6) { code.push_back(keys[i][0]); if (code.size() == 6) result = 1; }
-        }
-        if (!message.empty()) textCentered(dl, f.small, cx, ky + 4 * (kh + kg) + 6, kWarn, fitText(f.small, message, w - 40).c_str());
-    } else {
-        textCentered(dl, f.title, cx, h * 0.5f - 44, kInk, phase == 0 ? "Connecting To XPTablet" : "Not Connected");
-        if (!message.empty()) {
-            const float tw = std::min(w - 80, 520.0f);
-            const ImVec2 sz = f.body->CalcTextSizeA(fontPx(f.body), 1e9f, tw, message.c_str());
-            dl->AddText(f.body, fontPx(f.body), ImVec2(std::floor(cx - std::min(sz.x, tw) * 0.5f), h * 0.5f - 8), phase == 0 ? kMuted : kWarn, message.c_str(), nullptr, tw);
-        }
-        if (phase == 2 && pill(dl, f, "##lcretry", "Try Again", ImVec2(cx - 80, h * 0.5f + 58), ImVec2(cx + 80, h * 0.5f + 96), true, true)) result = 2;
-    }
-    ImGui::End();
-    ImGui::PopStyleVar();
-    return result;
-}
 bool seasonalOnDate(int k, int year, int month, int day) { return seasonalOn(k, year, month, day); }
 const char* seasonalName(int k) { return k >= 0 && k < kSeasonalN ? kSeasonal[k].name : ""; }
 bool takeLogbookChanged() { const bool c = g_logChanged; g_logChanged = false; return c; }

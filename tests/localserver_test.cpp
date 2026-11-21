@@ -114,12 +114,10 @@ int main() {
     mbedtls_ctr_drbg_seed(&g_drbg, mbedtls_entropy_func, &g_entropy, nullptr, 0);
     const fs::path dir = fs::temp_directory_path() / ("xpt_lc_test_" + std::to_string((long long)std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::create_directories(dir);
-    std::string page = "\x1f\x8b not really gzip, but the bytes must arrive as they are ";
-    for (int i = 0; i < 20000; ++i) page += (char)(i * 31 + 7);
-    { std::ofstream f(dir / "page.gz", std::ios::binary); f.write(page.data(), (std::streamsize)page.size()); }
-
+    std::string page = "<!doctype html><title>XPTablet</title>";
+    for (int i = 0; i < 20000; ++i) page += (char)('a' + i % 26);
     localserver::Config cfg;
-    cfg.bindIp = "127.0.0.1"; cfg.port = 18443; cfg.dataDir = (dir / "data").string(); cfg.pagePath = (dir / "page.gz").string(); cfg.wireVersion = 1; cfg.allowLoopback = true;
+    cfg.bindIp = "127.0.0.1"; cfg.port = 18443; cfg.dataDir = (dir / "data").string(); cfg.page = page; cfg.wireVersion = 1; cfg.allowLoopback = true;
     localserver::start(cfg);
     const localserver::Status st = waitFor([](const localserver::Status& s) { return s.state == 2 || s.state == -1; });
     if (st.state != 2) { std::printf("FAIL: the server did not start (%s)\n", st.error.c_str()); return 1; }
@@ -135,7 +133,7 @@ int main() {
     // the page
     { Client c; CHECK(c.connect(), "TLS: the certificate is the server's own and names its address");
       const std::string r = c.http("GET / HTTP/1.1\r\nHost: " + host + "\r\n\r\n");
-      CHECK(r.compare(0, 15, "HTTP/1.1 200 OK") == 0 && r.find("Content-Encoding: gzip") != std::string::npos && r.find("Content-Security-Policy:") != std::string::npos, "the page is served, compressed, with its policy");
+      CHECK(r.compare(0, 15, "HTTP/1.1 200 OK") == 0 && r.find("Content-Type: text/html") != std::string::npos && r.find("Content-Security-Policy:") != std::string::npos, "the page is served, with its policy");
       const std::size_t b = r.find("\r\n\r\n");
       CHECK(b != std::string::npos && r.substr(b + 4) == page, "the page arrives whole");
       const std::size_t e = r.find("ETag: ");
@@ -151,15 +149,13 @@ int main() {
 
     // before pairing nothing is listened to
     { Client c; c.connect(); CHECK(c.upgrade(host, origin), "the page's own connection is taken");
-      c.wsSend("A" + std::string("xyz")); c.wsSend("T" + std::string("theme=3"));
+      c.wsSend(std::string("I") + (char)1 + "\x10\x20\x30\x40");
       std::this_thread::sleep_for(std::chrono::milliseconds(150));
       localserver::Incoming in; CHECK(!localserver::poll(in), "an unpaired device is not listened to"); }
     { Client c; c.connect(); c.upgrade(host, origin); c.wsSend(helloMsg(99, "", "Old Page", "iPhone")); const std::string h = c.wsRecv(); CHECK(h.size() >= 2 && h[0] == 'h' && h[1] == 2, "a page of another version is told to reload"); }
     { Client c; c.connect(); c.upgrade(host, origin); c.wsSend(helloMsg(1, "", "X", "iPhone"), false); CHECK(c.wsRecv().empty(), "an unmasked frame ends the connection"); }
 
     // pairing
-    localserver::publishSection(3, "weather-bytes");
-    localserver::publishText('s', "theme=1\n");
     std::string token;
     {
         Client c; c.connect(); c.upgrade(host, origin);
@@ -179,29 +175,24 @@ int main() {
         h = c.wsRecv();
         CHECK(h.size() >= 2 && h[1] == 1 && textOf(h).size() == 64, "the right code: paired, and given its token");
         token = textOf(h);
-        // what the device is sent: the settings and the state so far, then what changes
-        std::string a = c.wsRecv(), b = c.wsRecv();
-        if (a[0] == 'S') std::swap(a, b);
-        CHECK(a == "stheme=1\n" && b == std::string("S\x03") + "weather-bytes", "the settings and the state are sent on pairing");
-        localserver::publishSection(3, "weather-bytes");   // (the same again: nothing goes)
-        localserver::publishSection(6, "ground-1");
-        CHECK(c.wsRecv().substr(0, 2) == std::string("S\x06"), "a changed part is sent");
-        // what the device says
-        c.wsSend("A" + std::string("actions-bytes"));
+        // the picture: nothing until a whole one; then the pieces after it, in order
+        waitFor([](const localserver::Status&) { return localserver::clients() == 1 && localserver::wantKey(); });
+        CHECK(localserver::wantKey(), "a device just connected waits for a whole picture");
+        localserver::publishFrame("piece-0", false);
+        localserver::publishFrame("WHOLE-1", true);
+        localserver::publishFrame("piece-2", false);
+        CHECK(c.wsRecv() == "WHOLE-1", "it is sent nothing before a whole picture");
+        CHECK(c.wsRecv() == "piece-2", "and then the pieces that follow");
+        CHECK(!waitFor([](const localserver::Status&) { return !localserver::wantKey(); }).address.empty() && !localserver::wantKey(), "after which no whole picture is waited for");
+        // what the device does: a touch arrives as it was sent
+        c.wsSend(std::string("I") + (char)0x11 + "\x10\x20\x30\x40");
         localserver::Incoming in;
-        CHECK(pollFor(in) && in.kind == 'A' && in.bytes == "actions-bytes", "what the user asked for arrives");
-        c.wsSend("T" + std::string("theme=7\n"));
-        CHECK(pollFor(in) && in.kind == 'T' && in.bytes == "theme=7\n", "its settings arrive");
-        localserver::publishText('s', "theme=7\n");        // (the plugin took them: the device already has this text)
-        localserver::publishSection(7, "marker");
-        { const std::string got = c.wsRecv(); if (got != std::string("S\x07") + "marker") std::printf("  (got %zu bytes: %.20s)\n", got.size(), got.c_str()); CHECK(got == std::string("S\x07") + "marker", "a device is not sent back its own settings"); }
-        localserver::publishText('s', "theme=8\n");
-        CHECK(c.wsRecv() == "stheme=8\n", "settings changed elsewhere are sent");
+        CHECK(pollFor(in) && in.kind == 'I' && in.bytes == std::string("\x11\x10\x20\x30\x40"), "a touch arrives");
         c.wsSend(std::string("B") + (char)82 + (char)1);
         const localserver::Status ds = waitFor([](const localserver::Status& s) { return s.devices.size() == 1 && s.devices[0].batteryPct == 81; });
         CHECK(ds.devices.size() == 1 && ds.devices[0].connected && ds.devices[0].name == "Test Phone" && ds.devices[0].kind == "iPhone" && ds.devices[0].charging && ds.pairCode.empty(), "the device is listed, with its battery");
-        c.wsSend("A" + std::string(70000, 'x'));
-        CHECK(c.wsRecv().empty(), "an oversized request ends the connection");
+        c.wsSend("I" + std::string(200, 'x'));
+        CHECK(c.wsRecv().empty(), "an oversized message ends the connection");
     }
     { std::ifstream f(dir / "data" / "devices.txt"); std::stringstream ss; ss << f.rdbuf(); CHECK(!token.empty() && ss.str().find(token) == std::string::npos && ss.str().find("Test Phone") != std::string::npos, "the computer keeps the token's hash, not the token"); }
     {   // back again with the token: no code

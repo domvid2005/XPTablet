@@ -51,16 +51,12 @@ using SockT = int;
 #endif
 namespace fs = std::filesystem;
 
-constexpr int kMaxSections = 64, kTexts = 3;
 constexpr std::size_t kMaxRequest = 8192;            // an HTTP request's headers
-constexpr std::size_t kMaxMessage = 1024 * 1024;     // one message from a device (the notes' text is the largest)
-constexpr std::size_t kMaxActions = 64 * 1024;
-constexpr std::size_t kHoldBack = 512 * 1024;        // a device this far behind gets nothing new until it has caught up
+constexpr std::size_t kMaxMessage = 4096;            // one message from a device (a touch, a key: all small)
+constexpr std::size_t kHoldBack = 768 * 1024;        // a device this far behind is sent nothing more until the next whole picture
 constexpr int kMaxConnections = 16, kMaxDevices = 4, kMaxIncoming = 512;
 constexpr int kPairTries = 5;
 const std::chrono::seconds kHandshakeTime(10), kRequestTime(10), kPairTime(120), kLockout(60), kPingEvery(15), kSilence(45);
-
-int textIndex(char kind) { return kind == 's' ? 0 : kind == 'n' ? 1 : kind == 'l' ? 2 : -1; }
 
 std::uint64_t fnv(const std::string& b) {
     std::uint64_t h = 1469598103934665603ull;
@@ -72,12 +68,8 @@ std::uint64_t fnv(const std::string& b) {
 struct Shared {
     std::mutex mx;
     Status status;
-    std::string sections[kMaxSections];
-    std::uint64_t sectionFp[kMaxSections] = {};
-    bool sectionHave[kMaxSections] = {};
-    std::string texts[kTexts];
-    std::uint64_t textFp[kTexts] = {};
-    bool textHave[kTexts] = {};
+    std::deque<std::pair<std::string, bool>> frames;   // pieces of the picture to send (whole ones marked)
+    bool wantKey = true;
     std::deque<Incoming> incoming;
     std::vector<std::string> forget;
     bool deny = false;
@@ -184,8 +176,7 @@ struct Conn {
     std::string hash, name, kind;
     int battery = -1;
     bool charging = false;
-    std::uint64_t sentFp[kMaxSections] = {}, textFp[kTexts] = {};
-    bool sentHave[kMaxSections] = {}, textHave[kTexts] = {};
+    bool needKey = true;           // nothing is sent to it until the next whole picture
     Clock::time_point lastPing, lastHeard;
     Conn() { mbedtls_net_init(&net); mbedtls_ssl_init(&ssl); }
     ~Conn() { mbedtls_ssl_free(&ssl); mbedtls_net_free(&net); }
@@ -340,7 +331,7 @@ struct Server {
         mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_NONE);   // (devices prove themselves by pairing, not by a certificate)
         if (mbedtls_ssl_conf_own_cert(&conf, &cert, &key) != 0) { err = "the certificate could not be used"; return false; }
         loadPaired();
-        if (!readFile(fs::u8path(cfg.pagePath), page)) page.clear();
+        page = cfg.page;
         pageTag = "\"" + std::to_string(page.size()) + "-" + std::to_string((unsigned long long)fnv(page)) + "\"";
         int rc = -1;
         for (int p = cfg.port; p < cfg.port + 10; ++p) {
@@ -438,14 +429,14 @@ struct Server {
                 respond(c, "200 OK", "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\n",
                         "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'><title>XPTablet</title>"
                         "<body style='font:16px sans-serif;background:#0b1220;color:#e8eefc;padding:24px'><h3>XPTablet Local Connect</h3>"
-                        "<p>The tablet's page is missing from this install of XPTablet (localconnect/index.html.gz in the plugin's folder). Reinstall or update XPTablet.</p>");
+                        "<p>The tablet's page is missing from this build of XPTablet.</p>");
                 return;
             }
             const std::string common = "ETag: " + pageTag + "\r\nCache-Control: no-cache\r\n";
             if (h["if-none-match"] == pageTag) { respond(c, "304 Not Modified", common, ""); return; }
-            respond(c, "200 OK", common + "Content-Type: text/html; charset=utf-8\r\nContent-Encoding: gzip\r\nX-Frame-Options: DENY\r\n"
-                    "Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; "
-                    "img-src * data: blob:; media-src 'self' data: blob:; connect-src 'self' https: wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'\r\n", page);
+            respond(c, "200 OK", common + "Content-Type: text/html; charset=utf-8\r\nX-Frame-Options: DENY\r\n"
+                    "Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob:; "
+                    "connect-src 'self' wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'\r\n", page);
             return;
         }
         respond(c, "404 Not Found", "Content-Type: text/plain\r\n", "Not found.\n");
@@ -464,7 +455,7 @@ struct Server {
     }
     int authedCount() const { int n = 0; for (const auto& c : conns) if (c->st == Conn::WS && c->authed) ++n; return n; }
     void admit(Conn& c, Paired& p) {
-        c.authed = true; c.hash = p.hash; c.name = p.name; c.kind = p.kind;
+        c.authed = true; c.needKey = true; c.hash = p.hash; c.name = p.name; c.kind = p.kind;
         p.lastSeen = (long long)std::time(nullptr);
         savePaired();
         dirty = true;
@@ -534,16 +525,11 @@ struct Server {
             if (m.size() >= 3) { const int b = (unsigned char)m[1]; c.battery = b == 0 ? -1 : std::min(100, b - 1); c.charging = m[2] != 0; dirty = true; }
             return;
         }
-        if (type == 'A' || type == 'T' || type == 'N') {
-            if (type == 'A' && m.size() > kMaxActions) { c.st = Conn::DEAD; return; }
+        if (type == 'I') {   // a touch, a scroll, a key
+            if (m.size() > 64) { c.st = Conn::DEAD; return; }
             Incoming inc;
             inc.client = c.id; inc.kind = type; inc.bytes = m.substr(1);
-            const int ti = type == 'T' ? 0 : type == 'N' ? 1 : -1;
-            if (ti >= 0) { c.textFp[ti] = fnv(inc.bytes); c.textHave[ti] = true; }   // (what it has now: not sent back to it)
             std::lock_guard<std::mutex> lk(g.mx);
-            // its text is the newest there is from this moment (the other devices get it; the older one is not sent back to this
-            // device while the plugin takes the change in)
-            if (ti >= 0) { g.texts[ti] = inc.bytes; g.textFp[ti] = c.textFp[ti]; g.textHave[ti] = true; }
             if ((int)g.incoming.size() < kMaxIncoming) g.incoming.push_back(std::move(inc));
             return;
         }
@@ -579,25 +565,24 @@ struct Server {
         if (at) c.in.erase(0, at);
     }
 
-    // the newest of everything, to each device that is behind (and has room)
-    void pump(Conn& c) {
-        if (!c.authed || c.st != Conn::WS || c.outBytes > kHoldBack || c.closeAfterSend) return;
+    // the picture's new pieces, to every paired device that is keeping up; one that is not waits for the next whole picture
+    void distribute() {
+        std::deque<std::pair<std::string, bool>> frames;
+        { std::lock_guard<std::mutex> lk(g.mx); frames.swap(g.frames); }
+        bool want = false;
+        for (auto& cp : conns) {
+            Conn& c = *cp;
+            if (!c.authed || c.st != Conn::WS || c.closeAfterSend) continue;
+            for (const auto& f : frames) {
+                if (c.needKey && !f.second) continue;
+                if (c.outBytes > kHoldBack) { c.needKey = true; continue; }
+                frame(c, 2, f.first);
+                c.needKey = false;
+            }
+            want = want || c.needKey;
+        }
         std::lock_guard<std::mutex> lk(g.mx);
-        for (int i = 0; i < kTexts; ++i) {
-            if (!g.textHave[i] || (c.textHave[i] && c.textFp[i] == g.textFp[i])) continue;
-            std::string m(1, i == 0 ? 's' : i == 1 ? 'n' : 'l');
-            m += g.texts[i];
-            frame(c, 2, m);
-            c.textHave[i] = true; c.textFp[i] = g.textFp[i];
-        }
-        for (int i = 0; i < kMaxSections && c.outBytes <= kHoldBack; ++i) {
-            if (!g.sectionHave[i] || (c.sentHave[i] && c.sentFp[i] == g.sectionFp[i])) continue;
-            std::string m = "S";
-            m.push_back((char)i);
-            m += g.sections[i];
-            frame(c, 2, m);
-            c.sentHave[i] = true; c.sentFp[i] = g.sectionFp[i];
-        }
+        g.wantKey = want;
     }
 
     void step(Conn& c, Clock::time_point now) {
@@ -620,7 +605,6 @@ struct Server {
             if (c.st == Conn::WS) {
                 if (now - c.lastHeard > kSilence) c.st = Conn::DEAD;
                 else if (now - c.lastPing > kPingEvery) { c.lastPing = now; frame(c, 9, ""); }
-                pump(c);
             }
         }
         if (c.st == Conn::SENDING || c.st == Conn::WS) flush(c);
@@ -706,6 +690,7 @@ struct Server {
             select(maxFd + 1, &rd, &wr, nullptr, &tv);
             const Clock::time_point now = Clock::now();
             acceptAll(now);
+            distribute();
             for (auto& c : conns) step(*c, now);
             commands(now);
             for (auto it = conns.begin(); it != conns.end();) {
@@ -745,7 +730,7 @@ void start(const Config& c) {
         std::lock_guard<std::mutex> lk(g.mx);
         g.status = Status();
         g.status.state = 1;
-        g.incoming.clear(); g.forget.clear(); g.deny = false; g.clients = 0;
+        g.incoming.clear(); g.forget.clear(); g.frames.clear(); g.wantKey = true; g.deny = false; g.clients = 0;
     }
     g_run.store(true);
     g_thread = std::thread(threadMain, c);
@@ -765,22 +750,13 @@ int clients() { std::lock_guard<std::mutex> lk(g.mx); return g.clients; }
 void forget(const std::string& name) { std::lock_guard<std::mutex> lk(g.mx); if (g.forget.size() < 64) g.forget.push_back(name); }
 void denyPairing() { std::lock_guard<std::mutex> lk(g.mx); g.deny = true; }
 
-void publishSection(int section, const std::string& bytes) {
-    if (section < 0 || section >= kMaxSections) return;
-    const std::uint64_t fp = fnv(bytes);
+void publishFrame(const std::string& message, bool key) {
     std::lock_guard<std::mutex> lk(g.mx);
-    if (g.sectionHave[section] && g.sectionFp[section] == fp) return;
-    g.sections[section] = bytes; g.sectionFp[section] = fp; g.sectionHave[section] = true;
+    if (g.clients == 0) { g.frames.clear(); return; }
+    if (key) g.frames.clear();   // (a whole picture replaces whatever was waiting)
+    if (g.frames.size() < 12) g.frames.emplace_back(message, key);
 }
-
-void publishText(char kind, const std::string& text) {
-    const int i = textIndex(kind);
-    if (i < 0) return;
-    const std::uint64_t fp = fnv(text);
-    std::lock_guard<std::mutex> lk(g.mx);
-    if (g.textHave[i] && g.textFp[i] == fp) return;
-    g.texts[i] = text; g.textFp[i] = fp; g.textHave[i] = true;
-}
+bool wantKey() { std::lock_guard<std::mutex> lk(g.mx); return g.wantKey; }
 
 bool poll(Incoming& in) {
     std::lock_guard<std::mutex> lk(g.mx);

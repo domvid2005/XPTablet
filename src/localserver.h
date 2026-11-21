@@ -1,7 +1,7 @@
 // Local Connect's server: the tablet's page and its live connection, for phones and tablets on the home network.
 //
-//   https://<this computer>:8443/     the page (the tablet's own screens, compiled for a browser)
-//   wss://<this computer>:8443/ws     the connection: the sim's state out, what the user asked for back (src/localwire.h)
+//   https://<this computer>:8443/     the page (a small one: it shows the tablet's picture and sends touches)
+//   wss://<this computer>:8443/ws     the connection: the tablet's picture out as it changes, touches and keys back (src/localmirror.h)
 //
 // How it is kept safe:
 //   * off until switched on in Settings, and it listens only on the computer's home-network address;
@@ -25,8 +25,8 @@ struct Config {
     std::string bindIp;            // the address to listen on (the computer's on the home network)
     int port = 8443;               // tried first, then the next few if it is taken
     std::string dataDir;           // where the key, the certificate and the paired devices are kept (made if missing)
-    std::string pagePath;          // the tablet's page, gzip-compressed
-    int wireVersion = 1;           // a page of another version is told to reload
+    std::string page;              // the page itself (HTML)
+    int wireVersion = 1;           // the page's version: a page of another one (kept open across an update) is told to reload
     bool allowLoopback = false;    // the tests: 127.0.0.1 too
 };
 
@@ -45,7 +45,7 @@ struct Status {
     std::vector<Device> devices;
 };
 
-// What a paired device sent: 'A' what the user asked for (localwire's Actions), 'T' the settings as text, 'N' the notes as text
+// What a paired device sent: 'I' a touch, a scroll or a key (src/localmirror.h reads them)
 struct Incoming { int client = 0; char kind = 0; std::string bytes; };
 
 void start(const Config& c);       // returns at once; status() tells how it went
@@ -56,10 +56,10 @@ int clients();                     // paired devices connected now
 void forget(const std::string& name);   // a paired device removed (and disconnected)
 void denyPairing();                     // the device asking to pair is turned away
 
-// The newest of each part of the state; each device is sent the parts that differ from what it has.
-void publishSection(int section, const std::string& bytes);
-// Texts kept the same on every device: 's' settings, 'n' notes, 'l' logbook. A device is not sent back the text it sent itself.
-void publishText(char kind, const std::string& text);
+// A piece of the tablet's picture, to every paired device. key: it is a whole picture (a device that fell behind, or has just
+// connected, is sent nothing until the next whole one). wantKey(): some device is waiting for a whole picture.
+void publishFrame(const std::string& message, bool key);
+bool wantKey();
 
 bool poll(Incoming& in);           // the next thing a device sent, if any
 

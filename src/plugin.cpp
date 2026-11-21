@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <type_traits>
 #include <ctime>
 #include <filesystem>
 #include <map>
@@ -44,9 +45,9 @@
 #include "airspace.h"
 #include "localnet.h"
 #if defined(XPT_LOCAL_CONNECT)
-#include "localbridge.h"
+#include "localmirror.h"
+#include "localpage.h"
 #include "localserver.h"
-#include "localwire.h"
 #endif
 #include <condition_variable>
 #include <deque>
@@ -166,6 +167,9 @@ const char* kWxPlaneSignature = WXPLANE_SIGNATURE;
 int g_panelLeft = 0, g_panelBottom = 0, g_panelWidth = 0, g_panelHeight = 0;
 int g_panelEnabled = 0, g_panelPowered = 0;
 float g_brightness = 1.0f;
+float g_mirrorScale = 0;              // Local Connect: the scale a connected device is shown the tablet at (0: none connected)
+unsigned g_texChanges = 0;           // counts the pictures given to the graphics card (a web page's, a map tile, a document, a cover): the mirror looks again
+double g_remotePointerUntil = -1;    // a device's pointer has the tablet until then (the sim's own pointer waits)
 bool g_captureClicks = true;   // AviTab.json's panel/disable_capture_window turns this off (the aircraft sends AviTab/click_left itself)
 bool g_ownsAviTab = false;     // we registered the avitab/* datarefs and AviTab/* commands (AviTab itself is not running)
 bool g_aviTabRunning = false;
@@ -688,7 +692,7 @@ void browserStep(const xpt::Actions& act) {
     int w = 0, h = 0;
     if (br::frame(px, w, h)) {
         if (!g_webTex) XPLMGenerateTextureNumbers(&g_webTex, 1);
-        XPLMBindTexture2d(g_webTex, 0);
+        XPLMBindTexture2d(g_webTex, 0); ++g_texChanges;
         gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
         gl.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
         if (w != g_webTexW || h != g_webTexH || !gl.TexSubImage2D) {
@@ -796,7 +800,7 @@ void mapStep(const xpt::Actions& act) {
             tex = old->second.tex;
             g_tileTex.erase(old);
         }
-        XPLMBindTexture2d(tex, 0);
+        XPLMBindTexture2d(tex, 0); ++g_texChanges;
         // shown smaller than they are (a zoom between levels, a big picture fitted): mipmapped, made by the driver as they upload
         gl.TexParameteri(GL_TEXTURE_2D, 0x8191 /* GL_GENERATE_MIPMAP */, 1);
         gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, 0x2703 /* GL_LINEAR_MIPMAP_LINEAR */);
@@ -1375,7 +1379,7 @@ void docsStep(const xpt::Actions& act) {
     d.tex = 0;
     if (!g_docError.empty() || g_docPixels.empty()) return;
     if (!g_docTex) XPLMGenerateTextureNumbers(&g_docTex, 1);
-    XPLMBindTexture2d(g_docTex, 0);
+    XPLMBindTexture2d(g_docTex, 0); ++g_texChanges;
     // shown smaller than they are (a zoom between levels, a big picture fitted): mipmapped, made by the driver as they upload
         gl.TexParameteri(GL_TEXTURE_2D, 0x8191 /* GL_GENERATE_MIPMAP */, 1);
         gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, 0x2703 /* GL_LINEAR_MIPMAP_LINEAR */);
@@ -1437,7 +1441,7 @@ void backgroundStep(const xpt::Actions& act) {
     }
     xpt::pictureColors(img.data(), w, h, g_sim.bgAverage, g_sim.bgAccent);   // its background (average, deeper) and accent (its strongest colour)
     if (!g_bgTex) XPLMGenerateTextureNumbers(&g_bgTex, 1);
-    XPLMBindTexture2d(g_bgTex, 0);
+    XPLMBindTexture2d(g_bgTex, 0); ++g_texChanges;
     gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR);
     gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
     gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)GL_CLAMP_TO_EDGE);
@@ -1606,7 +1610,7 @@ void mediaStep(const xpt::Actions& act) {
         }
         if (w > 0 && h > 0 && loadGl()) {
             if (!g_artTex) XPLMGenerateTextureNumbers(&g_artTex, 1);
-            XPLMBindTexture2d(g_artTex, 0);
+            XPLMBindTexture2d(g_artTex, 0); ++g_texChanges;
             gl.TexParameteri(GL_TEXTURE_2D, 0x8191 /* GL_GENERATE_MIPMAP */, 1);
             gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, 0x2703 /* GL_LINEAR_MIPMAP_LINEAR */);
             gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
@@ -1646,6 +1650,7 @@ void ensureFrame() {
     float need = 1.0f;
     if (panelActive()) { float pl, pb, pw, ph; panelPicture(pl, pb, pw, ph); need = std::max(need, ph / xpt::kLogicalH); }
     if (winShown) need = std::max(need, g_winScale * (g_drUiScale ? std::max(1.0f, XPLMGetDataf(g_drUiScale)) : 1.0f));
+    if (g_mirrorScale > 0) need = std::max(need, g_mirrorScale);   // (a device is shown the tablet at this scale: the letters as fine)
     need = std::max(1.0f, std::min(3.0f, need));
     if (g_fontScale <= 0 || std::fabs(need - g_fontScale) > 0.08f * g_fontScale) buildFonts(need);
 
@@ -1657,7 +1662,7 @@ void ensureFrame() {
     g_lastFrame = now;
 
     // the pointer: over the floating window (its cursor callback reports that), else on the cockpit tablet, else nowhere
-    if (!g_captureDown && cycle - g_winHoverCycle > 1) {
+    if (!g_captureDown && cycle - g_winHoverCycle > 1 && XPLMGetElapsedTime() > g_remotePointerUntil) {   // (and not while a paired device's finger is on it)
         float px = 0, py = 0;
         const bool onPanel = panelPointer(px, py);
         if (onPanel) io.AddMousePosEvent(px, py);
@@ -1671,16 +1676,16 @@ void ensureFrame() {
     g_sim.aviTabRunning = g_aviTabRunning;
     g_sim.pixelScale = g_fontScale;
 
+    xpt::pumpPointer();   // (a paired device's pointer, a step a frame; nothing when none is waiting)
     ImGui::NewFrame();
     xpt::Actions act;
     xpt::build(g_fonts, g_sim, g_logW, xpt::kLogicalH, act);
     ImGui::Render();
     xpt::clipDrawData(ImGui::GetDrawData(), g_batches);
 #if defined(XPT_LOCAL_CONNECT)
-    // Local Connect: Forget and Not Me are pressed here, in the sim, only; what paired devices asked for joins this frame's requests
+    // Local Connect: a device forgotten, a pairing declined
     if (!act.localForget.empty()) xpt::localserver::forget(act.localForget);
     if (act.localPairDeny) xpt::localserver::denyPairing();
-    xpt::localbridge::merge(act);
 #endif
     {   // the Navigation page's search: X-Plane's navaids and fixes (airports: the Airports app) whose code starts with it, or whose name holds it
         static std::string last;
@@ -2685,18 +2690,176 @@ void doGround(const xpt::Actions& act) {
     }
 }
 
-// ---- Local Connect: the tablet on phones and tablets on the home network (src/localserver.cpp serves it, src/localbridge.cpp keeps
-// them the same tablet). Off until switched on in Settings; it listens on the computer's home-network address only.
+// ---- Local Connect: the tablet in the sim, mirrored on phones and tablets on the home network. src/localserver.cpp serves the page
+// and the connections; src/localmirror.cpp sends the tablet's picture as it changes; a device's touches are fed to the tablet here
+// as the mouse's are. Off until switched on in Settings; it listens on the computer's home-network address only.
 void ensureFrame();
+#if defined(XPT_LOCAL_CONNECT)
+bool g_localRunning = false;
+
+// the few OpenGL functions the picture is taken with (the tablet drawn into a texture of its own, and read back)
+struct GLMirror {
+    void(XPT_GL* GenFramebuffers)(GLsizei, unsigned int*) = nullptr;
+    void(XPT_GL* BindFramebuffer)(GLenum, unsigned int) = nullptr;
+    void(XPT_GL* FramebufferTexture2D)(GLenum, GLenum, GLenum, unsigned int, GLint) = nullptr;
+    GLenum(XPT_GL* CheckFramebufferStatus)(GLenum) = nullptr;
+    void(XPT_GL* GetIntegerv)(GLenum, GLint*) = nullptr;
+    void(XPT_GL* Viewport)(GLint, GLint, GLsizei, GLsizei) = nullptr;
+    void(XPT_GL* ReadPixels)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*) = nullptr;
+    void(XPT_GL* LoadIdentity)(void) = nullptr;
+    void(XPT_GL* Ortho)(double, double, double, double, double, double) = nullptr;
+    void(XPT_GL* Clear)(unsigned int) = nullptr;
+    void(XPT_GL* ClearColor)(float, float, float, float) = nullptr;
+    int state = 0;
+} glm;
+void* glExt(const char* name, const char* older) {   // (newer functions: asked of the driver on Windows; by their older name where the newer is missing)
+    for (const char* n : {name, older}) {
+        if (!n) continue;
+        void* p = nullptr;
+#if defined(_WIN32)
+        if (HMODULE m = GetModuleHandleA("opengl32.dll")) {
+            typedef void*(__stdcall * WglGet)(const char*);
+            if (WglGet get = (WglGet)GetProcAddress(m, "wglGetProcAddress")) p = get(n);
+            const intptr_t v = (intptr_t)p;
+            if (v == 1 || v == 2 || v == 3 || v == -1) p = nullptr;   // (what some drivers answer for "not found")
+        }
+#endif
+        if (!p) p = glSym(n);
+        if (p) return p;
+    }
+    return nullptr;
+}
+bool loadMirrorGl() {
+    if (glm.state == 0) {
+        bool ok = true;
+        auto get = [&](auto& f, const char* n, const char* older) { f = (typename std::remove_reference<decltype(f)>::type)glExt(n, older); ok = ok && f != nullptr; };
+        get(glm.GenFramebuffers, "glGenFramebuffers", "glGenFramebuffersEXT"); get(glm.BindFramebuffer, "glBindFramebuffer", "glBindFramebufferEXT");
+        get(glm.FramebufferTexture2D, "glFramebufferTexture2D", "glFramebufferTexture2DEXT"); get(glm.CheckFramebufferStatus, "glCheckFramebufferStatus", "glCheckFramebufferStatusEXT");
+        get(glm.GetIntegerv, "glGetIntegerv", nullptr); get(glm.Viewport, "glViewport", nullptr); get(glm.ReadPixels, "glReadPixels", nullptr);
+        get(glm.LoadIdentity, "glLoadIdentity", nullptr); get(glm.Ortho, "glOrtho", nullptr); get(glm.Clear, "glClear", nullptr); get(glm.ClearColor, "glClearColor", nullptr);
+        glm.state = ok ? 1 : -1;
+        if (!ok) logMsg("local connect: this OpenGL cannot draw into a texture, so devices cannot be shown the tablet");
+    }
+    return glm.state == 1;
+}
+
+// The tablet's frame drawn into a texture of its own at the mirror's scale and read back (rows bottom to top, as OpenGL reads).
+// Everything of X-Plane's that is touched is put back: the framebuffer bound, the viewport, the matrices, the scissor test.
+int g_mirTex = 0, g_mirW = 0, g_mirH = 0;
+unsigned int g_mirFbo = 0;
+bool captureTablet(std::vector<unsigned char>& out, int& W, int& H) {
+    if (!loadGl() || !loadMirrorGl() || g_mirrorScale <= 0) return false;
+    constexpr GLenum kFramebuffer = 0x8D40, kColor0 = 0x8CE0, kComplete = 0x8CD5, kFramebufferBinding = 0x8CA6, kViewport = 0x0BA2, kProjection = 0x1701,
+                     kScissorTest = 0x0C11, kPackAlignment = 0x0D05, kPackRowLength = 0x0D02, kColorBufferBit = 0x4000;
+    W = ((int)std::lround(g_logW * g_mirrorScale) + 1) & ~1;
+    H = ((int)std::lround(xpt::kLogicalH * g_mirrorScale) + 1) & ~1;
+    if (!g_mirTex) XPLMGenerateTextureNumbers(&g_mirTex, 1);
+    if (W != g_mirW || H != g_mirH) {
+        XPLMBindTexture2d(g_mirTex, 0);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)GL_LINEAR);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint)GL_LINEAR);
+        gl.TexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGBA, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        XPLMBindTexture2d(0, 0);
+        g_mirW = W; g_mirH = H;
+    }
+    if (!g_mirFbo) glm.GenFramebuffers(1, &g_mirFbo);
+    GLint wasFbo = 0, vp[4] = {0, 0, 0, 0};
+    glm.GetIntegerv(kFramebufferBinding, &wasFbo);
+    glm.GetIntegerv(kViewport, vp);
+    const bool scissor = gl.IsEnabled(kScissorTest) != 0;
+    glm.BindFramebuffer(kFramebuffer, g_mirFbo);
+    glm.FramebufferTexture2D(kFramebuffer, kColor0, GL_TEXTURE_2D, (unsigned int)g_mirTex, 0);
+    bool ok = glm.CheckFramebufferStatus(kFramebuffer) == kComplete;
+    if (ok) {
+        if (scissor) gl.Disable(kScissorTest);
+        glm.Viewport(0, 0, W, H);
+        gl.MatrixMode(kProjection); gl.PushMatrix(); glm.LoadIdentity(); glm.Ortho(0, W, 0, H, -1, 1);
+        gl.MatrixMode(GL_MODELVIEW); gl.PushMatrix(); glm.LoadIdentity();
+        glm.ClearColor(0, 0, 0, 1);
+        glm.Clear(kColorBufferBit);
+        drawBatches(g_batches, 0.0f, (float)H, g_mirrorScale, g_mirrorScale);   // (as it is drawn in the sim, at full brightness)
+        out.resize((size_t)W * H * 4);
+        gl.PixelStorei(kPackRowLength, 0);
+        gl.PixelStorei(kPackAlignment, 1);
+        glm.ReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, out.data());
+        gl.PixelStorei(kPackAlignment, 4);
+        gl.MatrixMode(GL_MODELVIEW); gl.PopMatrix();
+        gl.MatrixMode(kProjection); gl.PopMatrix();
+        gl.MatrixMode(GL_MODELVIEW);
+        if (scissor) gl.Enable(kScissorTest);
+    } else {
+        static bool told = false;
+        if (!told) { told = true; logMsg("local connect: the texture for devices' picture could not be drawn into"); }
+    }
+    glm.BindFramebuffer(kFramebuffer, (unsigned int)wasFbo);
+    glm.Viewport(vp[0], vp[1], vp[2], vp[3]);
+    return ok;
+}
+
+// Each frame X-Plane draws (whether or not the tablet is on screen): with a device connected, the tablet's picture for it
+int mirrorDraw(XPLMDrawingPhase, int, void*) {
+    if (!g_localRunning) return 1;
+    const bool watched = xpt::localserver::clients() > 0;
+    g_mirrorScale = watched ? 1.5f : 0.0f;
+    const double now = XPLMGetElapsedTime();
+    if (!watched || !xpt::mirror::wantsFrame(now)) return 1;
+    ensureFrame();   // (made now if the tablet was not drawn this frame: its window closed, no cockpit tablet in view)
+    // the picture is taken only when the tablet's frame is another one (what it draws, or a picture it draws with), when a device
+    // waits for a whole picture, and twice a second regardless (WXPlane's page and the like change without telling)
+    static std::uint64_t lastHash = 0;
+    static unsigned lastTex = 0;
+    static double lastAt = -100;
+    std::uint64_t hsh = 1469598103934665603ull;
+    for (const xpt::Batch& b : g_batches) {
+        hsh = (hsh ^ (std::uint64_t)(intptr_t)b.tex) * 1099511628211ull;
+        const unsigned char* p = (const unsigned char*)b.v.data();
+        const size_t n = b.v.size() * sizeof(ImDrawVert);
+        size_t i = 0;
+        for (; i + 8 <= n; i += 8) { std::uint64_t w; std::memcpy(&w, p + i, 8); hsh = (hsh ^ w) * 1099511628211ull; }
+        for (; i < n; ++i) hsh = (hsh ^ p[i]) * 1099511628211ull;
+    }
+    if (hsh == lastHash && g_texChanges == lastTex && now - lastAt < 0.5 && !xpt::localserver::wantKey()) return 1;
+    lastHash = hsh; lastTex = g_texChanges; lastAt = now;
+    std::vector<unsigned char> px;
+    int w = 0, h = 0;
+    if (captureTablet(px, w, h)) xpt::mirror::submit(std::move(px), w, h, true);
+    return 1;
+}
+
+// a device's touches, scrolls and keys: to the tablet, as the sim's mouse and keyboard reach it
+void remoteInput() {
+    ImGuiIO& io = ImGui::GetIO();
+    xpt::mirror::Input in;
+    const double now = XPLMGetElapsedTime();
+    for (int n = 0; n < 64 && xpt::mirror::nextInput(in); ++n) {
+        const float x = in.x * g_logW, y = in.y * xpt::kLogicalH;
+        switch (in.kind) {
+        // (through the tablet's own stepping of the pointer: where it is first, the press on the next frame, the release on another)
+        case xpt::mirror::Input::MOVE: xpt::queuePointer(x, y, -1); g_remotePointerUntil = now + 0.6; break;
+        case xpt::mirror::Input::DOWN: xpt::setTouchInput(in.touch); xpt::queuePointer(x, y, 1); g_remotePointerUntil = now + 600; break;   // (until it lifts)
+        case xpt::mirror::Input::UP: xpt::queuePointer(x, y, 0); g_remotePointerUntil = now + (in.touch ? 0.3 : 0.6); break;
+        case xpt::mirror::Input::CANCEL: xpt::queuePointer(-1000, -1000, 0); g_remotePointerUntil = now + 0.2; break;
+        case xpt::mirror::Input::WHEEL: io.AddMouseWheelEvent(0, (float)in.code); break;
+        case xpt::mirror::Input::KEY: if (xpt::tabletTyping()) xpt::tabletKey(in.code, false); break;
+        case xpt::mirror::Input::CHAR: if (xpt::tabletTyping()) xpt::tabletKey(in.code, true); break;
+        }
+    }
+    if (xpt::localserver::clients() == 0 && g_remotePointerUntil > now + 1) {   // the device left with its finger down: let go
+        xpt::queuePointer(-1000, -1000, 0);
+        g_remotePointerUntil = now;
+    }
+}
+#endif
+
 void localConnectStep() {
     xpt::LocalConnectState& L = g_sim.local;
 #if defined(XPT_LOCAL_CONNECT)
-    static bool running = false;
     static std::string servedIp;
     static double lookedAt = -100;
     const double now = XPLMGetElapsedTime();
+    auto halt = [&]() { if (g_localRunning) { xpt::mirror::stop(); xpt::localserver::stop(); g_localRunning = false; } g_mirrorScale = 0; };
     if (!xpt::settings().localConnect) {
-        if (running) { xpt::localserver::stop(); running = false; servedIp.clear(); logMsg("local connect: off"); }
+        if (g_localRunning) { halt(); servedIp.clear(); logMsg("local connect: off"); }
         L = xpt::LocalConnectState();   // (status 0: off; the page shows its switch)
         lookedAt = -100;
         return;
@@ -2706,26 +2869,24 @@ void localConnectStep() {
         std::string ip = xpt::localIPv4();
         if (!xpt::isPrivateIPv4(ip)) ip.clear();   // (never on an address the internet can reach)
         if (ip != servedIp) {
-            if (running) { xpt::localserver::stop(); running = false; }
+            halt();
             servedIp = ip;
             if (!ip.empty()) {
-                char sys[2048] = "", path[2048] = "";
+                char sys[2048] = "";
                 XPLMGetSystemPath(sys);
-                XPLMGetPluginInfo(XPLMGetMyID(), nullptr, path, nullptr, nullptr);
-                std::string dir = path;
-                for (int up = 0; up < 2; ++up) { const size_t cut = dir.find_last_of("/\\"); if (cut != std::string::npos) dir.resize(cut); }
                 xpt::localserver::Config c;
                 c.bindIp = ip; c.port = 8443;
                 c.dataDir = std::string(sys) + "Output/XPTablet/localconnect";
-                c.pagePath = dir + "/localconnect/index.html.gz";
-                c.wireVersion = xpt::wire::kVersion;
+                for (const char* piece : xpt::kLocalPage) c.page += piece;
+                c.wireVersion = xpt::mirror::kPageVersion;
                 xpt::localserver::start(c);
-                running = true;
+                xpt::mirror::start();
+                g_localRunning = true;
                 logMsg(("local connect: starting on " + ip).c_str());
             }
         }
     }
-    if (!running) { L = xpt::LocalConnectState(); L.status = 2; return; }   // (on, but no home network: the page says "No network found")
+    if (!g_localRunning) { L = xpt::LocalConnectState(); L.status = 2; return; }   // (on, but no home network: the page says "No network found")
     const xpt::localserver::Status st = xpt::localserver::status();
     L.status = st.state == 0 ? 1 : st.state;
     L.address = st.address; L.error = st.error; L.pairCode = st.pairCode; L.pairName = st.pairName;
@@ -2755,17 +2916,7 @@ void localConnectStep() {
         }
         L.devices.push_back(o);
     }
-    if (st.state != 2) return;
-    xpt::localbridge::publish(g_sim, now);
-    const xpt::localbridge::Took took = xpt::localbridge::take(g_sim);
-    if (took.settings) saveSettings();
-    if (took.notes) saveNotes();
-    // with a device connected and the tablet not being drawn in the sim (its window closed, no cockpit tablet in view), its frame is
-    // still made a few times a second: the map's data, searches and the rest are fetched from there
-    if (xpt::localserver::clients() > 0) {
-        static double ranAt = -100;
-        if (XPLMGetCycleNumber() - g_frameCycle > 2 && now - ranAt > 0.05) { ranAt = now; ensureFrame(); }
-    }
+    if (st.state == 2) remoteInput();
 #else
     L.status = -2;   // (built without Local Connect: Settings leaves its page out)
 #endif
@@ -2880,6 +3031,9 @@ PLUGIN_API int XPluginEnable(void) {
     updateCheckStart();   // (once a session, in the background)
     XPLMRegisterKeySniffer(keySniffer, 1, nullptr);   // (before X-Plane's windows: typed keys go to a text box first)
     XPLMRegisterDrawCallback(drawPanel, xplm_Phase_Gauges, 0, nullptr);
+#if defined(XPT_LOCAL_CONNECT)
+    XPLMRegisterDrawCallback(mirrorDraw, xplm_Phase_Window, 0, nullptr);   // (the tablet's picture for paired devices)
+#endif
     XPLMCreateFlightLoop_t fl;
     fl.structSize = sizeof fl;
     fl.phase = xplm_FlightLoop_Phase_AfterFlightModel;
@@ -2898,11 +3052,14 @@ PLUGIN_API int XPluginEnable(void) {
 PLUGIN_API void XPluginDisable(void) {
     updateCheckStop();
 #if defined(XPT_LOCAL_CONNECT)
-    xpt::localserver::stop();   // (started again by the flight loop when the plugin is enabled and the setting is on)
+    if (g_localRunning) { xpt::mirror::stop(); xpt::localserver::stop(); g_localRunning = false; }   // (started again by the flight loop when the setting is on)
 #endif
     if (xpt::settingsToText() != g_savedSettings) saveSettings();   // nothing changed is lost when the sim or the plugins reload
     XPLMUnregisterKeySniffer(keySniffer, 1, nullptr);
     XPLMUnregisterDrawCallback(drawPanel, xplm_Phase_Gauges, 0, nullptr);
+#if defined(XPT_LOCAL_CONNECT)
+    XPLMUnregisterDrawCallback(mirrorDraw, xplm_Phase_Window, 0, nullptr);
+#endif
     if (g_loop) { XPLMDestroyFlightLoop(g_loop); g_loop = nullptr; }
     if (g_capture) { XPLMDestroyWindow(g_capture); g_capture = nullptr; }
     g_captureDown = false;
