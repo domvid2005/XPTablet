@@ -12,7 +12,7 @@ from svgpath import raster
 CELL = 256
 ORDER = ["cog", "list-status", "check-bold", "file-document", "star-four-points", "airplane", "airport", "web",   # pictograms
          "foreflight", "navigraph", "skyvector", "volanta", "vatsimradar", "simbrief", "power", "weather-partly-snowy-rainy", "chartfox", "music", "map", "file-document-edit",
-         "soundcloud", "youtube", "ytmusic", "applemusic", "vatsim", "nattrak", "ivao", "spotify"]                                                       # tiles
+         "soundcloud", "youtube", "ytmusic", "applemusic", "vatsim", "nattrak", "ivao", "spotify", "flightradar24"]                                                       # tiles
 root = os.path.join(os.path.dirname(__file__), "..", "assets", "brands")
 
 def gradient(c0, c1, radial=False):
@@ -103,6 +103,10 @@ def tile(name):
         v = np.asarray(Image.open(os.path.join(root, "vatsim.jpg")).convert("RGB")).astype(float)
         a = np.ones(v.shape[:2])
         return place(np.full((CELL, CELL, 3), 255.0), v, a, (0, 0, v.shape[1], v.shape[0]), 224)
+    if name == "flightradar24":   # its radar roundel (white, from the logo on black), on black
+        v = np.asarray(Image.open(os.path.join(root, "flightradar24.png")).convert("RGB")).astype(float)
+        a = np.ones(v.shape[:2])
+        return place(np.zeros((CELL, CELL, 3)), v, a, (16, 100, 120, 204), 184)
     if name == "nattrak":   # the wordmark (its dots too), on white
         im = Image.open(os.path.join(root, "nattrak.webp")).convert("RGBA")
         n = np.asarray(im).astype(float)

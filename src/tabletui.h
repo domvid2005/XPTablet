@@ -22,7 +22,7 @@ enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_
            APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_MUSIC, APP_DISPATCH, APP_NAVSEARCH,
            // the App Store and what it offers (web apps, installed or not), and Games
            APP_APPSTORE, APP_GAMES, APP_DATIS, APP_SPOTIFY, APP_YTMUSIC, APP_APPLEMUSIC, APP_SOUNDCLOUD, APP_YOUTUBE, APP_VATSIMHUB, APP_NATTRAK, APP_IVAO,
-           APP_TIMERS, APP_LOGBOOK, APP_ACARS, APP_XPILOT,   // (App Store apps of XPTablet's own)
+           APP_TIMERS, APP_LOGBOOK, APP_ACARS, APP_XPILOT, APP_FR24,   // (App Store apps of XPTablet's own)
            APP_COUNT };
 
 constexpr int kMaxFavorites = 7;   // the favorites bar holds up to 7 places (icons, or the 1 x 1 and 7 x 1 widgets); its size is chosen in Settings, 0 removes it
@@ -516,6 +516,7 @@ bool takeLogbookChanged();
 void setSeasonalPreview(bool all);
 int settingsTabShown();   // the Settings page's tab (for the tests)
 void celebrate(int which);   // the midnight celebration now: 0 New Year, 1 Christmas (it starts by itself at midnight; this is for a preview)
+bool celebrationShown();     // it is up (it stays until its Dismiss button is pressed)
 bool seasonalOnDate(int theme, int year, int month, int day);   // seasonal theme n (0 New Year .. 15 Breast Cancer Awareness) on that date
 const char* seasonalName(int theme);   // every seasonal colour theme offered whatever the date (the browser emulator)
 // A Custom background's colours, from its pixels (RGBA): its average made deeper (the background), and its most striking colour made

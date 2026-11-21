@@ -1027,7 +1027,27 @@ int main(int argc, char** argv) {
                         ImGui::NewFrame(); Actions act; build(fonts, xs, 800, kLogicalH, act); ImGui::Render(); } };
                     celebrate(0); run(1.6f); shot(xs, APP_HOME, "celebrate_newyear");
                     celebrate(1); run(2.0f); shot(xs, APP_HOME, "celebrate_christmas");
-                    run(5.0f);   // (over: back to the page)
+                    // after the show: "from XPTablet" and a Dismiss button; it stays until that is pressed
+                    auto frameAt = [&](float x, float y, bool down) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.05f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, down);
+                        ImGui::NewFrame(); Actions act; build(fonts, xs, 800, kLogicalH, act); ImGui::Render(); };
+                    auto tapAt = [&](float x, float y) { frameAt(x, y, false); frameAt(x, y, true); frameAt(x, y, true); frameAt(x, y, false); frameAt(-1000, -1000, false); };
+                    run(6.5f);
+                    {   // pictured as it stands (shot() would reopen the page; the celebration is over everything anyway)
+                        io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.016f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, xs, 800, kLogicalH, act); ImGui::Render();
+                        std::vector<Batch> b; clipDrawData(ImGui::GetDrawData(), b); Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_celebrate_from.png");
+                    }
+                    run(8.0f);
+                    if (!celebrationShown()) { std::printf("FAIL: the celebration stays until it is dismissed\n"); ++failures; }
+                    tapAt(400, 200);   // (a press elsewhere does nothing)
+                    if (!celebrationShown()) { std::printf("FAIL: only the Dismiss button closes the celebration\n"); ++failures; }
+                    tapAt(400, kLogicalH - 60.0f); run(0.3f);
+                    if (!celebrationShown()) { std::printf("FAIL: the celebration fades out after Dismiss, not at once\n"); ++failures; }
+                    run(1.0f);
+                    if (celebrationShown()) { std::printf("FAIL: Dismiss closes the celebration\n"); ++failures; }
+                    celebrate(0); run(0.5f); tapAt(400, kLogicalH - 60.0f); run(1.5f);
+                    if (!celebrationShown()) { std::printf("FAIL: Dismiss is not there to press before the animation is done\n"); ++failures; }
+                    run(7.0f); tapAt(400, kLogicalH - 60.0f); run(1.5f);
+                    if (celebrationShown()) { std::printf("FAIL: Dismiss closes the New Year celebration\n"); ++failures; }
                 }
                 setSeasonalPreview(false);
                 settings().wallpaper = 10 + 0; settings().wallpaperBase = 3;

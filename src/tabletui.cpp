@@ -108,6 +108,7 @@ const AppDef kApps[APP_COUNT] = {
     {"logbook", "Logbook", IM_COL32(120, 84, 60, 255), nullptr},
     {"acars", "ACARS", IM_COL32(52, 120, 140, 255), nullptr},
     {"xpilot", "xPilot", IM_COL32(30, 44, 70, 255), nullptr},   // xPilot's own windows: a page of the VATSIM app (not in the App Store, never on the home screen)
+    {"fr24", "Flightradar24", IM_COL32(16, 16, 18, 255), "https://www.flightradar24.com"},   // real-world traffic, live
 };
 enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM, ICON_SKYVECTOR };   // pictures of their own (the other web apps borrow one)
 
@@ -176,6 +177,7 @@ int brandCell(int app) {
     case APP_NATTRAK: return 25;
     case APP_IVAO: return 26;        // IVAO Webeye
     case APP_SPOTIFY: return 27;
+    case APP_FR24: return 28;        // Flightradar24
     default: return -1;
     }
 }
@@ -502,8 +504,45 @@ void seasonalDecor(ImDrawList* dl, ImVec2 o, float w, float h, int k, int stage)
             stars(30, 0.45f, IM_COL32(255, 255, 255, 110));
         }
         break;
-    case 8:   // Independence Day: fireworks in red, white and blue
+    case 8:   // Independence Day: fireworks in red, white and blue, and 1776 in a quill's script, its foot tucked behind the mountains
         if (stage == 0) { stars(40, 0.5f, IM_COL32(255, 255, 255, 110));
+            {   // 1776, as a broad quill writes it: the nib held at one angle, so each stroke is thick or thin by the way it runs
+                const ImU32 ink = IM_COL32(244, 246, 252, 255);
+                const ImVec2 c = at(0.504f, 0.577f);                         // (centered, in the middle valley: the ridge covers its ends' feet)
+                const float q = 1.70f * u;                                   // (a unit of the script)
+                const ImVec2 nib(std::cos(0.663f) * 2.3f, -std::sin(0.663f) * 2.3f);
+                auto P = [&](float x, float y) { return ImVec2(c.x + (x - 0.24f * y) * q, c.y + y * q); };   // (slanted)
+                auto quill = [&](ImVec2 p0, ImVec2 p1, ImVec2 p2, ImVec2 p3, float k) {
+                    // the stroke as a band of pieces sharing their edges (filled plain, so no seam shows between them), then its
+                    // two sides and ends drawn over as smooth lines
+                    const int n = 22;
+                    ImVec2 sa[n + 1], sb[n + 1];
+                    for (int i = 0; i <= n; ++i) {
+                        const float t = (float)i / n, v = 1 - t;
+                        const float x = v * v * v * p0.x + 3 * v * v * t * p1.x + 3 * v * t * t * p2.x + t * t * t * p3.x, y = v * v * v * p0.y + 3 * v * v * t * p1.y + 3 * v * t * t * p2.y + t * t * t * p3.y;
+                        sa[i] = P(x - nib.x * k, y - nib.y * k); sb[i] = P(x + nib.x * k, y + nib.y * k);
+                    }
+                    const ImDrawListFlags was = dl->Flags;
+                    dl->Flags &= ~ImDrawListFlags_AntiAliasedFill;
+                    for (int i = 1; i <= n; ++i) dl->AddQuadFilled(sa[i - 1], sb[i - 1], sb[i], sa[i], ink);
+                    dl->Flags = was;
+                    dl->AddPolyline(sa, n + 1, ink, 0, 1.0f); dl->AddPolyline(sb, n + 1, ink, 0, 1.0f);
+                    dl->AddLine(sa[0], sb[0], ink, 1.0f); dl->AddLine(sa[n], sb[n], ink, 1.0f);
+                    dl->AddBezierCubic(P(p0.x, p0.y), P(p1.x, p1.y), P(p2.x, p2.y), P(p3.x, p3.y), ink, std::max(1.0f, 0.9f * q), n);   // (never thinner than a hairline)
+                };
+                quill({-42, -9}, {-39, -11}, {-36, -14}, {-34, -17}, 0.5f);      // 1: the pen coming in, the stem, its foot
+                quill({-34, -17}, {-34, -6}, {-35, 6}, {-36, 16}, 1.0f);
+                quill({-41, 16}, {-38, 15}, {-34, 15}, {-30, 16}, 0.6f);
+                for (int k7 = 0; k7 < 2; ++k7) {                                  // 7, 7: a waved bar, a long stem swept down
+                    const float x = k7 * 21.0f;
+                    quill({x - 25, -13}, {x - 21, -18}, {x - 16, -11}, {x - 8, -16}, 1.0f);
+                    quill({x - 8, -16}, {x - 13, -6}, {x - 17, 6}, {x - 19, 19}, 1.0f);
+                }
+                quill({36, -16}, {26, -14}, {19, -2}, {20, 8}, 1.0f);            // 6: a tall hook into its bowl
+                quill({20, 8}, {21, 18}, {33, 18}, {34, 9}, 1.0f);
+                quill({34, 9}, {35, 1}, {24, 0}, {20, 8}, 1.0f);
+                quill({-46, 24}, {-20, 30}, {10, 20}, {44, 25}, 0.45f);          // and a flourish under it
+            }
             decoBurst(dl, at(0.2f, 0.24f), 50 * u, IM_COL32(240, 70, 80, 255), 18); decoBurst(dl, at(0.5f, 0.14f), 42 * u, IM_COL32(255, 255, 255, 255), 16);
             decoBurst(dl, at(0.78f, 0.26f), 48 * u, IM_COL32(90, 140, 255, 255), 18); decoBurst(dl, at(0.36f, 0.42f), 26 * u, IM_COL32(255, 255, 255, 230), 12);
             decoBurst(dl, at(0.66f, 0.44f), 28 * u, IM_COL32(240, 70, 80, 230), 12); }
@@ -5964,7 +6003,7 @@ void dispatchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     pdfView(dl, f, s, 12, y0, w - 24, h - 12 - y0, act, kGroupDispatch, p.pdfUrl);
 }
 
-// ---- Flight Plan: the latest SimBrief plan (Import uses the SimBrief ID saved in Settings, Data); the briefing PDF in a tab -------------
+// ---- Flight Plan: the latest SimBrief plan (Import uses the SimBrief ID saved in Settings, Accounts); the briefing PDF in a tab -------------
 float g_fplScroll = 0;
 
 // ---- flight progress: along the imported route, from where the aircraft is (the nearest leg, then the fixes left)
@@ -6123,7 +6162,7 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     }
     if (!p.loaded) {
         textAt(dl, f.title, 16, top + 2, kInk, "No flight plan");
-        const char* why = !haveId ? "Enter your SimBrief ID in Settings, Data, then Import." : p.status.empty() ? "Import your latest SimBrief flight plan." : p.status.c_str();
+        const char* why = !haveId ? "Enter your SimBrief ID in Settings, Accounts, then Import." : p.status.empty() ? "Import your latest SimBrief flight plan." : p.status.c_str();
         dl->AddText(f.body, fontPx(f.body), ImVec2(16, top + 50), kMuted, why, nullptr, w - 32);
         return;
     }
@@ -6888,6 +6927,7 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"SimBrief Icon", "The SimBrief logo is a trademark of SimBrief (Navigraph), used only to show their web app", "Trademark"},
         {"VATSIM Radar Icon", "The VATSIM Radar logo belongs to VATSIM Radar (vatsim-radar.com), used only to show their web map", "Trademark"},
         {"VATSIM Icon", "The VATSIM logo is a trademark of VATSIM, Inc. (vatsim.net), used only to show their pages", "Trademark"},
+        {"Flightradar24 Icon", "The Flightradar24 logo belongs to Flightradar24 AB (flightradar24.com), used only to show their web app", "Trademark"},
         {"natTrak Icon", "The natTrak logo belongs to VATSIM's natTrak (nattrak.vatsim.net), used only to show their web app", "Trademark"},
         {"IVAO Icon", "The IVAO logo is a trademark of the International Virtual Aviation Organisation (ivao.aero), used only to show their Webeye map", "Trademark"},
         {"Spotify, YouTube, YouTube Music, Apple Music and SoundCloud icons", "Their logos are trademarks of Spotify AB, Google LLC, Apple Inc. and SoundCloud Global Limited, used only to show their web players", "Trademark"},
@@ -7816,7 +7856,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         y += 36;
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "SimBrief is checked every 2 minutes with your SimBrief ID; a new plan is loaded. Opens the Flight Plan.", nullptr, colW);
         y += 34;
-        if (g_settings.simbriefUser.empty()) textAt(dl, f.small, lx, y, kWarn, "Enter your SimBrief ID under Data first.");
+        if (g_settings.simbriefUser.empty()) textAt(dl, f.small, lx, y, kWarn, "Enter your SimBrief ID under Accounts first.");
         y += 26;
         toggle("##ntfatc", lx, y, colW, "VATSIM ATC Online", g_settings.vatsimAtcNotes, g_settings.notifyEnabled);
         y += 36;
@@ -7864,9 +7904,53 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             y += 46;
             return typing;
         };
+        const bool sbTyping = g_kbd && g_kbdTarget == 2 && g_typeInto == &g_settings.simbriefUser;
+        {   // SimBrief: the ID the Flight Plan page imports with (hidden as dots unless typed or the eye is held), and an import now
+        textAt(dl, f.bold, lx, y, kInk, "SimBrief ID");
+        y += 22;
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Your SimBrief user name or pilot ID (Account settings on simbrief.com). The Flight Plan page imports your latest plan with it.", nullptr, w - 12 - lx);
+        y += 36;
+        {   // hidden as dots unless it is being typed, or the eye is held
+            const ImVec2 fa(lx, y), fb(w - 12 - 200, y + 36);
+            const ImVec2 ea(fb.x - 40, fa.y + 2), eb(fb.x - 2, fb.y - 2);
+            ImGui::SetCursorScreenPos(ea);
+            ImGui::SetNextItemAllowOverlap();
+            static bool eyeHeld = false;
+            const bool eyeWas = eyeHeld;
+            (void)eyeWas;
+            if (sbTyping || eyeHeld) textField(dl, f, "##sbuser", g_settings.simbriefUser, fa, ImVec2(fb.x - 42, fb.y), "Tap to enter your SimBrief ID", false, 0);
+            else {
+                static std::string dots;
+                dots.clear();
+                for (size_t i = 0; i < g_settings.simbriefUser.size(); ++i) dots += "\xE2\x80\xA2";
+                textField(dl, f, "##sbuser", dots, fa, ImVec2(fb.x - 42, fb.y), "Tap to enter your SimBrief ID", false, 0);
+                if (g_typeInto == &dots) g_typeInto = &g_settings.simbriefUser;   // (tapped: it is typed into, shown as typed)
+            }
+            ImGui::SetCursorScreenPos(ea);
+            ImGui::InvisibleButton("##sbeye", ImVec2(eb.x - ea.x, eb.y - ea.y));
+            eyeHeld = ImGui::IsItemActive();
+            const bool eyeHot = ImGui::IsItemHovered() || eyeHeld;
+            dl->AddRectFilled(ea, eb, IM_COL32(255, 255, 255, eyeHeld ? 40 : eyeHot ? 26 : 14), 8.0f);
+            const ImVec2 ec((ea.x + eb.x) * 0.5f, (ea.y + eb.y) * 0.5f);
+            const ImU32 ecol = eyeHeld ? accentLite(255) : kMuted;
+            dl->PathArcTo(ImVec2(ec.x, ec.y + 6), 11, 3.14159f * 1.22f, 3.14159f * 1.78f, 12); dl->PathStroke(ecol, 0, 1.6f);
+            dl->PathArcTo(ImVec2(ec.x, ec.y - 6), 11, 3.14159f * 0.22f, 3.14159f * 0.78f, 12); dl->PathStroke(ecol, 0, 1.6f);
+            dl->AddCircleFilled(ec, 3.2f, ecol, 0);
+            if (!eyeHeld && !sbTyping) {}
+        }
+        if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; }
+        if (pill(dl, f, "##sbimport", s.plan.busy ? "Importing..." : "Import Flight Plan", ImVec2(w - 12 - 192, y + 2), ImVec2(w - 12, y + 34), true, !g_settings.simbriefUser.empty() && !s.plan.busy)) {
+            act.planImport = true; g_kbd = false; g_typeInto = nullptr;
+        }
+        y += 44;
+        if (!s.plan.status.empty()) { textAt(dl, f.small, lx, y, s.plan.loaded ? kGood : kMuted, s.plan.status.c_str()); }
+        y += 26;
+        if (sbTyping) { pageKeyboard(dl, f, w, h, act); return; }
+        y += 4;
+        }
         const bool typing = secret("##achop", "Hoppie ACARS Logon Code", "For the ACARS app (CPDLC and telex on VATSIM and IVAO): register at hoppie.nl/acars, and the logon code comes by e-mail.", g_settings.hoppieCode, "Tap to enter your Hoppie logon code");
         if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; }
-        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Kept only in XPTablet's settings on this computer, and sent only to Hoppie's network.", nullptr, w - 12 - lx);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Kept only in XPTablet's settings on this computer, and sent only to the service each is for.", nullptr, w - 12 - lx);
         if (typing) pageKeyboard(dl, f, w, h, act);
         return;
     }
@@ -8131,48 +8215,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     }
 
     // ---- Data: SimBrief, and where the tablet's data comes from
-    const bool typing = g_kbd && g_kbdTarget == 2 && g_typeInto == &g_settings.simbriefUser;
     float y = top;
-    textAt(dl, f.bold, lx, y, kInk, "SimBrief ID");
-    y += 22;
-    dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Your SimBrief user name or pilot ID (Account settings on simbrief.com). The Flight Plan page imports your latest plan with it.", nullptr, w - 12 - lx);
-    y += 36;
-    {   // hidden as dots unless it is being typed, or the eye is held
-        const ImVec2 fa(lx, y), fb(w - 12 - 200, y + 36);
-        const ImVec2 ea(fb.x - 40, fa.y + 2), eb(fb.x - 2, fb.y - 2);
-        ImGui::SetCursorScreenPos(ea);
-        ImGui::SetNextItemAllowOverlap();
-        static bool eyeHeld = false;
-        const bool eyeWas = eyeHeld;
-        (void)eyeWas;
-        if (typing || eyeHeld) textField(dl, f, "##sbuser", g_settings.simbriefUser, fa, ImVec2(fb.x - 42, fb.y), "Tap to enter your SimBrief ID", false, 0);
-        else {
-            static std::string dots;
-            dots.clear();
-            for (size_t i = 0; i < g_settings.simbriefUser.size(); ++i) dots += "\xE2\x80\xA2";
-            textField(dl, f, "##sbuser", dots, fa, ImVec2(fb.x - 42, fb.y), "Tap to enter your SimBrief ID", false, 0);
-            if (g_typeInto == &dots) g_typeInto = &g_settings.simbriefUser;   // (tapped: it is typed into, shown as typed)
-        }
-        ImGui::SetCursorScreenPos(ea);
-        ImGui::InvisibleButton("##sbeye", ImVec2(eb.x - ea.x, eb.y - ea.y));
-        eyeHeld = ImGui::IsItemActive();
-        const bool eyeHot = ImGui::IsItemHovered() || eyeHeld;
-        dl->AddRectFilled(ea, eb, IM_COL32(255, 255, 255, eyeHeld ? 40 : eyeHot ? 26 : 14), 8.0f);
-        const ImVec2 ec((ea.x + eb.x) * 0.5f, (ea.y + eb.y) * 0.5f);
-        const ImU32 ecol = eyeHeld ? accentLite(255) : kMuted;
-        dl->PathArcTo(ImVec2(ec.x, ec.y + 6), 11, 3.14159f * 1.22f, 3.14159f * 1.78f, 12); dl->PathStroke(ecol, 0, 1.6f);
-        dl->PathArcTo(ImVec2(ec.x, ec.y - 6), 11, 3.14159f * 0.22f, 3.14159f * 0.78f, 12); dl->PathStroke(ecol, 0, 1.6f);
-        dl->AddCircleFilled(ec, 3.2f, ecol, 0);
-        if (!eyeHeld && !typing) {}
-    }
-    if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; }
-    if (pill(dl, f, "##sbimport", s.plan.busy ? "Importing..." : "Import Flight Plan", ImVec2(w - 12 - 192, y + 2), ImVec2(w - 12, y + 34), true, !g_settings.simbriefUser.empty() && !s.plan.busy)) {
-        act.planImport = true; g_kbd = false; g_typeInto = nullptr;
-    }
-    y += 44;
-    if (!s.plan.status.empty()) { textAt(dl, f.small, lx, y, s.plan.loaded ? kGood : kMuted, s.plan.status.c_str()); }
-    y += 26;
-    if (typing) { pageKeyboard(dl, f, w, h, act); return; }
     // Volanta's stream overlay (its widget on the home screen): the address the Volanta app serves it at
     textAt(dl, f.bold, lx, y, kInk, "Volanta Overlay");
     textAt(dl, f.small, lx + 150, y + 2, kMuted, "For the home screen's Volanta widget (Volanta, Settings, Stream overlay)");
@@ -8282,11 +8325,16 @@ void applyStyle() {
 
 void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act, int app);
 // ---- at midnight of New Year's Day and Christmas Day (the computer's clock), while the tablet is on: a fade to black, five seconds of
-// celebration (fireworks; snow and the sleigh crossing the sky), and back to what was there
+// celebration (fireworks; snow and the sleigh crossing the sky), then "from" and XPTablet's logo in the holiday theme's colours, and a
+// Dismiss button at the bottom. It stays until Dismiss is pressed, and then fades back to what was there
 int g_celebrate = -1;        // 0 New Year, 1 Christmas, -1 none
 double g_celebT0 = 0;
-constexpr float kCelebIn = 0.6f, kCelebShow = 5.0f, kCelebOut = 0.6f;
-bool celebrating() { return g_celebrate >= 0 && ImGui::GetTime() - g_celebT0 < kCelebIn + kCelebShow + kCelebOut; }
+double g_celebOutT0 = -1;    // when Dismiss was pressed (-1: not yet)
+bool g_celebHot = false, g_celebDown = false;   // the pointer over / pressing Dismiss
+constexpr float kCelebIn = 0.6f, kCelebShow = 5.0f, kCelebFrom = 1.5f, kCelebOut = 0.6f;   // fade in, the show, "from XPTablet" arriving, fade out
+bool celebrating() { return g_celebrate >= 0; }
+bool celebDismissReady() { return g_celebrate >= 0 && g_celebOutT0 < 0 && ImGui::GetTime() - g_celebT0 >= kCelebIn + kCelebShow + kCelebFrom; }
+void celebDismissRect(float w, float h, ImVec2& a, ImVec2& b) { a = ImVec2(std::floor(w * 0.5f) - 70, h - 78); b = ImVec2(std::floor(w * 0.5f) + 70, h - 42); }
 void celebrationStep() {
     const std::time_t now = std::time(nullptr);
     std::tm lt{};
@@ -8298,17 +8346,62 @@ void celebrationStep() {
     static int lastDay = -1;
     const int day = (lt.tm_year + 1900) * 10000 + (lt.tm_mon + 1) * 100 + lt.tm_mday;
     if (lastDay >= 0 && day != lastDay && g_power == POWER_ON) {   // midnight passed while the tablet was on
-        if (lt.tm_mon == 0 && lt.tm_mday == 1) { g_celebrate = 0; g_celebT0 = ImGui::GetTime(); }
-        else if (lt.tm_mon == 11 && lt.tm_mday == 25) { g_celebrate = 1; g_celebT0 = ImGui::GetTime(); }
+        if (lt.tm_mon == 0 && lt.tm_mday == 1) celebrate(0);
+        else if (lt.tm_mon == 11 && lt.tm_mday == 25) celebrate(1);
     }
     lastDay = day;
 }
 void drawCelebration(ImDrawList* dl, const Fonts& f, float w, float h) {
-    if (!celebrating()) { g_celebrate = g_celebrate >= 0 && ImGui::GetTime() - g_celebT0 >= kCelebIn + kCelebShow + kCelebOut ? -1 : g_celebrate; return; }
+    if (!celebrating()) return;
     const float t = (float)(ImGui::GetTime() - g_celebT0);
-    const float black = t < kCelebIn ? smooth01(t / kCelebIn) : t > kCelebIn + kCelebShow ? 1 - smooth01((t - kCelebIn - kCelebShow) / kCelebOut) : 1.0f;
-    const float show = std::min(smooth01((t - kCelebIn * 0.6f) / 0.4f), 1 - smooth01((t - kCelebIn - kCelebShow + 0.3f) / 0.5f));
+    const float out = g_celebOutT0 < 0 ? 1.0f : 1 - smooth01((float)(ImGui::GetTime() - g_celebOutT0) / kCelebOut);   // (Dismiss pressed: all of it fades away)
+    if (g_celebOutT0 >= 0 && out <= 0.0f) { g_celebrate = -1; g_celebOutT0 = -1; return; }
+    const float black = smooth01(t / kCelebIn) * out;
+    const float show = std::min(smooth01((t - kCelebIn * 0.6f) / 0.4f), 1 - smooth01((t - kCelebIn - kCelebShow + 0.3f) / 0.5f)) * out;
     dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(255 * black)));
+    const float ft = t - kCelebIn - kCelebShow;   // after the show
+    if (ft > 0) {
+        // "from" and XPTablet's logo, in the holiday theme's colours (its accent and that accent's light tone), on the black
+        const float fk = smooth01((ft - 0.2f) / 0.7f) * out;
+        if (fk > 0.01f) {
+            const Accent& ac = kSeasonal[g_celebrate == 0 ? 0 : 13].ac;
+            const ImU32 main = IM_COL32(ac.r, ac.g, ac.b, 255), lite = mixCol(main, IM_COL32(255, 255, 255, 255), 0.5f);
+            int lw = 4, lh = 1, lv = 0; float from = 0.5f;
+            logoMaskPixels(lw, lh, lv, from);
+            const float hh = 52, ww = std::floor(hh * lw / std::max(1, lh));
+            const ImVec2 a(std::floor(w * 0.5f - ww * 0.5f), std::floor(h * 0.47f - hh * 0.5f + 8 * (1 - smooth01((ft - 0.2f) / 0.7f)))), b(a.x + ww, a.y + hh);   // (it rises a little into place)
+            const int A8 = (int)(255 * fk);
+            const char* fromTxt = "from";
+            const float px = fontPx(f.title), fw = f.title->CalcTextSizeA(px, 1e9f, 0, fromTxt).x;
+            dl->AddText(f.title, px, ImVec2(std::floor(w * 0.5f - fw * 0.5f), a.y - px - 12), IM_COL32(255, 255, 255, (int)(190 * fk)), fromTxt);
+            if (g_logoMask) {
+                dl->AddImage(g_logoMask, a, ImVec2(a.x + ww * from, b.y), ImVec2(0, 0), ImVec2(from, 1), IM_COL32(255, 255, 255, A8));   // XP in white
+                const int n = 6;   // TABLET in slices, from the light tone to the accent (as the logo is drawn in a theme's colours)
+                for (int i = 0; i < n; ++i) {
+                    const float u0 = from + (1 - from) * i / n, u1 = from + (1 - from) * (i + 1) / n;
+                    dl->AddImage(g_logoMask, ImVec2(a.x + ww * u0, a.y), ImVec2(a.x + ww * u1, b.y), ImVec2(u0, 0), ImVec2(u1, 1), (mixCol(lite, main, (i + 0.5f) / n) & 0x00FFFFFF) | ((ImU32)A8 << 24));
+                }
+            } else dl->AddImage(g_logo, a, b, ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, A8));
+            const float lk = smooth01((ft - 0.6f) / 0.7f);   // a line drawn out under it, from the middle
+            dl->AddRectFilled(ImVec2(w * 0.5f - ww * 0.5f * lk, b.y + 14), ImVec2(w * 0.5f + ww * 0.5f * lk, b.y + 15.5f), (main & 0x00FFFFFF) | ((ImU32)(170 * fk) << 24));
+        }
+        // Dismiss, at the bottom: it pops up once the logo is there; pressing it fades everything away
+        const float pk = smooth01((ft - kCelebFrom) / 0.35f);
+        if (pk > 0.01f) {
+            ImVec2 pa, pb;
+            celebDismissRect(w, h, pa, pb);
+            const Ease e = eased("##celebDismiss", false, g_celebHot, g_celebDown);
+            const float grow = (1 - pk) * 10 + 1.2f * std::sin(pk * 3.14159f) * -3.0f + e.down * 1.5f;   // (from a little smaller, a touch past its size, and settled)
+            const ImVec2 a2(pa.x + grow, pa.y + grow * 0.3f + 10 * (1 - pk)), b2(pb.x - grow, pb.y - grow * 0.3f + 10 * (1 - pk));
+            const int v0 = dl->VtxBuffer.Size;
+            ImU32 bg = mixCol(IM_COL32(255, 255, 255, 40), mixCol(IM_COL32(255, 255, 255, 72), accentCol(90), 0.35f), e.hot);
+            bg = mixCol(bg, IM_COL32(255, 255, 255, 96), e.down);
+            dl->AddRectFilled(a2, b2, bg, (b2.y - a2.y) * 0.5f);
+            dl->AddRect(a2, b2, IM_COL32(255, 255, 255, 70 + (int)(80 * e.hot)), (b2.y - a2.y) * 0.5f, 0, 1.2f);
+            textCentered(dl, f.small, (a2.x + b2.x) * 0.5f, std::floor((a2.y + b2.y - fontPx(f.small)) * 0.5f), kInk, "Dismiss");
+            fadeSince(dl, v0, std::min(pk, out));
+        }
+    }
     if (show <= 0.01f) return;
     const float st = t - kCelebIn * 0.6f;   // the show's own clock
     auto A = [&](ImU32 c, float k = 1.0f) { return (c & 0x00FFFFFF) | ((ImU32)std::lround(((c >> 24) & 255) * show * std::max(0.0f, std::min(1.0f, k))) << 24); };
@@ -8403,7 +8496,21 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     ImGui::Begin("##tablet", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                                           ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollWithMouse);
     celebrationStep();
-    if (celebrating()) { ImGui::SetCursorScreenPos(ImVec2(0, 0)); ImGui::InvisibleButton("##celebrating", ImVec2(w, h)); }   // (nothing under it takes a press meanwhile)
+    g_celebHot = g_celebDown = false;
+    if (celebrating()) {   // (nothing under it takes a press meanwhile; its own Dismiss button is read here, drawn with the rest at the end)
+        ImGui::SetCursorScreenPos(ImVec2(0, 0));
+        const bool hit = ImGui::InvisibleButton("##celebrating", ImVec2(w, h));
+        if (celebDismissReady()) {
+            ImVec2 pa, pb;
+            celebDismissRect(w, h, pa, pb);
+            const ImGuiIO& cio = ImGui::GetIO();
+            auto in = [&](ImVec2 p) { return p.x >= pa.x && p.x <= pb.x && p.y >= pa.y && p.y <= pb.y; };
+            const bool began = in(cio.MouseClickedPos[0]);   // (the press must begin and end on the button)
+            g_celebHot = ImGui::IsItemHovered() && in(cio.MousePos);
+            g_celebDown = ImGui::IsItemActive() && began && in(cio.MousePos);
+            if (hit && began && in(cio.MousePos)) g_celebOutT0 = ImGui::GetTime();
+        }
+    }
     g_ownPerformance = s.toliss;
     if (g_app == APP_PERFORMANCE && g_ownPerformance) g_app = APP_HOME;
     g_px = std::max(1.0f, s.pixelScale);
@@ -8832,6 +8939,7 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
         {APP_LIVEMAP, 3, "Volanta's live map of your flights"},
         {APP_VATSIMHUB, 3, "VATSIM: network stats, events, the AIP and pilot resources"},
         {APP_IVAO, 3, "IVAO's live map of pilots and controllers"},
+        {APP_FR24, 3, "Flightradar24: real-world air traffic, live"},
         {APP_SPOTIFY, 4, "Spotify's web player"},
         {APP_YTMUSIC, 4, "YouTube Music's web player"},
         {APP_APPLEMUSIC, 4, "Apple Music on the web"},
@@ -9937,7 +10045,8 @@ void pictureColors(const unsigned char* rgba, int w, int h, int& average, int& a
 }
 void setSeasonalPreview(bool all) { g_seasonalAll = all; }
 int settingsTabShown() { return g_settingsTab; }
-void celebrate(int which) { g_celebrate = which; g_celebT0 = ImGui::GetTime(); }
+void celebrate(int which) { g_celebrate = which; g_celebT0 = ImGui::GetTime(); g_celebOutT0 = -1; }
+bool celebrationShown() { return g_celebrate >= 0; }
 bool seasonalOnDate(int k, int year, int month, int day) { return seasonalOn(k, year, month, day); }
 const char* seasonalName(int k) { return k >= 0 && k < kSeasonalN ? kSeasonal[k].name : ""; }
 bool takeLogbookChanged() { const bool c = g_logChanged; g_logChanged = false; return c; }
