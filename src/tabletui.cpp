@@ -1679,7 +1679,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         }
         dl->AddRectFilled(a, b, themeTone(14, 26, 50, 235), 18.0f);
         glass(dl, a, b, 18.0f, 1.0f);
-        textAt(dl, f.bold, a.x + 18, a.y + 14, kInk, "Add a widget");
+        textAt(dl, f.bold, a.x + 18, a.y + 14, kInk, "Add A Widget");
         float y = a.y + 46;
         for (int k = 0; k < W_COUNT; ++k) {
             bool there = false;
@@ -1735,7 +1735,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         ImGui::SetCursorScreenPos(a);
         ImGui::SetNextItemAllowOverlap();
         ImGui::InvisibleButton("##folderpanel", ImVec2(b.x - a.x, b.y - a.y));   // (a press on the card keeps it open)
-        textField(dl, f, "##foldername", fo.name, ImVec2(c.x - 120, a.y + 14), ImVec2(c.x + 120, a.y + 48), "Folder name", false, 0);
+        textField(dl, f, "##foldername", fo.name, ImVec2(c.x - 120, a.y + 14), ImVec2(c.x + 120, a.y + 48), "Folder Name", false, 0);
         if (fo.name.size() > 24) fo.name.resize(24);
         int takeOut = -1;
         for (int i = 0; i < n; ++i) {
@@ -2004,7 +2004,7 @@ std::string addressFrom(std::string s) {
     return "https://duckduckgo.com/?q=" + q;
 }
 
-// a new tab's page (the helper's xptb::kStartPage): counted as blank, and called "New tab"
+// a new tab's page (the helper's xptb::kStartPage): counted as blank, and called "New Tab"
 bool isStartPage(const std::string& u) {
     return u.empty() || u == "about:blank" || u == "https://duckduckgo.com/" || u == "https://duckduckgo.com";
 }
@@ -2221,7 +2221,7 @@ void webView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float 
         const bool bad = b.status == -1 || b.status == -3;
         textCentered(dl, f.bold, c.x, c.y - 10, IM_COL32(30, 40, 60, 255), b.status == -3 ? "The browser is not available here" : b.status == -1 ? "The browser stopped" : b.status == 1 ? "Loading..." : "Starting the browser...");
         if (!b.message.empty()) dl->AddText(f.small, fontPx(f.small), ImVec2(x0 + 30, c.y + 16), IM_COL32(90, 100, 120, 255), b.message.c_str(), nullptr, w - 60);
-        if (b.status == -1 && pill(dl, f, "##webretry", "Try again", ImVec2(c.x - 60, c.y + 64), ImVec2(c.x + 60, c.y + 92), true, true)) act.webRetry = true;
+        if (b.status == -1 && pill(dl, f, "##webretry", "Try Again", ImVec2(c.x - 60, c.y + 64), ImVec2(c.x + 60, c.y + 92), true, true)) act.webRetry = true;
         (void)bad;
         return;
     }
@@ -2414,7 +2414,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         ImGui::EndDisabled();
         popIn(dl, v0, ImVec2(a.x + 220, a.y), vt);
     };
-    if (videoFull(s)) {   // full screen: the page on the whole tablet; "Exit full screen" shows for a while when the pointer moves
+    if (videoFull(s)) {   // full screen: the page on the whole tablet; "Exit Full Screen" shows for a while when the pointer moves
         webView(dl, f, s, 0, 0, w, h, act);
         static double movedAt = -10;
         static ImVec2 lastMouse(-1, -1);
@@ -2424,7 +2424,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         if (k > 0.01f) {
             const ImVec2 a(w - 150, 10), e(w - 10, 40);
             dl->AddRectFilled(a, e, IM_COL32(0, 0, 0, (int)(150 * k)), 15.0f);
-            if (pill(dl, f, "##webfullx", "Exit full screen", a, e, false, true)) act.webExitFullscreen = true;
+            if (pill(dl, f, "##webfullx", "Exit Full Screen", a, e, false, true)) act.webExitFullscreen = true;
             if (g_webGroup == 0) {
                 dl->AddRectFilled(ImVec2(w - 196, 10), ImVec2(w - 158, 40), IM_COL32(0, 0, 0, (int)(150 * k)), 15.0f);
                 volumeButton("##fvol", ImVec2(w - 196, 10), ImVec2(w - 158, 40));
@@ -2492,7 +2492,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
             const bool hot = ImGui::IsItemHovered();
             dl->AddRectFilled(a, e, on ? themeTone(10, 24, 48, 255) : hot ? IM_COL32(255, 255, 255, 22) : IM_COL32(255, 255, 255, 10), 8.0f, ImDrawFlags_RoundCornersTop);
             // the Browser's last tab's x clears it (a fresh search page takes its place): there is always one
-            std::string title = isStartPage(t.url) ? std::string("New tab") : !t.title.empty() ? t.title : hostOf(t.url);
+            std::string title = isStartPage(t.url) ? std::string("New Tab") : !t.title.empty() ? t.title : hostOf(t.url);
             const float roomW = e.x - a.x - 34;
             while (title.size() > 4 && f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, title.c_str()).x > roomW) { title.resize(title.size() - 4); title += "..."; }
             dl->PushClipRect(a, ImVec2(e.x - 22, e.y), true);
@@ -2668,7 +2668,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         dl->AddCircle(c, r, mixCol(IM_COL32(255, 255, 255, 60), accentLite(255), e.hot), 0, 1.6f);
         dl->AddLine(ImVec2(c.x - 18, c.y), ImVec2(c.x + 18, c.y), kInk, 3.5f);
         dl->AddLine(ImVec2(c.x, c.y - 18), ImVec2(c.x, c.y + 18), kInk, 3.5f);
-        textCentered(dl, f.bold, c.x, c.y + 64, kInk, "New tab");
+        textCentered(dl, f.bold, c.x, c.y + 64, kInk, "New Tab");
         if (hit) { g_browserNoTabs = false; act.webTabNew = true; act.webTabGroup = 0; act.webTabUrl.clear(); g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear(); }
     } else webView(dl, f, s, 0, pageTop + 1, w, h - pageTop - 1, act, false, (g_historyOpen || g_volumeOpen) ? 0.0f : h - pageTop - 1 - kbH);   // (a card open: the page waits)
     const float histT = openness("##histopen", g_chrome && g_historyOpen && !g_barsHidden);
@@ -2691,7 +2691,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         dl->AddRectFilled(a, e, themeTone(12, 22, 40, 248), 12.0f);
         dl->AddRect(a, e, IM_COL32(255, 255, 255, 46), 12.0f);
         textAt(dl, f.bold, a.x + 14, a.y + 12, kInk, "History");
-        if (pill(dl, f, "##histclr", "Clear history", ImVec2(e.x - 176, a.y + 8), ImVec2(e.x - 46, a.y + 36), false, !g_settings.history.empty())) { g_settings.history.clear(); g_settingsChanged = true; }
+        if (pill(dl, f, "##histclr", "Clear History", ImVec2(e.x - 176, a.y + 8), ImVec2(e.x - 46, a.y + 36), false, !g_settings.history.empty())) { g_settings.history.clear(); g_settingsChanged = true; }
         if (iconButton("##histx", ImVec2(e.x - 40, a.y + 8), ImVec2(e.x - 10, a.y + 36), true)) g_historyOpen = false;
         const ImVec2 xc(e.x - 25, a.y + 22);
         dl->AddLine(ImVec2(xc.x - 5, xc.y - 5), ImVec2(xc.x + 5, xc.y + 5), kInk, 1.6f);
@@ -2828,7 +2828,7 @@ void metarPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
         if (c.empty() && (r.clearSky || r.cavok)) c = "clear";
         if (!c.empty()) row("Clouds", c.c_str());
     }
-    if (r.hasTemp) { if (r.hasDewp) std::snprintf(b, sizeof b, "%d / %d \xC2\xB0""C", (int)std::lround(r.tempC), (int)std::lround(r.dewpC)); else std::snprintf(b, sizeof b, "%d \xC2\xB0""C", (int)std::lround(r.tempC)); row("Temp / dew", b); }
+    if (r.hasTemp) { if (r.hasDewp) std::snprintf(b, sizeof b, "%d / %d \xC2\xB0""C", (int)std::lround(r.tempC), (int)std::lround(r.dewpC)); else std::snprintf(b, sizeof b, "%d \xC2\xB0""C", (int)std::lround(r.tempC)); row("Temp / Dew", b); }
     if (r.hasAltim) { std::snprintf(b, sizeof b, "%d hPa  %.2f in", (int)std::lround(r.altimHpa), r.altimHpa / wx::kInHgToHpa); row("QNH", b); }
 }
 
@@ -2836,8 +2836,8 @@ void simWeatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     // two views, switched at the right end of the title bar
     {
         const float y0 = kStatusH + 9, bw = 108;
-        if (pill(dl, f, "##wxcond", "At the aircraft", ImVec2(w - 14 - 2 * bw - 6, y0), ImVec2(w - 14 - bw - 6, y0 + 28), g_wxTab == 0, true)) g_wxTab = 0;
-        if (pill(dl, f, "##wxmetar", "METAR search", ImVec2(w - 14 - bw, y0), ImVec2(w - 14, y0 + 28), g_wxTab == 1, true)) g_wxTab = 1;
+        if (pill(dl, f, "##wxcond", "At The Aircraft", ImVec2(w - 14 - 2 * bw - 6, y0), ImVec2(w - 14 - bw - 6, y0 + 28), g_wxTab == 0, true)) g_wxTab = 0;
+        if (pill(dl, f, "##wxmetar", "METAR Search", ImVec2(w - 14 - bw, y0), ImVec2(w - 14, y0 + 28), g_wxTab == 1, true)) g_wxTab = 1;
     }
     if (g_wxTab == 1) { metarPage(dl, f, s, w, h, act); return; }
     const SimWeather& x = s.wx;
@@ -2871,7 +2871,7 @@ void simWeatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
             if (x.visSm >= 10) std::snprintf(b, sizeof b, "10+ SM"); else std::snprintf(b, sizeof b, "%.1f SM", x.visSm);
             row("Visibility", b);
             std::snprintf(b, sizeof b, "%d / %d \xC2\xB0""C", (int)std::lround(x.tempC), (int)std::lround(x.dewC));
-            row("Temp / dew", b);
+            row("Temp / Dew", b);
             std::snprintf(b, sizeof b, "%d hPa  %.2f in", (int)std::lround(x.qnhHpa), x.qnhHpa / 33.8639f);
             row("QNH", b);
             row("Rain", x.rain < 0.02f ? "none" : x.rain < 0.3f ? "light" : x.rain < 0.7f ? "moderate" : "heavy");
@@ -2888,7 +2888,7 @@ void simWeatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         auto yOf = [&](float ft) { return y1 - (y1 - y0) * std::max(0.0f, std::min(1.0f, ft / topFt)); };
         dl->AddRectFilledMultiColor(ImVec2(colX, y0), ImVec2(colX + colW, y1), IM_COL32(20, 50, 110, 255), IM_COL32(20, 50, 110, 255), IM_COL32(70, 130, 210, 255), IM_COL32(70, 130, 210, 255));
         float ty = y0;
-        if (!x.valid || x.clouds == 0) textAt(dl, f.body, colX + colW + 14, y0, kInk, x.valid ? "Sky clear" : "No data");
+        if (!x.valid || x.clouds == 0) textAt(dl, f.body, colX + colW + 14, y0, kInk, x.valid ? "Sky Clear" : "No Data");
         for (int i = x.clouds - 1; i >= 0; --i) {   // highest first, so the list reads top down like the sky
             const float yb = yOf(x.cloudBaseFt[i]), yt = yOf(x.cloudTopFt[i]);
             dl->AddRectFilled(ImVec2(colX, std::min(yt, yb - 3)), ImVec2(colX + colW, yb), IM_COL32(236, 241, 250, (int)(90 + 150 * std::min(1.0f, x.cloudCover[i]))), 3.0f);
@@ -2914,7 +2914,7 @@ void simWeatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         const int rows = (int)((e.y - 12 - y) / 22);
         int step = 1;
         while (x.aloft > 0 && (x.aloft + step - 1) / step > rows) ++step;
-        if (!x.valid || x.aloft == 0) textAt(dl, f.body, a.x + 14, y, kMuted, "No data");
+        if (!x.valid || x.aloft == 0) textAt(dl, f.body, a.x + 14, y, kMuted, "No Data");
         for (int i = x.aloft - 1; i >= 0; i -= step) {   // highest first
             if (x.aloftFt[i] >= 18000) std::snprintf(b, sizeof b, "FL%03d", (int)std::lround(x.aloftFt[i] / 100)); else std::snprintf(b, sizeof b, "%d ft", (int)(std::lround(x.aloftFt[i] / 100) * 100));
             const bool here = std::fabs(x.aloftFt[i] - x.altFt) < 1500;
@@ -2927,7 +2927,7 @@ void simWeatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     if (wxNotOnTablet)
         textCentered(dl, f.small, w * 0.5f, h - 24, kWarn, "The installed WXPlane does not show on the tablet yet: update WXPlane and it appears here. Until then, X-Plane's own weather.");
     else
-        textCentered(dl, f.small, w * 0.5f, h - 24, kMuted, "X-Plane's own weather where you are. Airport reports: METAR search, top right. A radar map comes later.");
+        textCentered(dl, f.small, w * 0.5f, h - 24, kMuted, "X-Plane's own weather where you are. Airport reports: METAR Search, top right.");
 }
 
 // ---- Ground: jetway, ground power, chocks, service vehicles, pushback, and on a ToLiss its doors -------------------------------------------
@@ -4782,10 +4782,10 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 std::snprintf(b, sizeof b, "%s", t->onGround ? "on the ground" : (t->altFt >= 18000 ? ("FL" + std::to_string((int)std::lround(t->altFt / 100))) : (std::to_string((int)std::lround(t->altFt / 10) * 10) + " ft")).c_str());
                 L.push_back({1, "Altitude", b});
                 if (m.havePos && !t->onGround) { std::snprintf(b, sizeof b, "%+.0f ft", (t->altFt - m.altFt) / 10.0f * 10.0f); L.push_back({1, "Relative", b}); }
-                std::snprintf(b, sizeof b, "%.0f kt", t->gsKt); L.push_back({1, "Ground speed", b});
+                std::snprintf(b, sizeof b, "%.0f kt", t->gsKt); L.push_back({1, "Ground Speed", b});
                 std::snprintf(b, sizeof b, "%03d\xC2\xB0T", ((int)std::lround(t->hdg) % 360 + 360) % 360); L.push_back({1, "Heading", b});
-                if (!t->onGround) { std::snprintf(b, sizeof b, "%+.0f fpm", std::round(t->vsFpm / 50) * 50); L.push_back({1, "Vertical speed", b}); }
-                if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, t->lat, t->lon, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0T", d, brg); L.push_back({1, "From you", b}); }
+                if (!t->onGround) { std::snprintf(b, sizeof b, "%+.0f fpm", std::round(t->vsFpm / 50) * 50); L.push_back({1, "Vertical Speed", b}); }
+                if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, t->lat, t->lon, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0T", d, brg); L.push_back({1, "From You", b}); }
                 L.push_back({4, "VATSIM", ""});
                 if (!vat) L.push_back({2, m.vatsimStatus.empty() ? "Asking VATSIM..." : m.vatsimStatus, ""});
                 else {
@@ -4801,12 +4801,12 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     L.push_back({1, "Squawk", v.squawk + (!v.assignedSquawk.empty() && v.assignedSquawk != "0000" && v.assignedSquawk != v.squawk ? "  (assigned " + v.assignedSquawk + ")" : "")});
                     if (v.qnhMb > 0) { std::snprintf(b, sizeof b, "%d hPa", v.qnhMb); L.push_back({1, "Altimeter", b}); }
                     if (v.hasPlan) {
-                        L.push_back({1, "Flight plan", v.rules + "  " + v.departure + " \xE2\x86\x92 " + v.arrival + (v.alternate.empty() ? "" : "  (alt " + v.alternate + ")")});
+                        L.push_back({1, "Flight Plan", v.rules + "  " + v.departure + " \xE2\x86\x92 " + v.arrival + (v.alternate.empty() ? "" : "  (alt " + v.alternate + ")")});
                         L.push_back({1, "Aircraft", v.aircraftFull.empty() ? v.aircraft : v.aircraftFull});
                         L.push_back({1, "Cruise", v.cruiseAlt + (v.cruiseTas.empty() ? "" : "  at " + v.cruiseTas + " kt")});
                         auto hhmm = [](const std::string& x) { return x.size() == 4 ? x.substr(0, 2) + ":" + x.substr(2) : x; };
                         if (!v.depTime.empty()) L.push_back({1, "Departure", hhmm(v.depTime) + "Z" + (v.enroute.empty() ? "" : ", en route " + hhmm(v.enroute))});
-                        if (!v.fuel.empty()) L.push_back({1, "Fuel on board", hhmm(v.fuel)});
+                        if (!v.fuel.empty()) L.push_back({1, "Fuel On Board", hhmm(v.fuel)});
                         if (!v.route.empty()) L.push_back({2, v.route, "route"});
                         if (!v.remarks.empty()) L.push_back({2, v.remarks.size() > 220 ? v.remarks.substr(0, 218) + "..." : v.remarks, "Remarks"});
                     } else L.push_back({2, "No flight plan filed", ""});
@@ -4816,7 +4816,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             for (const MapState::Navaid& n : m.navaids) {
                 if (n.ident + "|" + std::to_string(n.type) != g_selKey) continue;
                 at = toS(mercOf(n.lat, n.lon));
-                const char* kindName = n.type == 2 ? "NDB" : n.type == 3 ? "VOR" : n.type == 4 ? "ILS localizer" : n.type == 5 ? "Localizer" : "DME";
+                const char* kindName = n.type == 2 ? "NDB" : n.type == 3 ? "VOR" : n.type == 4 ? "ILS Localizer" : n.type == 5 ? "Localizer" : "DME";
                 L.push_back({0, n.ident, n.name});
                 L.push_back({1, "Type", kindName});
                 if (n.type == 2) std::snprintf(b, sizeof b, "%.0f kHz", n.freq); else std::snprintf(b, sizeof b, "%.2f MHz", n.freq);
@@ -4828,12 +4828,12 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     if (n.magCourse >= 0) std::snprintf(b, sizeof b, "%03.0f\xC2\xB0T  /  %03.0f\xC2\xB0M", std::fmod(n.bearing + 360.0, 360.0), std::fmod(n.magCourse + 360.0, 360.0));
                     else std::snprintf(b, sizeof b, "%03.0f\xC2\xB0T", std::fmod(n.bearing + 360.0, 360.0));
                     L.push_back({1, "Course", b});
-                    if (n.gsAngle > 0) { std::snprintf(b, sizeof b, "%.2f\xC2\xB0", n.gsAngle); L.push_back({1, "Glide slope", b}); }
-                    else L.push_back({1, "Glide slope", "none (localizer only)"});
+                    if (n.gsAngle > 0) { std::snprintf(b, sizeof b, "%.2f\xC2\xB0", n.gsAngle); L.push_back({1, "Glide Slope", b}); }
+                    else L.push_back({1, "Glide Slope", "none (localizer only)"});
                     L.push_back({1, "DME", n.dme ? "yes" : "no"});
                 }
                 if (n.type == 3 && n.bearing != 0) { std::snprintf(b, sizeof b, "%.0f\xC2\xB0%s", std::fabs(n.bearing), n.bearing < 0 ? "W" : "E"); L.push_back({1, "Variation", b}); }
-                if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, n.lat, n.lon, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0T", d, brg); L.push_back({1, "From you", b}); }
+                if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, n.lat, n.lon, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0T", d, brg); L.push_back({1, "From You", b}); }
                 L.push_back({1, "Position", posText(n.lat, n.lon)});
                 break;
             }
@@ -4841,8 +4841,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
             for (const MapState::Fix& fx : m.fixes) {
                 if (fx.ident != g_selKey) continue;
                 at = toS(mercOf(fx.lat, fx.lon));
-                L.push_back({0, fx.ident, fx.enroute ? "Enroute fix" : "Terminal fix"});
-                if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, fx.lat, fx.lon, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0T", d, brg); L.push_back({1, "From you", b}); }
+                L.push_back({0, fx.ident, fx.enroute ? "Enroute Fix" : "Terminal Fix"});
+                if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, fx.lat, fx.lon, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0T", d, brg); L.push_back({1, "From You", b}); }
                 L.push_back({1, "Position", posText(fx.lat, fx.lon)});
                 break;
             }
@@ -4858,7 +4858,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     if (!lg.airway.empty()) L.push_back({1, "Via", lg.airway});
                     if (!lg.alt.empty()) L.push_back({1, "Altitude", lg.alt});
                     if (!lg.legNm.empty()) L.push_back({1, "Leg", lg.legNm + " nm"});
-                    if (!lg.totalTime.empty()) L.push_back({1, "Time from departure", lg.totalTime});
+                    if (!lg.totalTime.empty()) L.push_back({1, "Time From Departure", lg.totalTime});
                 }
                 L.push_back({1, "Position", posText(rp.lat, rp.lon)});
             }
@@ -4872,7 +4872,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 at = toS(st.p);
                 std::string kindName = st.type == "gate" ? "Gate" : (st.type == "tie_down" || st.type == "tie-down") ? "Tie-down" : st.type == "hangar" ? "Hangar" : "Stand";
                 L.push_back({0, st.name.empty() ? kindName : st.name, kindName + " at " + icao});
-                if (!st.size.empty()) L.push_back({1, "Size", "ICAO class " + st.size});
+                if (!st.size.empty()) L.push_back({1, "Size", "ICAO Class " + st.size});
                 if (!st.uses.empty()) {   // "heavy|jets|turboprops": heavy, jets, turboprops
                     std::string u;
                     for (char c : st.uses) { if (c == '|') u += ", "; else u += c == '_' ? ' ' : c; }
@@ -4912,7 +4912,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     L.push_back({4, c.callsign, ""});
                     L.push_back({1, "Frequency", c.freq});
                     if (!c.name.empty()) L.push_back({1, "Controller", c.name});
-                    if (!c.logon.empty()) L.push_back({1, "Online since", c.logon});
+                    if (!c.logon.empty()) L.push_back({1, "Online Since", c.logon});
                     if (!c.text.empty()) L.push_back({2, c.text.size() > 300 ? c.text.substr(0, 298) + "..." : c.text, "Message"});
                 }
             }
@@ -4958,8 +4958,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     if (atc.empty()) L.push_back({2, "No controller online: UNICOM 122.800", ""});
                     for (const VatsimController& c : atc) L.push_back({1, c.facility == 7 ? c.callsign + " (ATIS)" : c.callsign, c.freq});
                 }
-                if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, la, lo, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0T", d, brg); L.push_back({1, "From you", b}); }
-                L.push_back({5, "Open in Airports", ""});
+                if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, la, lo, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0T", d, brg); L.push_back({1, "From You", b}); }
+                L.push_back({5, "Open In Airports", ""});
             }
         }
         if (L.empty() || at.x < -1e5f) g_selKind = 0;   // it has gone (out of range, landed, disconnected)
@@ -5053,8 +5053,8 @@ float pageKeyboard(ImDrawList* dl, const Fonts& f, float w, float h, Actions& ac
 }
 
 // ---- Notes: a clearance (CRAFT), the ATIS, and a scratchpad to write on by hand or type ------------------------------------------------
-const char* const kCraftLabels[6] = {"Clearance limit", "Route", "Altitude", "Frequency", "Transponder", "Remarks"};
-const char* const kAtisLabels[9] = {"Information", "Time", "Wind", "Visibility", "Clouds", "Temp / dew", "Altimeter", "Runways / approach", "Remarks"};
+const char* const kCraftLabels[6] = {"Clearance Limit", "Route", "Altitude", "Frequency", "Transponder", "Remarks"};
+const char* const kAtisLabels[9] = {"Information", "Time", "Wind", "Visibility", "Clouds", "Temp / Dew", "Altimeter", "Runways / Approach", "Remarks"};
 std::string g_craft[6], g_atis[9], g_scratch;
 struct Stroke { int color = 0; std::vector<ImVec2> pts; };   // points as fractions of the pad
 std::vector<Stroke> g_strokes;
@@ -5228,94 +5228,94 @@ std::string unescapeLine(const std::string& v) {
 // ---- Checklists: the aircraft's own file, or a general one for airliners or light aircraft; ticked off item by item ---------------------
 struct CheckSection { std::string title; std::vector<std::pair<std::string, std::string>> items; };
 const char* const kAirlinerChecklist =
-    "# Cockpit preparation\nBatteries | ON\nExternal power / APU | ON\nFlight plan | LOADED\nFuel quantity | CHECKED\nAltimeters | SET\nTakeoff data | SET\n"
-    "# Before start\nDoors | CLOSED\nSeat belt signs | ON\nParking brake | SET\nBeacon | ON\nTransponder | SET\nTakeoff briefing | COMPLETE\n"
-    "# After start\nGenerators | ON\nAPU bleed | OFF\nAnti-ice | AS RQRD\nFlaps | SET\nFlight controls | CHECKED\nGround equipment | CLEAR\n"
-    "# Before takeoff\nCabin | READY\nFlaps | SET\nTrim | SET\nTransponder | TA/RA\nLanding lights | ON\nRunway | CONFIRMED\n"
-    "# After takeoff\nGear | UP\nFlaps | UP\nAutopilot | AS RQRD\nAltimeters | STD at transition\n"
+    "# Cockpit Preparation\nBatteries | ON\nExternal power / APU | ON\nFlight plan | LOADED\nFuel quantity | CHECKED\nAltimeters | SET\nTakeoff data | SET\n"
+    "# Before Start\nDoors | CLOSED\nSeat belt signs | ON\nParking brake | SET\nBeacon | ON\nTransponder | SET\nTakeoff briefing | COMPLETE\n"
+    "# After Start\nGenerators | ON\nAPU bleed | OFF\nAnti-ice | AS RQRD\nFlaps | SET\nFlight controls | CHECKED\nGround equipment | CLEAR\n"
+    "# Before Takeoff\nCabin | READY\nFlaps | SET\nTrim | SET\nTransponder | TA/RA\nLanding lights | ON\nRunway | CONFIRMED\n"
+    "# After Takeoff\nGear | UP\nFlaps | UP\nAutopilot | AS RQRD\nAltimeters | STD at transition\n"
     "# Approach\nArrival briefing | COMPLETE\nAltimeters | SET\nMinimums | SET\nSeat belt signs | ON\nAuto brake | SET\n"
     "# Landing\nGear | DOWN\nFlaps | LANDING\nSpeed brakes | ARMED\nLanding clearance | RECEIVED\n"
-    "# After landing\nSpeed brakes | RETRACTED\nFlaps | UP\nTransponder | STBY\nLanding lights | OFF\nAPU | START\n"
+    "# After Landing\nSpeed brakes | RETRACTED\nFlaps | UP\nTransponder | STBY\nLanding lights | OFF\nAPU | START\n"
     "# Parking\nParking brake | SET\nEngines | OFF\nSeat belt signs | OFF\nBeacon | OFF\nFuel pumps | OFF\n";
 const char* const kLightChecklist =
     "# Preflight\nFuel quantity | CHECKED\nOil | CHECKED\nControl locks | REMOVED\nWeather and NOTAMs | CHECKED\n"
-    "# Before start\nSeats and belts | SECURE\nFuel selector | BOTH\nCircuit breakers | IN\nAvionics | OFF\nBeacon | ON\n"
-    "# Engine start\nMixture | RICH\nThrottle | 1/4 IN OPEN\nPropeller area | CLEAR\nMagnetos | START\nOil pressure | CHECKED\n"
-    "# Before takeoff\nParking brake | SET\nFlight controls | FREE AND CORRECT\nInstruments | SET\nRun-up | COMPLETE\nFlaps | SET\nTrim | TAKEOFF\nTransponder | ALT\nLights | ON\n"
+    "# Before Start\nSeats and belts | SECURE\nFuel selector | BOTH\nCircuit breakers | IN\nAvionics | OFF\nBeacon | ON\n"
+    "# Engine Start\nMixture | RICH\nThrottle | 1/4 IN OPEN\nPropeller area | CLEAR\nMagnetos | START\nOil pressure | CHECKED\n"
+    "# Before Takeoff\nParking brake | SET\nFlight controls | FREE AND CORRECT\nInstruments | SET\nRun-up | COMPLETE\nFlaps | SET\nTrim | TAKEOFF\nTransponder | ALT\nLights | ON\n"
     "# Cruise\nPower | SET\nMixture | LEANED\nFuel | MONITORED\n"
-    "# Before landing\nATIS / altimeter | SET\nFuel selector | BOTH\nMixture | RICH\nCarb heat | AS RQRD\nFlaps | AS RQRD\n"
-    "# After landing\nFlaps | UP\nCarb heat | COLD\nTransponder | STBY\nLights | AS RQRD\n"
+    "# Before Landing\nATIS / altimeter | SET\nFuel selector | BOTH\nMixture | RICH\nCarb heat | AS RQRD\nFlaps | AS RQRD\n"
+    "# After Landing\nFlaps | UP\nCarb heat | COLD\nTransponder | STBY\nLights | AS RQRD\n"
     "# Shutdown\nAvionics | OFF\nMixture | IDLE CUTOFF\nMagnetos | OFF\nMaster | OFF\nParking brake | SET\n";
 
 // the turboprops' normal list, and the abnormal and emergency procedures (general ones; the Airbus set for the Airbus types).
 // Simulation use only, not for real-world flight.
 const char* const kTurbopropChecklist =
-    "# Before start\nDoors | CLOSED\nParking brake | SET\nBatteries | ON\nFuel quantity | CHECKED\nPropellers | FEATHER / AREA CLEAR\nBeacon | ON\n"
-    "# Engine start\nCondition levers | FUEL OFF\nStart | ENGAGE\nIgnition / fuel at 12-15% NH | ON\nITT | MONITORED\nGenerators | ON\n"
-    "# Before taxi\nCondition levers | MIN RPM / TAXI\nAnti-ice | AS RQRD\nFlaps | SET\nFlight controls | CHECKED\nTakeoff briefing | COMPLETE\n"
-    "# Before takeoff\nPropellers | MAX RPM\nAutofeather | ARMED\nTrim | SET\nTransponder | ALT\nLights | ON\n"
-    "# After takeoff\nGear | UP\nFlaps | UP\nPower | CLIMB\nAutofeather | OFF\n"
+    "# Before Start\nDoors | CLOSED\nParking brake | SET\nBatteries | ON\nFuel quantity | CHECKED\nPropellers | FEATHER / AREA CLEAR\nBeacon | ON\n"
+    "# Engine Start\nCondition levers | FUEL OFF\nStart | ENGAGE\nIgnition / fuel at 12-15% NH | ON\nITT | MONITORED\nGenerators | ON\n"
+    "# Before Taxi\nCondition levers | MIN RPM / TAXI\nAnti-ice | AS RQRD\nFlaps | SET\nFlight controls | CHECKED\nTakeoff briefing | COMPLETE\n"
+    "# Before Takeoff\nPropellers | MAX RPM\nAutofeather | ARMED\nTrim | SET\nTransponder | ALT\nLights | ON\n"
+    "# After Takeoff\nGear | UP\nFlaps | UP\nPower | CLIMB\nAutofeather | OFF\n"
     "# Cruise\nPower | CRUISE\nPropellers | CRUISE RPM\nFuel | MONITORED\nIce protection | AS RQRD\n"
     "# Approach\nBriefing | COMPLETE\nAltimeters | SET\nPropellers | MAX RPM (by the threshold)\nFlaps | APPROACH\n"
     "# Landing\nGear | DOWN, 3 GREEN\nFlaps | LANDING\nLanding clearance | RECEIVED\n"
     "# Shutdown\nParking brake | SET\nCondition levers | FUEL OFF / FEATHER\nGenerators | OFF\nBeacon | OFF\nBatteries | OFF\n";
 const char* const kAirbusAbnormal =
-    "# Icing conditions\nIcing: OAT/TAT at or below 10\xC2\xB0""C with visible moisture | CHECK\nENG ANTI ICE | ON\nWING ANTI ICE | AS RQRD (not on the ground before takeoff)\nPROBE / WINDOW HEAT | AUTO (ON when needed)\nIce on the wipers or airframe | MONITOR\n"
-    "# Ground de-icing / anti-icing\nHoldover time and fluid type | NOTED\nFLAPS / SLATS | RETRACTED\nSPEED BRAKES | RETRACTED\nPACK 1 + 2 | OFF\nAPU BLEED | OFF\nENG BLEED | AS RQRD (OFF if engines running and asked)\nDITCHING pb | ON (outflow valve and vents shut)\nDoors and windows | CLOSED\nAfter spraying: wait 1 minute | DONE\nDITCHING pb | OFF\nPACKS / APU BLEED | ON\nFlight controls | CHECKED\nHoldover time | MONITORED\n"
-    "# Engine anti-ice fault\nAffected ENG ANTI ICE | OFF THEN ON\nIcing conditions | AVOID\nThrust | AS RQRD\n"
-    "# Gear not up / gear disagree\nGear lever | DOWN THEN UP\nSpeed | BELOW VLE\nGear | LEAVE DOWN if no retraction\nFuel burn (gear down) | CONSIDER\n"
-    "# Gear gravity extension\nSpeed | BELOW VLE\nGear lever | DOWN\nGravity extension handle | TURN 3 TIMES CLOCKWISE\nGear indications | 3 GREEN\nLanding distance | CHECKED\n"
-    "# Hydraulic system low pressure\nAffected ENG PUMP | OFF\nPTU | AS RQRD\nLanding configuration | PLAN (longer distance)\nApproach | STABLE, EARLY\n"
-    "# Generator fault\nAffected GEN | OFF THEN ON\nIf not restored: APU GEN | ON\nGalley | AS RQRD\n"
-    "# Bleed fault\nAffected ENG BLEED | OFF\nX BLEED | AS RQRD\nWing anti-ice | AVOID icing\nAltitude | FL 230 MAX if one bleed\n"
-    "# Fuel imbalance\nFuel used and quantities | CHECKED (leak?)\nCROSS FEED | ON\nPumps of the light side | OFF\nWhen balanced: CROSS FEED | OFF, PUMPS ON\n"
-    "# Unreliable airspeed\nAutopilot / FD / A/THR | OFF\nPitch and thrust | AS RQRD (memory items)\nProbe / window heat | ON\nCompare speeds (ADR 1, 2, 3) | CHECK\nFaulty ADR | OFF\n"
-    "# Overweight landing\nLanding configuration | FULL (as allowed)\nApproach speed | VLS\nAuto brake | AS RQRD\nTouchdown | GENTLE (less than 360 ft/min)\nInspection after landing | REQUEST\n"
-    "# Go-around\nThrust levers | TOGA\nRotation | 15\xC2\xB0 nose up\nFlaps | ONE STEP UP\nPositive climb: gear | UP\nSRS / GA TRK | CHECKED\nAutopilot | AS RQRD\n";
+    "# Icing Conditions\nIcing: OAT/TAT at or below 10\xC2\xB0""C with visible moisture | CHECK\nENG ANTI ICE | ON\nWING ANTI ICE | AS RQRD (not on the ground before takeoff)\nPROBE / WINDOW HEAT | AUTO (ON when needed)\nIce on the wipers or airframe | MONITOR\n"
+    "# Ground De-Icing / Anti-Icing\nHoldover time and fluid type | NOTED\nFLAPS / SLATS | RETRACTED\nSPEED BRAKES | RETRACTED\nPACK 1 + 2 | OFF\nAPU BLEED | OFF\nENG BLEED | AS RQRD (OFF if engines running and asked)\nDITCHING pb | ON (outflow valve and vents shut)\nDoors and windows | CLOSED\nAfter spraying: wait 1 minute | DONE\nDITCHING pb | OFF\nPACKS / APU BLEED | ON\nFlight controls | CHECKED\nHoldover time | MONITORED\n"
+    "# Engine Anti-Ice Fault\nAffected ENG ANTI ICE | OFF THEN ON\nIcing conditions | AVOID\nThrust | AS RQRD\n"
+    "# Gear Not Up / Gear Disagree\nGear lever | DOWN THEN UP\nSpeed | BELOW VLE\nGear | LEAVE DOWN if no retraction\nFuel burn (gear down) | CONSIDER\n"
+    "# Gear Gravity Extension\nSpeed | BELOW VLE\nGear lever | DOWN\nGravity extension handle | TURN 3 TIMES CLOCKWISE\nGear indications | 3 GREEN\nLanding distance | CHECKED\n"
+    "# Hydraulic System Low Pressure\nAffected ENG PUMP | OFF\nPTU | AS RQRD\nLanding configuration | PLAN (longer distance)\nApproach | STABLE, EARLY\n"
+    "# Generator Fault\nAffected GEN | OFF THEN ON\nIf not restored: APU GEN | ON\nGalley | AS RQRD\n"
+    "# Bleed Fault\nAffected ENG BLEED | OFF\nX BLEED | AS RQRD\nWing anti-ice | AVOID icing\nAltitude | FL 230 MAX if one bleed\n"
+    "# Fuel Imbalance\nFuel used and quantities | CHECKED (leak?)\nCROSS FEED | ON\nPumps of the light side | OFF\nWhen balanced: CROSS FEED | OFF, PUMPS ON\n"
+    "# Unreliable Airspeed\nAutopilot / FD / A/THR | OFF\nPitch and thrust | AS RQRD (memory items)\nProbe / window heat | ON\nCompare speeds (ADR 1, 2, 3) | CHECK\nFaulty ADR | OFF\n"
+    "# Overweight Landing\nLanding configuration | FULL (as allowed)\nApproach speed | VLS\nAuto brake | AS RQRD\nTouchdown | GENTLE (less than 360 ft/min)\nInspection after landing | REQUEST\n"
+    "# Go-Around\nThrust levers | TOGA\nRotation | 15\xC2\xB0 nose up\nFlaps | ONE STEP UP\nPositive climb: gear | UP\nSRS / GA TRK | CHECKED\nAutopilot | AS RQRD\n";
 const char* const kAirbusEmergency =
-    "# Engine fire\nThrust lever (affected) | IDLE\nENG MASTER (affected) | OFF\nENG FIRE pb | PUSH\nAGENT 1 (after 10 s) | DISCH\nATC | NOTIFY (MAYDAY)\nIf fire after 30 s: AGENT 2 | DISCH\nLand | AT THE NEAREST AIRPORT\n"
-    "# Engine failure / severe damage\nThrust lever (affected) | IDLE\nENG MASTER (affected) | OFF\nENG FIRE pb (damage) | PUSH\nAGENT 1 | DISCH\nSingle-engine procedures | APPLY\nATC | NOTIFY\n"
-    "# Engine failure after V1\nRudder | CONTROL\nV2 to V2+10 | FLY\nPositive climb: gear | UP\nAt acceleration altitude: speed | GREEN DOT\nECAM actions | COMPLETE\n"
-    "# Emergency descent\nCrew oxygen masks | ON\nSigns | ON\nEmergency descent | INITIATE\nThrust levers | IDLE\nSpeed brakes | FULL\nSpeed | MAX / APPROPRIATE\nATC | NOTIFY\nSquawk | 7700\nPax oxygen masks | ON (if cabin above 14000 ft)\n"
-    "# Smoke / fumes\nCrew oxygen masks | ON, 100%\nCrew communication | ESTABLISH\nGalley | OFF\nCabin fans | OFF\nSmoke source | IDENTIFY, ISOLATE\nDiversion | CONSIDER\n"
-    "# All engines failure\nSpeed | OPTIMUM (green dot)\nEmergency electrical power | CHECKED (RAT)\nATC | NOTIFY (MAYDAY), 7700\nEngine relight | ATTEMPT\nAPU | START (below FL 250)\nForced landing / ditching | PREPARE\n"
-    "# Stall recovery\nNose down pitch | APPLY\nBank | WINGS LEVEL\nThrust | AS RQRD\nSpeed brakes | RETRACTED\nWhen out of the stall | RECOVER SMOOTHLY\n"
+    "# Engine Fire\nThrust lever (affected) | IDLE\nENG MASTER (affected) | OFF\nENG FIRE pb | PUSH\nAGENT 1 (after 10 s) | DISCH\nATC | NOTIFY (MAYDAY)\nIf fire after 30 s: AGENT 2 | DISCH\nLand | AT THE NEAREST AIRPORT\n"
+    "# Engine Failure / Severe Damage\nThrust lever (affected) | IDLE\nENG MASTER (affected) | OFF\nENG FIRE pb (damage) | PUSH\nAGENT 1 | DISCH\nSingle-engine procedures | APPLY\nATC | NOTIFY\n"
+    "# Engine Failure After V1\nRudder | CONTROL\nV2 to V2+10 | FLY\nPositive climb: gear | UP\nAt acceleration altitude: speed | GREEN DOT\nECAM actions | COMPLETE\n"
+    "# Emergency Descent\nCrew oxygen masks | ON\nSigns | ON\nEmergency descent | INITIATE\nThrust levers | IDLE\nSpeed brakes | FULL\nSpeed | MAX / APPROPRIATE\nATC | NOTIFY\nSquawk | 7700\nPax oxygen masks | ON (if cabin above 14000 ft)\n"
+    "# Smoke / Fumes\nCrew oxygen masks | ON, 100%\nCrew communication | ESTABLISH\nGalley | OFF\nCabin fans | OFF\nSmoke source | IDENTIFY, ISOLATE\nDiversion | CONSIDER\n"
+    "# All Engines Failure\nSpeed | OPTIMUM (green dot)\nEmergency electrical power | CHECKED (RAT)\nATC | NOTIFY (MAYDAY), 7700\nEngine relight | ATTEMPT\nAPU | START (below FL 250)\nForced landing / ditching | PREPARE\n"
+    "# Stall Recovery\nNose down pitch | APPLY\nBank | WINGS LEVEL\nThrust | AS RQRD\nSpeed brakes | RETRACTED\nWhen out of the stall | RECOVER SMOOTHLY\n"
     "# Evacuation\nAircraft / parking brake | STOP / ON\nATC | NOTIFY\nCabin crew (PA) | AT STATIONS\nENG MASTERS | OFF\nFire pbs (all) | PUSH\nAgents | AS RQRD\nEvacuation | INITIATE\n";
 const char* const kAirlinerAbnormal =
-    "# Icing conditions\nEngine anti-ice | ON\nWing anti-ice | AS RQRD\nProbe heat | ON\nIce on the airframe | MONITOR\n"
-    "# Ground de-icing / anti-icing\nHoldover time and fluid type | NOTED\nFlaps | UP\nPacks / APU bleed | OFF\nAfter spraying: packs and bleeds | ON\nFlight controls | CHECKED\nHoldover time | MONITORED\n"
-    "# Gear will not retract\nGear lever | DOWN\nSpeed | BELOW GEAR LIMIT\nFuel burn (gear down) | CONSIDER\n"
-    "# Manual gear extension\nSpeed | BELOW GEAR LIMIT\nManual extension | PERFORM\nGear | 3 GREEN\n"
-    "# Hydraulic failure\nAffected pump | OFF\nLanding distance | CHECKED\nApproach | EARLY, STABLE\n"
-    "# Generator failure\nAffected generator | RESET\nAPU generator | ON\nLoad shedding | AS RQRD\n"
-    "# Unreliable airspeed\nAutopilot / autothrottle | OFF\nPitch and thrust | AS RQRD\nProbe heat | ON\nSpeeds | COMPARE\n"
-    "# Go-around\nThrust | TOGA\nPitch | 15\xC2\xB0 nose up\nFlaps | ONE STEP UP\nPositive climb: gear | UP\n";
+    "# Icing Conditions\nEngine anti-ice | ON\nWing anti-ice | AS RQRD\nProbe heat | ON\nIce on the airframe | MONITOR\n"
+    "# Ground De-Icing / Anti-Icing\nHoldover time and fluid type | NOTED\nFlaps | UP\nPacks / APU bleed | OFF\nAfter spraying: packs and bleeds | ON\nFlight controls | CHECKED\nHoldover time | MONITORED\n"
+    "# Gear Will Not Retract\nGear lever | DOWN\nSpeed | BELOW GEAR LIMIT\nFuel burn (gear down) | CONSIDER\n"
+    "# Manual Gear Extension\nSpeed | BELOW GEAR LIMIT\nManual extension | PERFORM\nGear | 3 GREEN\n"
+    "# Hydraulic Failure\nAffected pump | OFF\nLanding distance | CHECKED\nApproach | EARLY, STABLE\n"
+    "# Generator Failure\nAffected generator | RESET\nAPU generator | ON\nLoad shedding | AS RQRD\n"
+    "# Unreliable Airspeed\nAutopilot / autothrottle | OFF\nPitch and thrust | AS RQRD\nProbe heat | ON\nSpeeds | COMPARE\n"
+    "# Go-Around\nThrust | TOGA\nPitch | 15\xC2\xB0 nose up\nFlaps | ONE STEP UP\nPositive climb: gear | UP\n";
 const char* const kAirlinerEmergency =
-    "# Engine fire\nThrust lever (affected) | IDLE\nFuel control (affected) | CUTOFF\nFire handle | PULL\nAgent | DISCHARGE\nATC | MAYDAY\nLand | NEAREST AIRPORT\n"
-    "# Engine failure\nThrust lever (affected) | IDLE\nFuel control (affected) | CUTOFF\nSingle-engine procedures | APPLY\nATC | NOTIFY\n"
-    "# Emergency descent\nOxygen masks | ON\nThrust | IDLE\nSpeed brakes | EXTENDED\nTransponder | 7700\nATC | NOTIFY\n"
-    "# Smoke / fumes\nOxygen masks | ON, 100%\nSource | IDENTIFY, ISOLATE\nDiversion | CONSIDER\n"
+    "# Engine Fire\nThrust lever (affected) | IDLE\nFuel control (affected) | CUTOFF\nFire handle | PULL\nAgent | DISCHARGE\nATC | MAYDAY\nLand | NEAREST AIRPORT\n"
+    "# Engine Failure\nThrust lever (affected) | IDLE\nFuel control (affected) | CUTOFF\nSingle-engine procedures | APPLY\nATC | NOTIFY\n"
+    "# Emergency Descent\nOxygen masks | ON\nThrust | IDLE\nSpeed brakes | EXTENDED\nTransponder | 7700\nATC | NOTIFY\n"
+    "# Smoke / Fumes\nOxygen masks | ON, 100%\nSource | IDENTIFY, ISOLATE\nDiversion | CONSIDER\n"
     "# Evacuation\nParking brake | SET\nEngines | SHUT DOWN\nFire handles | PULL\nATC | NOTIFY\nEvacuation | INITIATE\n";
 const char* const kTurbopropAbnormal =
-    "# Icing conditions\nEngine intake anti-ice | ON\nPropeller de-ice | ON\nAirframe de-ice boots | AS RQRD\nMinimum icing speed | OBSERVE\n"
-    "# Ground de-icing / anti-icing\nHoldover time and fluid type | NOTED\nFlaps | UP\nBleeds | OFF\nAfter spraying: flight controls | CHECKED\n"
-    "# Generator failure\nAffected generator | RESET\nLoads | SHED AS RQRD\n"
-    "# Propeller overspeed\nPower lever | REDUCE\nCondition lever | REDUCE RPM\nIf it persists: feather | CONSIDER\n";
+    "# Icing Conditions\nEngine intake anti-ice | ON\nPropeller de-ice | ON\nAirframe de-ice boots | AS RQRD\nMinimum icing speed | OBSERVE\n"
+    "# Ground De-Icing / Anti-Icing\nHoldover time and fluid type | NOTED\nFlaps | UP\nBleeds | OFF\nAfter spraying: flight controls | CHECKED\n"
+    "# Generator Failure\nAffected generator | RESET\nLoads | SHED AS RQRD\n"
+    "# Propeller Overspeed\nPower lever | REDUCE\nCondition lever | REDUCE RPM\nIf it persists: feather | CONSIDER\n";
 const char* const kTurbopropEmergency =
-    "# Engine fire\nPower lever (affected) | IDLE\nCondition lever (affected) | FUEL OFF / FEATHER\nFire handle | PULL\nAgent | DISCHARGE\nATC | MAYDAY\n"
-    "# Engine failure after takeoff\nDirectional control | MAINTAIN\nAutofeather | CHECKED (else feather)\nSpeed | V2\nPositive climb: gear | UP\nCondition lever (affected) | FUEL OFF\n"
-    "# Emergency descent\nOxygen masks | ON\nPower levers | IDLE\nSpeed | VMO\nTransponder | 7700\n";
+    "# Engine Fire\nPower lever (affected) | IDLE\nCondition lever (affected) | FUEL OFF / FEATHER\nFire handle | PULL\nAgent | DISCHARGE\nATC | MAYDAY\n"
+    "# Engine Failure After Takeoff\nDirectional control | MAINTAIN\nAutofeather | CHECKED (else feather)\nSpeed | V2\nPositive climb: gear | UP\nCondition lever (affected) | FUEL OFF\n"
+    "# Emergency Descent\nOxygen masks | ON\nPower levers | IDLE\nSpeed | VMO\nTransponder | 7700\n";
 const char* const kLightAbnormal =
-    "# Carburetor icing\nCarb heat | ON (HOT)\nThrottle | FULL\nMixture | ADJUST for smooth running\nAfter the ice clears: carb heat | AS RQRD\n"
-    "# Low oil pressure\nOil temperature | CHECK\nPower | REDUCE\nLand | AS SOON AS PRACTICAL\n"
-    "# Alternator failure\nAmmeter | CHECK\nMaster (ALT) | OFF THEN ON\nElectrical load | REDUCE\nLand | AS SOON AS PRACTICAL\n"
-    "# Rough running engine\nCarb heat | ON\nMixture | ADJUST\nFuel selector | BOTH\nMagnetos | CHECK L, R, BOTH\n";
+    "# Carburetor Icing\nCarb heat | ON (HOT)\nThrottle | FULL\nMixture | ADJUST for smooth running\nAfter the ice clears: carb heat | AS RQRD\n"
+    "# Low Oil Pressure\nOil temperature | CHECK\nPower | REDUCE\nLand | AS SOON AS PRACTICAL\n"
+    "# Alternator Failure\nAmmeter | CHECK\nMaster (ALT) | OFF THEN ON\nElectrical load | REDUCE\nLand | AS SOON AS PRACTICAL\n"
+    "# Rough Running Engine\nCarb heat | ON\nMixture | ADJUST\nFuel selector | BOTH\nMagnetos | CHECK L, R, BOTH\n";
 const char* const kLightEmergency =
-    "# Engine failure after takeoff\nAirspeed | BEST GLIDE\nMixture | IDLE CUTOFF\nFuel selector | OFF\nMagnetos | OFF\nFlaps | AS RQRD\nMaster | OFF\nLand | STRAIGHT AHEAD\n"
-    "# Engine failure in flight\nAirspeed | BEST GLIDE\nLanding site | CHOOSE\nCarb heat | ON\nFuel selector | BOTH\nMixture | RICH\nMagnetos | BOTH (or START)\nIf no restart: forced landing | PREPARE\n"
-    "# Engine fire in flight\nMixture | IDLE CUTOFF\nFuel selector | OFF\nMaster | OFF\nCabin heat and air | OFF\nForced landing | EXECUTE\n"
-    "# Electrical fire\nMaster | OFF\nAvionics | OFF\nVents | CLOSED\nFire extinguisher | ACTIVATE\nLand | AS SOON AS POSSIBLE\n"
-    "# Forced landing\nAirspeed | BEST GLIDE\nATC | MAYDAY, 7700\nSeats and belts | SECURE\nFlaps | AS RQRD\nDoors | UNLATCHED\nMaster | OFF before touchdown\n";
+    "# Engine Failure After Takeoff\nAirspeed | BEST GLIDE\nMixture | IDLE CUTOFF\nFuel selector | OFF\nMagnetos | OFF\nFlaps | AS RQRD\nMaster | OFF\nLand | STRAIGHT AHEAD\n"
+    "# Engine Failure In Flight\nAirspeed | BEST GLIDE\nLanding site | CHOOSE\nCarb heat | ON\nFuel selector | BOTH\nMixture | RICH\nMagnetos | BOTH (or START)\nIf no restart: forced landing | PREPARE\n"
+    "# Engine Fire In Flight\nMixture | IDLE CUTOFF\nFuel selector | OFF\nMaster | OFF\nCabin heat and air | OFF\nForced landing | EXECUTE\n"
+    "# Electrical Fire\nMaster | OFF\nAvionics | OFF\nVents | CLOSED\nFire extinguisher | ACTIVATE\nLand | AS SOON AS POSSIBLE\n"
+    "# Forced Landing\nAirspeed | BEST GLIDE\nATC | MAYDAY, 7700\nSeats and belts | SECURE\nFlaps | AS RQRD\nDoors | UNLATCHED\nMaster | OFF before touchdown\n";
 
 std::vector<CheckSection> parseChecklist(const std::string& text) {
     std::vector<CheckSection> out;
@@ -5359,7 +5359,7 @@ void checklistsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     const int et = s.engineType;
     const int byEngine = (et == 4 || et == 5) ? 1 : (et == 2 || et == 8) ? 3 : (et == 0 || et == 1 || et == 3) ? 2 : (len >= 24 ? 1 : 2);
     if (src < 0 || (src == 0 && !own)) src = own ? 0 : byEngine;
-    const char* names[4] = {"This aircraft", "Airliner", "Light aircraft", "Turboprop"};
+    const char* names[4] = {"This Aircraft", "Airliner", "Light Aircraft", "Turboprop"};
     float x = 12;
     for (int i = 0; i < 4; ++i) {
         if (i == 0 && !own) continue;
@@ -5464,8 +5464,8 @@ void checklistsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     }
     const bool all = std::all_of(done.begin(), done.end(), [](bool b) { return b; });
     if (pill(dl, f, "##clreset", "Reset", ImVec2(rx + 16, h - 56), ImVec2(rx + 116, h - 24), false, true)) std::fill(done.begin(), done.end(), false);
-    if (pill(dl, f, "##clall", "Reset all", ImVec2(rx + 124, h - 56), ImVec2(rx + 244, h - 24), false, true)) for (auto& d : g_clDone) std::fill(d.begin(), d.end(), false);
-    if (g_clSection + 1 < (int)list.size() && pill(dl, f, "##clnext", "Next section", ImVec2(rx + rw - 156, h - 56), ImVec2(rx + rw - 16, h - 24), all, true)) ++g_clSection;
+    if (pill(dl, f, "##clall", "Reset All", ImVec2(rx + 124, h - 56), ImVec2(rx + 244, h - 24), false, true)) for (auto& d : g_clDone) std::fill(d.begin(), d.end(), false);
+    if (g_clSection + 1 < (int)list.size() && pill(dl, f, "##clnext", "Next Section", ImVec2(rx + rw - 156, h - 56), ImVec2(rx + rw - 16, h - 24), all, true)) ++g_clSection;
 }
 
 // ---- Airports: X-Plane's airports (search, or the nearest), each with its radio (CTAF always), runways, parking and METAR -------------
@@ -5568,7 +5568,7 @@ void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     if (!ap.iata.empty()) textAt(dl, f.small, x0 + iw + 8, y + 8, kMuted, ap.iata.c_str());
     {
         ImGui::SetCursorScreenPos(ImVec2(x1 - 120, y));
-        if (pill(dl, f, "##aptmap", "Show on map", ImVec2(x1 - 120, y), ImVec2(x1, y + 28), false, true)) {
+        if (pill(dl, f, "##aptmap", "Show On Map", ImVec2(x1 - 120, y), ImVec2(x1, y + 28), false, true)) {
             showOnMap(g.lat, g.lon);
             dl->PopClipRect();
             return;
@@ -5774,7 +5774,7 @@ void pdfView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float 
     g_webHold = !(tab && b.activeTab == tab && asked[group] == want);
     webView(dl, f, s, x0, y0, w, h, act, true);
 }
-std::string g_docFilter;   // one folder ("XPTablet docs", "AviTab charts"), or "" for all
+std::string g_docFilter;   // one folder ("XPTablet Docs", "AviTab Charts"), or "" for all
 
 void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const DocsState& d = s.docs;
@@ -5784,10 +5784,10 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     reloadIcon(dl, ImVec2(30, top + 15), kInk);
     {   // which folders: all of them, XPTablet's docs folder, or AviTab's charts
         struct Flt { const char* id; const char* name; const char* folder; float x0, x1; };
-        const Flt flts[] = {{"##docall", "All", "", 54, 104}, {"##docxpt", "XPTablet", "XPTablet docs", 108, 198}, {"##docavi", "AviTab", "AviTab charts", 202, 302}};
+        const Flt flts[] = {{"##docall", "All", "", 54, 104}, {"##docxpt", "XPTablet", "XPTablet Docs", 108, 198}, {"##docavi", "AviTab", "AviTab Charts", 202, 302}};
         for (const Flt& fl : flts)
             if (pill(dl, f, fl.id, fl.name, ImVec2(fl.x0, top), ImVec2(fl.x1, top + 30), g_docFilter == fl.folder, true) && g_docFilter != fl.folder) { g_docFilter = fl.folder; g_docListScroll = 0; }
-        if (!g_docFilter.empty() && g_docFilter != "XPTablet docs" && g_docFilter != "AviTab charts") g_docFilter.clear();
+        if (!g_docFilter.empty() && g_docFilter != "XPTablet Docs" && g_docFilter != "AviTab Charts") g_docFilter.clear();
     }
     const ImVec2 la(12, top + 40), lb(12 + lw, h - 12);
     card(dl, la, lb, f, nullptr);
@@ -5814,7 +5814,7 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
             contentH += 36; ++n;
         }
         contentH += 12;
-        if (n == 0 && !d.files.empty()) textAt(dl, f.small, la.x + 14, la.y + 14, kMuted, g_docFilter == "AviTab charts" ? "No charts in AviTab's charts folder." : "No documents in XPTablet's docs folder.");
+        if (n == 0 && !d.files.empty()) textAt(dl, f.small, la.x + 14, la.y + 14, kMuted, g_docFilter == "AviTab Charts" ? "No charts in AviTab's charts folder." : "No documents in XPTablet's docs folder.");
     }
     const float shownH = lb.y - la.y;
     const bool scrolls = contentH > shownH + 1;
@@ -6108,13 +6108,13 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     };
     // Import: the window at once on a plan dismissed earlier, and SimBrief asked for anything newer (its answer updates the window)
     const bool waiting = s.planPreview.loaded && !s.planPreviewOpen;
-    if (button("##fpimport", p.busy ? "Importing..." : "Import from SimBrief", true, (haveId || waiting) && !p.busy)) { act.planReview = waiting; act.planImport = haveId; }
+    if (button("##fpimport", p.busy ? "Importing..." : "Import From SimBrief", true, (haveId || waiting) && !p.busy)) { act.planReview = waiting; act.planImport = haveId; }
     if (button("##fpclear", "Clear", false, p.loaded)) act.planClear = true;
     // a diversion: SimBrief's latest plan (made for the new destination), from where the aircraft is; Undo goes back to the plan before
-    if (s.planOriginal.loaded) { if (button("##fpundo", "Undo divert", true, true)) act.planUndoDivert = true; }
+    if (s.planOriginal.loaded) { if (button("##fpundo", "Undo Divert", true, true)) act.planUndoDivert = true; }
     else if (button("##fpdivert", "Divert", false, p.loaded && haveId && !p.busy)) act.planDivert = true;
     if (button("##fppdf", "Briefing PDF", false, p.loaded && !p.pdfUrl.empty())) { openDispatch(true); return; }
-    if (button("##fpmap", "Show on map", false, p.loaded && !p.legs.empty())) {
+    if (button("##fpmap", "Show On Map", false, p.loaded && !p.legs.empty())) {
         double la = 0, lo = 0;
         for (const FlightPlan::Leg& l : p.legs) { la += l.lat; lo += l.lon; }
         showOnMap(la / p.legs.size(), lo / p.legs.size());
@@ -6170,9 +6170,9 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     }
     row(c1 + 14, c1 + w1 - 14, "Cruise", p.cruise);
     row(c1 + 14, c1 + w1 - 14, "Distance", p.distanceNm.empty() ? "" : p.distanceNm + " nm");
-    row(c1 + 14, c1 + w1 - 14, "Time en route", p.ete);
-    row(c1 + 14, c1 + w1 - 14, "Cost index", p.costIndex);
-    row(c1 + 14, c1 + w1 - 14, "Average wind", p.avgWind);
+    row(c1 + 14, c1 + w1 - 14, "Time En Route", p.ete);
+    row(c1 + 14, c1 + w1 - 14, "Cost Index", p.costIndex);
+    row(c1 + 14, c1 + w1 - 14, "Average Wind", p.avgWind);
     row(c1 + 14, c1 + w1 - 14, "Alternate", p.alternate);
     {   // the gates: the one left from (found, or typed), the one going to (typed; its dot is marked on the destination's layout)
         trackGates(s);
@@ -6195,8 +6195,8 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
             }
             y += 34;
         };
-        gateRow(1, "Departure gate", g_settings.startGate);
-        gateRow(2, "Arrival gate", g_settings.arrivalGate);
+        gateRow(1, "Departure Gate", g_settings.startGate);
+        gateRow(2, "Arrival Gate", g_settings.arrivalGate);
         // the destination's stands, when its layout has been read (the map near it): the ones that start with what is typed
         if (g_gateEditing == 2 && !g_gateEdit.empty()) {
             std::string up = g_gateEdit;
@@ -6248,9 +6248,9 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     row(c2 + 14, c2 + w2 - 14, "Payload", withUnit(p.payload));
     y += 10;
     dl->AddLine(ImVec2(c2 + 14, y - 6), ImVec2(c2 + w2 - 14, y - 6), IM_COL32(255, 255, 255, 20));
-    row(c2 + 14, c2 + w2 - 14, "ZFW / max", ofMax(p.zfw, p.maxZfw));   // (short names: the figures and their limits are wide)
-    row(c2 + 14, c2 + w2 - 14, "TOW / max", ofMax(p.tow, p.maxTow));
-    row(c2 + 14, c2 + w2 - 14, "LW / max", ofMax(p.ldw, p.maxLdw));
+    row(c2 + 14, c2 + w2 - 14, "ZFW / Max", ofMax(p.zfw, p.maxZfw));   // (short names: the figures and their limits are wide)
+    row(c2 + 14, c2 + w2 - 14, "TOW / Max", ofMax(p.tow, p.maxTow));
+    row(c2 + 14, c2 + w2 - 14, "LW / Max", ofMax(p.ldw, p.maxLdw));
     rowStep = 21;
     // the navigation log, scrolling
     const float c3 = c2 + w2 + 10, w3 = w - 12 - c3;
@@ -6310,7 +6310,7 @@ void planPreview(ImDrawList* dl, const Fonts& f, const FlightPlan& p, float w, f
     auto col = [&](ImU32 c0) { return (c0 & 0x00FFFFFF) | ((ImU32)(((c0 >> 24) & 255) * t) << 24); };
     const float x0 = a.x + 22, x1 = b.x - 22;
     float y = a.y + 16;
-    textAt(dl, f.bold, x0, y, col(kInk), "SimBrief flight plan");
+    textAt(dl, f.bold, x0, y, col(kInk), "SimBrief Flight Plan");
     if (!p.importedAt.empty()) textRight(dl, f.small, x1, y + 3, col(kMuted), ("Fetched " + p.importedAt).c_str());
     y += 24;
     std::string who = p.callsign;
@@ -6360,8 +6360,8 @@ void planPreview(ImDrawList* dl, const Fonts& f, const FlightPlan& p, float w, f
     y += 10;
     // what matters for the flight, in two rows of four
     const std::string u = p.units.empty() ? "" : " " + p.units;
-    const std::string cells[8][2] = {{"Cruise", p.cruise}, {"Cost index", p.costIndex}, {"Avg wind", p.avgWind}, {"SID / STAR", p.sid + (p.star.empty() ? "" : " / " + p.star)},
-                                     {"Block fuel", p.blockFuel.empty() ? "" : p.blockFuel + u}, {"Trip fuel", p.tripFuel.empty() ? "" : p.tripFuel + u},
+    const std::string cells[8][2] = {{"Cruise", p.cruise}, {"Cost Index", p.costIndex}, {"Avg Wind", p.avgWind}, {"SID / STAR", p.sid + (p.star.empty() ? "" : " / " + p.star)},
+                                     {"Block Fuel", p.blockFuel.empty() ? "" : p.blockFuel + u}, {"Trip Fuel", p.tripFuel.empty() ? "" : p.tripFuel + u},
                                      {"ZFW", p.zfw.empty() ? "" : p.zfw + u}, {"TOW", p.tow.empty() ? "" : p.tow + u}};
     const float cw = (x1 - x0) / 4;
     for (int i = 0; i < 8; ++i) {
@@ -6463,9 +6463,14 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             const int pax = g.jwDoorPax[k];
             const float frac = paxDoorAt(s.acfIcao, pax / 2, std::max(1, pairs));
             if (frac > 0.45f) continue;   // a jetway never goes to a door behind the wing
-            const float y = nose.y + frac * acLen * px;
+            float y = nose.y + frac * acLen * px;
             float hw = hwPx;   // the fuselage's edge at this door (it narrows towards the tail)
             if (shape && hw0 > 0) { const float hh = fuselageHalf(*shape, frac, hw0); if (hh > 0) hw = hh * kx * px; }
+            if (const int sc = specialCraft()) {   // the season's sleigh or witch: the door on its side (not on a reindeer, or the broom's stick)
+                static const float fr[2][3] = {{0.685f, 0.889f, 0.79f}, {0.47f, 0.66f, 0.57f}}, hwU[2][3] = {{14.5f, 15.0f, 14.5f}, {8.5f, 13.5f, 11.0f}};
+                y = nose.y + fr[sc - 1][k] * acLen * px;
+                hw = hwU[sc - 1][k] * acLen * px / (sc == 1 ? 108.0f : 100.0f);
+            }
             const float side = nose.x - hw;
             const bool docked = g.jwDocked[k];
             const bool open = g.toliss && pax >= 0 && pax < 8 && g.paxDoor[pax] == 2;
@@ -6496,9 +6501,9 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             // under the bubble: the door's name and what the jetway is doing
             // as openSAM shows it: connected only once the jetway is there, "jetway moving" until then (both kinds of jetway)
             // (openSAM says "no jetway" while the aircraft is not ready for one: then the jetway status says why)
-            const char* st = crosses ? "Jetways would cross" : moving ? "Jetway moving"
-                           : !g.openSam ? (docked ? (g.toliss ? "Connected, door open" : "Connected") : planeNotReady ? "Check status" : "X-Plane jetway")
-                           : docked ? (g.toliss ? "Docked, door open" : "Docked") : planeNotReady ? "Check status" : g.jetway == 1 ? "Jetway ready" : g.jetway == 0 ? "No jetway here" : g.jetway == 2 ? "Jetway at the other door" : "Jetway moving";
+            const char* st = crosses ? "Jetways Would Cross" : moving ? "Jetway Moving"
+                           : !g.openSam ? (docked ? (g.toliss ? "Connected, Door Open" : "Connected") : planeNotReady ? "Check Status" : "X-Plane Jetway")
+                           : docked ? (g.toliss ? "Docked, Door Open" : "Docked") : planeNotReady ? "Check Status" : g.jetway == 1 ? "Jetway Ready" : g.jetway == 0 ? "No Jetway Here" : g.jetway == 2 ? "Jetway At The Other Door" : "Jetway Moving";
             std::snprintf(b, sizeof b, "%d%c  \xC2\xB7  %s", pax / 2 + 1, 'L', st);
             textAt(dl, f.small, bx + 4, by + 17, docked ? kGood : moving || crosses ? kWarn : kMuted, b);
         }
@@ -6519,8 +6524,8 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             for (int j = 0; j < reachN && j < 3; ++j) {   // openSAM's jetways, nearest the nose first (jetway j is the one it gave door j)
                 const bool busy = j != door && g.jwDocked[j];
                 char lb[48];
-                if (busy) std::snprintf(lb, sizeof lb, "Jetway %d  \xC2\xB7  at %dL", j + 1, g.jwDoorPax[j] / 2 + 1);
-                else std::snprintf(lb, sizeof lb, "Jetway %d%s", j + 1, j == door ? "  (this door's)" : "");
+                if (busy) std::snprintf(lb, sizeof lb, "Jetway %d  \xC2\xB7  At %dL", j + 1, g.jwDoorPax[j] / 2 + 1);
+                else std::snprintf(lb, sizeof lb, "Jetway %d%s", j + 1, j == door ? "  (This Door's)" : "");
                 rows.push_back({lb, door, busy});
             }
             const float mx = a.x + 128, mw = 200, rh = 34, mh = rows.size() * rh + 16;
@@ -6561,18 +6566,18 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     else if (!g.toliss) {
         // not a ToLiss: the same rows, each with a greyed "Not Available" bubble
         float y = top + 38;
-        const char* rowsNA[3] = {"Cabin lights", "Slides", "Cabin Ready"};
+        const char* rowsNA[3] = {"Cabin Lights", "Slides", "Cabin Ready"};
         for (int i = 0; i < 3; ++i) {
             textAt(dl, f.bold, cx0, y + 4, kMuted, rowsNA[i]);
             char id[16]; std::snprintf(id, sizeof id, "##cabna%d", i);
-            pill(dl, f, id, "Not available", ImVec2(cx1 - 180, y), ImVec2(cx1, y + 30), false, false);
+            pill(dl, f, id, "Not Available", ImVec2(cx1 - 180, y), ImVec2(cx1, y + 30), false, false);
             y += 48;
         }
     } else {
         float y = top + 38;
         // the lights: On and Off beside the name (On lit while they are on, Off while off; On comes back to the level they had),
         // and a slider in steps of 10 % under them
-        textAt(dl, f.bold, cx0, y + 4, kInk, "Cabin lights");
+        textAt(dl, f.bold, cx0, y + 4, kInk, "Cabin Lights");
         char lv[16];
         const int pct = g.cabinLight < 0 ? -1 : (int)std::lround(g.cabinLight * 100);
         static int lastOn = 100;   // the level they were last on at
@@ -6581,7 +6586,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         else if (pct == 0) std::snprintf(lv, sizeof lv, "Off");
         else std::snprintf(lv, sizeof lv, "%d%%", pct);
         textAt(dl, f.bold, cx0 + 112, y + 4, pct > 0 ? kInk : kMuted, lv);
-        textAt(dl, f.small, cx0, y + 26, kMuted, "Keep ToLiss Cabin Light Controls to Auto");
+        textAt(dl, f.small, cx0, y + 26, kMuted, "Keep ToLiss Cabin Light Controls To Auto");
         if (g.cabinLight >= 0) {
             const float bw = 64;
             // Auto: XPTablet dims and brightens them with the daylight, as the tablet's own auto dim (100 % by day, 0 % at full night);
@@ -6671,22 +6676,22 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     }
     {   // the jetway status: Good, or what keeps a jetway from connecting
         std::vector<std::string> why;
-        if (!g.onGround) why.push_back("Not on the ground");
-        else if (g.groundSpeedKt > 1.0f) why.push_back("Aircraft moving");
-        if (g.beacon) why.push_back("Beacon light on");
-        if (g.enginesRunning) why.push_back("Engines running");
-        if (!g.parkBrake && !g.chocks) why.push_back("Chocks or parking brake not set");
+        if (!g.onGround) why.push_back("Not On The Ground");
+        else if (g.groundSpeedKt > 1.0f) why.push_back("Aircraft Moving");
+        if (g.beacon) why.push_back("Beacon Light On");
+        if (g.enginesRunning) why.push_back("Engines Running");
+        if (!g.parkBrake && !g.chocks) why.push_back("Chocks Or Parking Brake Not Set");
         if (g.openSam && why.empty()) {
-            if (g.jetway == 0) why.push_back("No jetway at this stand");
-            else if (g.jetway == -1 && !anyDocked) why.push_back("Jetway moving, or none within reach");
+            if (g.jetway == 0) why.push_back("No Jetway At This Stand");
+            else if (g.jetway == -1 && !anyDocked) why.push_back("Jetway Moving, Or None Within Reach");
         }
         float y = split + 5 + 32;
         if (!doors) {
-            textAt(dl, f.title, cx0, y, kMuted, "Not available");
-            textAt(dl, f.small, cx0, y + 30, kMuted, "This aircraft does not use jetways");
+            textAt(dl, f.title, cx0, y, kMuted, "Not Available");
+            textAt(dl, f.small, cx0, y + 30, kMuted, "This Aircraft Does Not Use Jetways");
         } else if (why.empty()) {
-            textAt(dl, f.title, cx0, y, kGood, anyDocked ? "Good  \xC2\xB7  connected" : "Good");
-            textAt(dl, f.small, cx0, y + 30, kMuted, g.openSam ? "openSAM jetways" : "X-Plane's own jetways");
+            textAt(dl, f.title, cx0, y, kGood, anyDocked ? "Good  \xC2\xB7  Connected" : "Good");
+            textAt(dl, f.small, cx0, y + 30, kMuted, g.openSam ? "openSAM Jetways" : "X-Plane's Own Jetways");
         } else {
             for (const std::string& t : why) {
                 if (y > bot - 22) break;
@@ -6721,7 +6726,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         const float t = openness("##pushopen", pbOpen);
         if (t > 0.01f) {   // the panel: over the cabin's card; Push Back (red, "Close", under the finger) puts it away
             std::vector<std::string> checks;   // what is in the way
-            if (!gnd) checks.push_back("Not on the ground");
+            if (!gnd) checks.push_back("Not On The Ground");
             // a jetway still on the aircraft (openSAM's or X-Plane's): no tug is called and no push starts until it is off
             const bool jwOn = anyDocked || (g.openSam && g.jetway == 2);
             if (jwOn) checks.push_back(bp ? "Jetway connected: disconnect it before the tug" : "Jetway connected: disconnect it first");
@@ -6744,7 +6749,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             dl->AddRect(qa, qb, IM_COL32(255, 255, 255, 40), 16.0f, 0, 1.0f);
             const float x0 = qa.x + 16, x1 = qb.x - 16;
             textAt(dl, f.small, x0, qa.y + 12, kMuted, "PUSHBACK");
-            textRight(dl, f.small, x1, qa.y + 12, kMuted, bp ? "BetterPushback" : "X-Plane's tug");
+            textRight(dl, f.small, x1, qa.y + 12, kMuted, bp ? "BetterPushback" : "X-Plane's Tug");
             float y = qa.y + 36;
             // the tug's way there and back: yellow "Tug Connecting" from the press (or the push's start) until it is on, yellow
             // "Tug Disconnecting" from Disconnect or Stop until it is off (BetterPushback only says connected or not)
@@ -6757,19 +6762,19 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             const bool lightsStop = bp && g.bpStarted && g.bpConnected && (g.landingLights || g.taxiLight);
             const bool disconnecting = bp && discAsked >= 0 && g.bpConnected;
             const bool connecting = bp && !g.bpConnected && !handSignals && (connAsked >= 0 || g.bpStarted);
-            const char* state = !bp ? "Steer with the rudder while it pushes"
-                              : lightsStop ? "Stopped: the lights blind the driver"
+            const char* state = !bp ? "Steer With The Rudder While It Pushes"
+                              : lightsStop ? "Stopped: The Lights Blind The Driver"
                               : disconnecting ? "Tug Disconnecting"
                               : connecting ? "Tug Connecting"
-                              : g.bpStarted && g.bpConnected ? "Pushing back"
-                              : g.bpConnected ? "Tug connected"
-                              : handSignals ? "Tug disconnected: hand signals" : "Tug not connected";
+                              : g.bpStarted && g.bpConnected ? "Pushing Back"
+                              : g.bpConnected ? "Tug Connected"
+                              : handSignals ? "Tug Disconnected: Hand Signals" : "Tug Not Connected";
             const ImU32 stateCol = lightsStop || disconnecting || connecting ? kWarn : g.bpConnected ? kGood : kInk;
             textAt(dl, f.bold, x0, y, stateCol, state);
             y += 28;
             // the buttons, at the bottom (the list above them, as much as fits: the rest counted)
             const float rowH = 36, by1 = qb.y - 12 - rowH, by0 = by1 - rowH - 4;
-            if (checks.empty()) { dl->AddCircleFilled(ImVec2(x0 + 4, y + 9), 4.0f, kGood, 0); textAt(dl, f.body, x0 + 16, y, kGood, "Ready to push"); y += 24; }
+            if (checks.empty()) { dl->AddCircleFilled(ImVec2(x0 + 4, y + 9), 4.0f, kGood, 0); textAt(dl, f.body, x0 + 16, y, kGood, "Ready To Push"); y += 24; }
             for (size_t i = 0; i < checks.size(); ++i) {
                 if (y + 24 > by0 - 4 && i + 1 < checks.size()) {
                     char more[32]; std::snprintf(more, sizeof more, "and %d more", (int)(checks.size() - i));
@@ -6784,9 +6789,9 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             if (bp) {
                 // the tug: connected (or on its way, or waiting at the aircraft disconnected) it can be disconnected; else connected
                 const bool tugOn = g.bpConnected;
-                const char* tugLbl = tugOn ? "Disconnect the tug" : g.bpStarted ? "Reconnect the tug" : "Connect the tug";
+                const char* tugLbl = tugOn ? "Disconnect The Tug" : g.bpStarted ? "Reconnect The Tug" : "Connect The Tug";
                 const bool tugBusy = connecting || disconnecting;   // (on its way, or leaving: wait for it)
-                if (pill(dl, f, "##bpplan", "Plan route", ImVec2(x0, by0), ImVec2(x0 + hwB, by0 + rowH - 6), false, gnd && !g.bpStarted)) act.ground = GA_BP_PLAN;
+                if (pill(dl, f, "##bpplan", "Plan Route", ImVec2(x0, by0), ImVec2(x0 + hwB, by0 + rowH - 6), false, gnd && !g.bpStarted)) act.ground = GA_BP_PLAN;
                 if (pill(dl, f, "##bpconn", tugLbl, ImVec2(x1 - hwB, by0), ImVec2(x1, by0 + rowH - 6), tugOn && !tugBusy, gnd && !tugBusy && (tugOn || !jwOn))) {
                     act.ground = tugOn ? GA_BP_DISCONNECT : g.bpStarted ? GA_BP_RECONNECT : GA_BP_CONNECT;
                     if (tugOn) { discAsked = nowT; if (g.bpStarted) handSignals = true; } else { connAsked = nowT; handSignals = false; }
@@ -6857,37 +6862,37 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
     struct Credit { const char* what; const char* who; const char* licence; };
     static const Credit kCredits[] = {
         {"XPTablet", "\xC2\xA9 2026 Alpine Aviation. Free to use; not for resale or re-upload (LICENSE.txt)", "Freeware"},
-        {"Aircraft top views (Ground page)", "AircraftShapesSVG by RexKramer1 and amnesica (BelugaProject)\ngithub.com/RexKramer1/AircraftShapesSVG", "GNU GPL v3.0"},
-        {"User interface", "Dear ImGui by Omar Cornut and contributors", "MIT"},
+        {"Aircraft Top Views (Ground Page)", "AircraftShapesSVG by RexKramer1 and amnesica (BelugaProject)\ngithub.com/RexKramer1/AircraftShapesSVG", "GNU GPL v3.0"},
+        {"User Interface", "Dear ImGui by Omar Cornut and contributors", "MIT"},
         {"Text", "IBM Plex Sans (IBM Corp.), JetBrains Mono (The JetBrains Mono Project Authors)", "SIL Open Font License 1.1"},
         {"Downloads", "libcurl (Daniel Stenberg and contributors), zlib (Jean-loup Gailly, Mark Adler), OpenSSL on Linux", "curl, zlib, Apache 2.0"},
-        {"Web pages", "Chromium Embedded Framework (Marshall A. Greenblatt and contributors), X-Plane's own copy of Chromium", "BSD 3-clause"},
+        {"Web Pages", "Chromium Embedded Framework (Marshall A. Greenblatt and contributors), X-Plane's own copy of Chromium", "BSD 3-clause"},
         {"Map", "\xC2\xA9 OpenStreetMap contributors (openstreetmap.org/copyright); satellite imagery: Esri, Maxar, Earthstar Geographics", "ODbL; Esri terms"},
-        {"Airport layouts on the map", "X-Plane's airport data (the Scenery Gateway and its contributors) and your installed scenery", "GNU GPL"},
-        {"Time zones", "Natural Earth (via WXPlane)", "Public domain"},
-        {"Map pictures", "stb_image by Sean Barrett", "MIT / public domain"},
-        {"Airport facts and CTAF", "OurAirports (ourairports.com) and its contributors", "Public domain"},
-        {"Online traffic details", "VATSIM data feed (data.vatsim.net)", "Shown live, not stored"},
-        {"Navaids and waypoints on the map", "X-Plane's navigation data (or the AIRAC in Custom Data, e.g. Navigraph's)", ""},
-        {"Route on the map", "Your flight plan from SimBrief (simbrief.com)", ""},
-        {"METAR reports", "NOAA / National Weather Service, Aviation Weather Center (aviationweather.gov)", "Public domain"},
-        {"Weather page with WXPlane installed", "WXPlane by Alpine Aviation", ""},
-        {"Airbus checklists", "FlightGear A320-family by Josh Davidson (Octal450), Jonathan Redpath and contributors (github.com/legoboyvdlp/A320-family), adapted", "GPL-2.0"},
-        {"Icons and logos", "Provided through creatorsrepo.com", ""},
-        {"App icons", "Material Design Icons by Pictogrammers (pictogrammers.com): cog, check-bold, file-document, star-four-points, airplane, airport, web, power, weather-partly-snowy-rainy; and Google's Material Icons \"store\" (the App Store)", "Apache 2.0"},
-        {"ForeFlight icon", "The ForeFlight logo is a trademark of ForeFlight LLC, used only to show their web app", "Trademark"},
-        {"Navigraph icon", "The Navigraph logo is a trademark of Navigraph, used only to show their charts web app", "Trademark"},
-        {"SkyVector icon", "The SkyVector logo is a trademark of SkyVector (Seattle Avionics), used only to show their web app", "Trademark"},
-        {"Volanta icon", "The Volanta logo is a trademark of Orbx, used only to show their web map", "Trademark"},
-        {"ChartFox icon", "The ChartFox logo is a trademark of ChartFox (chartfox.org), used only to show their charts web app", "Trademark"},
-        {"SimBrief icon", "The SimBrief logo is a trademark of SimBrief (Navigraph), used only to show their web app", "Trademark"},
-        {"VATSIM Radar icon", "The VATSIM Radar logo belongs to VATSIM Radar (vatsim-radar.com), used only to show their web map", "Trademark"},
-        {"VATSIM icon", "The VATSIM logo is a trademark of VATSIM, Inc. (vatsim.net), used only to show their pages", "Trademark"},
-        {"natTrak icon", "The natTrak logo belongs to VATSIM's natTrak (nattrak.vatsim.net), used only to show their web app", "Trademark"},
-        {"IVAO icon", "The IVAO logo is a trademark of the International Virtual Aviation Organisation (ivao.aero), used only to show their Webeye map", "Trademark"},
+        {"Airport Layouts On The Map", "X-Plane's airport data (the Scenery Gateway and its contributors) and your installed scenery", "GNU GPL"},
+        {"Time Zones", "Natural Earth (via WXPlane)", "Public domain"},
+        {"Map Pictures", "stb_image by Sean Barrett", "MIT / public domain"},
+        {"Airport Facts And CTAF", "OurAirports (ourairports.com) and its contributors", "Public domain"},
+        {"Online Traffic Details", "VATSIM data feed (data.vatsim.net)", "Shown live, not stored"},
+        {"Navaids And Waypoints On The Map", "X-Plane's navigation data (or the AIRAC in Custom Data, e.g. Navigraph's)", ""},
+        {"Route On The Map", "Your flight plan from SimBrief (simbrief.com)", ""},
+        {"METAR Reports", "NOAA / National Weather Service, Aviation Weather Center (aviationweather.gov)", "Public domain"},
+        {"Weather Page With WXPlane Installed", "WXPlane by Alpine Aviation", ""},
+        {"Airbus Checklists", "FlightGear A320-family by Josh Davidson (Octal450), Jonathan Redpath and contributors (github.com/legoboyvdlp/A320-family), adapted", "GPL-2.0"},
+        {"Icons And Logos", "Provided through creatorsrepo.com", ""},
+        {"App Icons", "Material Design Icons by Pictogrammers (pictogrammers.com): cog, check-bold, file-document, star-four-points, airplane, airport, web, power, weather-partly-snowy-rainy; and Google's Material Icons \"store\" (the App Store)", "Apache 2.0"},
+        {"ForeFlight Icon", "The ForeFlight logo is a trademark of ForeFlight LLC, used only to show their web app", "Trademark"},
+        {"Navigraph Icon", "The Navigraph logo is a trademark of Navigraph, used only to show their charts web app", "Trademark"},
+        {"SkyVector Icon", "The SkyVector logo is a trademark of SkyVector (Seattle Avionics), used only to show their web app", "Trademark"},
+        {"Volanta Icon", "The Volanta logo is a trademark of Orbx, used only to show their web map", "Trademark"},
+        {"ChartFox Icon", "The ChartFox logo is a trademark of ChartFox (chartfox.org), used only to show their charts web app", "Trademark"},
+        {"SimBrief Icon", "The SimBrief logo is a trademark of SimBrief (Navigraph), used only to show their web app", "Trademark"},
+        {"VATSIM Radar Icon", "The VATSIM Radar logo belongs to VATSIM Radar (vatsim-radar.com), used only to show their web map", "Trademark"},
+        {"VATSIM Icon", "The VATSIM logo is a trademark of VATSIM, Inc. (vatsim.net), used only to show their pages", "Trademark"},
+        {"natTrak Icon", "The natTrak logo belongs to VATSIM's natTrak (nattrak.vatsim.net), used only to show their web app", "Trademark"},
+        {"IVAO Icon", "The IVAO logo is a trademark of the International Virtual Aviation Organisation (ivao.aero), used only to show their Webeye map", "Trademark"},
         {"Spotify, YouTube, YouTube Music, Apple Music and SoundCloud icons", "Their logos are trademarks of Spotify AB, Google LLC, Apple Inc. and SoundCloud Global Limited, used only to show their web players", "Trademark"},
-        {"ACARS and CPDLC", "Hoppie's ACARS network (hoppie.nl): telex, pre-departure clearances and CPDLC, with your own logon code; for flight simulation only", "Free service"},
-        {"VATSIM ATC and airspaces", "VATSIM data feed (data.vatsim.net); FIR and airspace boundaries from the VATSpy Data Project (github.com/vatsimnetwork/vatspy-data-project), fetched and shown as published", "CC BY-SA 4.0"},
+        {"ACARS And CPDLC", "Hoppie's ACARS network (hoppie.nl): telex, pre-departure clearances and CPDLC, with your own logon code; for flight simulation only", "Free service"},
+        {"VATSIM ATC And Airspaces", "VATSIM data feed (data.vatsim.net); FIR and airspace boundaries from the VATSpy Data Project (github.com/vatsimnetwork/vatspy-data-project), fetched and shown as published", "CC BY-SA 4.0"},
         {"Jetways", "openSAM by Holger Teutsch (hotbso) and contributors (github.com/hotbso/openSAM), its commands and datarefs (no openSAM code is in XPTablet)", "LGPL-2.1"},
         {"Games", "Knots and Crosses, 2048 (after Gabriele Cirulli's game), and Contrail, Taxi Rush, Sky Patrol, Hangar Climb, Cockpit 21 and Cargo Load: all made for XPTablet, every map, rule and drawing its own", ""},
         {"", "XPTablet is not made by or affiliated with ForeFlight, Navigraph, SkyVector, Volanta / Orbx, VATSIM Radar, ChartFox, SimBrief, VATSIM, IVAO, Spotify, Google / YouTube, Apple, SoundCloud or openSAM.", ""},
@@ -7114,7 +7119,7 @@ void playerButtons(ImDrawList* dl, const MediaState& m, ImVec2 c, float r, const
 }
 const char* duckName(int m) { return m == 1 ? "lowers the media (by the levels set)" : m == 2 ? "pauses the media" : "leaves the media alone"; }
 std::string radioLine(const MediaState& m) {
-    std::string r = m.radioTx ? std::string("Radio: transmitting") : m.radioRx ? "Radio: receiving" + (m.radioSource.empty() ? std::string() : " (" + m.radioSource + ")") : std::string("Radio: quiet");
+    std::string r = m.radioTx ? std::string("Radio: Transmitting") : m.radioRx ? "Radio: Receiving" + (m.radioSource.empty() ? std::string() : " (" + m.radioSource + ")") : std::string("Radio: Quiet");
     if (m.ducked) r += g_settings.mediaDuck == 2 ? ", media paused" : ", media lowered";
     return r;
 }
@@ -7193,14 +7198,14 @@ void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
         return;
     }
     if (!m.active) {
-        textAt(dl, f.title, x, y, kInk, "Nothing playing");
+        textAt(dl, f.title, x, y, kInk, "Nothing Playing");
         dl->AddText(f.body, fontPx(f.body), ImVec2(x, y + 36), kMuted, "Play something in Spotify, Apple Music, a browser or any player: it shows here and in the pull-down from the logo.", nullptr, x1 - x);
         y += 110;
     } else {
-        textAt(dl, f.small, x, y, IM_COL32(255, 120, 150, 255), fitText(f.small, m.app.empty() ? std::string("Now playing") : m.app, x1 - x).c_str());
+        textAt(dl, f.small, x, y, IM_COL32(255, 120, 150, 255), fitText(f.small, m.app.empty() ? std::string("Now Playing") : m.app, x1 - x).c_str());
         y += 24;
         const double since = trackSince(m);
-        marquee(dl, f.title, x, y, x1 - x, kInk, m.title.empty() ? std::string("Unknown title") : m.title, since);
+        marquee(dl, f.title, x, y, x1 - x, kInk, m.title.empty() ? std::string("Unknown Title") : m.title, since);
         y += 30;
         marquee(dl, f.body, x, y, x1 - x, kMuted, m.artist, since);
         y += 22;
@@ -7260,13 +7265,13 @@ void watchForNotes(const SimState& s) {
         char b[160];
         if (level == 3) std::snprintf(b, sizeof b, "%s%s%s %s, %.1f nm", t.callsign.c_str(), t.type.empty() ? "" : " ", t.type.c_str(), t.onGround ? "is on the runway" : "is landing on your runway", d);
         else std::snprintf(b, sizeof b, "%s%s%s: %d ft %s, %.1f nm", t.callsign.c_str(), t.type.empty() ? "" : " ", t.type.c_str(), std::abs(rel), rel >= 0 ? "above" : "below", d);
-        postNote(level == 3 ? "Runway collision alert" : level == 2 ? "TCAS resolution advisory" : "TCAS traffic advisory", b, APP_MAP);
+        postNote(level == 3 ? "Runway Collision Alert" : level == 2 ? "TCAS Resolution Advisory" : "TCAS Traffic Advisory", b, APP_MAP);
     }
     for (auto it = g_raSeen.begin(); it != g_raSeen.end();) { if (now - it->second > 120) it = g_raSeen.erase(it); else ++it; }
     if (g_planSeqSeen < 0) g_planSeqSeen = s.newPlanSeq;
     if (s.newPlanSeq != g_planSeqSeen) {
         g_planSeqSeen = s.newPlanSeq;
-        if (g_settings.notifySimbrief) postNote("New SimBrief flight plan detected", s.newPlanText, APP_ROUTES);
+        if (g_settings.notifySimbrief) postNote("New SimBrief Flight Plan Detected", s.newPlanText, APP_ROUTES);
     }
 }
 
@@ -7374,9 +7379,9 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         cover(dl, md, ImVec2(a.x + 16, a.y + 16), art, 12.0f);
         const float tx = a.x + 16 + art + 12, tw = b.x - tx - 14;
         if (!md.supported) dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 20), kMuted, "Media controls are not available on this computer.", nullptr, tw);
-        else if (!md.active) { textAt(dl, f.bold, tx, a.y + 22, kInk, "Not playing"); dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 44), kMuted, "Play something in any player.", nullptr, tw); }
+        else if (!md.active) { textAt(dl, f.bold, tx, a.y + 22, kInk, "Not Playing"); dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 44), kMuted, "Play something in any player.", nullptr, tw); }
         else {
-            textAt(dl, f.small, tx, a.y + 18, IM_COL32(255, 140, 165, 255), fitText(f.small, md.app.empty() ? std::string("Now playing") : md.app, tw).c_str());
+            textAt(dl, f.small, tx, a.y + 18, IM_COL32(255, 140, 165, 255), fitText(f.small, md.app.empty() ? std::string("Now Playing") : md.app, tw).c_str());
             const double since = trackSince(md);
             marquee(dl, f.bold, tx, a.y + 36, tw, kInk, md.title, since);
             marquee(dl, f.small, tx, a.y + 58, tw, kMuted, md.artist, since);
@@ -7404,7 +7409,7 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             g_settings.brightness = br; g_settingsChanged = true;
         }
         // auto dim, right of the slider as in Settings, Display
-        if (pill(dl, f, "##ccautodim", "Auto dim", ImVec2(b.x - 12 - 96, a.y + 45), ImVec2(b.x - 12, a.y + 75), g_settings.autoDim, true)) { g_settings.autoDim = !g_settings.autoDim; g_settingsChanged = true; }
+        if (pill(dl, f, "##ccautodim", "Auto Dim", ImVec2(b.x - 12 - 96, a.y + 45), ImVec2(b.x - 12, a.y + 75), g_settings.autoDim, true)) { g_settings.autoDim = !g_settings.autoDim; g_settingsChanged = true; }
     }
     {   // the flight's progress, under the brightness (only with a flight plan)
         const Progress pr = flightProgress(s);
@@ -7435,12 +7440,12 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         }
         const bool hot = ImGui::IsItemHovered() && any;
         dl->AddRectFilled(a, b, any ? (hot ? IM_COL32(255, 255, 255, 60) : IM_COL32(255, 255, 255, 40)) : IM_COL32(255, 255, 255, 16), 20.0f);
-        textCentered(dl, f.bold, (a.x + b.x) * 0.5f, std::floor(a.y + 20 - fontPx(f.bold) * 0.5f), any ? kInk : kMuted, "Clear all");
+        textCentered(dl, f.bold, (a.x + b.x) * 0.5f, std::floor(a.y + 20 - fontPx(f.bold) * 0.5f), any ? kInk : kMuted, "Clear All");
         y += 52;
     }
     const float listTop = y, listBot = h + oy - kCcBottomGap;   // (clear of the bar at the bottom, as the boxes at the left)
     if (!g_settings.notifyEnabled) textCentered(dl, f.small, (nx0 + nx1) * 0.5f, y + 20, kMuted, "Notifications are off (Settings, Notifications).");
-    else if (g_notes.empty()) textCentered(dl, f.small, (nx0 + nx1) * 0.5f, y + 20, kMuted, "No notifications");
+    else if (g_notes.empty()) textCentered(dl, f.small, (nx0 + nx1) * 0.5f, y + 20, kMuted, "No Notifications");
     const float cardH = 72, gapY = 10;
     const float content = g_notes.size() * (cardH + gapY);
     g_ccScroll = std::max(0.0f, std::min(g_ccScroll, std::max(0.0f, content - (listBot - listTop))));
@@ -7594,7 +7599,7 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
     dl->AddRectFilled(ImVec2(pa.x + 140, pa.y + 84), ImVec2(pa.x + 176, pa.y + 102), accentCol(230), 9.0f);
     dl->AddCircleFilled(ImVec2(pa.x + 167, pa.y + 93), 7, IM_COL32(255, 255, 255, 255), 0);
     dl->AddRectFilled(ImVec2(pa.x + 190, pa.y + 82), ImVec2(pa.x + pvw - 24, pa.y + 104), themeTone(10, 22, 44, 210), 8.0f);
-    textAt(dl, f.small, pa.x + 198, pa.y + 85, kMuted, "A card");
+    textAt(dl, f.small, pa.x + 198, pa.y + 85, kMuted, "A Card");
     dl->PopClipRect();
     dl->AddRect(pa, ImVec2(pa.x + pvw, pa.y + pvh), IM_COL32(255, 255, 255, 60), 10.0f, 0, 1.0f);
     g_settings.wallpaper = keepTheme;
@@ -7692,7 +7697,8 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         std::vector<Tab> tabs = {{0, "General", IM_COL32(110, 120, 140, 255), APP_SETTINGS}, {1, "Display", IM_COL32(64, 132, 230, 255), APP_WEATHER},
                                  {2, "Data", IM_COL32(60, 190, 130, 255), APP_DOCUMENTS}, {4, "Notifications", IM_COL32(240, 70, 70, 255), APP_NOTES}};
         if (!g_mac) tabs.push_back({5, "Media", IM_COL32(250, 45, 85, 255), APP_MUSIC});
-        tabs.push_back({6, "Local Connect", IM_COL32(24, 150, 170, 255), APP_BROWSER});
+        if (s.local.status != -2) tabs.push_back({6, "Local Connect", IM_COL32(24, 150, 170, 255), APP_BROWSER});   // (not shown until the host can serve it)
+        else if (g_settingsTab == 6) g_settingsTab = 0;
         tabs.push_back({7, "Accounts", IM_COL32(150, 96, 250, 255), APP_SETTINGS});
         if (g_mac && g_settingsTab == 5) g_settingsTab = 0;
         tabs.push_back({3, "Credits", IM_COL32(236, 152, 50, 255), APP_NOTES});
@@ -7748,11 +7754,11 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     if (g_settingsTab == 0) {   // ---- General: the home screen's icons; status and the touch test
         float y = top;
         // the web apps: got or removed in the App Store now
-        textAt(dl, f.title, lx, y, kInk, "On the home screen");
+        textAt(dl, f.title, lx, y, kInk, "On The Home Screen");
         y += 34;
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Charts, flight planning, live maps, networks, music and video: get them, or remove them, in the App Store. Hold an icon on the home screen to arrange them.", nullptr, colW);
         y += 58;
-        if (pill(dl, f, "##genstore", "Open the App Store", ImVec2(lx, y), ImVec2(lx + colW, y + 32), true, true)) openApp(APP_APPSTORE);
+        if (pill(dl, f, "##genstore", "Open The App Store", ImVec2(lx, y), ImVec2(lx + colW, y + 32), true, true)) openApp(APP_APPSTORE);
         // status
         float sy = top;
         textAt(dl, f.bold, rx, sy, kInk, "Status");
@@ -7762,9 +7768,9 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         line("Version", XPT_VERSION);
         std::snprintf(b, sizeof b, "%s%s", s.acfIcao.empty() ? "-" : s.acfIcao.c_str(), s.toliss ? " (ToLiss)" : "");
         line("Aircraft", b);
-        line("Shown on", s.onPanel ? "cockpit tablet" : "window only");
-        if (s.panel[2] > 0 && s.panel[3] > 0) { std::snprintf(b, sizeof b, "%d,%d  %dx%d", s.panel[0], s.panel[1], s.panel[2], s.panel[3]); line("Panel area", b); }
-        else line("Panel area", "none (no AviTab slot)");
+        line("Shown On", s.onPanel ? "cockpit tablet" : "window only");
+        if (s.panel[2] > 0 && s.panel[3] > 0) { std::snprintf(b, sizeof b, "%d,%d  %dx%d", s.panel[0], s.panel[1], s.panel[2], s.panel[3]); line("Panel Area", b); }
+        else line("Panel Area", "none (no AviTab slot)");
         line("WXPlane", s.wxPlane ? "found" : "not installed");
         std::snprintf(b, sizeof b, "%d%%%s", (int)std::ceil(g_batt - 0.001f), g_charger ? ", charging" : "");
         line("Battery", b);
@@ -7789,37 +7795,37 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             dl->AddLine(ImVec2(m.x, m.y - 12), ImVec2(m.x, m.y + 12), IM_COL32(255, 255, 255, 200));
         }
         dl->PopClipRect();
-        textCentered(dl, f.small, (a.x + e.x) * 0.5f, a.y + 8, themeText(200, 212, 232, 0.15f), g_touches.empty() ? "Touch test: press and drag here" : "Touch test");
+        textCentered(dl, f.small, (a.x + e.x) * 0.5f, a.y + 8, themeText(200, 212, 232, 0.15f), g_touches.empty() ? "Touch Test: press and drag here" : "Touch Test");
         if (!g_touches.empty() && pill(dl, f, "##touchclr", "Clear", ImVec2(e.x - 74, e.y - 36), ImVec2(e.x - 10, e.y - 8), false, true)) g_touches.clear();
         return;
     }
 
     if (g_settingsTab == 4) {   // ---- Notifications
         float y = top;
-        toggle("##ntfon", lx, y, colW, g_settings.notifyEnabled ? "Notifications: on" : "Notifications: off", g_settings.notifyEnabled, true);
+        toggle("##ntfon", lx, y, colW, g_settings.notifyEnabled ? "Notifications: On" : "Notifications: Off", g_settings.notifyEnabled, true);
         y += 42;
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "A banner drops in under the status bar and fades after 3 seconds: tap it to open its page, push it up to put it away. Pull down from the logo for the list.", nullptr, colW);
         y += 56;
         textAt(dl, f.bold, lx, y, g_settings.notifyEnabled ? kInk : kMuted, "Alerts");
         y += 24;
-        toggle("##ntftcas", lx, y, colW, "TCAS alert", g_settings.notifyTcas, g_settings.notifyEnabled);
+        toggle("##ntftcas", lx, y, colW, "TCAS Alert", g_settings.notifyTcas, g_settings.notifyEnabled);
         y += 36;
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Traffic in TCAS resolution-advisory range. Opens the Map.", nullptr, colW);
         y += 30;
-        toggle("##ntfsb", lx, y, colW, "New SimBrief flight plan", g_settings.notifySimbrief, g_settings.notifyEnabled);
+        toggle("##ntfsb", lx, y, colW, "New SimBrief Flight Plan", g_settings.notifySimbrief, g_settings.notifyEnabled);
         y += 36;
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "SimBrief is checked every 2 minutes with your SimBrief ID; a new plan is loaded. Opens the Flight Plan.", nullptr, colW);
         y += 34;
         if (g_settings.simbriefUser.empty()) textAt(dl, f.small, lx, y, kWarn, "Enter your SimBrief ID under Data first.");
         y += 26;
-        toggle("##ntfatc", lx, y, colW, "VATSIM ATC online", g_settings.vatsimAtcNotes, g_settings.notifyEnabled);
+        toggle("##ntfatc", lx, y, colW, "VATSIM ATC Online", g_settings.vatsimAtcNotes, g_settings.notifyEnabled);
         y += 36;
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "A controller comes online at your departure or destination. Opens Airports.", nullptr, colW);
         // the right: try one
         float ry = top;
-        textAt(dl, f.bold, rx, ry, kInk, "Try it");
+        textAt(dl, f.bold, rx, ry, kInk, "Try It");
         ry += 26;
-        if (pill(dl, f, "##ntftest", "Send a test notification", ImVec2(rx, ry), ImVec2(w - 18, ry + 30), false, g_settings.notifyEnabled))
+        if (pill(dl, f, "##ntftest", "Send A Test Notification", ImVec2(rx, ry), ImVec2(w - 18, ry + 30), false, g_settings.notifyEnabled))
             postNote("XPTablet", "Notifications are working. Tap to open Settings.", APP_SETTINGS);
         ry += 44;
         char b[64];
@@ -7858,7 +7864,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             y += 46;
             return typing;
         };
-        const bool typing = secret("##achop", "Hoppie ACARS logon code", "For the ACARS app (CPDLC and telex on VATSIM and IVAO): register at hoppie.nl/acars, and the logon code comes by e-mail.", g_settings.hoppieCode, "Tap to enter your Hoppie logon code");
+        const bool typing = secret("##achop", "Hoppie ACARS Logon Code", "For the ACARS app (CPDLC and telex on VATSIM and IVAO): register at hoppie.nl/acars, and the logon code comes by e-mail.", g_settings.hoppieCode, "Tap to enter your Hoppie logon code");
         if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; }
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Kept only in XPTablet's settings on this computer, and sent only to Hoppie's network.", nullptr, w - 12 - lx);
         if (typing) pageKeyboard(dl, f, w, h, act);
@@ -7867,7 +7873,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     if (g_settingsTab == 6) {   // ---- Local Connect: the tablet on a phone or tablet on the same network
         const LocalConnectState& L = s.local;
         float y = top;
-        toggle("##lcon", lx, y, colW, g_settings.localConnect ? "Local Connect: on" : "Local Connect: off", g_settings.localConnect, true);
+        toggle("##lcon", lx, y, colW, g_settings.localConnect ? "Local Connect: On" : "Local Connect: Off", g_settings.localConnect, true);
         y += 42;
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Use this tablet on your phone or iPad: on the same Wi-Fi, open the address below in Safari or Chrome, then Add to Home Screen. Only your home network can reach it, and each device is paired once with a code.", nullptr, colW);
         y += 72;
@@ -7892,11 +7898,11 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         ImU32 dot = kMuted;
         if (!g_settings.localConnect) st = "Off";
         else if (L.status == -2) { st = "Not available in this version yet"; dot = kWarn; }
-        else if (L.status == -1) { st = "Cannot start" + (L.error.empty() ? std::string() : ": " + L.error); dot = IM_COL32(240, 90, 90, 255); }
+        else if (L.status == -1) { st = "Cannot Start" + (L.error.empty() ? std::string() : ": " + L.error); dot = IM_COL32(240, 90, 90, 255); }
         else if (L.status == 1) { st = "Starting..."; dot = kWarn; }
         else if (connected == 1) { st = "Connected: " + first->name; dot = kGood; }
         else if (connected > 1) { st = "Connected: " + first->name + " and " + std::to_string(connected - 1) + " more"; dot = kGood; }
-        else { st = "Waiting for a device"; dot = accentLite(255); }
+        else { st = "Waiting For A Device"; dot = accentLite(255); }
         dl->AddCircleFilled(ImVec2(lx + 6, y + 9), 5.0f, dot, 0);
         dl->AddText(f.body, fontPx(f.body), ImVec2(lx + 20, y), kInk, st.c_str(), nullptr, colW - 20);
         y += 34;
@@ -7909,7 +7915,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             std::string code = L.pairCode;
             if (code.size() == 6) code = code.substr(0, 3) + " " + code.substr(3);
             textAt(dl, f.title, a.x + 12, a.y + 34, kInk, code.c_str());
-            if (pill(dl, f, "##lcdeny", "Not me", ImVec2(e.x - 96, a.y + 50), ImVec2(e.x - 10, a.y + 80), false, true)) act.localPairDeny = true;
+            if (pill(dl, f, "##lcdeny", "Not Me", ImVec2(e.x - 96, a.y + 50), ImVec2(e.x - 10, a.y + 80), false, true)) act.localPairDeny = true;
             y += 102;
         }
         // the right: the devices, and the battery
@@ -7938,27 +7944,27 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         ry += 8;
         textAt(dl, f.bold, rx, ry, kInk, "Battery");
         ry += 24;
-        toggle("##lcbatt", rx, ry, colW, "Use the device's battery", g_settings.localBattery, true);
+        toggle("##lcbatt", rx, ry, colW, "Use The Device's Battery", g_settings.localBattery, true);
         ry += 38;
         dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "With a device connected, the tablet shows that device's charge and whether it is charging, instead of its own. Android's Chrome and other Chromium browsers share these; iPhone and iPad browsers do not, so there the tablet keeps its own battery.", nullptr, colW);
         return;
     }
     if (g_settingsTab == 5 && !g_mac) {   // ---- Media: the Music app and the pull-down's player; what the radio does to the music
         float y = top;
-        toggle("##medon", lx, y, colW, g_settings.mediaEnabled ? "Media controls: on" : "Media controls: off", g_settings.mediaEnabled, true);
+        toggle("##medon", lx, y, colW, g_settings.mediaEnabled ? "Media Controls: On" : "Media Controls: Off", g_settings.mediaEnabled, true);
         y += 42;
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "The Media app and the player in the pull-down: what is playing on this computer (Spotify, a browser, any player), with its cover.", nullptr, colW);
         y += 56;
-        textAt(dl, f.bold, lx, y, g_settings.mediaEnabled ? kInk : kMuted, "When the radios receive or transmit");
+        textAt(dl, f.bold, lx, y, g_settings.mediaEnabled ? kInk : kMuted, "When The Radios Receive Or Transmit");
         y += 24;
-        const char* modes[3] = {"No change", "Lower media", "Pause media"};
+        const char* modes[3] = {"No Change", "Lower Media", "Pause Media"};
         for (int i = 0; i < 3; ++i) {
             char id[16];
             std::snprintf(id, sizeof id, "##duck%d", i);
             if (pill(dl, f, id, modes[i], ImVec2(lx, y), ImVec2(lx + colW, y + 30), g_settings.mediaDuck == i, g_settings.mediaEnabled) && g_settings.mediaEnabled) { g_settings.mediaDuck = i; g_settingsChanged = true; }
             y += 36;
         }
-        // lowered: to how much, receiving and transmitting each (greyed unless "Lower media")
+        // lowered: to how much, receiving and transmitting each (greyed unless "Lower Media")
         const bool lowering = g_settings.mediaEnabled && g_settings.mediaDuck == 1;
         auto level = [&](const char* id, const char* name, float& v) {
             textAt(dl, f.small, lx, y + 7, lowering ? kInk : kMuted, name);
@@ -8002,11 +8008,11 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         if (smoothSlider(dl, f, "##brightness", ImVec2(lx, y - 2), ImVec2(lx + colW - autoW - 8, y + 30), br, 0.1f, 1.0f, 0, !g_settings.autoDim, txt) && !g_settings.autoDim) {
             g_settings.brightness = br; g_settingsChanged = true;
         }
-        toggle("##autodim", lx + colW - autoW, y, autoW, "Auto dim", g_settings.autoDim, true);
+        toggle("##autodim", lx + colW - autoW, y, autoW, "Auto Dim", g_settings.autoDim, true);
         y += 34;
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, g_settings.autoDim ? "Dims with the daylight: full until sunset, down to 45% once the sun is 8\xC2\xB0 below the horizon." : "Multiplied with the aircraft's own tablet brightness knob. Brighter uses the battery faster.", nullptr, colW);
         y += 40;
-        textAt(dl, f.bold, lx, y, kInk, "Favorites bar");
+        textAt(dl, f.bold, lx, y, kInk, "Favorites Bar");
         y += 22;
         float slots = (float)favSlots();   // steps of one icon; 0 takes the bar away
         char st2[16];
@@ -8017,10 +8023,10 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         const char* clockNames[2] = {"Zulu", "Local"};
         int clk = g_settings.statusLocalTime ? 1 : 0;
         y += 46;   // under the favorites bar
-        choice("##chclk", lx, y, colW, "Clock zone (tap the clock in the status bar too)", clockNames, clk, true);
+        choice("##chclk", lx, y, colW, "Clock Zone (tap the clock in the status bar too)", clockNames, clk, true);
         if (clk != (g_settings.statusLocalTime ? 1 : 0)) g_settings.statusLocalTime = clk == 1;
         {   // the street map: Light, Dark, or Auto (it fades to Dark with the daylight, as auto dim does)
-            textAt(dl, f.bold, lx, y, kInk, "Map display (the street map; Satellite is set on the map)");
+            textAt(dl, f.bold, lx, y, kInk, "Map Display (the street map; Satellite is set on the map)");
             y += 24;
             static const char* names[3] = {"Light", "Dark", "Auto"};
             const int cur = g_settings.mapDarkAuto ? 2 : g_settings.mapDark ? 1 : 0;
@@ -8033,13 +8039,13 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             }
             y += 42;
         }
-        const char* keyNames[2] = {"On-screen keys", "Physical keyboard"};
+        const char* keyNames[2] = {"On-Screen Keys", "Physical Keyboard"};
         int pk = g_settings.physicalKeys ? 1 : 0;
-        choice("##chkeys", lx, y, colW, "Typing in a text box", keyNames, pk, true);
+        choice("##chkeys", lx, y, colW, "Typing In A Text Box", keyNames, pk, true);
         if ((pk == 1) != g_settings.physicalKeys) { g_settings.physicalKeys = pk == 1; g_kbdKeysShown = false; }
         {   // the right column: the look, a background with its accent (all from the XPTablet logo's colours)
             float ry = top;
-            textAt(dl, f.bold, rx, ry, kInk, "Color theme");
+            textAt(dl, f.bold, rx, ry, kInk, "Color Theme");
             ry += 24;
             const float tw = std::floor((colW - 4 * 8) / 5), th = std::floor(tw * 480.0f / 800.0f);   // the screen's shape
             // the seasonal themes on now (all of them in the emulator): a row of their own under the ten, five at a time
@@ -8111,7 +8117,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             textAt(dl, f.small, rx, ry - 8, kMuted, "Hold a Custom theme to choose its colors and picture.");
             if (!seas.empty()) {   // the seasonal row's heading, and its pages
                 textAt(dl, f.bold, rx, ry + 12, kInk, "Seasonal");
-                textAt(dl, f.small, rx + 78, ry + 15, kMuted, "while it lasts");
+                textAt(dl, f.small, rx + 78, ry + 15, kMuted, "While It Lasts");
                 if (seasPages > 1) {
                     char pg[16]; std::snprintf(pg, sizeof pg, "%d / %d", seasPage + 1, seasPages);
                     const float bx = rx + colW;
@@ -8160,7 +8166,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         if (!eyeHeld && !typing) {}
     }
     if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; }
-    if (pill(dl, f, "##sbimport", s.plan.busy ? "Importing..." : "Import flight plan", ImVec2(w - 12 - 192, y + 2), ImVec2(w - 12, y + 34), true, !g_settings.simbriefUser.empty() && !s.plan.busy)) {
+    if (pill(dl, f, "##sbimport", s.plan.busy ? "Importing..." : "Import Flight Plan", ImVec2(w - 12 - 192, y + 2), ImVec2(w - 12, y + 34), true, !g_settings.simbriefUser.empty() && !s.plan.busy)) {
         act.planImport = true; g_kbd = false; g_typeInto = nullptr;
     }
     y += 44;
@@ -8168,7 +8174,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     y += 26;
     if (typing) { pageKeyboard(dl, f, w, h, act); return; }
     // Volanta's stream overlay (its widget on the home screen): the address the Volanta app serves it at
-    textAt(dl, f.bold, lx, y, kInk, "Volanta overlay");
+    textAt(dl, f.bold, lx, y, kInk, "Volanta Overlay");
     textAt(dl, f.small, lx + 150, y + 2, kMuted, "For the home screen's Volanta widget (Volanta, Settings, Stream overlay)");
     y += 22;
     textField(dl, f, "##volov", g_settings.volantaOverlay, ImVec2(lx, y), ImVec2(w - 12 - 200, y + 32), "http://localhost:53011", false, 0);
@@ -8181,13 +8187,13 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         dl->AddText(f.small, fontPx(f.small), ImVec2(lx + 130, y), kInk, kv.second.c_str(), nullptr, w - 12 - lx - 130 - 170);
         y += 21;
     }
-    if (pill(dl, f, "##clrtiles", "Clear map cache", ImVec2(w - 12 - 150, top + 150), ImVec2(w - 12, top + 182), false, true)) act.clearTileCache = true;
+    if (pill(dl, f, "##clrtiles", "Clear Map Cache", ImVec2(w - 12 - 150, top + 150), ImVec2(w - 12, top + 182), false, true)) act.clearTileCache = true;
     // the browser's cookies, logins, history and cache, all of it: asked twice, as it signs out of every site
     static double askedAt = -100;
     const double now = ImGui::GetTime();
     const bool asking = now - askedAt < 4.0;
-    if (pill(dl, f, "##clrweb", asking ? "Tap again: erase" : "Reset browser data", ImVec2(w - 12 - 150, top + 190), ImVec2(w - 12, top + 222), asking, true)) {
-        if (asking) { act.resetBrowserData = true; askedAt = -100; postNote("Browser data erased", "Signed out of every site; cookies, history and cache cleared.", APP_SETTINGS); }
+    if (pill(dl, f, "##clrweb", asking ? "Tap Again: Erase" : "Reset Browser Data", ImVec2(w - 12 - 150, top + 190), ImVec2(w - 12, top + 222), asking, true)) {
+        if (asking) { act.resetBrowserData = true; askedAt = -100; postNote("Browser Data Erased", "Signed out of every site; cookies, history and cache cleared.", APP_SETTINGS); }
         else askedAt = now;
     }
     if (asking) textRight(dl, f.small, w - 12, top + 228, kWarn, "Signs out of every site");
@@ -8195,7 +8201,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     // the browser's data and the map cache; asked twice, then it starts again (the boot) as new
     static double resetAskedAt = -100;
     const bool resetAsking = now - resetAskedAt < 4.0;
-    if (pill(dl, f, "##resetall", resetAsking ? "Tap again: reset all" : "Reset All", ImVec2(w - 12 - 150, top + 250), ImVec2(w - 12, top + 282), resetAsking, true)) {
+    if (pill(dl, f, "##resetall", resetAsking ? "Tap Again: Reset All" : "Reset All", ImVec2(w - 12 - 150, top + 250), ImVec2(w - 12, top + 282), resetAsking, true)) {
         if (resetAsking) { resetAskedAt = -100; act.resetBrowserData = true; act.clearTileCache = true; resetTablet(); return; }
         resetAskedAt = now;
     }
@@ -8593,7 +8599,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         const ImVec2 a(c.x - aw * 0.5f * sc, c.y - ah * 0.5f * sc), b(c.x + aw * 0.5f * sc, c.y + ah * 0.5f * sc);
         glass(dl, a, b, 18.0f, e);
         char t1[48], t2[64];
-        std::snprintf(t1, sizeof t1, "Low battery");
+        std::snprintf(t1, sizeof t1, "Low Battery");
         std::snprintf(t2, sizeof t2, "%d%% of battery remaining", g_lowAlert);
         const int A = (int)(255 * e);
         textCentered(dl, f.bold, c.x, a.y + 22, IM_COL32(240, 244, 250, A), t1);
@@ -8738,7 +8744,7 @@ void drawWidget(ImDrawList* dl, const Fonts& f, const SimState& s, int kind, ImV
         const MediaState& m = s.media;
         if (!m.active) {
             textAt(dl, f.small, px, a.y + 10, kMuted, "Now Playing");
-            textCentered(dl, f.small, (a.x + b.x) * 0.5f, a.y + H * 0.5f, kMuted, m.supported ? "Nothing playing" : "Media controls are not available");
+            textCentered(dl, f.small, (a.x + b.x) * 0.5f, a.y + H * 0.5f, kMuted, m.supported ? "Nothing Playing" : "Media controls are not available");
             break;
         }
         const float cs = std::min(64.0f, H * 0.4f);
@@ -8844,7 +8850,7 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
             x += bw + 8;
         }
         static std::string was;
-        textField(dl, f, "##storesearch", g_storeSearch, ImVec2(std::max(x + 8, w - 230), top), ImVec2(w - 16, top + 30), "Search apps", false);
+        textField(dl, f, "##storesearch", g_storeSearch, ImVec2(std::max(x + 8, w - 230), top), ImVec2(w - 16, top + 30), "Search Apps", false);
         if (!g_storeSearch.empty() && pill(dl, f, "##storeclr", "x", ImVec2(w - 46, top + 3), ImVec2(w - 20, top + 27), false, true)) g_storeSearch.clear();
         if (was != g_storeSearch) { was = g_storeSearch; g_storeScroll = 0; g_storeFadeT0 = ImGui::GetTime(); }
     }
@@ -8895,7 +8901,7 @@ void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         {"Stats", "Your hours, flights and the network's numbers", "https://stats.vatsim.net", IM_COL32(40, 120, 220, 255)},
         {"AIP", "Airports, their controllers and procedures (myVATSIM)", "https://my.vatsim.net", IM_COL32(40, 160, 120, 255)},
         {"Events", "What is on across the network", "https://my.vatsim.net/events", IM_COL32(220, 120, 40, 255)},
-        {"Pilot resources", "Guides, charts, maps and tools", "https://vatsim.net/docs/pilots/pilots", IM_COL32(140, 90, 220, 255)},
+        {"Pilot Resources", "Guides, charts, maps and tools", "https://vatsim.net/docs/pilots/pilots", IM_COL32(140, 90, 220, 255)},
         {"natTrak", "North Atlantic oceanic clearances", "https://nattrak.vatsim.net", IM_COL32(20, 90, 150, 255)},
         {"xPilot", "Its messages, nearby ATC and more, opened in the sim", nullptr, IM_COL32(30, 44, 70, 255)},
     };
@@ -8918,13 +8924,14 @@ void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
 
 // ---- xPilot: its own windows opened from the tablet (its commands, when found in the sim), and what its radios are doing
 struct XpCmd { const char* cmd; const char* label; const char* what; };
-const XpCmd kXpCmds[] = {
+const XpCmd kXpCmds[] = {   // xPilot's own commands, as its plugin names them (github.com/xpilot-project/xpilot, plugin/src/plugin.cpp)
     {"xpilot/toggle_text_message_console", "Messages", "Its text window: ATC, private and frequency messages"},
-    {"xpilot/toggle_nearby_atc_window", "Nearby ATC", "The controllers in range, their frequencies"},
+    {"xpilot/toggle_nearby_atc", "Nearby ATC", "The controllers in range, their frequencies"},
     {"xpilot/toggle_notification_panel", "Notifications", "Its notification panel"},
-    {"xpilot/contact_atc", "Contact ATC", "Asks the controller to contact you"},
     {"xpilot/toggle_aircraft_labels", "Aircraft Labels", "Other aircraft's labels, on or off"},
-    {"xpilot/toggle_settings_window", "Settings", "xPilot's own settings"},
+    {"xpilot/toggle_tcas", "TCAS Control", "xPilot's traffic on the TCAS, on or off"},
+    {"xpilot/toggle_default_atis", "X-Plane ATIS", "X-Plane's own ATIS, on or off"},
+    {"xpilot/split_audio_channels", "Split Audio", "COM1 in one ear, COM2 in the other"},
 };
 void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const float top = kStatusH + kHeaderH + 10;
@@ -8932,9 +8939,18 @@ void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     for (const XpCmd& c : kXpCmds) for (const std::string& n : s.xpilotCmds) if (n == c.cmd) xp.push_back(&c);
     card(dl, ImVec2(12, top), ImVec2(w - 12, top + 76), f, "XPILOT");
     const bool loaded = !s.xpilotCmds.empty();
-    textAt(dl, f.bold, 28, top + 30, loaded ? kGood : kWarn, loaded ? "xPilot is loaded in the sim" : "xPilot is not loaded (its plugin is not running)");
-    std::string radio = s.media.radioTx ? "Transmitting" : s.media.radioRx && s.media.radioSource == "xPilot" ? "Receiving" : "Radio quiet";
-    textAt(dl, f.small, 28, top + 52, kMuted, (radio + "  \xC2\xB7  connecting and typing stay in xPilot's own app and windows").c_str());
+    // its own status: connected (as whom, how many aircraft it shows) or not, and the stations on the radios
+    std::string head = !loaded ? "xPilot is not loaded (its plugin is not running)"
+                     : s.xpilotLogin > 0 ? "Connected" + (s.xpilotCallsign.empty() ? std::string() : " As " + s.xpilotCallsign) + (s.xpilotLogin == 2 ? " (Observer)" : "")
+                     : s.xpilotLogin == 0 ? "Not Connected" : "xPilot Is Loaded";
+    textAt(dl, f.bold, 28, top + 30, !loaded ? kWarn : s.xpilotLogin > 0 ? kGood : kInk, head.c_str());
+    std::string line = s.media.radioTx ? "Transmitting" : s.media.radioRx && s.media.radioSource == "xPilot" ? "Receiving" : "Radio quiet";
+    if (s.xpilotLogin > 0) {
+        if (!s.xpilotCom1.empty()) line += "  \xC2\xB7  COM1 " + s.xpilotCom1;
+        if (!s.xpilotCom2.empty()) line += "  \xC2\xB7  COM2 " + s.xpilotCom2;
+        line += "  \xC2\xB7  " + std::to_string(s.xpilotAircraft) + " aircraft";
+    } else line += "  \xC2\xB7  connect in the xPilot app; typing stays in xPilot's own windows";
+    textAt(dl, f.small, 28, top + 52, kMuted, line.c_str());
     if (!loaded) return;
     const float y0 = top + 90, gap = 12, cols = 3, tw = std::floor((w - 24 - gap * (cols - 1)) / cols);
     const int rows = ((int)xp.size() + 2) / 3;
@@ -9112,7 +9128,7 @@ void logbookPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
     // this flight, as it goes
     card(dl, ImVec2(12, top), ImVec2(w - 12, top + 78), f, "THIS FLIGHT");
     const LogLive& L = g_live;
-    static const char* phases[4] = {"Parked: the log starts at block out (engines running, moving)", "Taxiing out", "Airborne", "Landed: taxiing in"};
+    static const char* phases[4] = {"Parked: the log starts at block out (engines running, moving)", "Taxiing Out", "Airborne", "Landed: Taxiing In"};
     textAt(dl, f.bold, 28, top + 32, L.phase ? kGood : kMuted, phases[L.phase]);
     if (L.phase) {
         char b[160]; std::snprintf(b, sizeof b, "%s  %s   Out %s   Off %s   On %s   %.0f nm", L.e.aircraft.c_str(), L.e.from.c_str(), L.e.out.c_str(), L.e.off.empty() ? "--:--" : L.e.off.c_str(), L.e.on.empty() ? "--:--" : L.e.on.c_str(), L.e.nm);
@@ -9206,7 +9222,7 @@ void timersPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     auto dur = [](long long secs) { if (secs <= 0) return std::string("--"); char b[16]; std::snprintf(b, sizeof b, "%d:%02d", (int)(secs / 3600), (int)(secs / 60 % 60)); return std::string(b); };
     const long long block = L.phase && m.utc > 0 ? m.utc - L.outT : 0, air = L.phase >= 2 && m.utc > 0 ? (L.phase == 2 ? m.utc : L.onT) - L.offT : 0;
     struct Row { const char* k; std::string v; };
-    std::vector<Row> rows = {{"Block time", dur(block)}, {"Air time", dur(air)}};
+    std::vector<Row> rows = {{"Block Time", dur(block)}, {"Air Time", dur(air)}};
     const FlightPlan& p = s.plan;
     if (p.loaded && !p.legs.empty() && m.havePos) {
         const FlightPlan::Leg& d = p.legs.back();
@@ -9222,7 +9238,7 @@ void timersPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             if (toTod > 0) std::snprintf(b, sizeof b, "in %.0f nm", toTod); else std::snprintf(b, sizeof b, "passed");
             std::string v = b;
             if (toTod > 0 && m.gsKt > 40) v += "  (" + std::to_string((int)(toTod / m.gsKt * 60)) + " min)";
-            rows.push_back({"Top of descent", v});
+            rows.push_back({"Top Of Descent", v});
         }
     } else rows.push_back({"Destination", "Import a SimBrief plan for the distance, ETA and top of descent"});
     float y = a3.y + 38;
@@ -9275,7 +9291,7 @@ void acarsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
     textField(dl, f, "##accall", g_acCall, ImVec2(x, y), ImVec2(x + 112, y + 32), s.plan.loaded && !s.plan.callsign.empty() ? s.plan.callsign.c_str() : "Callsign", false); x += 120;
     textField(dl, f, "##acstn", g_acStation, ImVec2(x, y), ImVec2(x + 100, y + 32), "Station", false); x += 108;
     const bool logged = g_acLogon != 0;
-    if (pill(dl, f, "##aclogon", logged ? "CPDLC logoff" : "CPDLC logon", ImVec2(x, y), ImVec2(x + 132, y + 32), g_acLogon == 2, ready && (logged || g_acStation.size() >= 3))) {
+    if (pill(dl, f, "##aclogon", logged ? "CPDLC Logoff" : "CPDLC Logon", ImVec2(x, y), ImVec2(x + 132, y + 32), g_acLogon == 2, ready && (logged || g_acStation.size() >= 3))) {
         if (logged) { acSend(s, act, g_acLogonTo, "cpdlc", cpdlcPacket(++g_acMin, 0, "N", "LOGOFF"), "LOGOFF"); g_acLogon = 0; }
         else { g_acLogonTo = g_acStation; g_acLogon = 1; acSend(s, act, g_acStation, "cpdlc", cpdlcPacket(++g_acMin, 0, "Y", "REQUEST LOGON"), "REQUEST LOGON"); }
     }
@@ -9289,7 +9305,7 @@ void acarsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
     }
     y += 44; x = 28;
     textField(dl, f, "##acto", g_acTo, ImVec2(x, y), ImVec2(x + 112, y + 32), "To", false); x += 120;
-    textField(dl, f, "##actext", g_acText, ImVec2(x, y), ImVec2(w - 132, y + 32), "Telex message", false);
+    textField(dl, f, "##actext", g_acText, ImVec2(x, y), ImVec2(w - 132, y + 32), "Telex Message", false);
     if (pill(dl, f, "##acsend", "Send", ImVec2(w - 124, y), ImVec2(w - 28, y + 32), false, ready && g_acTo.size() >= 3 && !g_acText.empty())) {
         acSend(s, act, g_acTo, "telex", g_acText, g_acText); g_acText.clear();
         if (g_typeInto == &g_acText) { g_kbd = false; g_typeInto = nullptr; }
@@ -9376,7 +9392,7 @@ void seasonalStep() {
         if (g_settings.seasonalTold.size() > 400) g_settings.seasonalTold.erase(0, g_settings.seasonalTold.find(' ', g_settings.seasonalTold.size() - 400) + 1);
         g_settingsChanged = true;
         const bool month = k >= 14;
-        postNote("Color theme", std::string("The ") + kSeasonal[k].name + (month ? " theme is here for the month" : " theme is here for the holiday") + ": Settings, Display, Seasonal", APP_SETTINGS);
+        postNote("Color Theme", std::string("The ") + kSeasonal[k].name + (month ? " theme is here for the month" : " theme is here for the holiday") + ": Settings, Display, Seasonal", APP_SETTINGS);
     }
 }
 void resetLogAndTimers() { g_acLog.clear(); g_acStation.clear(); g_acTo.clear(); g_acText.clear(); g_acAtis.clear(); g_acCall.clear(); g_acLogon = 0; g_acLogonTo.clear(); g_log.clear(); g_logChanged = true; g_live = LogLive(); g_swStart = -1; g_swAcc = 0; g_cdStart = -1; g_cdSet = g_cdLeft = 60; g_cdRang = false; }
@@ -9432,7 +9448,7 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         }
         return;
     }
-    if (pill(dl, f, "##gamesback", "All games", ImVec2(16, top + 12), ImVec2(116, top + 40), false, true)) { g_game = -1; return; }
+    if (pill(dl, f, "##gamesback", "All Games", ImVec2(16, top + 12), ImVec2(116, top + 40), false, true)) { g_game = -1; return; }
     if (g_game >= 2) {   // an arcade game: its field at the left, the score and its pad at the right
         const int ag = g_game - 2;
         const float panelW = 220;
@@ -9511,7 +9527,7 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         std::snprintf(t, sizeof t, "Best %d", g_settings.arcadeBest[ag]); textAt(dl, f.body, px0, y, kMuted, t);
         if (arcade::lives(ag) >= 0) { std::snprintf(t, sizeof t, "Lives %d", std::max(0, arcade::lives(ag))); textRight(dl, f.body, px1, y, kMuted, t); }
         y += 30;
-        if (pill(dl, f, "##arcnew", "New game", ImVec2(px0, y), ImVec2(px1, y + 30), false, true)) { arcade::reset(ag); g_arcKeys = true; }
+        if (pill(dl, f, "##arcnew", "New Game", ImVec2(px0, y), ImVec2(px1, y + 30), false, true)) { arcade::reset(ag); g_arcKeys = true; }
         y += 40;
         dl->AddText(f.small, fontPx(f.small), ImVec2(px0, y), kMuted, arcade::help(ag), nullptr, px1 - px0);
         return;
@@ -9524,7 +9540,7 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         char t[48];
         std::snprintf(t, sizeof t, "Score %d", g_score); textAt(dl, f.title, px, o.y + 4, kInk, t);
         std::snprintf(t, sizeof t, "Best %d", g_best); textAt(dl, f.body, px, o.y + 42, kMuted, t);
-        if (pill(dl, f, "##2048new", "New game", ImVec2(px, o.y + 78), ImVec2(px + 140, o.y + 108), false, true)) new2048();
+        if (pill(dl, f, "##2048new", "New Game", ImVec2(px, o.y + 78), ImVec2(px + 140, o.y + 108), false, true)) new2048();
         ImGui::SetCursorScreenPos(o);
         ImGui::InvisibleButton("##2048board", ImVec2(side, side));
         static ImVec2 from;
@@ -9586,7 +9602,7 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         }
         if (g_2048Over) {
             dl->AddRectFilled(o, ImVec2(o.x + side, o.y + side), IM_COL32(238, 228, 218, 170), 14.0f);
-            textCentered(dl, f.title, o.x + side * 0.5f, o.y + side * 0.5f - 14, IM_COL32(119, 110, 101, 255), "No moves left");
+            textCentered(dl, f.title, o.x + side * 0.5f, o.y + side * 0.5f - 14, IM_COL32(119, 110, 101, 255), "No Moves Left");
         }
         dl->AddText(f.small, fontPx(f.small), ImVec2(px, o.y + 126), kMuted, g_2048Keys ? "Swipe on the board, or play with W A S D or the arrow keys (press beside the board to give them back to X-Plane)." : "Swipe on the board, or press it to play with W A S D or the arrow keys.", nullptr, w - 16 - px);
         if (g_2048Keys) dl->AddRect(ImVec2(o.x - 3, o.y - 3), ImVec2(o.x + side + 3, o.y + side + 3), accentLite(220), 16.0f, 0, 2.0f);   // (it has the keys)
@@ -9596,7 +9612,7 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
     const float side = std::floor(std::min(h - top - 62, 340.0f)), cell = side / 3;
     const ImVec2 o(std::floor((w - side) * 0.5f) - 120, top + 52);
     const float px = o.x + side + 40;
-    if (pill(dl, f, "##tttnew", "New game", ImVec2(px, o.y + 52), ImVec2(px + 140, o.y + 82), false, true)) { for (int& c : g_ttt) c = 0; g_tttResult = 0; }
+    if (pill(dl, f, "##tttnew", "New Game", ImVec2(px, o.y + 52), ImVec2(px + 140, o.y + 82), false, true)) { for (int& c : g_ttt) c = 0; g_tttResult = 0; }
     for (int i = 0; i < 9; ++i) {
         const ImVec2 c0(o.x + (i % 3) * cell, o.y + (i / 3) * cell), c1(c0.x + cell, c0.y + cell);
         char id[16]; std::snprintf(id, sizeof id, "##ttt%d", i);
@@ -9618,7 +9634,7 @@ void gamesPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         dl->AddLine(ImVec2(o.x + k * cell, o.y + 8), ImVec2(o.x + k * cell, o.y + side - 8), IM_COL32(255, 255, 255, 90), 3.0f);
         dl->AddLine(ImVec2(o.x + 8, o.y + k * cell), ImVec2(o.x + side - 8, o.y + k * cell), IM_COL32(255, 255, 255, 90), 3.0f);
     }
-    const char* msg = g_tttResult == 1 ? "You win!" : g_tttResult == 2 ? "The tablet wins" : g_tttResult == 3 ? "A draw" : "Your move (X)";
+    const char* msg = g_tttResult == 1 ? "You Win!" : g_tttResult == 2 ? "The Tablet Wins" : g_tttResult == 3 ? "A Draw" : "Your Move (X)";
     textAt(dl, f.title, px, o.y + 4, g_tttResult == 1 ? kGood : kInk, msg);
 }
 

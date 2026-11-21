@@ -366,6 +366,9 @@ struct SimState {
     int batteryPct = 100;         // the tablet's own battery
     LocalConnectState local;      // Local Connect (Settings)
     AcarsState acars;             // Hoppie's ACARS (the ACARS app)
+    int xpilotLogin = -1;         // xPilot's connection (its xpilot/login/status): 0 not connected, 1 a pilot, 2 an observer; -1 not known
+    std::string xpilotCallsign, xpilotCom1, xpilotCom2;   // its callsign on the network, the stations tuned on COM1 and COM2
+    int xpilotAircraft = 0;       // the aircraft it is drawing
     std::vector<std::string> xpilotCmds;   // xPilot's own commands found in the sim (its message window, nearby ATC...): buttons for them
     float fuelKg = -1;            // the fuel on board, kg (-1 unknown): the logbook's fuel used
     bool charging = false;        // the aircraft's electrical system is feeding it

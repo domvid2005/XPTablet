@@ -132,7 +132,7 @@ struct Contrail {
         }
         static const float ang[4] = {0, kPi * 0.5f, kPi, -kPi * 0.5f};
         plane(dl, v.P(trail[0].first + 0.5f, trail[0].second + 0.5f), v.S(1.25f), ang[dir], over ? rgba(255, 120, 110) : rgba(250, 252, 255));
-        if (over) banner(dl, v, W, H, big, bigPx, small, smallPx, "Airspace bust", "New game to fly again");
+        if (over) banner(dl, v, W, H, big, bigPx, small, smallPx, "Airspace Bust", "New Game to fly again");
         else if (ready) banner(dl, v, W, H, big, bigPx, small, smallPx, "Contrail", "A direction to take off");
     }
 };
@@ -293,7 +293,7 @@ struct TaxiRush {
         const ImVec2 mp = pos(me);
         const bool hit = deadT > 0;
         plane(dl, v.P(mp.x, mp.y), v.S(0.95f), me.dir >= 0 ? ang[me.dir] : -kPi * 0.5f, hit ? rgba(255, 110, 100) : rgba(250, 252, 255));
-        if (over) banner(dl, v, W, H, big, bigPx, small, smallPx, "Taxi Rush over", "New game to taxi again");
+        if (over) banner(dl, v, W, H, big, bigPx, small, smallPx, "Taxi Rush Over", "New Game to taxi again");
         else if (ready) { char t2[32]; std::snprintf(t2, sizeof t2, "Taxi Rush  -  level %d", level); banner(dl, v, W, H, big, bigPx, small, smallPx, t2, "A direction to start taxiing"); }
     }
 };
@@ -409,7 +409,7 @@ struct SkyPatrol {
         for (const auto& h : hail) dl->AddCircleFilled(v.P(h.x, h.y), v.S(2.4f), rgba(220, 240, 255), 0);
         if (!(hitT > 0 && std::fmod(t, 0.2f) < 0.1f)) plane(dl, v.P(px, H - 20), v.S(24), -kPi * 0.5f, rgba(250, 252, 255));
         dl->PopClipRect();
-        if (over) banner(dl, v, W, H, big, bigPx, small, smallPx, "Patrol over", "New game to scramble again");
+        if (over) banner(dl, v, W, H, big, bigPx, small, smallPx, "Patrol Over", "New Game to scramble again");
         else if (ready) { char t2[32]; std::snprintf(t2, sizeof t2, "Sky Patrol  -  wave %d", wave); banner(dl, v, W, H, big, bigPx, small, smallPx, t2, "Left and right to fly, the action button to fire"); }
     }
 };
@@ -555,8 +555,8 @@ struct HangarClimb {
             dl->AddLine(v.P(x + 3.5f * faceX, y - 13), v.P(x + 6 * faceX, y - 10), rgba(250, 140, 30), v.S(1.6f));
         }
         dl->PopClipRect();
-        if (over) banner(dl, v, W, H, big, bigPx, small, smallPx, "Hangar closed", "New game to climb again");
-        else if (winT > 0) banner(dl, v, W, H, big, bigPx, small, smallPx, "Loader stopped!", "On to the next hangar");
+        if (over) banner(dl, v, W, H, big, bigPx, small, smallPx, "Hangar Closed", "New Game to climb again");
+        else if (winT > 0) banner(dl, v, W, H, big, bigPx, small, smallPx, "Loader Stopped!", "On to the next hangar");
         else if (ready) { char t2[40]; std::snprintf(t2, sizeof t2, "Hangar Climb  -  hangar %d", round); banner(dl, v, W, H, big, bigPx, small, smallPx, t2, "Reach the red stop at the top; the action button jumps"); }
     }
 };
@@ -604,9 +604,9 @@ struct Cockpit21 {
         else if (natural && !dNatural) { bank += bet + bet * 3 / 2; msg = "Twenty-one! Paid 3 to 2"; }
         else if (dNatural && !natural) msg = "The dealer has twenty-one";
         else if (b > 21) { bank += bet * 2; msg = "The dealer is over: you win"; }
-        else if (a > b) { bank += bet * 2; msg = "You win"; }
+        else if (a > b) { bank += bet * 2; msg = "You Win"; }
         else if (a == b) { bank += bet; msg = "A push: your miles back"; }
-        else msg = "The dealer wins";
+        else msg = "The Dealer Wins";
         if (doubled) bet /= 2;
         phase = 3;
         if (bank < 10) msg += "  -  out of miles";
@@ -621,7 +621,7 @@ struct Cockpit21 {
         if (phase == 0 || phase == 3) {
             b.push_back({16, 204, 52, 230, 10, "-", bet > 10});
             b.push_back({122, 204, 158, 230, 11, "+", bet + 10 <= std::max(10, bank)});
-            b.push_back({214, 204, 304, 230, 1, phase == 3 ? "Deal again" : "Deal", bank >= 10});
+            b.push_back({214, 204, 304, 230, 1, phase == 3 ? "Deal Again" : "Deal", bank >= 10});
         } else if (phase == 1) {
             b.push_back({16, 204, 106, 230, 2, "Hit", true});
             b.push_back({115, 204, 205, 230, 3, "Stand", true});
@@ -846,7 +846,7 @@ struct CargoLoad {
         for (int y = 0; y < N; ++y) for (int x = 0; x < N; ++x) if (grid[y][x]) box(dl, v.P(gx + x * cell, gy + y * cell), v.P(gx + (x + 1) * cell, gy + (y + 1) * cell), colour(grid[y][x] - 1));
         if (flashT > 0) for (const auto& c : flashCells) dl->AddRectFilled(v.P(gx + c.first * cell, gy + c.second * cell), v.P(gx + (c.first + 1) * cell, gy + (c.second + 1) * cell), rgba(255, 255, 255, (int)(flashT / 0.35f * 200)), v.S(3));
         // the tray
-        dl->AddText(small, smallPx, v.P(232, 3), rgba(200, 210, 225), "Next up");
+        dl->AddText(small, smallPx, v.P(232, 3), rgba(200, 210, 225), "Next Up");
         for (int i = 0; i < 3; ++i) {
             float cx, cy; slot(i, cx, cy);
             dl->AddRectFilled(v.P(cx - 36, cy - 34), v.P(cx + 36, cy + 34), rgba(40, 46, 60), v.S(6));
@@ -861,7 +861,7 @@ struct CargoLoad {
             const float ox = dragX - p.w * cell * 0.5f, oy = dragY - 34 - p.h * cell * 0.5f;
             for (const auto& c : p.cells) box(dl, v.P(ox + c.first * cell, oy + c.second * cell), v.P(ox + (c.first + 1) * cell, oy + (c.second + 1) * cell), colour(p.col));
         }
-        if (over) banner(dl, v, W, H, big, bigPx, small, smallPx, "Hold closed", "No container fits: New game to load again");
+        if (over) banner(dl, v, W, H, big, bigPx, small, smallPx, "Hold Closed", "No container fits: New Game to load again");
     }
 };
 

@@ -32,7 +32,7 @@ def main(src, out):
     ]
     for c in std.findall("checklist"):
         title = c.findtext("title").strip()
-        lines.append("# " + title.title().replace("/Before", "/before").replace("/Climb", "/climb"))
+        lines.append("# " + title.title())
         for it in c.iter("item"):
             name = (it.findtext("name") or "").strip()
             vals = [v.text.strip() for v in it.findall("value") if v.text]

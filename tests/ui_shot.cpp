@@ -485,7 +485,8 @@ int main(int argc, char** argv) {
             if (mxA < 220) { std::printf("FAIL: the accent is bright enough to read\n"); ++failures; }
         }
         {   // xPilot's commands as buttons on the VATSIM page (only those found)
-            SimState u = t; u.xpilotCmds = {"xpilot/toggle_nearby_atc_window", "xpilot/toggle_text_message_console"};
+            SimState u = t; u.xpilotCmds = {"xpilot/toggle_nearby_atc", "xpilot/toggle_text_message_console", "xpilot/toggle_notification_panel", "xpilot/toggle_aircraft_labels", "xpilot/toggle_tcas", "xpilot/toggle_default_atis", "xpilot/split_audio_channels"};
+            u.xpilotLogin = 1; u.xpilotCallsign = "AAL1234"; u.xpilotCom1 = "SBN_TWR"; u.xpilotAircraft = 14;
             const auto keepInst = settings().installed; settings().installed.push_back("vatsimhub");
             shot(u, APP_VATSIMHUB, "vatsimhub_group");
             settings().installed.push_back("xpilot"); layoutHome();   // (installed in an earlier build)
@@ -494,6 +495,11 @@ int main(int argc, char** argv) {
                 ImGui::NewFrame(); Actions act; build(fonts, u, 800, kLogicalH, act); ImGui::Render(); } };
             tp0(-100, -100); tp0(670, 360);   // (the xPilot page, from the VATSIM app's bubble)
             if (currentApp() != APP_XPILOT) { std::printf("FAIL: the xPilot page from the VATSIM app (%d)\n", currentApp()); ++failures; }
+            {   std::vector<Batch> b;
+                for (int i = 0; i < 12; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.05f; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
+                    ImGui::NewFrame(); Actions act; build(fonts, u, 800, kLogicalH, act); ImGui::Render(); b.clear(); clipDrawData(ImGui::GetDrawData(), b); }
+                io.DeltaTime = 1.0f / 60.0f;
+                Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_xpilot_page.png"); }
             std::string pressed;
             for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(130, 200); io.AddMouseButtonEvent(0, k == 1 || k == 2);
                 ImGui::NewFrame(); Actions act; build(fonts, u, 800, kLogicalH, act); ImGui::Render(); if (!act.xpilotCmd.empty()) pressed = act.xpilotCmd; }
@@ -1111,6 +1117,13 @@ int main(int argc, char** argv) {
             tap(st, 80, 364);   // Accounts
             shot(st, APP_SETTINGS, "settings_accounts");
             if (settingsTabShown() != 7) { std::printf("FAIL: the Accounts tab of Settings was not opened (%d)\n", settingsTabShown()); ++failures; }
+            {   // where the host cannot serve Local Connect yet (the plugin today), Settings has no page for it: Accounts takes its place
+                SimState nl = st; nl.local.status = -2;
+                tap(nl, 80, 196); tap(nl, 80, 322);
+                if (settingsTabShown() != 7) { std::printf("FAIL: without Local Connect, Accounts is in its place (%d)\n", settingsTabShown()); ++failures; }
+                shot(nl, APP_SETTINGS, "settings_no_local_connect");
+                tap(st, 80, 196);
+            }
             tap(st, 80, 322);   // Local Connect
             {   // on, an Android phone connected (its battery the tablet's), an iPhone paired before, an iPad asking to pair
                 SimState lc = st;

@@ -883,14 +883,25 @@ void acarsStep(const xpt::Actions& act) {
 }
 // xPilot's own commands (its message window, nearby ATC...): looked for now and then (it may load after us), pressed for the tablet
 void xpilotStep(const xpt::Actions& act) {
-    static const char* const names[] = {"xpilot/toggle_text_message_console", "xpilot/toggle_nearby_atc_window", "xpilot/toggle_notification_panel",
-                                        "xpilot/contact_atc", "xpilot/toggle_aircraft_labels", "xpilot/toggle_settings_window"};
+    static const char* const names[] = {"xpilot/toggle_text_message_console", "xpilot/toggle_nearby_atc", "xpilot/toggle_notification_panel",
+                                        "xpilot/toggle_aircraft_labels", "xpilot/toggle_tcas", "xpilot/toggle_default_atis", "xpilot/split_audio_channels"};
     if ((XPLMGetCycleNumber() % 256) == 3) {
         std::vector<std::string> found;
         for (const char* n : names) if (XPLMFindCommand(n)) found.push_back(n);
         if (found != g_sim.xpilotCmds) { g_sim.xpilotCmds = found; logMsg("xPilot: %d command(s) for the tablet", (int)found.size()); }
     }
     if (!act.xpilotCmd.empty()) if (XPLMCommandRef c = XPLMFindCommand(act.xpilotCmd.c_str())) XPLMCommandOnce(c);
+    if ((XPLMGetCycleNumber() % 32) == 5) {   // its connection, callsign, tuned stations and aircraft count (xPilot's own datarefs)
+        static XPLMDataRef st = nullptr, cs = nullptr, c1 = nullptr, c2 = nullptr, na = nullptr;
+        if (!st && !g_sim.xpilotCmds.empty()) {
+            st = XPLMFindDataRef("xpilot/login/status"); cs = XPLMFindDataRef("xpilot/login/callsign");
+            c1 = XPLMFindDataRef("xpilot/com1_station_callsign"); c2 = XPLMFindDataRef("xpilot/com2_station_callsign"); na = XPLMFindDataRef("xpilot/num_aircraft");
+        }
+        auto text = [](XPLMDataRef r) { char b[64] = ""; if (r) { const int n = XPLMGetDatab(r, b, 0, 63); b[std::max(0, std::min(63, n))] = 0; } return std::string(b); };
+        g_sim.xpilotLogin = st && !g_sim.xpilotCmds.empty() ? XPLMGetDatai(st) : -1;
+        g_sim.xpilotCallsign = text(cs); g_sim.xpilotCom1 = text(c1); g_sim.xpilotCom2 = text(c2);
+        g_sim.xpilotAircraft = na ? XPLMGetDatai(na) : 0;
+    }
 }
 void acarsStop() {
     { std::lock_guard<std::mutex> lk(g_acMx); g_acStop = true; g_acQ.clear(); }
@@ -2686,10 +2697,11 @@ float flightLoop(float dt, float, int, void*) {
     g_battery = std::max(0.0f, std::min(100.0f, g_battery + sec * (fed ? 100.0f / 5400.0f : -100.0f / 21600.0f)));
     g_sim.batteryPct = (int)std::lround(g_battery);
     g_sim.charging = fed;
-    {   // Local Connect: the address a phone opens (this computer on the home network); the server for it comes in a later version
+    {   // Local Connect: the address a phone opens (this computer on the home network). Its server is not built yet, so the
+        // status is always -2 and Settings leaves its page out (nothing is offered that does not work)
         static double lookedAt = -100;
         xpt::LocalConnectState& L = g_sim.local;
-        if (!xpt::settings().localConnect) { L.status = 0; L.pairCode.clear(); for (auto& d : L.devices) d.connected = false; }
+        if (!xpt::settings().localConnect) { L.status = -2; L.pairCode.clear(); for (auto& d : L.devices) d.connected = false; }
         else {
             const double now = XPLMGetElapsedTime();
             if (now - lookedAt > 10) {   // (the network can change: looked at again every 10 s)
