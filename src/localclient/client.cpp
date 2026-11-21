@@ -3,8 +3,8 @@
 // the page connects back over a WebSocket, pairs once with the code shown in the sim, then takes the sim's state as it changes and
 // sends back what the user asks for (src/localwire.h). Built by tools/build_localclient.sh into one page.
 //
-// What this copy does itself: the map's tiles (fetched by the device), the notification chime, its own keyboard. What stays the
-// computer's: the web apps' pages, document pictures and background pictures (not sent in this version).
+// What this copy does itself: the map's tiles (fetched by the device), the notification chime, its own keyboard. What only the
+// computer can show is left out here altogether (tabletui's deviceCannot): the web apps, the Browser, Documents, the briefing PDF.
 #include <emscripten.h>
 #include <emscripten/html5.h>
 #include <GLES3/gl3.h>
@@ -89,15 +89,6 @@ EM_JS(void, js_battery_watch, (), {
     }).catch(() => {});
 });
 EM_JS(void, js_battery_again, (), { if (Module.lcBattery) Module.lcBattery(); });
-// a web app's page is the computer's: here its site can be opened in the device's own browser (a real link, so the tap opens it)
-EM_JS(void, js_weblink, (const char* url, const char* name), {
-    const a = document.getElementById('weblink');
-    if (!a) return;
-    const u = UTF8ToString(url);
-    if (!u) { a.style.display = 'none'; return; }
-    if (a.getAttribute('href') !== u) { a.setAttribute('href', u); a.textContent = 'Open ' + UTF8ToString(name) + ' In This Device\'s Browser'; }
-    a.style.display = 'block';
-});
 EM_JS(void, js_chime, (const unsigned char* pcm, int bytes, float vol), {
     try {
         const ctx = Module.chimeCtx || (Module.chimeCtx = new (window.AudioContext || window.webkitAudioContext)());
@@ -299,7 +290,7 @@ void localize() {
     g_s.map.tile = tile;
     g_s.browser = BrowserState();
     g_s.browser.status = -3;
-    g_s.browser.message = "Web apps run on the computer's tablet. Use the button below to open this one in this device's own browser.";
+    g_s.browser.message = "Web pages are shown on the computer's tablet.";
     g_s.docs.tex = 0; g_s.bgTex = 0; g_s.media.art = 0; g_s.media.artPrev = 0;
 }
 
@@ -314,12 +305,11 @@ void liveFrame(double now) {
         send("A" + bytes);
         g_lastActions = bytes; g_lastActionsAt = now;
     }
-    if (takeSettingsChanged()) g_settingsDirty = true;
+    if (takeSettingsChanged()) { g_settingsDirty = true; js_store("xptablet.lc.layout", wire::layoutOf(settingsToText()).c_str()); }   // (and its arrangement kept by the browser)
     if (g_settingsDirty && now - g_settingsSentAt > 0.25) { send("T" + settingsToText()); g_settingsDirty = false; g_settingsSentAt = now; }
     if (takeNotesChanged()) g_notesDirty = true;
     if (g_notesDirty && now - g_notesSentAt > 1.0) { send("N" + notesToText()); g_notesDirty = false; g_notesSentAt = now; }
     takeLogbookChanged();   // (the logbook is the computer's)
-    js_weblink(currentWebUrl(), currentWebName());
     static int lastChime = -1;
     const int seq = chimeSeq();
     if (lastChime >= 0 && seq != lastChime && settings().notifyVolume > 0.001f) js_chime(xpt_asset_notify, (int)xpt_asset_notify_size, settings().notifyVolume);
@@ -339,7 +329,6 @@ void frame() {
     ImGui::NewFrame();
     if (g_phase == P_LIVE) liveFrame(now);
     else {
-        js_weblink("", "");
         const int r = localClientScreen(g_f, g_logW, kLogicalH, g_phase, g_message, g_code);
         if (r == 1 && g_phase == P_PAIR) { std::string m = "P"; putStr(m, g_code); send(m); g_message = "Checking..."; }
         if (r == 2) {
@@ -406,7 +395,19 @@ EMSCRIPTEN_KEEPALIVE void lc_message(const unsigned char* p, int n) {
         goLiveWhenReady();
         return;
     }
-    if (type == 's') { settingsFromText(m.substr(1)); takeSettingsChanged(); g_settingsDirty = false; g_have |= 4; goLiveWhenReady(); return; }   // (the computer's: not sent back)
+    if (type == 's') {   // the computer's settings (not sent back), with this device's own arrangement of the home screen
+        const std::string theirs = m.substr(1);
+        std::string mine;
+        if (g_have & 4) mine = settingsToText();   // (already running: the arrangement as it is now)
+        else if (char* saved = js_load("xptablet.lc.layout")) { mine = saved; free(saved); }
+        if (wire::layoutOf(mine).empty()) {   // the first time: the computer's arrangement, less what a device cannot show, closed up
+            settingsFromText(theirs);
+            layoutHomeCompact();
+            js_store("xptablet.lc.layout", wire::layoutOf(settingsToText()).c_str());
+        } else settingsFromText(wire::settingsWithLayoutOf(theirs, mine));
+        takeSettingsChanged(); g_settingsDirty = false; g_have |= 4; goLiveWhenReady();
+        return;
+    }
     if (type == 'n') { notesFromText(m.substr(1)); takeNotesChanged(); g_notesDirty = false; g_have |= 8; goLiveWhenReady(); return; }
     if (type == 'l') { logbookFromText(m.substr(1)); takeLogbookChanged(); return; }
 }

@@ -319,6 +319,25 @@ int main(int argc, char** argv) {
             frame(56, H - 28, false); frame(56, H - 28, true); frame(56, H - 28, false);   // + : its menu
             { Canvas cv((int)(W * scale), (int)(H * scale)); batches.clear(); frame(-1000, -1000, false); raster(cv, batches, tex, tw, th, scale); writePng(cv, out + "/tablet_arrange_menu.png"); }
             frame(56, H - 28, false); frame(56, H - 28, true); frame(56, H - 28, false);   // and shut again
+            {   // Compress, beside Done (above it where the favorites bar leaves no room): everything slides up, no place left open
+                auto gaps = [&]() { int lastUsed = -1, n = 0; const auto& o = settings().order; for (int i = 0; i < (int)o.size(); ++i) if (o[i] >= 0 && appVisible(o[i])) lastUsed = i;
+                                    for (int i = 0; i < lastUsed; ++i) if (o[i] < 0 || !appVisible(o[i])) ++n; return n; };
+                std::vector<int> before;
+                for (int e : settings().order) if (e >= 0 && appVisible(e)) before.push_back(e);
+                if (gaps() == 0) { std::printf("FAIL: (test) Compress needs an open place to close\n"); ++failures; }
+                const float slots = (float)std::max(0, std::min(kMaxFavorites, settings().favoriteSlots));
+                const bool beside = W - 96 - 8 - 104 >= (slots > 0 ? (W + slots * 86) * 0.5f + 12 : 0) + 6;
+                const float bx = beside ? W - 96 - 8 - 52 : W - 68, by = beside ? H - 28 : H - 68;
+                frame(bx, by, false); frame(bx, by, true); frame(bx, by, false);
+                frame(-1000, -1000, false); frame(-1000, -1000, false);
+                { Canvas cv((int)(W * scale), (int)(H * scale)); batches.clear(); frame(-1000, -1000, false); raster(cv, batches, tex, tw, th, scale); writePng(cv, out + "/tablet_arrange_compressing.png"); }
+                for (int k = 0; k < 40; ++k) frame(-1000, -1000, false);
+                std::vector<int> after;
+                for (int e : settings().order) if (e >= 0 && appVisible(e)) after.push_back(e);
+                if (gaps() != 0) { std::printf("FAIL: Compress closes the open places (%d left)\n", gaps()); ++failures; }
+                if (after != before) { std::printf("FAIL: Compress keeps everything, in its order\n"); ++failures; }
+                { Canvas cv((int)(W * scale), (int)(H * scale)); batches.clear(); frame(-1000, -1000, false); raster(cv, batches, tex, tw, th, scale); writePng(cv, out + "/tablet_arrange_compressed.png"); }
+            }
             // an icon dropped on another icon: the two change places, nothing else moves
             {
                 std::vector<int> at;
@@ -1153,6 +1172,25 @@ int main(int argc, char** argv) {
                 LocalDevice i; i.name = "Dom's iPhone"; i.kind = "iPhone"; i.lastSeen = "Today 14:32";
                 lc.local.devices = {p, i};
                 shot(lc, APP_SETTINGS, "settings_local_connect");
+                {   // a paired device's copy: what only the computer can show is left out (web apps, Browser, Documents, the briefing PDF)
+                    const Settings keep = settings();
+                    setRemoteClient(true);
+                    layoutHomeCompact();   // (as the device's page does the first time it takes the computer's arrangement)
+                    { bool hole = false, seenEnd = false; for (int e : settings().order) { if (e < 0) seenEnd = true; else if (seenEnd) hole = true; if (e >= 0 && e < APP_COUNT && !appVisible(e)) hole = true; }
+                      if (hole) { std::printf("FAIL: a device's home screen has no open places where the computer's apps were\n"); ++failures; } }
+                    if (appVisible(APP_CHARTS) || appVisible(APP_SIMBRIEF) || appVisible(APP_BROWSER) || appVisible(APP_DOCUMENTS) || appVisible(APP_DISPATCH) || appVisible(APP_DATIS) || appVisible(APP_FOREFLIGHT)) { std::printf("FAIL: a device shows no web apps, Browser, Documents or Dispatch\n"); ++failures; }
+                    if (!appVisible(APP_MAP) || !appVisible(APP_ROUTES) || !appVisible(APP_GROUND) || !appVisible(APP_NOTES) || !appVisible(APP_SETTINGS) || !appVisible(APP_APPSTORE)) { std::printf("FAIL: a device keeps the tablet's own apps\n"); ++failures; }
+                    openApp(APP_CHARTS);
+                    if (currentApp() != APP_HOME) { std::printf("FAIL: a web app does not open on a device\n"); ++failures; }
+                    shot(st, APP_HOME, "device_home");
+                    shot(st, APP_APPSTORE, "device_appstore");
+                    shot(st, APP_VATSIMHUB, "device_vatsim");
+                    shot(st, APP_ROUTES, "device_flight_plan");
+                    setRemoteClient(false);
+                    settings() = keep;
+                    if (!appVisible(APP_BROWSER) || !appVisible(APP_DOCUMENTS)) { std::printf("FAIL: the computer's tablet keeps them\n"); ++failures; }
+                    openApp(APP_SETTINGS);
+                }
                 {   // on a paired device, before the tablet is live: the code is typed on its own keys; the sixth digit sends it
                     std::string code = "48";
                     int got = 0;

@@ -134,6 +134,15 @@ int main() {
         CHECK(r.metarSearch.size() == 8 && r.acarsOut.size() == 8 && r.acarsOut[0].packet.size() == 2048, "texts are kept to their sizes");
     }
 
+    // the home screen's arrangement stays each screen's own
+    {
+        const std::string pc = "favorite_slots=4\nbrightness=0.80\norder=1,2,3\nhome_pages=2\nfolder=Charts\t2,3\nfavorites=5,6\ntheme=3\n";
+        const std::string dev = "favorite_slots=2\nbrightness=0.40\norder=3,1\nhome_pages=1\nfavorites=5\ntheme=9\n";
+        const std::string got = wire::settingsWithLayoutOf(dev, pc);
+        CHECK(got == "brightness=0.40\ntheme=9\nfavorite_slots=4\norder=1,2,3\nhome_pages=2\nfolder=Charts\t2,3\nfavorites=5,6\n", "a device's settings are taken without its arrangement of the home screen");
+        CHECK(wire::layoutOf(dev) == "favorite_slots=2\norder=3,1\nhome_pages=1\nfavorites=5\n" && wire::layoutOf("theme=1\n").empty(), "the arrangement's lines are told apart");
+    }
+
     // made-up bytes: read without harm (run under the sanitizers too), and whatever is accepted writes back out
     {
         std::mt19937 rng(20261121);

@@ -272,6 +272,28 @@ void restrictRemote(Actions& a, const SimState& s) {
 
 Sizes knownSizes() { return Sizes{7680, 1104, 632, 136, 1440, 256, 168, 312}; }
 
+namespace {
+bool layoutLine(const std::string& line) {
+    static const char* keys[] = {"order=", "favorites=", "home_pages=", "folder=", "favorite_slots="};
+    for (const char* k : keys) if (line.compare(0, std::strlen(k), k) == 0) return true;
+    return false;
+}
+std::string pick(const std::string& text, bool layout) {
+    std::string out;
+    std::size_t at = 0;
+    while (at < text.size()) {
+        std::size_t e = text.find('\n', at);
+        if (e == std::string::npos) e = text.size();
+        const std::string line = text.substr(at, e - at);
+        if (!line.empty() && layoutLine(line) == layout) { out += line; out += '\n'; }
+        at = e + 1;
+    }
+    return out;
+}
+}   // namespace
+std::string layoutOf(const std::string& settings) { return pick(settings, true); }
+std::string settingsWithLayoutOf(const std::string& settings, const std::string& layoutFrom) { return pick(settings, false) + pick(layoutFrom, true); }
+
 std::uint64_t fingerprint(const std::string& bytes) {
     std::uint64_t h = 1469598103934665603ull;
     for (unsigned char c : bytes) { h ^= c; h *= 1099511628211ull; }

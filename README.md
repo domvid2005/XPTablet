@@ -31,8 +31,10 @@ addresses; everything is encrypted (TLS 1.2, Mbed TLS); a device must be paired 
 and that address waits a minute); the computer keeps only the hash of each device's token, and Forget removes a device; a paired
 device can only do what the tablet's own pages do (it cannot manage pairing, drive the computer's browser or delete its data).
 
-Not on the device in this version: the web apps' pages (a button opens the site in the device's own browser instead), document
-pictures and Custom background pictures. Devices fetch their own map tiles, so they need the internet for the map.
+A device shows only what works on a device. The pages that are pictures made by the computer are left out there altogether (no
+icon, no App Store entry, no button): the web apps and the Browser, Documents, and the briefing PDF; a Custom theme's picture is
+chosen on the computer. Each device arranges its own home screen (the first time it takes the computer's, closed up); every other
+setting is the same everywhere. Devices fetch their own map tiles, so they need the internet for the map.
 
 Source: `src/localserver.cpp` (the server), `src/localwire.cpp` (the messages), `src/localbridge.cpp` (the plugin's side),
 `src/localclient/` (the page, built with Emscripten by `tools/build_localclient.sh` into `localconnect/index.html.gz`). Tests:

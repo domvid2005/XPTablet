@@ -51,6 +51,12 @@ bool actionsHaveEvent(const Actions& a);
 // are kept to sizes and ranges the pages themselves could send.
 void restrictRemote(Actions& a, const SimState& s);
 
+// The settings are the same on the computer and on its devices, but for the home screen's arrangement (which icons where, the
+// favorites bar, the folders): each screen keeps its own, since a device does not show everything the computer does.
+// settingsWithLayoutOf: settings' lines without its arrangement, then the arrangement lines of layoutFrom.
+std::string settingsWithLayoutOf(const std::string& settings, const std::string& layoutFrom);
+std::string layoutOf(const std::string& settings);   // only the arrangement's lines
+
 // A section's fingerprint (FNV-1a, 64 bits): equal bytes, equal fingerprint.
 std::uint64_t fingerprint(const std::string& bytes);
 

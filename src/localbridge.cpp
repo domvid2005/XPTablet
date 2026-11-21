@@ -61,7 +61,7 @@ Took take(const SimState& s) {
             g_level = a; g_haveLevel = true;
         } else if (in.kind == 'T') {
             const bool on = settings().localConnect;   // (a device cannot switch Local Connect itself off or on)
-            settingsFromText(in.bytes);
+            settingsFromText(wire::settingsWithLayoutOf(in.bytes, settingsToText()));   // (its settings; this screen's own arrangement stays)
             settings().localConnect = on;
             took.settings = true;
             g_settingsAt = -1e9;   // (and told to the other devices at once)
