@@ -249,13 +249,13 @@ const Accent kAccents[5] = {{"Blue", 70, 140, 255}, {"Violet", 150, 100, 235}, {
 struct Seasonal { const char* name; Backdrop bd; Accent ac; };
 const Seasonal kSeasonal[] = {
     {"New Year", {"New Year", IM_COL32(6, 8, 20, 255), IM_COL32(38, 36, 70, 255), IM_COL32(28, 26, 52, 255), IM_COL32(16, 16, 34, 255)}, {"Gold", 236, 196, 92}},
-    {"MLK Day", {"MLK Day", IM_COL32(12, 12, 24, 255), IM_COL32(64, 52, 92, 255), IM_COL32(48, 38, 70, 255), IM_COL32(30, 24, 46, 255)}, {"Amber", 232, 168, 72}},
+    {"", {"", IM_COL32(9, 22, 44, 255), IM_COL32(24, 58, 104, 255), IM_COL32(20, 46, 86, 255), IM_COL32(14, 34, 66, 255)}, {"Blue", 70, 140, 255}},   // (1: a theme taken out; its place kept, so the others keep their numbers in saved settings. Never offered)
     {"Valentine's", {"Valentine's", IM_COL32(30, 6, 18, 255), IM_COL32(150, 40, 80, 255), IM_COL32(112, 28, 62, 255), IM_COL32(70, 16, 40, 255)}, {"Rose", 255, 110, 150}},
     {"Presidents' Day", {"Presidents' Day", IM_COL32(8, 14, 36, 255), IM_COL32(40, 60, 118, 255), IM_COL32(30, 44, 92, 255), IM_COL32(18, 28, 62, 255)}, {"Red", 226, 72, 72}},
     {"St. Patrick's", {"St. Patrick's", IM_COL32(4, 22, 12, 255), IM_COL32(22, 110, 58, 255), IM_COL32(16, 82, 44, 255), IM_COL32(10, 54, 30, 255)}, {"Shamrock", 96, 214, 112}},
     {"Easter", {"Easter", IM_COL32(40, 46, 86, 255), IM_COL32(150, 170, 214, 255), IM_COL32(120, 160, 150, 255), IM_COL32(86, 130, 110, 255)}, {"Lilac", 190, 150, 240}},
     {"Memorial Day", {"Memorial Day", IM_COL32(8, 12, 28, 255), IM_COL32(44, 54, 92, 255), IM_COL32(32, 40, 70, 255), IM_COL32(20, 26, 46, 255)}, {"Poppy", 214, 56, 56}},
-    {"Juneteenth", {"Juneteenth", IM_COL32(10, 8, 12, 255), IM_COL32(110, 34, 36, 255), IM_COL32(24, 70, 40, 255), IM_COL32(16, 40, 24, 255)}, {"Gold", 240, 184, 60}},
+    {"", {"", IM_COL32(9, 22, 44, 255), IM_COL32(24, 58, 104, 255), IM_COL32(20, 46, 86, 255), IM_COL32(14, 34, 66, 255)}, {"Blue", 70, 140, 255}},   // (7: likewise taken out, its place kept)
     {"Independence Day", {"Independence Day", IM_COL32(6, 10, 32, 255), IM_COL32(36, 52, 120, 255), IM_COL32(120, 30, 44, 255), IM_COL32(70, 20, 34, 255)}, {"Red", 236, 64, 72}},
     {"Labor Day", {"Labor Day", IM_COL32(10, 14, 22, 255), IM_COL32(58, 74, 96, 255), IM_COL32(44, 56, 74, 255), IM_COL32(28, 36, 50, 255)}, {"Hi-vis", 255, 140, 40}},
     {"Halloween", {"Halloween", IM_COL32(10, 4, 18, 255), IM_COL32(70, 28, 96, 255), IM_COL32(40, 16, 56, 255), IM_COL32(14, 8, 16, 255)}, {"Pumpkin", 255, 128, 24}},
@@ -296,13 +296,11 @@ bool seasonalOn(int s, int year, int month, int day) {
     auto within = [&](int m, int d, int before, int after) { const int h = dayOfYear(year, m, d); return doy >= h - before && doy <= h + after; };
     switch (s) {
     case 0: return (month == 12 && day == 31) || (month == 1 && day <= 2);                       // New Year: Dec 31 to Jan 2
-    case 1: return within(1, nthWeekday(year, 1, 1, 3), 2, 0);                                   // MLK Day: 3rd Monday of January (its weekend)
     case 2: return month == 2 && day >= 7 && day <= 14;                                         // Valentine's Day: Feb 7-14
     case 3: return within(2, nthWeekday(year, 2, 1, 3), 2, 0);                                   // Presidents' Day: 3rd Monday of February
     case 4: return month == 3 && day >= 14 && day <= 17;                                        // St. Patrick's Day: Mar 14-17
     case 5: { const int e = easterDoy(year); return doy >= e - 7 && doy <= e + 1; }             // Easter: Palm Sunday to Easter Monday
     case 6: return within(5, nthWeekday(year, 5, 1, -1), 2, 0);                                  // Memorial Day: last Monday of May
-    case 7: return month == 6 && day >= 17 && day <= 19;                                        // Juneteenth: Jun 17-19
     case 8: return (month == 6 && day == 30) || (month == 7 && day <= 5);                        // Independence Day: Jun 30 to Jul 5
     case 9: return within(9, nthWeekday(year, 9, 1, 1), 2, 0);                                   // Labor Day: 1st Monday of September
     case 10: return month == 10 && day >= 17;                                                   // Halloween: Oct 17-31
@@ -321,6 +319,7 @@ bool seasonalOn(int s, int year, int month, int day) {
 bool christmasTheme() { return std::max(0, std::min(kThemes - 1, g_settings.wallpaper)) == kSeasonal0 + 13; }
 int specialCraft() { const int t = std::max(0, std::min(kThemes - 1, g_settings.wallpaper)); return t == kSeasonal0 + 13 ? 1 : t == kSeasonal0 + 10 ? 2 : t == kSeasonal0 + 12 ? 3 : t == kSeasonal0 + 8 ? 4 : 0; }
 bool seasonalAvailable(int s) {
+    if (s == 1 || s == 7) return false;   // (the two places of themes taken out: never offered, and one saved there goes back to the theme before)
     if (g_seasonalAll) return true;
     const std::time_t now = std::time(nullptr);
     std::tm lt{};
@@ -570,15 +569,6 @@ void seasonalDecor(ImDrawList* dl, ImVec2 o, float w, float h, int k, int stage)
             bloom(0, at(0.22f, 0.22f), 46 * u, IM_COL32(255, 214, 110, 255), 16, 11.0f); bloom(1, at(0.62f, 0.14f), 38 * u, IM_COL32(200, 160, 255, 255), 14, 13.0f);
             bloom(2, at(0.84f, 0.32f), 30 * u, IM_COL32(120, 220, 255, 255), 12, 12.0f); bloom(3, at(0.42f, 0.38f), 24 * u, IM_COL32(255, 140, 180, 255), 12, 14.0f); }
         break;
-    case 1:   // MLK Day: a sunrise over the hills, its rays
-        if (stage == 0) {
-            const ImVec2 c = at(0.5f, 0.72f);
-            float turn = tm / 90.0f;   // the rays turning, one place in a minute and a half (those under the horizon are behind the hills)
-            turn -= std::floor(turn);
-            for (int i = 0; i < 14; ++i) { const float a = 3.1416f + (i + turn) * 3.1416f / 13; dl->AddLine(c, ImVec2(c.x + std::cos(a) * 520 * u, c.y + std::sin(a) * 520 * u), fade(IM_COL32(255, 200, 120, 30), breathe(16.0f, 0.4f, (float)i)), 18 * u); }
-            dl->AddCircleFilled(c, 70 * u * (1.06f - 0.06f * breathe(12.0f, 1.0f, 0)), IM_COL32(255, 190, 100, 90), 48); dl->AddCircleFilled(c, 46 * u, IM_COL32(255, 214, 140, 200), 48);
-        }
-        break;
     case 2:   // Valentine's: hearts floating up
         if (stage == 0) adrift(14, 9, 46.0f, true, [&](ImVec2 p, float sz, float, int i, float show) { decoHeart(dl, p, (8 + sz * 16) * u, fade(i % 3 ? IM_COL32(255, 120, 160, 110) : IM_COL32(255, 200, 215, 90), show)); });
         break;
@@ -613,14 +603,6 @@ void seasonalDecor(ImDrawList* dl, ImVec2 o, float w, float h, int k, int stage)
         if (stage == 0) stars(40, 0.5f, IM_COL32(255, 255, 255, 120));
         else for (int i = 0; i < 14; ++i) { const ImVec2 c = at(0.03f + decoRnd(i, 6) * 0.94f + std::sin(tm * 0.5f + i * 1.3f) * 0.003f, 0.88f + decoRnd(i, 7) * 0.09f); const float r = (8 + decoRnd(i, 8) * 6) * u;   // (the poppies in a light wind)
             decoFlower(dl, c, r, IM_COL32(210, 40, 40, 255), IM_COL32(20, 14, 14, 255)); }
-        break;
-    case 7:   // Juneteenth: the dawn breaking, a bursting star (as on its flag), and an arc across it
-        if (stage == 0) {
-            const ImVec2 c = at(0.7f, 0.58f);
-            dl->PathArcTo(ImVec2(c.x, c.y + 120 * u), 210 * u, 3.6f, 5.82f, 40); dl->PathStroke(IM_COL32(255, 255, 255, 60), 0, 4 * u);
-            decoStar(dl, c, 52 * u * (1.05f - 0.05f * breathe(10.0f, 1.0f, 0)), IM_COL32(255, 255, 255, 60), 0.2f + tm * 0.03f); decoStar(dl, c, 22 * u, IM_COL32(255, 235, 200, 230));   // (the burst behind the star turning, slowly)
-            stars(30, 0.45f, IM_COL32(255, 255, 255, 110));
-        }
         break;
     case 8:   // Independence Day: fireworks in red, white and blue, and 1776 in a quill's script, its foot tucked behind the mountains
         if (stage == 0) { stars(40, 0.5f, IM_COL32(255, 255, 255, 110));

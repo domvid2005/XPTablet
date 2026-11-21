@@ -988,12 +988,12 @@ int main(int argc, char** argv) {
             tap(st, 80, 154);   // Display
             settings().autoDim = true;
             shot(st, APP_SETTINGS, "settings_display");
-            {   // the seasonal themes: each on its own dates (2026: MLK Jan 19, Presidents' Feb 16, Easter Apr 5, Memorial May 25, Labor Sep 7,
+            {   // the seasonal themes: each on its own dates (2026: Presidents' Feb 16, Easter Apr 5, Memorial May 25, Labor Sep 7,
                 // Thanksgiving Nov 26); all of them offered in the emulator
                 struct D { int k, y, m, d; bool on; };
-                const D ds[] = {{0, 2026, 12, 31, true}, {0, 2027, 1, 2, true}, {0, 2027, 1, 3, false}, {1, 2026, 1, 19, true}, {1, 2026, 1, 20, false},
+                const D ds[] = {{0, 2026, 12, 31, true}, {0, 2027, 1, 2, true}, {0, 2027, 1, 3, false}, {1, 2026, 1, 19, false},
                     {2, 2026, 2, 14, true}, {2, 2026, 2, 15, false}, {3, 2026, 2, 16, true}, {4, 2026, 3, 17, true}, {5, 2026, 4, 5, true}, {5, 2026, 3, 29, true},
-                    {5, 2026, 4, 7, false}, {6, 2026, 5, 25, true}, {6, 2026, 5, 22, false}, {7, 2026, 6, 19, true}, {8, 2026, 7, 4, true}, {9, 2026, 9, 7, true},
+                    {5, 2026, 4, 7, false}, {6, 2026, 5, 25, true}, {6, 2026, 5, 22, false}, {7, 2026, 6, 19, false}, {8, 2026, 7, 4, true}, {9, 2026, 9, 7, true},
                     {9, 2026, 9, 8, false}, {10, 2026, 10, 31, true}, {10, 2026, 11, 1, false}, {11, 2026, 11, 11, true}, {12, 2026, 11, 26, true}, {12, 2026, 11, 20, false},
                     {13, 2026, 12, 1, false}, {13, 2026, 12, 23, false}, {13, 2026, 12, 24, true}, {13, 2026, 12, 25, true}, {13, 2026, 12, 26, false}, {14, 2026, 6, 1, true}, {14, 2026, 7, 1, false}, {15, 2026, 10, 15, true}, {15, 2026, 11, 1, false}};
                 {   // the four seasons, by the calendar's months: one is always on, never two
@@ -1013,7 +1013,7 @@ int main(int argc, char** argv) {
                     if (settings().wallpaper != 10 + 0) { std::printf("FAIL: the seasonal row's first page starts at New Year (%d)\n", settings().wallpaper); ++failures; }
                     tap(st, 696, 390); pic("/tablet_settings_seasonal_page2.png");
                     tap(st, 520, 310);
-                    if (settings().wallpaper != 10 + 4) { std::printf("FAIL: the arrow under the seasonal row turns to its next page (%d)\n", settings().wallpaper); ++failures; }
+                    if (settings().wallpaper != 10 + 5) { std::printf("FAIL: the arrow under the seasonal row turns to its next page (%d)\n", settings().wallpaper); ++failures; }   // (Easter: the fifth offered)
                     tap(st, 592, 390); tap(st, 520, 310);
                     if (settings().wallpaper != 10 + 0) { std::printf("FAIL: the other arrow turns the seasonal row back (%d)\n", settings().wallpaper); ++failures; }
                     settings().wallpaper = keepW;
@@ -1035,6 +1035,10 @@ int main(int argc, char** argv) {
                         const std::vector<float> a = frame(1.0f / 60), b = frame(1.0f / 60);
                         for (int i = 0; i < 8; ++i) frame(0.25f);
                         const std::vector<float> c = frame(1.0f / 60);
+                        if (th == 11 || th == 17) {   // (the places of two themes taken out: one saved there goes back to an everyday theme)
+                            if (settings().wallpaper >= 10) { std::printf("FAIL: a theme taken out (%d) goes back to an everyday one\n", th); ++failures; }
+                            continue;
+                        }
                         if (th >= 10 && a == c) { std::printf("FAIL: theme %d (%s) has a moving background\n", th, seasonalName(th - 10)); ++failures; }
                         if (th < 10 && a != c) { std::printf("FAIL: everyday theme %d's background stays still\n", th); ++failures; }
                         if (a.size() == b.size()) { float worst = 0; for (size_t i = 0; i + 2 < a.size(); i += 3) worst = std::max(worst, std::max(std::fabs(a[i] - b[i]), std::fabs(a[i + 1] - b[i + 1])));
@@ -1043,7 +1047,8 @@ int main(int argc, char** argv) {
                     settings().wallpaper = keepW;
                 }
                 for (int k = 0; k < 7; ++k) { settings().wallpaper = k; char nm[32]; std::snprintf(nm, sizeof nm, "home_theme%d", k); shot(st, APP_HOME, nm); }
-                for (int k = 0; k < 20; ++k) { settings().wallpaper = 10 + k; char nm[32]; std::snprintf(nm, sizeof nm, "home_season%02d", k); shot(st, APP_HOME, nm); }
+                for (int k = 0; k < 20; ++k) { if (k == 1 || k == 7) continue;   // (two places of themes taken out)
+                    settings().wallpaper = 10 + k; char nm[32]; std::snprintf(nm, sizeof nm, "home_season%02d", k); shot(st, APP_HOME, nm); }
                 settings().wallpaper = 10 + 10; shot(st, APP_HOME, "home_halloween");
                 {   // Christmas: the user's aircraft is a sleigh (the Ground page, the map, the route bar); traffic stays as it is
                     settings().wallpaper = 10 + 13;
