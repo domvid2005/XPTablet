@@ -994,7 +994,7 @@ int main(int argc, char** argv) {
                     shot(sb, APP_SETTINGS, "settings_custom_theme_dragged");
                 }
                 {   // the accent's hex box: tapped, a code typed sets the colour; a bright one makes the text on it dark
-                    tap(sb, 634, 284);
+                    tap(sb, 660, 284);
                     for (char ch : std::string("ffe070")) tabletKey(ch, true);
                     for (int k = 0; k < 20; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); }
                     if (settings().customs[0].accent != 0xFFE070) { std::printf("FAIL: a hex code typed sets the accent (%06X)\n", settings().customs[0].accent); ++failures; }

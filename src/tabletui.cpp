@@ -7218,9 +7218,14 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
     g_settings.wallpaper = keepTheme;
     textCentered(dl, f.small, pa.x + pvw * 0.5f, pa.y + pvh + 8, kMuted, "Preview");
     // the wheels
-    const float wr = 62;
-    if (colorWheel(dl, f, "##ctbg", ImVec2(pa.x + pvw + 40 + wr, pa.y + wr + 4), wr, ct.bg, 0.45f, "Background")) g_settingsChanged = true;
-    if (colorWheel(dl, f, "##ctac", ImVec2(pa.x + pvw + 70 + wr * 3, pa.y + wr + 4), wr, ct.accent, 1.0f, "Accent")) g_settingsChanged = true;
+    const float wr = 62, bgCx = pa.x + pvw + 40 + wr, acCx = pa.x + pvw + 82 + wr * 3;
+    for (float cx : {bgCx, acCx}) {   // each in a bubble of its own: the wheel, its name and its hex code
+        const ImVec2 ba(cx - 78, pa.y - 6), bb(cx + 78, pa.y + wr * 2 + 74);
+        dl->AddRectFilled(ba, bb, IM_COL32(255, 255, 255, 12), 18.0f);
+        dl->AddRect(ba, bb, IM_COL32(255, 255, 255, 34), 18.0f, 0, 1.0f);
+    }
+    if (colorWheel(dl, f, "##ctbg", ImVec2(bgCx, pa.y + wr + 4), wr, ct.bg, 0.45f, "Background")) g_settingsChanged = true;
+    if (colorWheel(dl, f, "##ctac", ImVec2(acCx, pa.y + wr + 4), wr, ct.accent, 1.0f, "Accent")) g_settingsChanged = true;
     // under each wheel, its colour as a hex code: it follows the wheel, and a code typed in (6 digits) sets the colour
     auto hexBox = [&](int k, const char* id, int& rgb, float cx) {
         std::string& v = g_hexBuf[k];
@@ -7235,15 +7240,15 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
             v = clean;
             if (v.size() == 6) { const int nv = (int)std::strtol(v.c_str(), nullptr, 16); if (nv != rgb) { rgb = nv; g_settingsChanged = true; } g_hexShown[k] = rgb; }
         }
-        const ImVec2 a0(cx - 52, pa.y + wr * 2 + 30), a1(cx + 52, pa.y + wr * 2 + 60);
-        dl->AddRectFilled(ImVec2(a0.x - 30, a0.y + 7), ImVec2(a0.x - 12, a0.y + 23), rgbCol(rgb), 4.0f);   // (a swatch of it)
-        dl->AddRect(ImVec2(a0.x - 30, a0.y + 7), ImVec2(a0.x - 12, a0.y + 23), IM_COL32(255, 255, 255, 80), 4.0f);
-        textAt(dl, f.body, a0.x + 8, std::floor((a0.y + a1.y) * 0.5f - fontPx(f.body) * 0.5f), kMuted, "#");
-        textField(dl, f, id, v, ImVec2(a0.x + 22, a0.y), a1, "RRGGBB", false);
-        if (typing && v.size() < 6) textCentered(dl, f.small, cx, a1.y + 4, kWarn, "6 digits");
+        const ImVec2 a0(cx - 68, pa.y + wr * 2 + 30), a1(cx + 68, pa.y + wr * 2 + 60);
+        dl->AddRectFilled(ImVec2(a0.x, a0.y + 6), ImVec2(a0.x + 18, a0.y + 24), rgbCol(rgb), 4.0f);   // (a swatch of it)
+        dl->AddRect(ImVec2(a0.x, a0.y + 6), ImVec2(a0.x + 18, a0.y + 24), IM_COL32(255, 255, 255, 80), 4.0f);
+        textAt(dl, f.body, a0.x + 24, std::floor((a0.y + a1.y) * 0.5f - fontPx(f.body) * 0.5f), kMuted, "#");
+        textField(dl, f, id, v, ImVec2(a0.x + 38, a0.y), a1, "RRGGBB", false);
+        if (typing && v.size() < 6) textCentered(dl, f.small, cx, a1.y + 1, kWarn, "6 digits");
     };
-    hexBox(0, "##cthexbg", ct.bg, pa.x + pvw + 40 + wr);
-    hexBox(1, "##cthexac", ct.accent, pa.x + pvw + 70 + wr * 3);
+    hexBox(0, "##cthexbg", ct.bg, bgCx);
+    hexBox(1, "##cthexac", ct.accent, acCx);
     // the picture: none, or one from the backgrounds folder (put there from your computer)
     float py = pa.y + pvh + 34;
     textAt(dl, f.bold, a.x + 20, py, kInk, "Picture");
