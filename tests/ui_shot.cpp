@@ -995,7 +995,7 @@ int main(int argc, char** argv) {
                     {2, 2026, 2, 14, true}, {2, 2026, 2, 15, false}, {3, 2026, 2, 16, true}, {4, 2026, 3, 17, true}, {5, 2026, 4, 5, true}, {5, 2026, 3, 29, true},
                     {5, 2026, 4, 7, false}, {6, 2026, 5, 25, true}, {6, 2026, 5, 22, false}, {7, 2026, 6, 19, true}, {8, 2026, 7, 4, true}, {9, 2026, 9, 7, true},
                     {9, 2026, 9, 8, false}, {10, 2026, 10, 31, true}, {10, 2026, 11, 1, false}, {11, 2026, 11, 11, true}, {12, 2026, 11, 26, true}, {12, 2026, 11, 20, false},
-                    {13, 2026, 12, 25, true}, {13, 2026, 12, 27, false}, {14, 2026, 6, 1, true}, {14, 2026, 7, 1, false}, {15, 2026, 10, 15, true}, {15, 2026, 11, 1, false}};
+                    {13, 2026, 12, 1, true}, {13, 2026, 12, 24, true}, {13, 2026, 12, 25, true}, {13, 2026, 12, 26, false}, {14, 2026, 6, 1, true}, {14, 2026, 7, 1, false}, {15, 2026, 10, 15, true}, {15, 2026, 11, 1, false}};
                 for (const D& d : ds) if (seasonalOnDate(d.k, d.y, d.m, d.d) != d.on) { std::printf("FAIL: %s on %d-%02d-%02d should be %s\n", seasonalName(d.k), d.y, d.m, d.d, d.on ? "on" : "off"); ++failures; }
                 setSeasonalPreview(true);
                 shot(st, APP_SETTINGS, "settings_display_seasonal");
@@ -1007,6 +1007,13 @@ int main(int argc, char** argv) {
                     SimState xs = st; xs.map.havePos = true; xs.map.lat = 41.70; xs.map.lon = -86.32; xs.map.hdgTrue = 60; xs.acfIcao = "A20N";
                     shot(xs, APP_GROUND, "christmas_ground");
                     shot(xs, APP_MAP, "christmas_map");
+                    settings().wallpaper = 10 + 10;   // Halloween: the witch on her broom
+                    shot(xs, APP_GROUND, "halloween_ground");
+                    auto run = [&](float secs) { for (float tt = 0; tt < secs; tt += 0.1f) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.1f; io.AddMousePosEvent(-1000, -1000);
+                        ImGui::NewFrame(); Actions act; build(fonts, xs, 800, kLogicalH, act); ImGui::Render(); } };
+                    celebrate(0); run(1.6f); shot(xs, APP_HOME, "celebrate_newyear");
+                    celebrate(1); run(2.0f); shot(xs, APP_HOME, "celebrate_christmas");
+                    run(5.0f);   // (over: back to the page)
                 }
                 setSeasonalPreview(false);
                 settings().wallpaper = 10 + 0; settings().wallpaperBase = 3;

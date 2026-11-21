@@ -296,13 +296,14 @@ bool seasonalOn(int s, int year, int month, int day) {
     case 10: return month == 10 && day >= 17;                                                   // Halloween: Oct 17-31
     case 11: return month == 11 && day >= 9 && day <= 11;                                       // Veterans Day: Nov 9-11
     case 12: return within(11, nthWeekday(year, 11, 4, 4), 3, 3);                                // Thanksgiving: 4th Thursday of November, its week
-    case 13: return month == 12 && day <= 26;                                                   // Christmas: Dec 1-26
+    case 13: return month == 12 && day <= 25;                                                   // Christmas: all December, Christmas Eve and the day itself
     case 14: return month == 6;                                                                 // Men's Mental Health Month (US Men's Health Month): June
     case 15: return month == 10;                                                                // Breast Cancer Awareness Month: October
     default: return false;
     }
 }
 bool christmasTheme() { return std::max(0, std::min(kThemes - 1, g_settings.wallpaper)) == kSeasonal0 + 13; }
+int specialCraft() { const int t = std::max(0, std::min(kThemes - 1, g_settings.wallpaper)); return t == kSeasonal0 + 13 ? 1 : t == kSeasonal0 + 10 ? 2 : 0; }
 bool seasonalAvailable(int s) {
     if (g_seasonalAll) return true;
     const std::time_t now = std::time(nullptr);
@@ -3039,6 +3040,49 @@ void drawSleigh(ImDrawList* dl, ImVec2 c, float len, float ang, int alpha = 255)
     for (int i = 0; i < 3; ++i) ell(-6.0f + i * 6.0f, 28.0f, 2.0f, 2.0f, i == 1 ? IM_COL32(70, 170, 90, 255) : IM_COL32(240, 200, 80, 255));   // presents
 }
 
+// ---- Halloween: the user's aircraft is a witch on her broom, from above (our own simple drawing): the broom along the heading,
+// its bristles fanned at the back, her cloak spread behind her, her hat's wide brim and point, and her cat riding at the back
+void drawWitch(ImDrawList* dl, ImVec2 c, float len, float ang, int alpha = 255) {
+    const float k = len / 100.0f, ca = std::cos(ang), sa = std::sin(ang);
+    auto P = [&](float x, float y) { x *= k; y *= k; return ImVec2(c.x + x * ca - y * sa, c.y + x * sa + y * ca); };   // y: forward is -y
+    auto A = [&](ImU32 col) { return (col & 0x00FFFFFF) | ((ImU32)(((col >> 24) & 255) * alpha / 255) << 24); };
+    auto ell = [&](float x, float y, float rx, float ry, ImU32 col) {
+        ImVec2 p[20];
+        for (int i = 0; i < 20; ++i) { const float t = i * 6.2832f / 20; p[i] = P(x + std::cos(t) * rx, y + std::sin(t) * ry); }
+        dl->AddConvexPolyFilled(p, 20, A(col));
+    };
+    // the bristles: a fan of straw at the tail, then its binding
+    for (int i = -5; i <= 5; ++i) dl->AddLine(P(i * 0.6f, 30), P(i * 2.4f, 50), A(IM_COL32(214, 170, 90, 255)), std::max(1.0f, 1.6f * k));
+    dl->AddRectFilled(P(-3, 28), P(3, 31), A(IM_COL32(120, 60, 40, 255)));
+    {   // the binding's band, as a little quad along the stick
+        const ImVec2 q[4] = {P(-3.2f, 27.5f), P(3.2f, 27.5f), P(3.2f, 31.5f), P(-3.2f, 31.5f)};
+        dl->AddConvexPolyFilled(q, 4, A(IM_COL32(150, 40, 60, 255)));
+    }
+    dl->AddLine(P(0, -48), P(0, 30), A(IM_COL32(110, 72, 40, 255)), std::max(1.5f, 2.6f * k));   // the stick
+    // her cloak, spread out behind her in the wind
+    {
+        const ImVec2 cl[6] = {P(0, -6), P(10, 2), P(15, 20), P(0, 16), P(-15, 20), P(-10, 2)};
+        dl->AddConvexPolyFilled(cl, 6, A(IM_COL32(62, 30, 92, 255)));
+    }
+    ell(0, -4, 7.0f, 8.0f, IM_COL32(44, 22, 64, 255));     // her shoulders
+    for (int sd = -1; sd <= 1; sd += 2) dl->AddLine(P(sd * 5.5f, -6), P(sd * 1.5f, -18), A(IM_COL32(44, 22, 64, 255)), std::max(1.0f, 3.0f * k));   // her arms, to the stick
+    ell(0, -16.5f, 2.2f, 2.2f, IM_COL32(120, 190, 100, 255));   // her hands on the stick
+    ell(0, -10, 11.0f, 11.0f, IM_COL32(70, 40, 96, 255));   // her hat's brim, from above
+    ell(0, -10, 5.0f, 5.0f, IM_COL32(52, 28, 70, 255));     // its cone
+    ell(0, -10, 1.6f, 1.6f, IM_COL32(16, 8, 22, 255));      // its point
+    dl->AddCircle(P(0, -10), 7.2f * k, A(IM_COL32(240, 150, 40, 255)), 20, std::max(1.0f, 1.4f * k));   // the hat's band
+    // the cat at the back of the broom, its tail curling out
+    ell(0, 22, 3.6f, 4.4f, IM_COL32(18, 14, 20, 255));
+    ell(0, 17.5f, 2.6f, 2.6f, IM_COL32(18, 14, 20, 255));
+    dl->AddBezierCubic(P(0, 26), P(6, 30), P(8, 24), P(5, 20), A(IM_COL32(18, 14, 20, 255)), std::max(1.0f, 1.4f * k));
+    ell(-1.0f, 16.6f, 0.6f, 0.6f, IM_COL32(250, 220, 80, 255)); ell(1.0f, 16.6f, 0.6f, 0.6f, IM_COL32(250, 220, 80, 255));
+}
+// the seasonal stand-ins for the user's aircraft: 1 Christmas's sleigh, 2 Halloween's witch, 0 none (the aircraft itself)
+int specialCraft();
+void drawCraft(ImDrawList* dl, ImVec2 c, float len, float ang, int alpha = 255) {
+    if (specialCraft() == 2) drawWitch(dl, c, len, ang, alpha); else drawSleigh(dl, c, len, ang, alpha);
+}
+
 void planeTopDown(ImDrawList* dl, ImVec2 nose, float px, const PlaneSpec& p, ImU32 col, ImU32 shade2) {
     const float L = p.len, hw = p.fus * 0.5f, semi = p.span * 0.5f;
     auto P = [&](float x, float y) { return ImVec2(nose.x + x * px, nose.y + y * px); };   // metres: x right, y aft of the nose
@@ -4464,7 +4508,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         float sl = 0, ss = 0;
         const Shape* sh = findShape(s.acfIcao, sl, ss);
         const float pxPerM = (float)(scale / mPerMerc);
-        if (christmasTheme()) drawSleigh(dl, q, std::max(symLen * 1.7f, sh ? sl * pxPerM : 0.0f), (float)a);   // (Christmas: the sleigh, not the aircraft)
+        if (specialCraft()) drawCraft(dl, q, std::max(symLen * 1.7f, sh ? sl * pxPerM : 0.0f), (float)a);   // (Christmas's sleigh, Halloween's witch: not the aircraft)
         else if (sh) {
             // its own type's outline: at its real size when that is bigger than a symbol, else 36 units long (nose at y = 0, tail +y),
             // turned along the heading about its middle
@@ -5971,12 +6015,12 @@ void progressStrip(ImDrawList* dl, const Fonts& f, const SimState& s, const Prog
     // the aircraft: its own outline (the drawing the map uses), small, nose along the bar; an arrowhead if there is no drawing.
     // Kept clear of the airports' names at the ends: its middle stays half its length (and a little room) inside them
     float sl = 0, ss = 0;
-    const Shape* sh = christmasTheme() ? nullptr : findShape(s.acfIcao, sl, ss);
+    const Shape* sh = specialCraft() ? nullptr : findShape(s.acfIcao, sl, ss);
     const float shapeK = sh ? 24.0f / std::max(1.0f, std::max(sl, ss)) : 0.0f;   // (fits 24 px whichever is longer, length or span)
-    const float half = christmasTheme() ? 17.0f : sh ? sl * shapeK * 0.5f : 9.0f;
+    const float half = specialCraft() ? 17.0f : sh ? sl * shapeK * 0.5f : 9.0f;
     const float lo = x0 + half, hi = x1 - half;   // (a clear gap, the width of the line's own margin, between it and each name)
     const float ax = lo < hi ? std::max(lo, std::min(hi, px)) : (x0 + x1) * 0.5f;
-    if (christmasTheme()) drawSleigh(dl, ImVec2(ax, cy), 34.0f, 1.5707963f);   // (Christmas: the sleigh, heading along the bar)
+    if (specialCraft()) drawCraft(dl, ImVec2(ax, cy), 34.0f, 1.5707963f);   // (the season's sleigh or witch, heading along the bar)
     else if (sh) {
         const int v0 = dl->VtxBuffer.Size;
         drawShape(dl, *sh, ImVec2(ax, cy - sl * shapeK * 0.5f), shapeK * ss / std::max(1.0f, sh->span), shapeK * sl / std::max(1.0f, sh->len), IM_COL32(255, 255, 255, 255), IM_COL32(150, 162, 186, 255));
@@ -6281,7 +6325,7 @@ void planPreview(ImDrawList* dl, const Fonts& f, const FlightPlan& p, float w, f
         const ImVec2 mid((nx[0] + nx[1]) * 0.5f, cy);
         // the plan's aircraft: its own outline (as on the route bar and the map), nose along the line; an arrowhead if none
         float sl = 0, ss = 0;
-        if (christmasTheme()) drawSleigh(dl, mid, 36.0f, 1.5707963f, A);   // (Christmas: the sleigh)
+        if (specialCraft()) drawCraft(dl, mid, 36.0f, 1.5707963f, A);   // (the season's sleigh or witch)
         else if (const Shape* sh = findShape(p.aircraft, sl, ss)) {
             const float L = 26.0f, k = L / std::max(1.0f, std::max(sl, ss));
             const int v0 = dl->VtxBuffer.Size;
@@ -6398,7 +6442,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     // the drawing, resized to the type's length and span (kx, ky: from the drawing's metres to the type's)
     const float kx = shape ? acSpan / shape->span : 1.0f, ky = shape ? acLen / shape->len : 1.0f;
     // white in every theme, with neutral grey lines (no blue that reads as tinted next to a warm theme)
-    if (christmasTheme()) drawSleigh(dl, ImVec2(nose.x, nose.y + acLen * px * 0.5f), acLen * px, 0.0f);   // (Christmas: the sleigh, at the aircraft's size)
+    if (specialCraft()) drawCraft(dl, ImVec2(nose.x, nose.y + acLen * px * 0.5f), acLen * px, 0.0f);   // (the season's sleigh or witch, at the aircraft's size)
     else if (shape) drawShape(dl, *shape, nose, px * kx, px * ky, IM_COL32(246, 247, 249, 255), IM_COL32(128, 132, 140, 255));
     else planeTopDown(dl, nose, px, spec, IM_COL32(246, 247, 249, 255), IM_COL32(128, 132, 140, 255));
     const float hw0 = shape ? fuselageHalf(*shape, 0.25f, 0) : -1;   // the fuselage's half-width forward of the wing, drawing metres
@@ -8208,6 +8252,100 @@ void applyStyle() {
 }
 
 void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act, int app);
+// ---- at midnight of New Year's Day and Christmas Day (the computer's clock), while the tablet is on: a fade to black, five seconds of
+// celebration (fireworks; snow and the sleigh crossing the sky), and back to what was there
+int g_celebrate = -1;        // 0 New Year, 1 Christmas, -1 none
+double g_celebT0 = 0;
+constexpr float kCelebIn = 0.6f, kCelebShow = 5.0f, kCelebOut = 0.6f;
+bool celebrating() { return g_celebrate >= 0 && ImGui::GetTime() - g_celebT0 < kCelebIn + kCelebShow + kCelebOut; }
+void celebrationStep() {
+    const std::time_t now = std::time(nullptr);
+    std::tm lt{};
+#if defined(_WIN32)
+    localtime_s(&lt, &now);
+#else
+    localtime_r(&now, &lt);
+#endif
+    static int lastDay = -1;
+    const int day = (lt.tm_year + 1900) * 10000 + (lt.tm_mon + 1) * 100 + lt.tm_mday;
+    if (lastDay >= 0 && day != lastDay && g_power == POWER_ON) {   // midnight passed while the tablet was on
+        if (lt.tm_mon == 0 && lt.tm_mday == 1) { g_celebrate = 0; g_celebT0 = ImGui::GetTime(); }
+        else if (lt.tm_mon == 11 && lt.tm_mday == 25) { g_celebrate = 1; g_celebT0 = ImGui::GetTime(); }
+    }
+    lastDay = day;
+}
+void drawCelebration(ImDrawList* dl, const Fonts& f, float w, float h) {
+    if (!celebrating()) { g_celebrate = g_celebrate >= 0 && ImGui::GetTime() - g_celebT0 >= kCelebIn + kCelebShow + kCelebOut ? -1 : g_celebrate; return; }
+    const float t = (float)(ImGui::GetTime() - g_celebT0);
+    const float black = t < kCelebIn ? smooth01(t / kCelebIn) : t > kCelebIn + kCelebShow ? 1 - smooth01((t - kCelebIn - kCelebShow) / kCelebOut) : 1.0f;
+    const float show = std::min(smooth01((t - kCelebIn * 0.6f) / 0.4f), 1 - smooth01((t - kCelebIn - kCelebShow + 0.3f) / 0.5f));
+    dl->AddRectFilled(ImVec2(0, 0), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(255 * black)));
+    if (show <= 0.01f) return;
+    const float st = t - kCelebIn * 0.6f;   // the show's own clock
+    auto A = [&](ImU32 c, float k = 1.0f) { return (c & 0x00FFFFFF) | ((ImU32)std::lround(((c >> 24) & 255) * show * std::max(0.0f, std::min(1.0f, k))) << 24); };
+    const std::time_t now = std::time(nullptr);
+    std::tm lt{};
+#if defined(_WIN32)
+    localtime_s(&lt, &now);
+#else
+    localtime_r(&now, &lt);
+#endif
+    if (g_celebrate == 0) {   // New Year: a night sky, fireworks going up and bursting one after another, the new year in gold
+        dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(w, h), A(IM_COL32(4, 6, 20, 255)), A(IM_COL32(4, 6, 20, 255)), A(IM_COL32(30, 24, 60, 255)), A(IM_COL32(30, 24, 60, 255)));
+        for (int i = 0; i < 70; ++i) dl->AddCircleFilled(ImVec2(decoRnd(i, 1) * w, decoRnd(i, 2) * h * 0.7f), 0.8f + decoRnd(i, 3) * 1.2f, A(IM_COL32(255, 255, 255, 150), 0.5f + 0.5f * std::sin(st * 3 + i)), 6);
+        static const ImU32 cols[6] = {IM_COL32(255, 210, 100, 255), IM_COL32(255, 110, 150, 255), IM_COL32(120, 210, 255, 255), IM_COL32(180, 140, 255, 255), IM_COL32(140, 255, 160, 255), IM_COL32(255, 255, 255, 255)};
+        for (int n = 0; n < 12; ++n) {
+            const float launch = n * 0.38f, up = 0.7f;
+            const float lt0 = st - launch;
+            if (lt0 < 0) continue;
+            const ImVec2 base(w * (0.12f + decoRnd(n, 7) * 0.76f), h), top(base.x + (decoRnd(n, 8) - 0.5f) * 80, h * (0.10f + decoRnd(n, 9) * 0.20f));   // (bursting above the words, never over them)
+            const ImU32 col = cols[n % 6];
+            if (lt0 < up) {   // its trail going up
+                const float k = smooth01(lt0 / up);
+                const ImVec2 p(base.x + (top.x - base.x) * k, base.y + (top.y - base.y) * k);
+                dl->AddLine(ImVec2(p.x, p.y + 18), p, A(IM_COL32(255, 230, 180, 200)), 2.0f);
+                dl->AddCircleFilled(p, 2.5f, A(IM_COL32(255, 240, 200, 255)), 8);
+            } else {   // the burst: sparks flying out, falling a little, fading
+                const float bt = lt0 - up, life = 1.6f;
+                if (bt > life) continue;
+                const float fade = 1 - bt / life, rr = (40 + decoRnd(n, 10) * 40) * smooth01(std::min(1.0f, bt / 0.5f) * 0.7f + bt / life * 0.3f) * 1.4f;
+                for (int sp = 0; sp < 28; ++sp) {
+                    const float a = sp * 6.2832f / 28 + decoRnd(n, 11);
+                    const ImVec2 q(top.x + std::cos(a) * rr, top.y + std::sin(a) * rr + 30 * bt * bt);
+                    dl->AddCircleFilled(q, 2.2f, A(col, fade), 6);
+                    dl->AddLine(ImVec2(top.x + std::cos(a) * rr * 0.7f, top.y + std::sin(a) * rr * 0.7f + 30 * bt * bt), q, A(col, fade * 0.5f), 1.2f);
+                }
+            }
+        }
+        char yr[16]; std::snprintf(yr, sizeof yr, "%d", lt.tm_year + 1900);
+        const float tk = smooth01((st - 0.5f) / 0.8f);
+        const float px1 = fontPx(f.title) * 2.0f, px2 = fontPx(f.title) * 3.2f;
+        const char* l1 = "Happy New Year";
+        const float w1 = f.title->CalcTextSizeA(px1, 1e9f, 0, l1).x, w2 = f.title->CalcTextSizeA(px2, 1e9f, 0, yr).x;
+        dl->AddText(f.title, px1, ImVec2(w * 0.5f - w1 * 0.5f, h * 0.5f - 30), A(IM_COL32(255, 255, 255, 255), tk), l1);
+        dl->AddText(f.title, px2, ImVec2(w * 0.5f - w2 * 0.5f, h * 0.5f + 14), A(IM_COL32(255, 206, 96, 255), tk), yr);
+    } else {   // Christmas: snow falling over a night sky and hills of firs, the sleigh crossing under the moon, "Merry Christmas"
+        dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(w, h), A(IM_COL32(6, 14, 30, 255)), A(IM_COL32(6, 14, 30, 255)), A(IM_COL32(20, 52, 70, 255)), A(IM_COL32(20, 52, 70, 255)));
+        dl->AddCircleFilled(ImVec2(w * 0.8f, h * 0.2f), 46, A(IM_COL32(255, 248, 220, 230)), 40);
+        dl->AddCircleFilled(ImVec2(w * 0.8f, h * 0.2f), 64, A(IM_COL32(255, 248, 220, 30)), 40);
+        for (int i = 0; i < 9; ++i) decoTree(dl, ImVec2(w * (0.04f + i * 0.115f), h), 70 + decoRnd(i, 4) * 50, A(IM_COL32(10, 40, 26, 255)));
+        dl->AddRectFilled(ImVec2(0, h - 10), ImVec2(w, h), A(IM_COL32(230, 240, 250, 255)));
+        // the sleigh: from the left to the right, rising a little, across the sky
+        const float sk = std::max(0.0f, std::min(1.0f, (st - 0.3f) / 4.4f));
+        drawSleigh(dl, ImVec2(-120 + (w + 240) * sk, h * 0.42f - sk * 90), 150, 1.5707963f - 0.2f, (int)(255 * show));
+        for (int i = 0; i < 140; ++i) {   // the snow, drifting down
+            const float sp = 30 + decoRnd(i, 5) * 50, x = decoRnd(i, 6) * w + std::sin(st * 1.3f + i) * 12;
+            const float y = std::fmod(decoRnd(i, 7) * h + st * sp, h + 20) - 10;
+            dl->AddCircleFilled(ImVec2(x, y), 1.2f + decoRnd(i, 8) * 2.2f, A(IM_COL32(255, 255, 255, 220)), 8);
+        }
+        const float tk = smooth01((st - 0.6f) / 0.8f);
+        const float px1 = fontPx(f.title) * 2.6f;
+        const char* l1 = "Merry Christmas";
+        const float w1 = f.title->CalcTextSizeA(px1, 1e9f, 0, l1).x;
+        dl->AddText(f.title, px1, ImVec2(w * 0.5f - w1 * 0.5f + 2, h * 0.68f + 2), A(IM_COL32(0, 0, 0, 140), tk), l1);
+        dl->AddText(f.title, px1, ImVec2(w * 0.5f - w1 * 0.5f, h * 0.68f), A(IM_COL32(255, 90, 90, 255), tk), l1);
+    }
+}
 void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     if (!ImGui::GetIO().MouseDown[0]) g_touchScrolling = false;
     logStep(s);   // (the logbook keeps watching, whatever page is shown)
@@ -8235,6 +8373,8 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("##tablet", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                                           ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollWithMouse);
+    celebrationStep();
+    if (celebrating()) { ImGui::SetCursorScreenPos(ImVec2(0, 0)); ImGui::InvisibleButton("##celebrating", ImVec2(w, h)); }   // (nothing under it takes a press meanwhile)
     g_ownPerformance = s.toliss;
     if (g_app == APP_PERFORMANCE && g_ownPerformance) g_app = APP_HOME;
     g_px = std::max(1.0f, s.pixelScale);
@@ -8470,6 +8610,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
             }
         }
     }
+    drawCelebration(ImGui::GetWindowDrawList(), f, w, h);   // (over everything, the status bar too)
     ImGui::End();
     ImGui::PopStyleVar();
 }
@@ -9750,6 +9891,7 @@ void pictureColors(const unsigned char* rgba, int w, int h, int& average, int& a
     accent = ((int)std::lround(chan(R) * 255) << 16) | ((int)std::lround(chan(G) * 255) << 8) | (int)std::lround(chan(B) * 255);
 }
 void setSeasonalPreview(bool all) { g_seasonalAll = all; }
+void celebrate(int which) { g_celebrate = which; g_celebT0 = ImGui::GetTime(); }
 bool seasonalOnDate(int k, int year, int month, int day) { return seasonalOn(k, year, month, day); }
 const char* seasonalName(int k) { return k >= 0 && k < kSeasonalN ? kSeasonal[k].name : ""; }
 bool takeLogbookChanged() { const bool c = g_logChanged; g_logChanged = false; return c; }

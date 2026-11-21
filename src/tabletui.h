@@ -511,6 +511,7 @@ std::string logbookToText();   // the logbook's flights, one a line (saved by th
 void logbookFromText(const std::string& text);
 bool takeLogbookChanged();
 void setSeasonalPreview(bool all);
+void celebrate(int which);   // the midnight celebration now: 0 New Year, 1 Christmas (it starts by itself at midnight; this is for a preview)
 bool seasonalOnDate(int theme, int year, int month, int day);   // seasonal theme n (0 New Year .. 15 Breast Cancer Awareness) on that date
 const char* seasonalName(int theme);   // every seasonal colour theme offered whatever the date (the browser emulator)
 // A Custom background's colours, from its pixels (RGBA): its average made deeper (the background), and its most striking colour made
