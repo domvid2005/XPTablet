@@ -104,7 +104,16 @@ int readAptDat(const std::string& text, std::vector<Spot>& out, std::vector<std:
             if (code == 100 || code == 102 || code == 1300) {
                 std::vector<double> v;
                 const char* q = l;
-                while (q < text.c_str() + e) { while (q < text.c_str() + e && (*q == ' ' || *q == '\t')) ++q; const char* b = q; while (q < text.c_str() + e && *q != ' ' && *q != '\t' && *q != '\r') ++q; v.push_back(std::atof(std::string(b, q).c_str())); }
+                // (a carriage return is space too: Windows line ends. Missed once, it stopped this loop from moving on and it filled
+                // memory until X-Plane ended, 2026-11-22. Each pass now moves on or ends, and at most 40 fields are read)
+                const char* end = text.c_str() + e;
+                while (q < end && v.size() < 40) {
+                    while (q < end && (*q == ' ' || *q == '\t' || *q == '\r')) ++q;
+                    const char* b = q;
+                    while (q < end && *q != ' ' && *q != '\t' && *q != '\r') ++q;
+                    if (q == b) break;
+                    v.push_back(std::atof(std::string(b, q).c_str()));
+                }
                 if (code == 100 && v.size() > 10) { la = v[9]; lo = v[10]; got = true; }
                 if (code == 102 && v.size() > 3) { la = v[2]; lo = v[3]; got = true; }
                 if (code == 1300 && v.size() > 2) { la = v[1]; lo = v[2]; got = true; }

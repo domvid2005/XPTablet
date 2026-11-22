@@ -1532,7 +1532,10 @@ int main(int argc, char** argv) {
             auto put = [](const std::string& p, const std::string& s) { FILE* f = std::fopen(p.c_str(), "wb"); std::fwrite(s.data(), 1, s.size(), f); std::fclose(f); };
             put(root + "Custom Scenery/KTST Test/sam.xml", "<?xml version=\"1.0\"?>\n<scenery name=\"KTST\">\n <jetways>\n  <jetway name=\"A1\" latitude=\"41.700000\" longitude=\"-86.300000\" heading=\"90\"/>\n"
                                                          "  <Jetway name='A2' Latitude='41.700500' Longitude='-86.300000'></Jetway>\n </jetways>\n</scenery>\n");
-            put(root + "Custom Scenery/KTST Test/Earth nav data/apt.dat", "I\n1200 Generated\n\n1 800 0 0 KTST Test Field\n100 45.00 1 0 0.25 1 2 1 09 41.69 -86.32 0 0 2 0 0 0 27 41.69 -86.28 0 0 2 0 0 0\n99\n");
+            // (with Windows line ends, as scenery made on Windows has them: a carriage return once stopped the reading of a runway's
+            // fields from moving on, and it filled memory until X-Plane ended)
+            put(root + "Custom Scenery/KTST Test/Earth nav data/apt.dat", "I\r\n1200 Generated\r\n\r\n1 800 0 0 KTST Test Field\r\n100 45.00 1 0 0.25 1 2 1 09 41.69 -86.32 0 0 2 0 0 0 27 41.69 -86.28 0 0 2 0 0 0 \r\n"
+                                                                     "1300 41.6905 -86.31 90 gate jets Gate A1\r\n99\r\n");
             auto ini = [&](bool libFirst) { put(root + "Custom Scenery/scenery_packs.ini", std::string("I\n1000 Version\nSCENERY\n\nSCENERY_PACK Custom Scenery/KTST Test/\n") +
                 (libFirst ? "SCENERY_PACK Custom Scenery/openSAM_Library/\nSCENERY_PACK *GLOBAL_AIRPORTS*\n" : "SCENERY_PACK *GLOBAL_AIRPORTS*\nSCENERY_PACK Custom Scenery/openSAM_Library/\n")); };
             ini(false);
