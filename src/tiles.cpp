@@ -1,3 +1,4 @@
+#include "guard.h"
 #include "tiles.h"
 
 #include <algorithm>
@@ -138,7 +139,7 @@ void start(const std::string& cacheDir) {
     if (!g_threads.empty()) return;
     g_dir = cacheDir;
     g_quit = false;
-    for (int i = 0; i < 2; ++i) g_threads.emplace_back(worker);   // two connections at most (OpenStreetMap's policy)
+    for (int i = 0; i < 2; ++i) g_threads.emplace_back(guarded("map tiles", [] { worker(); }));   // two connections at most (OpenStreetMap's policy)
 }
 
 void stop() {

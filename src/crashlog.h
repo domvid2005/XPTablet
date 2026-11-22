@@ -12,6 +12,9 @@ void install(const std::string& dir);   // dir: Output/XPTablet/ (ends in a slas
 void uninstall();
 // what the last session recorded, if anything (and moves the file aside, so it is told once)
 std::string takeLast(const std::string& dir);
+// a thread's work stopped by an exception (caught: see guard.h): into the record now, and into the log from the main thread
+void threadFailed(const char* name, const char* what);
+std::string takeFailures();   // what threadFailed was told since the last call (the main thread logs it)
 
 }   // namespace crashlog
 }   // namespace xpt

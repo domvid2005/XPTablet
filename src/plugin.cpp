@@ -42,6 +42,7 @@
 #include "aptdat.h"
 #include "samscan.h"
 #include "crashlog.h"
+#include "guard.h"
 #include "navdata.h"
 #include "vatsim.h"
 #include "airspace.h"
@@ -333,7 +334,7 @@ void updateCheckStart() {
     if (g_updChecked) return;
     g_updChecked = true;
     g_updCancel = false;
-    g_updTh = std::thread([]() {
+    g_updTh = std::thread(xpt::guarded("update check", []() {
         std::string body, err;
         long status = 0;
         const std::string url = "https://raw.githubusercontent.com/domvid2005/XPTablet/refs/heads/release/XPTablet/skunkcrafts_updater.cfg";
@@ -354,7 +355,7 @@ void updateCheckStart() {
             { std::lock_guard<std::mutex> lk(g_updM); g_updVersion = ver; }
             logMsg("update check: XPTablet %s is available on the SkunkCrafts Updater (this is %s)", ver.c_str(), XPT_VERSION);
         } else logMsg("update check: up to date (%s; the SkunkCrafts release is %s)", XPT_VERSION, ver.c_str());
-    });
+    }));
 }
 void updateCheckStop() {
     g_updCancel = true;
@@ -830,7 +831,7 @@ void simbriefFetch(const std::string& user, bool quiet = false) {
     if (g_sbThread.joinable()) g_sbThread.join();
     g_sbQuiet = quiet;
     if (!quiet) { g_sim.plan.busy = true; g_sim.plan.status = "Asking SimBrief..."; }
-    g_sbThread = std::thread([user] {
+    g_sbThread = std::thread(xpt::guarded("SimBrief", [user] {
         const std::string url = xpt::simbriefUrl(user);
         std::string body, err;
         long code = 0;
@@ -842,7 +843,7 @@ void simbriefFetch(const std::string& user, bool quiet = false) {
         }
         std::lock_guard<std::mutex> lk(g_sbMx);
         g_sbPlan = p; g_sbDone = true;
-    });
+    }));
 }
 
 // The plan's route for the map: the departure, its fixes, the destination
@@ -882,7 +883,7 @@ void acarsStep(const xpt::Actions& act) {
     static double lastPoll = -1e9;
     const double now = XPLMGetElapsedTime();
     const bool on = !act.acarsFrom.empty();
-    if (on && !g_acThread.joinable()) { g_acStop = false; g_acThread = std::thread(acarsWorker); }
+    if (on && !g_acThread.joinable()) { g_acStop = false; g_acThread = std::thread(xpt::guarded("ACARS", [] { acarsWorker(); })); }
     {
         std::lock_guard<std::mutex> lk(g_acMx);
         for (const auto& o : act.acarsOut) if (on) g_acQ.push_back({xpt::settings().hoppieCode, act.acarsFrom, o.to, o.type, o.packet});
@@ -1343,7 +1344,7 @@ void docsStep(const xpt::Actions& act) {
         g_sim.docs.busy = true;
         g_sim.docs.error.clear();
         const std::string path = act.docOpen;
-        g_docThread = std::thread([path] {
+        g_docThread = std::thread(xpt::guarded("documents", [path] {
             std::string bytes, err;
             std::vector<uint8_t> px;
             int w = 0, h = 0;
@@ -1371,7 +1372,7 @@ void docsStep(const xpt::Actions& act) {
             }
             std::lock_guard<std::mutex> lk(g_docMx);
             g_docPath = path; g_docError = err; g_docPixels.swap(px); g_docW = w; g_docH = h; g_docReady = true;
-        });
+        }));
     }
     std::lock_guard<std::mutex> lk(g_docMx);
     if (!g_docReady) return;
@@ -2958,6 +2959,11 @@ void localConnectStep() {
 }
 
 float flightLoop(float dt, float, int, void*) {
+    {   // a thread stopped on an exception (caught): told in the log, from here (the main thread)
+        const std::string f = xpt::crashlog::takeFailures();
+        size_t s = 0;
+        while (s < f.size()) { size_t e = f.find('\n', s); if (e == std::string::npos) e = f.size(); if (e > s) logMsg("%s", f.substr(s, e - s).c_str()); s = e + 1; }
+    }
     findSimRefs();
     if ((XPLMGetCycleNumber() & 7) == 0) { readSimState(); g_sim.ground.slidesAuto = g_slidesAuto; followJetways(); slidesAutoStep(); readMapState(); }
     slidesHoldStep();
@@ -3034,6 +3040,7 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
             }
         }
         xpt::crashlog::install(dir);
+        xpt::g_threadFailed = [](const char* name, const char* what) { xpt::crashlog::threadFailed(name, what); };
     }
 
     g_drClickX = XPLMFindDataRef("sim/graphics/view/click_3d_x_pixels");

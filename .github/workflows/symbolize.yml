@@ -1,0 +1,38 @@
+# Reads a crash record's frames (XPTablet.xpl+0x...) back to functions and source lines, with the symbols the Windows build kept.
+# Run by hand: the build's run id, and the offsets.
+name: symbolize
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "The build run whose XPTablet.xpl crashed"
+        required: true
+      offsets:
+        description: "XPTablet.xpl offsets, separated by spaces (0x40290 0x2b35bd ...)"
+        required: true
+permissions:
+  actions: read
+  contents: read
+jobs:
+  symbolize:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: symbols-Windows
+          path: pdb
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Symbolize
+        env:
+          OFFSETS: ${{ inputs.offsets }}
+        run: |
+          ls -la pdb
+          S=$(command -v llvm-symbolizer || ls /usr/bin/llvm-symbolizer-* | tail -1)
+          for o in $OFFSETS; do
+            # (an offset from the module's start; the PDB's addresses are the same, from an image base of 0x180000000)
+            a=$(printf '0x%x' $((0x180000000 + o)))
+            echo "== $o"
+            "$S" --obj=pdb/XPTablet.pdb --demangle --inlines --functions=linkage "$o" | sed 's/^/   (as given) /'
+            "$S" --obj=pdb/XPTablet.pdb --demangle --inlines --functions=linkage "$a" | sed 's/^/   (from the image base) /'
+          done

@@ -1,3 +1,4 @@
+#include "guard.h"
 #include "vatsim.h"
 
 #include <atomic>
@@ -65,7 +66,7 @@ void run() {
 
 } // namespace
 
-void start() { if (!g_thread.joinable()) { g_quit = false; g_thread = std::thread(run); } }
+void start() { if (!g_thread.joinable()) { g_quit = false; g_thread = std::thread(guarded("VATSIM", [] { run(); })); } }
 void stop() {
     g_quit = true;
     g_cv.notify_all();

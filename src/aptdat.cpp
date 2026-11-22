@@ -1,3 +1,4 @@
+#include "guard.h"
 #include "aptdat.h"
 
 #include <algorithm>
@@ -288,7 +289,7 @@ void start(const std::string& xplaneRoot) {
     if (g_thread.joinable()) return;
     g_root = xplaneRoot;
     g_quit = false;
-    g_thread = std::thread(run);
+    g_thread = std::thread(guarded("airport index", [] { run(); }));
 }
 
 void stop() {

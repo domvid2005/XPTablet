@@ -1,3 +1,4 @@
+#include "guard.h"
 #include "samscan.h"
 
 #include <atomic>
@@ -179,7 +180,7 @@ double metres(double la1, double lo1, double la2, double lo2) {
 void start(const std::string& root) {
     if (g_th.joinable()) return;
     g_quit = false;
-    g_th = std::thread([root]() { scan(root); });
+    g_th = std::thread(guarded("SAM scan", [root]() { scan(root); }));
 }
 void stop() { g_quit = true; if (g_th.joinable()) g_th.join(); }
 void scanNow(const std::string& root) { scan(root); }

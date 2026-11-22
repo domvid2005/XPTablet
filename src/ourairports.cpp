@@ -1,3 +1,4 @@
+#include "guard.h"
 #include "ourairports.h"
 
 #include <atomic>
@@ -136,7 +137,7 @@ void start(const std::string& cacheDir) {
     if (g_thread.joinable()) return;
     g_dir = cacheDir;
     g_quit = false;
-    g_thread = std::thread(run);
+    g_thread = std::thread(guarded("OurAirports", [] { run(); }));
 }
 void stop() {
     g_quit = true;

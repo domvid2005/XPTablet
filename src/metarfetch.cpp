@@ -1,3 +1,4 @@
+#include "guard.h"
 #include "metarfetch.h"
 
 #include <atomic>
@@ -55,7 +56,7 @@ void metarStart() {
     if (g_running) return;
     g_stop = false;
     g_running = true;
-    g_thread = std::thread(work);
+    g_thread = std::thread(guarded("METAR fetch", [] { work(); }));
 }
 
 void metarStop() {

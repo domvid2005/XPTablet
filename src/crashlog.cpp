@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 
 #if defined(_WIN32)
@@ -154,6 +155,27 @@ void install(const std::string&) {}
 void uninstall() {}
 #endif
 
+namespace {
+std::mutex g_failMx;
+std::string g_failures;
+}
+void threadFailed(const char* name, const char* what) {
+    char b[700];
+    std::snprintf(b, sizeof b, "the %s thread stopped on an exception: %s", name ? name : "?", what ? what : "?");
+#if defined(_WIN32)
+    header(b);
+    walkHere();
+#endif
+    std::lock_guard<std::mutex> lk(g_failMx);
+    g_failures += b;
+    g_failures += '\n';
+}
+std::string takeFailures() {
+    std::lock_guard<std::mutex> lk(g_failMx);
+    std::string s;
+    s.swap(g_failures);
+    return s;
+}
 std::string takeLast(const std::string& dir) {
     const std::string p = dir + "crash.txt";
     std::ifstream f(p, std::ios::binary);

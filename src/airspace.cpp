@@ -1,3 +1,4 @@
+#include "guard.h"
 #include "airspace.h"
 
 #include <atomic>
@@ -73,7 +74,7 @@ void run(std::string dir) {
 void start(const std::string& cacheDir) {
     if (g_started) return;
     g_started = true; g_quit = false;
-    g_thread = std::thread(run, cacheDir);
+    g_thread = std::thread(guarded("VATSIM airspaces", [cacheDir]() { run(cacheDir); }));
 }
 void stop() {
     g_quit = true;

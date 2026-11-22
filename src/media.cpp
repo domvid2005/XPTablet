@@ -1,3 +1,4 @@
+#include "guard.h"
 #include "media.h"
 #include "media_platform.h"
 
@@ -198,7 +199,7 @@ void run() {
 void start() {
     if (g_thread.joinable()) return;
     g_quit = false;
-    g_thread = std::thread(run);
+    g_thread = std::thread(guarded("media", [] { run(); }));
 }
 void stop() {
     if (!g_thread.joinable()) return;

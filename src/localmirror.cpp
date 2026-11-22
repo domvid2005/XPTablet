@@ -1,4 +1,5 @@
 // Local Connect's mirror (see localmirror.h).
+#include "guard.h"
 #include "localmirror.h"
 
 #include <algorithm>
@@ -103,7 +104,7 @@ void start() {
     stop();
     { std::lock_guard<std::mutex> lk(g_mx); g_run = true; g_have = false; }
     g_busy.store(false);
-    g_thread = std::thread(work);
+    g_thread = std::thread(guarded("Local Connect picture", [] { work(); }));
 }
 
 void stop() {

@@ -1,5 +1,6 @@
 // Local Connect's server (see localserver.h). One thread: it accepts, does the TLS handshakes, answers the page and runs every
 // device's connection, never waiting on any one of them (the sockets do not block; select() says which are ready).
+#include "guard.h"
 #include "localserver.h"
 
 #include <algorithm>
@@ -733,7 +734,7 @@ void start(const Config& c) {
         g.incoming.clear(); g.forget.clear(); g.frames.clear(); g.wantKey = true; g.deny = false; g.clients = 0;
     }
     g_run.store(true);
-    g_thread = std::thread(threadMain, c);
+    g_thread = std::thread(guarded("Local Connect server", [c]() { threadMain(c); }));
 }
 
 void stop() {
