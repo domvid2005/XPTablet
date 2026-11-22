@@ -166,6 +166,7 @@ const char* kWxPlaneSignature = WXPLANE_SIGNATURE;
 // The cockpit tablet's area on the panel texture, and its switches. These are what the avitab/panel_* datarefs read and write.
 int g_panelLeft = 0, g_panelBottom = 0, g_panelWidth = 0, g_panelHeight = 0;
 int g_panelEnabled = 0, g_panelPowered = 0;
+int g_panelWritesLogged = 0;      // how many of the aircraft's switchings of its tablet were put in the log (the first of each aircraft)
 float g_brightness = 1.0f;
 float g_mirrorScale = 0;              // Local Connect: the scale a connected device is shown the tablet at (0: none connected)
 unsigned g_texChanges = 0;           // counts the pictures given to the graphics card (a web page's, a map tile, a document, a cover): the mirror looks again
@@ -406,6 +407,7 @@ void loadShapesFile() {
 void loadAircraftConfig() {
     g_panelLeft = g_panelBottom = g_panelWidth = g_panelHeight = 0;
     g_panelEnabled = g_panelPowered = 0;
+    g_panelWritesLogged = 0;
     g_captureClicks = true;
     const std::string dir = aircraftDir();
     if (dir.empty()) return;
@@ -933,10 +935,10 @@ void proceduresStep() {
         if (!readFile(root + "Custom Data/CIFP/" + icao + ".dat", t)) readFile(root + "Resources/default data/CIFP/" + icao + ".dat", t);
         return t;
     }, [](const std::string& id, double nLat, double nLon, double& la, double& lo) {
-        const bool near = nLat != 0 || nLon != 0;
+        const bool hinted = nLat != 0 || nLon != 0;   // (not "near": a macro in the Windows headers)
         float fla = (float)nLat, flo = (float)nLon;
-        const XPLMNavType types = id.size() == 4 && !near ? xplm_Nav_Airport : (XPLMNavType)(xplm_Nav_Fix | xplm_Nav_VOR | xplm_Nav_NDB | xplm_Nav_DME | xplm_Nav_Airport);
-        const XPLMNavRef r = XPLMFindNavAid(nullptr, id.c_str(), near ? &fla : nullptr, near ? &flo : nullptr, nullptr, types);
+        const XPLMNavType types = id.size() == 4 && !hinted ? xplm_Nav_Airport : (XPLMNavType)(xplm_Nav_Fix | xplm_Nav_VOR | xplm_Nav_NDB | xplm_Nav_DME | xplm_Nav_Airport);
+        const XPLMNavRef r = XPLMFindNavAid(nullptr, id.c_str(), hinted ? &fla : nullptr, hinted ? &flo : nullptr, nullptr, types);
         if (r == XPLM_NAV_NOT_FOUND) return false;
         float rla = 0, rlo = 0; char outId[32] = {};
         XPLMGetNavAidInfo(r, nullptr, &rla, &rlo, nullptr, nullptr, nullptr, outId, nullptr, nullptr);
@@ -2114,7 +2116,16 @@ void toggleWindow() {
 
 // ---- datarefs and commands -------------------------------------------------------------------------------------------------------------
 int getInt(void* r) { return *(int*)r; }
-void setInt(void* r, int v) { *(int*)r = v; }
+void setInt(void* r, int v) {
+    int* p = (int*)r;
+    // an aircraft switching its tablet on or off (its own pages in turn with the tablet's): the first of them in the log, which
+    // shows how that aircraft works its tabs, or that it never does
+    if ((p == &g_panelEnabled || p == &g_panelPowered) && *p != v && g_panelWritesLogged < 30) {
+        ++g_panelWritesLogged;
+        logMsg("the aircraft set the cockpit tablet %s to %d", p == &g_panelEnabled ? "enabled" : "powered", v);
+    }
+    *p = v;
+}
 float getFloat(void* r) { return *(float*)r; }
 void setBrightness(void*, float v) { g_brightness = std::max(0.0f, std::min(1.0f, v)); }
 int getOwnsAviTab(void*) { return g_ownsAviTab ? 1 : 0; }
