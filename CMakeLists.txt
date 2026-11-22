@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")  # static CRT: nothing to install next to the plugin
+add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/Z7>)   # debug information in every object (the PDB, kept apart, reads a crash's record back to lines)
 if(CMAKE_HOST_APPLE)
   set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "" FORCE)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "" FORCE)
@@ -131,7 +132,7 @@ endif()
 
 # --- The plugin: <build>/package/XPTablet/<lin_x64|mac_x64|win_x64>/XPTablet.xpl ------------------------------------------
 if(XPT_BUILD_PLUGIN)
-  add_library(XPTablet MODULE src/plugin.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp src/tiles.cpp src/aptdat.cpp src/ourairports.cpp src/navdata.cpp src/vatsim.cpp src/vatsim_parse.cpp src/airspace.cpp src/simbrief.cpp src/media.cpp src/localnet.cpp ${XPT_MEDIA_SRC})
+  add_library(XPTablet MODULE src/plugin.cpp src/crashlog.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp src/tiles.cpp src/aptdat.cpp src/ourairports.cpp src/navdata.cpp src/vatsim.cpp src/vatsim_parse.cpp src/airspace.cpp src/simbrief.cpp src/media.cpp src/localnet.cpp ${XPT_MEDIA_SRC})
   target_include_directories(XPTablet PRIVATE "${XPLANE_SDK}/CHeaders/XPLM" third_party/stb)
   target_compile_definitions(XPTablet PRIVATE XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM303=1 XPLM400=1)   # (400: X-Plane 12's sound, for the notification chime)
   target_link_libraries(XPTablet PRIVATE xpt_ui ${XPT_CURL} Threads::Threads ${CMAKE_DL_LIBS})
@@ -180,6 +181,13 @@ if(XPT_BUILD_PLUGIN)
   set_target_properties(XPTablet PROPERTIES
     PREFIX "" OUTPUT_NAME "XPTablet" SUFFIX ".xpl"
     LIBRARY_OUTPUT_DIRECTORY "${XPT_OUT}" RUNTIME_OUTPUT_DIRECTORY "${XPT_OUT}")
+  if(MSVC)   # symbols for reading a crash's record (module+offset) back to functions and lines: the PDB kept beside the package, not in it
+    target_link_options(XPTablet PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+    set_target_properties(XPTablet PROPERTIES PDB_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/pdb")
+    foreach(CFG RELEASE DEBUG RELWITHDEBINFO MINSIZEREL)
+      set_target_properties(XPTablet PROPERTIES PDB_OUTPUT_DIRECTORY_${CFG} "${CMAKE_BINARY_DIR}/pdb")
+    endforeach()
+  endif()
   foreach(cfg ${CMAKE_CONFIGURATION_TYPES})
     string(TOUPPER ${cfg} CFG)
     set_target_properties(XPTablet PROPERTIES

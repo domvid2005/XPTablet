@@ -74,6 +74,11 @@ jobs:
         with:
           name: XPTablet-${{ runner.os }}
           path: build/package/XPTablet   # contains lin_x64 / mac_x64 / win_x64
+      - uses: actions/upload-artifact@v4   # the Windows symbols, for reading a crash's record (not part of the plugin)
+        if: runner.os == 'Windows'
+        with:
+          name: symbols-Windows
+          path: build/pdb
 
   bundle:
     needs: build

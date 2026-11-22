@@ -41,6 +41,7 @@
 
 #include "aptdat.h"
 #include "samscan.h"
+#include "crashlog.h"
 #include "navdata.h"
 #include "vatsim.h"
 #include "airspace.h"
@@ -3018,6 +3019,22 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
     std::strcpy(outSig, "com.alpineaviation.xptablet");
     std::strcpy(outDesc, "XPTablet " XPT_VERSION " by Alpine Aviation - the cockpit tablet");
     XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
+    {   // a crash's record (Windows): written as it happens; the last session's, if any, put in the log now
+        char sys[2048] = "";
+        XPLMGetSystemPath(sys);
+        const std::string dir = std::string(sys) + "Output/XPTablet/";
+        makeDirs(dir);
+        const std::string last = xpt::crashlog::takeLast(dir);
+        if (!last.empty()) {
+            logMsg("a crash was recorded in the last session (also in Output/XPTablet/crash-last.txt):");
+            std::string line;
+            for (size_t i = 0, n = 0; i <= last.size() && n < 400; ++i) {
+                if (i == last.size() || last[i] == '\n') { while (!line.empty() && line.back() == '\r') line.pop_back(); if (!line.empty()) { logMsg("  %s", line.c_str()); ++n; } line.clear(); }
+                else line += last[i];
+            }
+        }
+        xpt::crashlog::install(dir);
+    }
 
     g_drClickX = XPLMFindDataRef("sim/graphics/view/click_3d_x_pixels");
     g_drClickY = XPLMFindDataRef("sim/graphics/view/click_3d_y_pixels");
@@ -3112,6 +3129,7 @@ PLUGIN_API void XPluginDisable(void) {
 }
 
 PLUGIN_API void XPluginStop(void) {
+    xpt::crashlog::uninstall();
     if (g_win) { XPLMDestroyWindow(g_win); g_win = nullptr; }
     for (const Cmd& c : g_cmds) XPLMUnregisterCommandHandler(c.ref, onCommand, 1, (void*)(intptr_t)c.id);
     g_cmds.clear();
