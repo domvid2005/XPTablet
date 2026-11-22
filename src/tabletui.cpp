@@ -10715,29 +10715,32 @@ void settingsFromText(const std::string& text) {
 }
 
 void setTouchInput(bool on) { g_touchInput = on; }
-// A finger lands without hovering first: the tablet's buttons that let others overlap them (the home screen, the pages' rows)
-// only take a press on a spot the pointer was already over the frame before (Dear ImGui's rule). So the queued pointer is fed a
-// frame at a time: a press that comes with a move moves the pointer this frame and presses on the next, and a press and its
-// release (a quick tap) never fall in one frame.
+// A press must find the pointer already on its spot: the tablet's buttons that let others overlap them (the home screen's icons,
+// the pages' rows) only take a press where the pointer was the frame before (Dear ImGui's rule). A finger lands without hovering
+// first, and a mouse in the sim can too: its press arrives together with its position whenever the sim did not report the
+// pointer the frame before (a slow frame rate, a click straight after a move), and such presses were lost (2026-11-21: apps
+// opened only after many clicks). So every pointer, the sim's mouse, a finger in the browser and a paired device's, is queued
+// here and fed a frame at a time: a press or release whose spot the pointer is not on yet moves it there this frame and lands on
+// the next, and a press and its release (a quick tap) never fall in one frame.
 namespace { struct MouseEv { float x, y; int down; }; std::vector<MouseEv> g_mouseQ; }
 void queuePointer(float x, float y, int down) { g_mouseQ.push_back({x, y, down}); }
+bool pointerPending() { for (const MouseEv& e : g_mouseQ) if (e.down >= 0) return true; return false; }
 void pumpPointer() {
-    static ImVec2 shown(-1000, -1000);   // where the pointer was last frame
-    static bool movedThisFrame = false;
     ImGuiIO& io = ImGui::GetIO();
-    movedThisFrame = false;
+    ImGuiContext& g = *ImGui::GetCurrentContext();
+    auto whole = [](float v) { return v > -FLT_MAX ? ImFloor(v) : v; };   // (as Dear ImGui keeps positions)
     size_t i = 0;
     for (; i < g_mouseQ.size(); ++i) {
-        const MouseEv& e = g_mouseQ[i];
-        const bool moves = e.x != shown.x || e.y != shown.y;
-        if (e.down >= 0 && movedThisFrame) break;   // (a press or release after a move: next frame, the pointer there first)
-        if (moves) {
-            io.AddMousePosEvent(e.x, e.y); shown = ImVec2(e.x, e.y); movedThisFrame = true;
-            if (e.down >= 0) { g_mouseQ[i].down = e.down; break; }   // moved now; this event's press waits for the next frame
-        }
-        if (e.down >= 0) { io.AddMouseButtonEvent(0, e.down != 0); ++i; break; }   // one press or release a frame
+        const MouseEv e = g_mouseQ[i];
+        if (e.down < 0) { io.AddMousePosEvent(e.x, e.y); continue; }   // moves: all of them now
+        // is the pointer on the spot already, by the frame just drawn, with nothing waiting to move it?
+        bool moving = false;
+        for (const ImGuiInputEvent& ev : g.InputEventsQueue) if (ev.Type == ImGuiInputEventType_MousePos) { moving = true; break; }
+        if (moving || io.MousePos.x != whole(e.x) || io.MousePos.y != whole(e.y)) { io.AddMousePosEvent(e.x, e.y); break; }   // there first; the press or release waits for the next frame
+        io.AddMouseButtonEvent(0, e.down != 0);   // one press or release a frame
+        ++i;
+        break;
     }
-    // a press kept back above stays queued (its move done): drop what was used
     if (i > 0) g_mouseQ.erase(g_mouseQ.begin(), g_mouseQ.begin() + i);
 }
 

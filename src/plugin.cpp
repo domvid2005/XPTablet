@@ -1662,11 +1662,12 @@ void ensureFrame() {
     g_lastFrame = now;
 
     // the pointer: over the floating window (its cursor callback reports that), else on the cockpit tablet, else nowhere
-    if (!g_captureDown && cycle - g_winHoverCycle > 1 && XPLMGetElapsedTime() > g_remotePointerUntil) {   // (and not while a paired device's finger is on it)
+    // (not while a paired device's finger is on it, nor while a press still waits its frame)
+    if (!g_captureDown && cycle - g_winHoverCycle > 1 && XPLMGetElapsedTime() > g_remotePointerUntil && !xpt::pointerPending()) {
         float px = 0, py = 0;
         const bool onPanel = panelPointer(px, py);
-        if (onPanel) io.AddMousePosEvent(px, py);
-        if (!onPanel && !ImGui::IsMouseDown(0)) io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+        if (onPanel) xpt::queuePointer(px, py, -1);
+        if (!onPanel && !ImGui::IsMouseDown(0)) xpt::queuePointer(-FLT_MAX, -FLT_MAX, -1);
     }
 
     g_sim.onPanel = panelActive();
@@ -1676,7 +1677,7 @@ void ensureFrame() {
     g_sim.aviTabRunning = g_aviTabRunning;
     g_sim.pixelScale = g_fontScale;
 
-    xpt::pumpPointer();   // (a paired device's pointer, a step a frame; nothing when none is waiting)
+    xpt::pumpPointer();   // (the pointer, whoever moved it: a step a frame, each press a frame after the pointer is on its spot)
     ImGui::NewFrame();
     xpt::Actions act;
     xpt::build(g_fonts, g_sim, g_logW, xpt::kLogicalH, act);
@@ -1897,19 +1898,20 @@ int drawPanel(XPLMDrawingPhase, int, void*) {
 bool panelClick(XPLMMouseStatus status) {
     if (!g_ctx) return false;
     ImGui::SetCurrentContext(g_ctx);
-    ImGuiIO& io = ImGui::GetIO();
+    static float lastX = -FLT_MAX, lastY = -FLT_MAX;   // where the pointer last was on the tablet
     float x = 0, y = 0;
     const bool on = panelPointer(x, y);
     if (status == xplm_MouseDown) {
         if (!on) return false;
-        io.AddMousePosEvent(x, y);
-        io.AddMouseButtonEvent(0, true);
+        lastX = x; lastY = y;
+        xpt::queuePointer(x, y, 1);   // (queued: the press lands a frame after the pointer is there, see pumpPointer)
         g_captureDown = true;
         return true;
     }
     if (!g_captureDown) return false;
-    if (on) io.AddMousePosEvent(x, y);   // dragged off the tablet: the pointer stays where it left
-    if (status == xplm_MouseUp) { io.AddMouseButtonEvent(0, false); g_captureDown = false; }
+    if (on) { lastX = x; lastY = y; }   // dragged off the tablet: the pointer stays where it left
+    if (status == xplm_MouseUp) { xpt::queuePointer(lastX, lastY, 0); g_captureDown = false; }
+    else if (on) xpt::queuePointer(x, y, -1);
     return true;
 }
 
@@ -2045,12 +2047,12 @@ void winDraw(XPLMWindowID w, void*) {
 int winClick(XPLMWindowID, int x, int y, XPLMMouseStatus status, void*) {
     if (!g_ctx) return 1;
     ImGui::SetCurrentContext(g_ctx);
-    ImGuiIO& io = ImGui::GetIO();
     float lx, ly;
     winToLayout(x, y, lx, ly);
-    io.AddMousePosEvent(lx, ly);
-    if (status == xplm_MouseDown) io.AddMouseButtonEvent(0, true);
-    else if (status == xplm_MouseUp) io.AddMouseButtonEvent(0, false);
+    // queued (see pumpPointer): a press that comes with its position, the sim not having reported the pointer there the frame
+    // before, moves the pointer first and lands on the next frame. Given straight to Dear ImGui such presses were lost on the
+    // home screen's icons (2026-11-21: apps opened only after many clicks, at a low frame rate)
+    xpt::queuePointer(lx, ly, status == xplm_MouseDown ? 1 : status == xplm_MouseUp ? 0 : -1);
     if (status == xplm_MouseDown && g_wantKeys && g_win && !XPLMHasKeyboardFocus(g_win)) XPLMTakeKeyboardFocus(g_win);
     g_winHoverCycle = XPLMGetCycleNumber();
     return 1;
@@ -2070,7 +2072,7 @@ XPLMCursorStatus winCursor(XPLMWindowID, int x, int y, void*) {
         ImGui::SetCurrentContext(g_ctx);
         float lx, ly;
         winToLayout(x, y, lx, ly);
-        ImGui::GetIO().AddMousePosEvent(lx, ly);
+        xpt::queuePointer(lx, ly, -1);   // (in the same queue as the presses, so each stays in its order)
         g_winHoverCycle = XPLMGetCycleNumber();
     }
     return xplm_CursorDefault;

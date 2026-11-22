@@ -1019,6 +1019,32 @@ int main(int argc, char** argv) {
                     settings().wallpaper = keepW;
                 }
                 const int keepWp = settings().wallpaper;
+                {   // a press that arrives together with its position (the sim not having reported the pointer there the frame before:
+                    // a slow frame rate, a click straight after a move) still opens the app, through the pointer's queue. Given
+                    // straight to Dear ImGui it is lost (the home screen's icons take a press only where the pointer already was),
+                    // which in the sim meant apps opened only after many clicks
+                    auto fr = [&]() { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.1f; pumpPointer(); ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); };
+                    auto away = [&]() { openApp(APP_HOME); queuePointer(-FLT_MAX, -FLT_MAX, 0); for (int i = 0; i < 12; ++i) fr(); };
+                    const int keepW = settings().wallpaper;
+                    settings().wallpaper = 0;
+                    away();   // a click, its press and release in separate frames, the pointer nowhere before
+                    queuePointer(159, 150, 1); fr(); fr(); queuePointer(159, 150, 0); for (int i = 0; i < 6; ++i) fr();
+                    if (currentApp() != APP_SETTINGS) { std::printf("FAIL: a press that comes with its position opens the app (%d)\n", currentApp()); ++failures; }
+                    away();   // a quick click: press and release before one frame is drawn
+                    queuePointer(159, 150, 1); queuePointer(159, 150, 0); for (int i = 0; i < 8; ++i) fr();
+                    if (currentApp() != APP_SETTINGS) { std::printf("FAIL: a press and release within one frame open the app (%d)\n", currentApp()); ++failures; }
+                    away();   // the pointer hovering there, then taken away behind the queue's back, then the click
+                    queuePointer(159, 150, -1); fr(); fr(); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); fr(); fr();
+                    queuePointer(159, 150, 1); fr(); fr(); queuePointer(159, 150, 0); for (int i = 0; i < 6; ++i) fr();
+                    if (currentApp() != APP_SETTINGS) { std::printf("FAIL: a press after the pointer was moved elsewhere opens the app (%d)\n", currentApp()); ++failures; }
+                    away();   // a press with the pointer still moving every frame (hover reports queued behind it): not held up
+                    queuePointer(150, 150, -1); fr();
+                    queuePointer(159, 150, 1); queuePointer(160, 150, -1); fr(); queuePointer(161, 151, -1); fr(); queuePointer(160, 151, 0); queuePointer(161, 150, -1); for (int i = 0; i < 6; ++i) fr();
+                    if (currentApp() != APP_SETTINGS) { std::printf("FAIL: a click with the mouse still moving opens the app (%d)\n", currentApp()); ++failures; }
+                    if (pointerPending()) { std::printf("FAIL: the pointer's queue empties\n"); ++failures; }
+                    away();
+                    settings().wallpaper = keepW;
+                }
                 {   // every seasonal theme's background moves, slowly: after two seconds the home screen is not drawn quite the same (the
                     // everyday themes stay still: drawn just the same); and in one
                     // sixtieth of a second nothing moves far (no jumps: the most any point shifts is a couple of pixels)
@@ -1040,7 +1066,11 @@ int main(int argc, char** argv) {
                             continue;
                         }
                         if (th >= 10 && a == c) { std::printf("FAIL: theme %d (%s) has a moving background\n", th, seasonalName(th - 10)); ++failures; }
-                        if (th < 10 && a != c) { std::printf("FAIL: everyday theme %d's background stays still\n", th); ++failures; }
+                        if (th < 10 && a != c) {   // (once more before failing: the status bar's clock may have ticked between the two)
+                            const std::vector<float> a2 = frame(1.0f / 60);
+                            for (int i = 0; i < 8; ++i) frame(0.25f);
+                            if (a2 != frame(1.0f / 60)) { std::printf("FAIL: everyday theme %d's background stays still\n", th); ++failures; }
+                        }
                         if (a.size() == b.size()) { float worst = 0; for (size_t i = 0; i + 2 < a.size(); i += 3) worst = std::max(worst, std::max(std::fabs(a[i] - b[i]), std::fabs(a[i + 1] - b[i + 1])));
                             if (worst > 2.5f) { std::printf("FAIL: theme %d's background moves slowly (%.1f px in a frame)\n", th, worst); ++failures; } }
                     }

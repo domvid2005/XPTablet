@@ -495,9 +495,11 @@ void setBattery(float pct);
 std::string checklistFor(const std::string& text, const std::string& icao, const std::string& engine);   // the tablet's battery level (the emulators' test controls)   // a drawing for this type (its own, or its family's)
 
 int currentApp();
-// A touch screen's pointer (no hover before a press): queued, and fed to Dear ImGui a step a frame (call pumpPointer before NewFrame)
+// The pointer (the sim's mouse, a finger, a paired device): queued, and fed to Dear ImGui a step a frame, so that a press always
+// finds the pointer on its spot the frame before (call pumpPointer before NewFrame)
 void queuePointer(float x, float y, int down);   // down: -1 a move, 1 pressed, 0 released
 void pumpPointer();
+bool pointerPending();   // a press or release still waits in the queue
 void setTouchInput(bool on);   // the pointer is a finger (the map's cards then open on a double tap)
 // The browser's address bar is taking typed keys (the floating window's keyboard goes there instead of to the page).
 bool webTypingAddress();
