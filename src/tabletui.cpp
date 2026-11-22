@@ -6838,7 +6838,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             // as openSAM shows it: connected only once the jetway is there, "jetway moving" until then (both kinds of jetway)
             // (openSAM says "no jetway" while the aircraft is not ready for one: then the jetway status says why)
             const char* st = crosses ? "Jetways Would Cross" : moving ? "Jetway Moving"
-                           : !g.openSam ? (docked ? (g.toliss ? "Connected, Door Open" : "Connected") : planeNotReady ? "Check Status" : "X-Plane Jetway")
+                           : !g.openSam ? (docked ? (g.toliss ? "Connected, Door Open" : "Connected") : g.samNear && g.samProblem ? "Needs openSAM" : planeNotReady ? "Check Status" : "X-Plane Jetway")
                            : docked ? (g.toliss ? "Docked, Door Open" : "Docked") : planeNotReady ? "Check Status" : g.jetway == 1 ? "Jetway Ready" : g.jetway == 0 ? "No Jetway Here" : g.jetway == 2 ? "Jetway At The Other Door" : "Jetway Moving";
             std::snprintf(b, sizeof b, "%d%c  \xC2\xB7  %s", pax / 2 + 1, 'L', st);
             textAt(dl, f.small, bx + 4, by + 17, docked ? kGood : moving || crosses ? kWarn : kMuted, b);
@@ -7017,6 +7017,15 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         if (g.beacon) why.push_back("Beacon Light On");
         if (g.enginesRunning) why.push_back("Engines Running");
         if (!g.parkBrake && !g.chocks) why.push_back("Chocks Or Parking Brake Not Set");
+        // SAM jetways here, and openSAM not running: they won't move for X-Plane's jetway command (first, in red)
+        const char* samTitle = nullptr; const char* samHint = nullptr;
+        if (!g.openSam && g.samNear && g.samProblem) {
+            samTitle = g.samProblem == 1 ? "openSAM Not Installed" : "openSAM Not Running";
+            samHint = g.samProblem == 1 ? (g.samNear == 2 ? "This stand's jetway needs the openSAM plugin." : "This airport's jetways need the openSAM plugin.")
+                    : g.samProblem == 2 ? "Move openSAM_Library above Global Airports."
+                    : g.samProblem == 4 ? "openSAM_Library is missing from Custom Scenery."
+                    : "It is installed but didn't start: see Log.txt.";
+        }
         if (g.openSam && why.empty()) {
             if (g.jetway == 0) why.push_back("No Jetway At This Stand");
             else if (g.jetway == -1 && !anyDocked) why.push_back("Jetway Moving, Or None Within Reach");
@@ -7025,6 +7034,16 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         if (!doors) {
             textAt(dl, f.title, cx0, y, kMuted, "Not Available");
             textAt(dl, f.small, cx0, y + 30, kMuted, "This Aircraft Does Not Use Jetways");
+        } else if (samTitle) {   // the error first; what else is in the way under it, as room allows
+            textAt(dl, f.title, cx0, y, IM_COL32(255, 96, 90, 255), samTitle);
+            textAt(dl, f.small, cx0, y + 30, kMuted, fitText(f.small, samHint, rx + rw - pushSq - 10 - cx0).c_str());
+            y += 54;
+            for (const std::string& t : why) {
+                if (y > bot - 22) break;
+                dl->AddCircleFilled(ImVec2(cx0 + 4, y + fontPx(f.body) * 0.5f + 1), 3.5f, kWarn, 0);
+                textAt(dl, f.body, cx0 + 16, y, kInk, t.c_str());
+                y += 22;
+            }
         } else if (why.empty()) {
             textAt(dl, f.title, cx0, y, kGood, anyDocked ? "Good  \xC2\xB7  Connected" : "Good");
             textAt(dl, f.small, cx0, y + 30, kMuted, g.openSam ? "openSAM Jetways" : "X-Plane's Own Jetways");
@@ -7264,6 +7283,17 @@ const MediaState* g_media = nullptr;   // this frame's (for the status bar and t
 std::map<std::string, double> g_raSeen;   // traffic in TCAS RA range, and since when (a notification once per aircraft per minute)
 int g_planSeqSeen = -1;
 
+void postNote(const std::string& title, const std::string& body, int app);
+void samNoteStep(const GroundState& g) {
+    static std::string told;
+    if (g.openSam || !g.samNear || !g.samProblem || !g.onGround || g.groundSpeedKt > 2.0f || told == g.samName) return;
+    told = g.samName;
+    postNote(g.samProblem == 1 ? "openSAM Not Installed" : "openSAM Not Running",
+             g.samProblem == 1 ? "The jetways here need the openSAM plugin."
+             : g.samProblem == 2 ? "Move openSAM_Library above Global Airports in scenery_packs.ini."
+             : g.samProblem == 4 ? "openSAM_Library is missing from Custom Scenery."
+             : "openSAM is installed but didn't start: see Log.txt.", APP_GROUND);
+}
 void postNote(const std::string& title, const std::string& body, int app) {
     if (!g_settings.notifyEnabled) return;
     if (g_power != POWER_ON || (g_batt <= 0.0f && !g_charger)) return;   // a tablet that is off or flat gets none (and makes no sound)
@@ -8797,6 +8827,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     logStep(s);   // (the logbook keeps watching, whatever page is shown)
     seasonalStep();   // (a seasonal theme that has ended gives way; one that has begun is announced once)
     acarsStep(s, act);   // (and ACARS keeps listening)
+    samNoteStep(s.ground);   // (SAM jetways here that can't move: said once an airport)
     {   // a Custom theme's picture: the one the theme shown (or being edited) wants; its average colour becomes its background once
         g_bgTex = s.bgTex; g_bgW = s.bgW; g_bgH = s.bgH; g_bgPic = s.bgPicture;
         const int slot = g_customEdit >= 0 ? g_customEdit : (g_settings.wallpaper >= 7 && g_settings.wallpaper <= 9 ? g_settings.wallpaper - 7 : -1);

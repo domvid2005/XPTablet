@@ -26,6 +26,8 @@
 #include "airspace_parse.h"
 #include "airlines.h"
 #include "tabrender.h"
+#include "samscan.h"
+#include <filesystem>
 #include "soft_raster.h"
 
 using namespace xpt;
@@ -1520,6 +1522,42 @@ int main(int argc, char** argv) {
           { SimState g4 = g3; g4.ground.slidesAuto = true; g4.ground.slides = 1; settings().cabinAuto = true; shot(g4, APP_GROUND, "ground_slides_auto"); settings().cabinAuto = false; }
           openApp(APP_GROUND); }
         // not a ToLiss: an airliner still gets the 1L bubble (X-Plane's own jetways, or openSAM's)
+        {   // SAM jetways and openSAM not running: the scenery read (a pack's sam.xml, its apt.dat), and the Ground page's error
+            namespace fs = std::filesystem;
+            const std::string root = "/tmp/xpt_samtest/";
+            fs::remove_all(root);
+            fs::create_directories(root + "Custom Scenery/KTST Test/Earth nav data");
+            fs::create_directories(root + "Custom Scenery/openSAM_Library");
+            fs::create_directories(root + "Resources/plugins/openSAM");
+            auto put = [](const std::string& p, const std::string& s) { FILE* f = std::fopen(p.c_str(), "wb"); std::fwrite(s.data(), 1, s.size(), f); std::fclose(f); };
+            put(root + "Custom Scenery/KTST Test/sam.xml", "<?xml version=\"1.0\"?>\n<scenery name=\"KTST\">\n <jetways>\n  <jetway name=\"A1\" latitude=\"41.700000\" longitude=\"-86.300000\" heading=\"90\"/>\n"
+                                                         "  <Jetway name='A2' Latitude='41.700500' Longitude='-86.300000'></Jetway>\n </jetways>\n</scenery>\n");
+            put(root + "Custom Scenery/KTST Test/Earth nav data/apt.dat", "I\n1200 Generated\n\n1 800 0 0 KTST Test Field\n100 45.00 1 0 0.25 1 2 1 09 41.69 -86.32 0 0 2 0 0 0 27 41.69 -86.28 0 0 2 0 0 0\n99\n");
+            auto ini = [&](bool libFirst) { put(root + "Custom Scenery/scenery_packs.ini", std::string("I\n1000 Version\nSCENERY\n\nSCENERY_PACK Custom Scenery/KTST Test/\n") +
+                (libFirst ? "SCENERY_PACK Custom Scenery/openSAM_Library/\nSCENERY_PACK *GLOBAL_AIRPORTS*\n" : "SCENERY_PACK *GLOBAL_AIRPORTS*\nSCENERY_PACK Custom Scenery/openSAM_Library/\n")); };
+            ini(false);
+            xpt::sam::scanNow(root);
+            xpt::sam::Install in = xpt::sam::install();
+            if (!in.scanned || !in.pluginFolder || !in.library || !in.libraryBelowGlobal || in.packs != 1 || in.jetways != 2 || in.airports != 1) {
+                std::printf("FAIL: the SAM scan reads the test scenery (plugin %d library %d below %d packs %d jetways %d airports %d)\n", in.pluginFolder, in.library, in.libraryBelowGlobal, in.packs, in.jetways, in.airports); ++failures; }
+            std::string nm;
+            if (xpt::sam::nearby(41.70003, -86.30002, &nm) != 2) { std::printf("FAIL: a SAM jetway within reach is found\n"); ++failures; }
+            if (xpt::sam::nearby(41.6905, -86.31, &nm) != 1 || nm.find("KTST") == std::string::npos) { std::printf("FAIL: an airport with SAM jetways is found (%s)\n", nm.c_str()); ++failures; }
+            if (xpt::sam::nearby(42.5, -86.3) != 0) { std::printf("FAIL: far from SAM jetways, none\n"); ++failures; }
+            ini(true);
+            xpt::sam::scanNow(root);
+            if (xpt::sam::install().libraryBelowGlobal) { std::printf("FAIL: openSAM_Library above Global Airports is seen so\n"); ++failures; }
+            fs::remove_all(root + "Resources/plugins/openSAM");
+            xpt::sam::scanNow(root);
+            if (xpt::sam::install().pluginFolder) { std::printf("FAIL: no openSAM folder in the plugins is seen so\n"); ++failures; }
+            fs::remove_all(root);
+            // the Ground page
+            SimState ts = t; ts.acfIcao = "B738"; ts.toliss = false; ts.ground.toliss = false; ts.ground.openSam = false; ts.ground.jetway = 1; ts.ground.jwDoors = 1; ts.ground.parkBrake = true;
+            ts.ground.samNear = 2; ts.ground.samProblem = 1; ts.ground.samName = "KTST";
+            shot(ts, APP_GROUND, "ground_sam_missing");
+            ts.ground.samProblem = 2; ts.ground.beacon = true;
+            shot(ts, APP_GROUND, "ground_sam_order");
+        }
         { SimState t2 = t; t2.acfIcao = "B738"; t2.toliss = false; t2.ground.toliss = false; t2.ground.openSam = false; t2.ground.jetway = 1; t2.ground.jwDoors = 1;
           t2.ground.parkBrake = true;
           bool hit = false;

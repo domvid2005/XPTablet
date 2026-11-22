@@ -149,6 +149,11 @@ struct GroundState {
     bool onGround = true;
     bool openSam = false;         // openSAM is installed: it drives the jetways and reports their state
     int jetway = 0;               // openSAM's state: 0 no jetway at this stand, 1 ready to dock, 2 docked, -1 moving or unavailable
+    // SAM jetways (moved only by openSAM) and openSAM not running: 2 one at this stand, 1 the airport's scenery has them, 0 none;
+    // and why openSAM is not running: 1 not installed, 2 openSAM_Library below Global Airports in scenery_packs.ini, 3 installed but
+    // it did not start, 4 openSAM_Library missing from scenery_packs.ini
+    int samNear = 0, samProblem = 0;
+    std::string samName;          // the airport (or scenery pack) with them
     bool toliss = false;          // a ToLiss aircraft: its doors, chocks and ground power can be set
     int paxDoors = 0, cargoDoors = 0;        // how many of each this aircraft has
     int paxDoor[8] = {}, cargoDoor[4] = {};  // 0 closed, 1 automatic, 2 open (ToLiss's door modes); cargo: forward, aft, bulk

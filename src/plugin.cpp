@@ -40,6 +40,7 @@
 #include "XPLMNavigation.h"
 
 #include "aptdat.h"
+#include "samscan.h"
 #include "navdata.h"
 #include "vatsim.h"
 #include "airspace.h"
@@ -2423,6 +2424,23 @@ void readSimState() {
     g.landingLights = r.landingLights && XPLMGetDatai(r.landingLights) != 0;
     g.taxiLight = r.taxiLight && XPLMGetDatai(r.taxiLight) != 0;
     g.jetway = g.openSam ? XPLMGetDatai(r.jwStatus) : 0;
+    // SAM jetways here that only openSAM moves, and openSAM not running: why, as near as can be told
+    g.samNear = 0; g.samProblem = 0;
+    if (!g.openSam) {
+        static XPLMDataRef la = XPLMFindDataRef("sim/flightmodel/position/latitude"), lo = XPLMFindDataRef("sim/flightmodel/position/longitude");
+        const xpt::sam::Install in = xpt::sam::install();
+        if (in.scanned && la && lo) {
+            std::string nm;
+            g.samNear = xpt::sam::nearby(XPLMGetDatad(la), XPLMGetDatad(lo), &nm);
+            if (g.samNear) {
+                g.samName = nm;
+                g.samProblem = !in.pluginFolder ? 1 : in.libraryBelowGlobal ? 2 : !in.library ? 4 : 3;
+                static std::string told;
+                if (told != nm) { told = nm; logMsg("openSAM: SAM jetways %s (%s), openSAM %s", g.samNear == 2 ? "at this stand" : "at this airport", nm.c_str(),
+                                                   g.samProblem == 1 ? "not installed" : g.samProblem == 2 ? "not running: openSAM_Library is below Global Airports in scenery_packs.ini" : g.samProblem == 4 ? "not running: openSAM_Library is not in scenery_packs.ini" : "installed but not running"); }
+            }
+        }
+    }
     g.toliss = g_sim.toliss && r.paxDoor != nullptr;
     g.paxDoors = g.cargoDoors = 0;
     // what keeps a jetway from connecting (openSAM: beacon on or not on the ground; and good practice: brake or chocks set, engines off)
@@ -3042,6 +3060,11 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
 
 
 PLUGIN_API int XPluginEnable(void) {
+    {   // the scenery's SAM jetways, for saying when a stand needs openSAM and it is not running (read once, on a thread)
+        char sys[2048] = "";
+        XPLMGetSystemPath(sys);
+        xpt::sam::start(sys);
+    }
     updateCheckStart();   // (once a session, in the background)
     XPLMRegisterKeySniffer(keySniffer, 1, nullptr);   // (before X-Plane's windows: typed keys go to a text box first)
     XPLMRegisterDrawCallback(drawPanel, xplm_Phase_Gauges, 0, nullptr);
@@ -3065,6 +3088,7 @@ PLUGIN_API int XPluginEnable(void) {
 
 PLUGIN_API void XPluginDisable(void) {
     updateCheckStop();
+    xpt::sam::stop();
 #if defined(XPT_LOCAL_CONNECT)
     if (g_localRunning) { xpt::mirror::stop(); xpt::localserver::stop(); g_localRunning = false; }   // (started again by the flight loop when the setting is on)
 #endif
