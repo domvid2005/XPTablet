@@ -2459,7 +2459,9 @@ void readSimState() {
     if (!g.toliss) {
         g.jwDoors = 1;
         if (g.openSam && r.jwNumber) g.jwDoors = std::max(1, std::min(3, XPLMGetDatai(r.jwNumber)));
-        int docked[3] = {0, 0, 0};
+        // (read into room for more than asked: an accessor that fills its whole array whatever the count asked for cannot run
+        // past the end of it here)
+        int docked[16] = {0};
         if (g.openSam && r.jwDoorStatus) XPLMGetDatavi(r.jwDoorStatus, docked, 0, 3);
         adoptDocked(g, docked);
         for (int k = 0; k < 3; ++k) g.jwDoorPax[k] = 2 * k;
@@ -2489,7 +2491,7 @@ void readSimState() {
         g.jwDoorPax[0] = 0;
         if (wide && g.paxDoors > 2) { g.jwDoors = 2; g.jwDoorPax[1] = 2; }
         else if (long321 && r.exitConfig && readNum(r.exitConfig) == 0 && g.paxDoors > 2) { g.jwDoors = 2; g.jwDoorPax[1] = 2; }
-        int docked[3] = {0, 0, 0};
+        int docked[16] = {0};   // (room to spare, as below)
         if (r.jwDoorStatus) XPLMGetDatavi(r.jwDoorStatus, docked, 0, 3);
         adoptDocked(g, docked);
         jetwayDoors(g, docked);
