@@ -7287,20 +7287,18 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         {
             ImGui::SetCursorScreenPos(pa);
             if (ImGui::InvisibleButton("##pushbtn", ImVec2(pb.x - pa.x, pb.y - pa.y))) pbOpen = !pbOpen;   // (open: it closes the panel)
-            const bool lit = pbOpen || g.bpStarted, hov = ImGui::IsItemHovered() || ImGui::IsItemActive();
+            const bool lit = pbOpen || g.bpStarted;   // (open, or pushing: lit in the theme's colour; pressed again, it closes)
             const Ease ez = eased("##pushbtn", lit, ImGui::IsItemHovered(), ImGui::IsItemActive());
-            const float redK = openness("##pushred", pbOpen && hov, 18.0f);   // open and hovered: red, "Close"
             const float in = ez.down * 1.5f;
             const ImU32 off = mixCol(IM_COL32(255, 255, 255, 22), IM_COL32(255, 255, 255, 40), ez.hot);
             const ImU32 base = mixCol(off, mixCol(accentCol(255), accentLite(255), ez.hot), ez.on);
-            dl->AddRectFilled(ImVec2(pa.x + in, pa.y + in), ImVec2(pb.x - in, pb.y - in), mixCol(base, IM_COL32(220, 60, 60, 255), redK), 16.0f);
+            dl->AddRectFilled(ImVec2(pa.x + in, pa.y + in), ImVec2(pb.x - in, pb.y - in), base, 16.0f);
             const float cx = (pa.x + pb.x) * 0.5f, cy = (pa.y + pb.y) * 0.5f, lh = fontPx(f.title);
-            const ImU32 tc = lit ? IM_COL32(255, 255, 255, 255) : kInk;
-            if (redK > 0.5f) textCentered(dl, f.title, cx, std::floor(cy - lh * 0.5f), IM_COL32(255, 255, 255, 255), "Close");
-            else { textCentered(dl, f.title, cx, std::floor(cy - lh), tc, "Push"); textCentered(dl, f.title, cx, std::floor(cy), tc, "Back"); }
+            const ImU32 tc = mixCol(kInk, onAccent(), ez.on);   // (readable on a light theme colour too)
+            textCentered(dl, f.title, cx, std::floor(cy - lh), tc, "Push"); textCentered(dl, f.title, cx, std::floor(cy), tc, "Back");
         }
         const float t = openness("##pushopen", pbOpen);
-        if (t > 0.01f) {   // the panel: over the cabin's card; Push Back (red, "Close", under the finger) puts it away
+        if (t > 0.01f) {   // the panel: over the cabin's card; Push Back (lit while it is open) puts it away
             std::vector<std::string> checks;   // what is in the way
             if (!gnd) checks.push_back("Not On The Ground");
             // a jetway still on the aircraft (openSAM's or X-Plane's): no tug is called and no push starts until it is off
