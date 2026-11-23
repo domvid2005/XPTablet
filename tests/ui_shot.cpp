@@ -961,6 +961,21 @@ int main(int argc, char** argv) {
                 }
             }
             openDispatchFromPlan(); shot(fp, APP_DISPATCH, "dispatch");
+            {   // its tabs: the briefing's parts from SimBrief (weather, NOTAMs, the ATC plan, the OFP's text)
+                SimState dp = fp;
+                dp.plan.weather = {{"KSBN METAR", "KSBN 222351Z 24012KT 10SM FEW045 BKN250 08/M01 A3002 RMK AO2 SLP171"}, {"KSBN TAF", "KSBN 222320Z 2300/2324 24012G20KT P6SM SCT050\n  FM230600 26008KT P6SM BKN040"},
+                                   {"KORD METAR", "KORD 222351Z 27015G24KT 10SM BKN035 06/M02 A2998"}};
+                dp.plan.notams = {{"KSBN  A1234/26", "RWY 09R/27L CLSD 2300-1100 DLY"}, {"KORD  A0567/26", "TWY B BTN B4 AND B6 CLSD"}};
+                dp.plan.atcPlan = "(FPL-AAL1234-IS\n-A321/M-SDE2E3FGHIJ1RWXY/LB1\n-KSBN2310\n-N0450F360 DCT GIJ DCT ELX\n-KORD0052 KMDW)";
+                dp.plan.ofpText = "[ OFP ]\nAAL1234  KSBN-KORD  A321\n----------------------------------------\nFUEL       TIME   DIST\nTRIP 2140  0:42   145";
+                auto click = [&](float cx, float cy) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(cx, cy); io.AddMouseButtonEvent(0, k == 1 || k == 2);
+                    ImGui::NewFrame(); Actions act; build(fonts, dp, 800, kLogicalH, act); ImGui::Render(); } };
+                openDispatchFromPlan(); click(-100, -100);
+                const char* names[6] = {"dispatch_summary", "dispatch_navlog", "dispatch_weather", "dispatch_notams", "dispatch_atc", "dispatch_ofp"};
+                const float xs[6] = {125, 196, 268, 350, 450, 560};   // (the tabs, left to right)
+                for (int i = 0; i < 6; ++i) { click(xs[i], 28 + 46 + 8 + 38 + 14); shot(dp, APP_DISPATCH, names[i]); }
+                click(40, 28 + 46 + 8 + 38 + 14);   // back to the PDF
+            }
             { SimState np = t; shot(np, APP_DISPATCH, "dispatch_empty"); }
             {   // a newer plan from SimBrief, in its window before Import (the plan in use stays under it)
                 SimState pv = fp;

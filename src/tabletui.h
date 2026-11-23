@@ -294,6 +294,11 @@ struct FlightPlan {
     std::string blockFuel, tripFuel, reserveFuel, altnFuel, taxiFuel, extraFuel, zfw, tow, ldw;
     std::string oew, paxCount, paxWeight, bags, bagWeight, freight, payload, maxZfw, maxTow, maxLdw;   // the load, from SimBrief's weights
     std::string pdfUrl;           // the briefing (the OFP as SimBrief's PDF)
+    // the briefing's parts, for the Dispatch app's tabs (from SimBrief's answer): weather reports, NOTAMs, the ATC flight plan, the OFP's text
+    struct Brief { std::string head, text; };   // head: what it is ("KSBN METAR", "KORD NOTAM A1234/26")
+    std::vector<Brief> weather, notams;
+    std::string atcPlan;          // the ICAO flight plan, as filed ("(FPL-...")
+    std::string ofpText;          // the whole OFP, as text (SimBrief's plan_html with its markup taken out)
     std::string importedAt;       // when (Zulu)
     std::string ofpId;            // SimBrief's request id and generation time: a new plan has a new one
     struct Leg { std::string ident, airway, alt, legNm, totalTime, type; double lat = 0, lon = 0;

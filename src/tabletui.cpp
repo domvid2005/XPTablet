@@ -6405,19 +6405,118 @@ void dispatchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         arrow(dl, ImVec2(32, top + 15), true, kInk);   // back
         x = 152;
     }
-    if (!p.loaded || p.pdfUrl.empty()) {
+    if (!p.loaded) {
         textCentered(dl, f.bold, w * 0.5f, h * 0.45f - 10, kInk, "No briefing yet");
         textCentered(dl, f.small, w * 0.5f, h * 0.45f + 16, kMuted, p.loaded ? "SimBrief gave no PDF with this plan." : "Import your SimBrief plan on the Flight Plan page; its briefing shows here.");
         if (pill(dl, f, "##dspplan", "Open Flight Plan", ImVec2(w * 0.5f - 80, h * 0.45f + 44), ImVec2(w * 0.5f + 80, h * 0.45f + 74), true, true)) { g_dispatchFromPlan = false; openApp(APP_ROUTES); }
         return;
     }
+    // the briefing's parts, each a tab: the PDF itself, then its sections from SimBrief's answer (those it gave)
+    enum { T_PDF, T_SUMMARY, T_NAVLOG, T_WEATHER, T_NOTAMS, T_ATC, T_OFP };
+    struct DTab { int id; const char* name; };
+    std::vector<DTab> tabs = {{T_PDF, "Briefing"}, {T_SUMMARY, "Summary"}};
+    if (!p.legs.empty()) tabs.push_back({T_NAVLOG, "Navlog"});
+    if (!p.weather.empty()) tabs.push_back({T_WEATHER, "Weather"});
+    if (!p.notams.empty()) tabs.push_back({T_NOTAMS, "NOTAMs"});
+    if (!p.atcPlan.empty()) tabs.push_back({T_ATC, "ATC Flight Plan"});
+    if (!p.ofpText.empty()) tabs.push_back({T_OFP, "Full OFP"});
+    static int tab = T_PDF;
+    static float scroll[8] = {};
+    bool known = false;
+    for (const DTab& t : tabs) known = known || t.id == tab;
+    if (!known) tab = T_PDF;
     std::string title = p.origin + " \xE2\x86\x92 " + p.dest;
     if (!p.callsign.empty()) title = p.callsign + "   " + title;
     if (!p.importedAt.empty()) title += "   \xC2\xB7   imported " + p.importedAt;
     textAt(dl, f.bold, x + 4, top + 6, kInk, fitText(f.bold, title, w - 12 - 150 - x).c_str());
-    const float y0 = top + 40;
-    pdfZoomControls(dl, f, s, act, "dsp", w - 12 - 126, top - 1, top + 31, ImVec2((w - 24) * 0.5f, (h - 12 - y0) * 0.5f), s.browser.status == 1 && !g_webHold);
-    pdfView(dl, f, s, 12, y0, w - 24, h - 12 - y0, act, kGroupDispatch, p.pdfUrl);
+    {   // the tabs
+        float tx = 12;
+        const float ty = top + 38;
+        for (const DTab& t : tabs) {
+            const float bw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, t.name).x + 28;
+            char id[24]; std::snprintf(id, sizeof id, "##dtab%d", t.id);
+            if (pill(dl, f, id, t.name, ImVec2(tx, ty), ImVec2(tx + bw, ty + 28), tab == t.id, true) && tab != t.id) tab = t.id;
+            tx += bw + 6;
+        }
+    }
+    const float y0 = top + 74;
+    if (tab == T_PDF) {
+        if (p.pdfUrl.empty()) { textCentered(dl, f.small, w * 0.5f, (y0 + h) * 0.5f, kMuted, "SimBrief gave no PDF with this plan: its parts are in the other tabs."); return; }
+        pdfZoomControls(dl, f, s, act, "dsp", w - 12 - 126, top - 1, top + 31, ImVec2((w - 24) * 0.5f, (h - 12 - y0) * 0.5f), s.browser.status == 1 && !g_webHold);
+        pdfView(dl, f, s, 12, y0, w - 24, h - 12 - y0, act, kGroupDispatch, p.pdfUrl);
+        return;
+    }
+    // a section: its text on a card, scrolled by finger, wheel or its bar
+    const ImVec2 ca(12, y0), cb(w - 12, h - 10);
+    dl->AddRectFilled(ca, cb, themeTone(10, 20, 38, 235), 16.0f);
+    dl->AddRect(ca, cb, IM_COL32(255, 255, 255, 26), 16.0f);
+    float& sc = scroll[tab];
+    ImGui::SetCursorScreenPos(ca);
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("##dspsec", ImVec2(cb.x - ca.x, cb.y - ca.y));
+    if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) sc -= ImGui::GetIO().MouseWheel * 48;
+    touchScroll(sc, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+    const float lx = ca.x + 18, rx = cb.x - 26, wrapW = rx - lx;
+    float y = ca.y + 14 - sc;
+    dl->PushClipRect(ImVec2(ca.x, ca.y + 4), ImVec2(cb.x, cb.y - 4), true);
+    auto head = [&](const std::string& t) { textAt(dl, f.bold, lx, y, accentLite(255), t.c_str()); y += 24; };
+    auto para = [&](ImFont* fnt, const std::string& t, ImU32 col) {   // wrapped (or, in the monospaced font, as laid out)
+        const float px = fontPx(fnt);
+        const ImVec2 sz = fnt->CalcTextSizeA(px, FLT_MAX, wrapW, t.c_str());
+        if (y + sz.y > ca.y - 40 && y < cb.y + 40) dl->AddText(fnt, px, ImVec2(lx, y), col, t.c_str(), nullptr, wrapW);
+        y += sz.y + 12;
+    };
+    auto row = [&](const char* label, const std::string& v) {
+        if (v.empty()) return;
+        textAt(dl, f.small, lx, y + 2, kMuted, label);
+        textAt(dl, f.bold, lx + 200, y, kInk, v.c_str());
+        y += 24;
+    };
+    const std::string u = p.units.empty() ? "" : " " + p.units;
+    auto wu = [&](const std::string& v) { return v.empty() ? v : v + u; };
+    if (tab == T_SUMMARY) {
+        head("Flight");
+        row("Callsign", p.callsign); row("Aircraft", p.aircraft + (p.registration.empty() ? "" : "  " + p.registration));
+        row("From", p.origin + (p.originName.empty() ? "" : "  " + p.originName) + (p.originRunway.empty() ? "" : "  (runway " + p.originRunway + ")"));
+        row("To", p.dest + (p.destName.empty() ? "" : "  " + p.destName) + (p.destRunway.empty() ? "" : "  (runway " + p.destRunway + ")"));
+        row("Alternate", p.alternate + (p.alternateName.empty() ? "" : "  " + p.alternateName));
+        row("Cruise", p.cruise); row("Distance", p.distanceNm.empty() ? "" : p.distanceNm + " nm"); row("Time En Route", p.ete);
+        row("Cost Index", p.costIndex); row("Average Wind", p.avgWind);
+        y += 8; head("Route");
+        para(f.mono, p.route.empty() ? std::string("(none)") : p.route, kInk);
+        head("Fuel");
+        row("Block", wu(p.blockFuel)); row("Trip", wu(p.tripFuel)); row("Taxi", wu(p.taxiFuel)); row("Reserve", wu(p.reserveFuel));
+        row("Alternate", wu(p.altnFuel)); row("Extra", wu(p.extraFuel));
+        y += 8; head("Weights");
+        row("Zero Fuel", wu(p.zfw) + (p.maxZfw.empty() ? "" : "  (max " + p.maxZfw + ")")); row("Takeoff", wu(p.tow) + (p.maxTow.empty() ? "" : "  (max " + p.maxTow + ")"));
+        row("Landing", wu(p.ldw) + (p.maxLdw.empty() ? "" : "  (max " + p.maxLdw + ")")); row("Payload", wu(p.payload));
+        row("Passengers", p.paxCount); row("Cargo", wu(p.freight));
+    } else if (tab == T_NAVLOG) {
+        static const float cx[5] = {0, 110, 220, 330, 440};
+        const char* cols[5] = {"Fix", "Via", "Altitude", "Leg nm", "Time"};
+        for (int c = 0; c < 5; ++c) textAt(dl, f.small, lx + cx[c], y, kMuted, cols[c]);
+        y += 22;
+        for (const FlightPlan::Leg& l : p.legs) {
+            if (y > ca.y - 30 && y < cb.y + 10) {
+                textAt(dl, f.bold, lx + cx[0], y, kInk, l.ident.c_str()); textAt(dl, f.small, lx + cx[1], y + 2, kInk, l.airway.c_str());
+                textAt(dl, f.small, lx + cx[2], y + 2, kInk, l.alt.c_str()); textAt(dl, f.small, lx + cx[3], y + 2, kInk, l.legNm.c_str());
+                textAt(dl, f.small, lx + cx[4], y + 2, kInk, l.totalTime.c_str());
+            }
+            y += 24;
+        }
+    } else if (tab == T_WEATHER || tab == T_NOTAMS) {
+        for (const FlightPlan::Brief& br : tab == T_WEATHER ? p.weather : p.notams) { head(br.head); para(f.mono, br.text, kInk); }
+    } else if (tab == T_ATC) {
+        para(f.mono, p.atcPlan, kInk);
+    } else if (tab == T_OFP) {
+        std::string t = p.ofpText;
+        for (char& c : t) if (c == '\f') c = '\n';
+        para(f.mono, t, kInk);
+    }
+    dl->PopClipRect();
+    const float content = y + sc - (ca.y + 14), shown = cb.y - ca.y - 20;
+    sc = std::max(0.0f, std::min(sc, std::max(0.0f, content - shown)));
+    sc = scrollBar(dl, "##dspbar", cb.x - 12, ca.y + 10, cb.y - 10, sc, content, shown);
 }
 
 // ---- Flight Plan: the latest SimBrief plan (Import uses the SimBrief ID saved in Settings, Accounts); the briefing PDF in a tab -------------

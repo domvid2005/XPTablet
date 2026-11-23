@@ -93,6 +93,60 @@ FlightPlan parseSimbrief(const std::string& body) {
             const std::string dir = str(files, "directory"), link = str(pdf, "link");
             if (!link.empty()) p.pdfUrl = link.compare(0, 4, "http") == 0 ? link : dir + link;
         }
+        {   // the briefing's parts: weather (METAR and TAF of departure, destination, alternates), NOTAMs, the ATC plan, the OFP's text
+            const wx::Json* wxj = j.get("weather");
+            auto reports = [&](const char* key, const std::string& head) {   // a string, or a list of them (several alternates)
+                const wx::Json* v = wxj ? wxj->get(key) : nullptr;
+                if (!v) return;
+                std::vector<std::string> texts;
+                if (v->type == wx::Json::Arr) { for (const wx::Json& e : v->arr) texts.push_back(e.asString()); } else texts.push_back(v->asString());
+                for (std::string& t : texts) { while (!t.empty() && (t.back() == ' ' || t.back() == '\n')) t.pop_back(); if (!t.empty()) p.weather.push_back({head, t}); }
+            };
+            const std::string o = p.origin, d = p.dest, a = p.alternate.empty() ? std::string("Alternate") : p.alternate;
+            reports("orig_metar", o + " METAR"); reports("orig_taf", o + " TAF");
+            reports("dest_metar", d + " METAR"); reports("dest_taf", d + " TAF");
+            reports("altn_metar", a + " METAR"); reports("altn_taf", a + " TAF");
+            reports("toaltn_metar", "Takeoff Alternate METAR"); reports("toaltn_taf", "Takeoff Alternate TAF");
+            reports("eualtn_metar", "En Route Alternate METAR"); reports("eualtn_taf", "En Route Alternate TAF");
+            auto notamsOf = [&](const wx::Json* apt, const std::string& icao) {
+                const wx::Json* n = apt ? apt->get("notam") : nullptr;
+                if (!n) return;
+                auto one = [&](const wx::Json& e) {
+                    std::string t = str(&e, "notam_text"); if (t.empty()) t = str(&e, "notam_raw"); if (t.empty()) t = str(&e, "text"); if (t.empty() && e.type == wx::Json::Str) t = e.str;
+                    if (t.empty()) return;
+                    const std::string id = str(&e, "notam_id");
+                    p.notams.push_back({icao + (id.empty() ? std::string() : "  " + id), t});
+                };
+                if (n->type == wx::Json::Arr) { for (const wx::Json& e : n->arr) one(e); } else one(*n);
+            };
+            notamsOf(org, p.origin); notamsOf(dst, p.dest); notamsOf(alt, p.alternate);
+            p.atcPlan = str(atc, "flightplan_text");
+            const wx::Json* tx = j.get("text");
+            const std::string html = str(tx, "plan_html");
+            if (!html.empty()) {   // markup out: <br> and the end of a block as new lines, entities decoded, the rest as it is (it is a <pre>)
+                std::string out;
+                for (size_t i = 0; i < html.size();) {
+                    if (html[i] == '<') {
+                        const size_t e = html.find('>', i);
+                        if (e == std::string::npos) break;
+                        std::string tag = html.substr(i + 1, e - i - 1);
+                        for (char& c : tag) c = (char)std::tolower((unsigned char)c);
+                        if (tag.compare(0, 2, "br") == 0 || tag == "/div" || tag == "/p" || tag == "/h1" || tag == "/h2" || tag == "/h3" || tag == "/tr") out += '\n';
+                        if (tag.compare(0, 2, "h2") == 0 && tag.find("page-break") != std::string::npos) out += "\n\f";   // (a new page)
+                        i = e + 1;
+                    } else if (html[i] == '&') {
+                        const size_t e = html.find(';', i);
+                        const std::string ent = e == std::string::npos || e - i > 8 ? std::string() : html.substr(i, e - i + 1);
+                        if (ent == "&amp;") out += '&'; else if (ent == "&lt;") out += '<'; else if (ent == "&gt;") out += '>'; else if (ent == "&quot;") out += '"';
+                        else if (ent == "&nbsp;" || ent == "&#160;") out += ' '; else if (ent == "&#39;" || ent == "&apos;") out += '\'';
+                        else { out += '&'; ++i; continue; }
+                        i = e + 1;
+                    } else if (html[i] == '\r') ++i;
+                    else out += html[i++];
+                }
+                p.ofpText = out;
+            }
+        }
         auto addLeg = [&](const wx::Json& f) {
             FlightPlan::Leg l;
             l.ident = str(&f, "ident"); l.airway = str(&f, "via_airway"); l.type = str(&f, "type");
