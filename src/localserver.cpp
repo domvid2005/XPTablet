@@ -75,6 +75,7 @@ struct Shared {
     std::vector<std::string> forget;
     bool deny = false;
     int clients = 0;
+    std::string theme = "{}";
 };
 Shared g;
 std::thread g_thread;
@@ -425,6 +426,12 @@ struct Server {
             c.lastPing = c.lastHeard = Clock::now();
             return;
         }
+        if (path == "/theme") {
+            std::string t;
+            { std::lock_guard<std::mutex> lk(g.mx); t = g.theme; }
+            respond(c, "200 OK", "Content-Type: application/json\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n", t);
+            return;
+        }
         if (path == "/" || path == "/index.html") {
             if (page.empty()) {
                 respond(c, "200 OK", "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\n",
@@ -758,6 +765,7 @@ void publishFrame(const std::string& message, bool key) {
     if (g.frames.size() < 12) g.frames.emplace_back(message, key);
 }
 bool wantKey() { std::lock_guard<std::mutex> lk(g.mx); return g.wantKey; }
+void setTheme(const std::string& json) { std::lock_guard<std::mutex> lk(g.mx); g.theme = json; }
 
 bool poll(Incoming& in) {
     std::lock_guard<std::mutex> lk(g.mx);

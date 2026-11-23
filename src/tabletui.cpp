@@ -127,9 +127,11 @@ const AppDef kApps[APP_COUNT] = {
     {"acars", "ACARS", IM_COL32(124, 130, 50, 255), nullptr},
     {"xpilot", "xPilot", IM_COL32(30, 44, 70, 255), nullptr},   // xPilot's own windows: a page of the VATSIM app (not in the App Store, never on the home screen)
     {"fr24", "Flightradar24", IM_COL32(16, 16, 18, 255), "https://www.flightradar24.com"},   // real-world traffic, live
+    {"discord", "Discord", IM_COL32(88, 101, 242, 255), "https://discord.com/app"},   // Discord's blurple
 };
 enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM, ICON_SKYVECTOR };   // pictures of their own (the other web apps borrow one)
 
+bool g_localLive = false;      // a device is showing the tablet through Local Connect: Spotify's web player won't play there (greyed)
 bool g_wx = false;             // WXPlane is installed (told by the host each frame): the Weather icon and page are WXPlane's
 ImTextureID g_wxLogo = 0;
 Settings g_settings;
@@ -212,6 +214,7 @@ int brandCell(int app) {
     case APP_IVAO: return 26;        // IVAO Webeye
     case APP_SPOTIFY: return 27;
     case APP_FR24: return 28;        // Flightradar24
+    case APP_DISCORD: return 29;
     default: return -1;
     }
 }
@@ -1182,8 +1185,10 @@ void drawTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, boo
     if (g_icons && brandCell(app) >= 0) {   // the service's own tile, from its logo
         ImVec2 uv0, uv1;
         cellUv(brandCell(app), uv0, uv1);
-        const int k = (int)std::min(255.0f, 255.0f * shadeK);
+        const bool off = app == APP_SPOTIFY && g_localLive;   // (greyed: it won't play on a Local Connect device)
+        const int k = (int)std::min(255.0f, 255.0f * shadeK * (off ? 0.55f : 1.0f));
         dl->AddImageRounded(g_icons, a, b, uv0, uv1, IM_COL32(k, k, k, 255), tile * 0.24f * scale);
+        if (off) dl->AddRectFilled(a, b, IM_COL32(120, 124, 132, 170), tile * 0.24f * scale);   // washed to grey
         if (label) textCentered(dl, f.small, c.x, c.y + tile * 0.5f + 6, IM_COL32(236, 241, 250, 255), appName(app));
         return;
     }
@@ -2890,13 +2895,26 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
             dl->AddRectFilled(ImVec2(c.x - 2, c.y + 2), ImVec2(c.x + 2, c.y + 8), themeTone(16, 34, 66, 255));
         }
         zoomGroup("w", w - 266, kStatusH + 6, kStatusH + kHeaderH - 6);
-    } else if (g_barsHidden) {   // folded away: a small tab at the top brings them back
-        const ImVec2 a(w * 0.5f - 26, top), e(w * 0.5f + 26, top + 18);
-        dl->AddRectFilled(a, e, themeTone(10, 24, 48, 235), 9.0f, ImDrawFlags_RoundCornersBottom);
+    }
+    if (g_chrome) {   // fold and open the bars: one button in the title bar, always in the same place (its arrow turns over)
+        const float my = kStatusH + kHeaderH * 0.5f;
+        const ImVec2 a(w - 52, kStatusH + 6), e(w - 16, kStatusH + kHeaderH - 6);
+        if (iconButton("##bfoldtop", a, e, true)) { g_barsHidden = !g_barsHidden; g_historyOpen = false; g_volumeOpen = false; }
+        const float turn = openness("##bfoldturn", g_barsHidden);   // 0 up (fold), 1 down (open)
+        const float dy = 4.0f * (1 - 2 * turn);
+        const ImVec2 c(w - 34, my);
+        dl->AddRect(ImVec2(c.x - 11, c.y - 9), ImVec2(c.x + 11, c.y + 9), IM_COL32(210, 222, 242, 120), 4.0f, 0, 1.4f);   // a bar, with its arrow
+        dl->AddLine(ImVec2(c.x - 6, c.y + dy), ImVec2(c.x, c.y - dy), kInk, 2.0f);
+        dl->AddLine(ImVec2(c.x, c.y - dy), ImVec2(c.x + 6, c.y + dy), kInk, 2.0f);
+    }
+    if (!g_chrome) {
+    } else if (g_barsHidden) {   // folded away: a tab at the top brings them back too
+        const ImVec2 a(w * 0.5f - 44, top), e(w * 0.5f + 44, top + 22);
+        dl->AddRectFilled(a, e, themeTone(10, 24, 48, 235), 11.0f, ImDrawFlags_RoundCornersBottom);
         if (iconButton("##bexpand", a, e, true)) g_barsHidden = false;
-        const ImVec2 c(w * 0.5f, top + 8);
-        dl->AddLine(ImVec2(c.x - 7, c.y - 3), ImVec2(c.x, c.y + 3), kInk, 2.0f);
-        dl->AddLine(ImVec2(c.x, c.y + 3), ImVec2(c.x + 7, c.y - 3), kInk, 2.0f);
+        const ImVec2 c(w * 0.5f, top + 10);
+        dl->AddLine(ImVec2(c.x - 8, c.y - 3), ImVec2(c.x, c.y + 4), kInk, 2.2f);
+        dl->AddLine(ImVec2(c.x, c.y + 4), ImVec2(c.x + 8, c.y - 3), kInk, 2.2f);
     } else {
         const float tabsH = 32;
         tabStrip(top, tabsH, true);
@@ -2951,18 +2969,14 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         if (g_settings.bookmarks.empty())
             dl->AddText(f.small, fontPx(f.small), ImVec2(x, std::floor(by + (bmH - 8 - fontPx(f.small)) * 0.5f)), dim, "No bookmarks yet: the star in the address bar adds this page");
         for (const auto& u : g_settings.bookmarks) bms.push_back({u.first.size() > 24 ? u.first.substr(0, 22) + "..." : u.first, u.second});
-        {   // at the right: the History, and the arrow folding the bars away
-            if (pill(dl, f, "##bhist", "History", ImVec2(w - 132, by), ImVec2(w - 46, by + bmH - 8), g_historyOpen, true)) { g_historyOpen = !g_historyOpen; g_historyScroll = 0; }
-            if (iconButton("##bfold", ImVec2(w - 40, by), ImVec2(w - 8, by + bmH - 8), true)) { g_barsHidden = true; g_historyOpen = false; g_volumeOpen = false; }
-            const ImVec2 c(w - 24, by + (bmH - 8) * 0.5f);
-            dl->AddLine(ImVec2(c.x - 7, c.y + 3), ImVec2(c.x, c.y - 3), kInk, 2.0f);
-            dl->AddLine(ImVec2(c.x, c.y - 3), ImVec2(c.x + 7, c.y + 3), kInk, 2.0f);
+        {   // at the right: the History (the bars fold with the button in the title bar)
+            if (pill(dl, f, "##bhist", "History", ImVec2(w - 96, by), ImVec2(w - 10, by + bmH - 8), g_historyOpen, true)) { g_historyOpen = !g_historyOpen; g_historyScroll = 0; }
         }
         int idx = 0;
         for (const Bm& bm : bms) {
             const ImVec2 sz = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, bm.name.c_str());
             const float bw = sz.x + 22;
-            if (x + bw > w - 140) break;
+            if (x + bw > w - 104) break;
             char id[16];
             std::snprintf(id, sizeof id, "##bm%d", idx++);
             ImGui::SetCursorScreenPos(ImVec2(x, by));
@@ -5326,8 +5340,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     const AptGeo& g = *ai.geo;
                     std::snprintf(b, sizeof b, "%.0f ft", g.elevationFt);
                     L.push_back({1, "Elevation", b});
-                    std::snprintf(b, sizeof b, "%.3f", ai.ctaf.mhz);
-                    L.push_back({1, "CTAF", b});
+                    std::snprintf(b, sizeof b, "%.3f", ai.vatsimCtaf > 0 ? ai.vatsimCtaf : ai.ctaf.mhz);
+                    L.push_back({1, ai.vatsimCtaf > 0 ? "CTAF (VATSIM)" : "CTAF", b});
                     int nf = 0;
                     for (const AirportInfo::Freq& fq : ai.freqs) {
                         if (fq.what == "CTAF" || nf >= 7) continue;
@@ -5349,7 +5363,12 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                 if (g_settings.mapVatsimAtc && s.vatsimAtcHave) {   // VATSIM's controllers there (the badge's letters, in full)
                     const std::vector<VatsimController> atc = atcFor(s, g_selKey);
                     L.push_back({4, "VATSIM ATC", ""});
-                    if (atc.empty()) L.push_back({2, "No controller online: UNICOM 122.800", ""});
+                    if (atc.empty()) {
+                        char nb[64];
+                        const bool own = s.airport.icao == g_selKey && s.airport.vatsimCtaf > 0;
+                        std::snprintf(nb, sizeof nb, "No controller online: %s %.3f", own && std::fabs(s.airport.vatsimCtaf - 122.8) > 0.003 ? "CTAF" : "UNICOM", own ? s.airport.vatsimCtaf : 122.8);
+                        L.push_back({2, nb, ""});
+                    }
                     for (const VatsimController& c : atc) L.push_back({1, c.facility == 7 ? c.callsign + " (ATIS)" : c.callsign, c.freq});
                 }
                 if (m.havePos) { double brg = 0; const double d = distNmLL(m.lat, m.lon, la, lo, &brg); std::snprintf(b, sizeof b, "%.1f nm, %03.0f\xC2\xB0T", d, brg); L.push_back({1, "From You", b}); }
@@ -5994,11 +6013,17 @@ void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         dl->AddRectFilled(a, b, IM_COL32(255, 196, 80, 34), 10.0f);
         dl->AddRect(a, b, IM_COL32(255, 196, 80, 160), 10.0f, 0, 1.2f);
         textAt(dl, f.small, a.x + 12, a.y + 6, IM_COL32(255, 214, 120, 255), "CTAF");
+        // on VATSIM: its AIP's CTAF (the one pilots use there), else the real world's
+        const bool vat = ap.vatsimCtaf > 0;
+        const double mhz = vat ? ap.vatsimCtaf : ap.ctaf.mhz;
         char fq[16];
-        std::snprintf(fq, sizeof fq, "%.3f", ap.ctaf.mhz);
+        std::snprintf(fq, sizeof fq, "%.3f", mhz);
+        if (vat) textAt(dl, f.small, a.x + 50, a.y + 6, IM_COL32(120, 200, 255, 255), "VATSIM");
         textAt(dl, f.title, a.x + 12, a.y + 20, kInk, fq);
-        dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 112, a.y + 9), kMuted, ap.ctaf.note.c_str(), nullptr, b.x - a.x - 150);
-        headsetButton(dl, "##hsctaf", ImVec2(b.x - 20, (a.y + b.y) * 0.5f), ap.ctaf.mhz, act);
+        std::string note = vat ? ap.vatsimCtafNote : ap.ctaf.note;
+        if (vat && std::fabs(ap.vatsimCtaf - ap.ctaf.mhz) > 0.003) { char r[64]; std::snprintf(r, sizeof r, "  \xC2\xB7  real world %.3f", ap.ctaf.mhz); note += r; }
+        dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 112, a.y + 9), kMuted, note.c_str(), nullptr, b.x - a.x - 150);
+        headsetButton(dl, "##hsctaf", ImVec2(b.x - 20, (a.y + b.y) * 0.5f), mhz, act);
     }
     // the METAR beside it
     if (s.metar.icao == ap.icao && !s.metar.raw.empty()) dl->AddText(f.mono, fontPx(f.mono), ImVec2(x0 + 314, y + 2), kInk, s.metar.raw.c_str(), nullptr, x1 - x0 - 314);
@@ -7305,13 +7330,14 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"VATSIM Icon", "The VATSIM logo is a trademark of VATSIM, Inc. (vatsim.net), used only to show their pages", "Trademark"},
         {"Local Connect", "Mbed TLS (trustedfirmware.org/projects/mbed-tls): the encryption between the computer and paired devices. stb_image_write by Sean Barrett: the tablet's picture for them", "Apache-2.0; MIT / public domain"},
         {"Flightradar24 Icon", "The Flightradar24 logo belongs to Flightradar24 AB (flightradar24.com), used only to show their web app", "Trademark"},
+        {"Discord Icon", "The Discord logo is a trademark of Discord Inc. (discord.com), used only to show their web app; drawn from Simple Icons (simpleicons.org)", "Trademark; CC0"},
         {"natTrak Icon", "The natTrak logo belongs to VATSIM's natTrak (nattrak.vatsim.net), used only to show their web app", "Trademark"},
         {"Spotify, YouTube, YouTube Music, Apple Music and SoundCloud icons", "Their logos are trademarks of Spotify AB, Google LLC, Apple Inc. and SoundCloud Global Limited, used only to show their web players", "Trademark"},
         {"ACARS And CPDLC", "Hoppie's ACARS network (hoppie.nl): telex, pre-departure clearances and CPDLC, with your own logon code; for flight simulation only", "Free service"},
         {"VATSIM ATC And Airspaces", "VATSIM data feed (data.vatsim.net); FIR and airspace boundaries from the VATSpy Data Project (github.com/vatsimnetwork/vatspy-data-project), fetched and shown as published", "CC BY-SA 4.0"},
         {"Jetways", "openSAM by Holger Teutsch (hotbso) and contributors (github.com/hotbso/openSAM), its commands and datarefs (no openSAM code is in XPTablet)", "LGPL-2.1"},
         {"Games", "Knots and Crosses, 2048 (after Gabriele Cirulli's game), and Contrail, Taxi Rush, Sky Patrol, Hangar Climb, Cockpit 21 and Cargo Load: all made for XPTablet, every map, rule and drawing its own", ""},
-        {"", "XPTablet is not made by or affiliated with ForeFlight, Navigraph, SkyVector, VATSIM Radar, ChartFox, SimBrief, VATSIM, Spotify, Google / YouTube, Apple, SoundCloud or openSAM.", ""},
+        {"", "XPTablet is not made by or affiliated with ForeFlight, Navigraph, SkyVector, VATSIM Radar, ChartFox, SimBrief, VATSIM, Flightradar24, Discord, Spotify, Google / YouTube, Apple, SoundCloud or openSAM.", ""},
     };
     float y = top + 38 - g_creditsScroll;
     const float x0 = left + 18, xLic = w - 30, wrap = w - 30 - x0 - 150;
@@ -8021,6 +8047,7 @@ bool colorWheel(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 c, float 
     textCentered(dl, f.small, c.x, c.y + r + 6, kMuted, label);
     return changed;
 }
+std::string g_bgMatched[3];     // each Custom theme's picture whose colours were last taken ("\x01": take them again when it shows)
 std::string g_hexBuf[2];        // the Custom editor's hex boxes (background, accent), as typed
 int g_hexShown[2] = {-1, -1};   // the colour each box last showed
 void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
@@ -8042,6 +8069,13 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
     char title[32]; std::snprintf(title, sizeof title, "Custom %d", g_customEdit + 1);
     textAt(dl, f.title, a.x + 20, a.y + 16, kInk, title);
     if (pill(dl, f, "##ctdone", "Done", ImVec2(b.x - 100, a.y + 14), ImVec2(b.x - 18, a.y + 44), true, true)) { g_customEdit = -1; g_settingsChanged = true; return; }
+    if (pill(dl, f, "##ctreset", "Reset", ImVec2(b.x - 190, a.y + 14), ImVec2(b.x - 108, a.y + 44), false, true)) {   // its first colours again
+        const Settings fresh;   // (with a picture: the colours taken from the picture, as when it was chosen)
+        ct.bg = fresh.customs[g_customEdit].bg; ct.accent = fresh.customs[g_customEdit].accent;
+        g_bgMatched[g_customEdit] = "\x01";
+        g_hexShown[0] = g_hexShown[1] = -1;
+        g_settingsChanged = true;
+    }
     // the preview: the home screen in small, with this theme (its picture too), its accent on a button and a switch
     const ImVec2 pa(a.x + 20, a.y + 62);
     const float pvw = 300, pvh = 180;
@@ -8109,7 +8143,7 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
         const float bw = std::min(160.0f, f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, label.c_str()).x + 28);
         if (px + bw > b.x - 20) { px = a.x + 122; py += 36; }
         if (py > b.y - 40) return;
-        if (pill(dl, f, id, fitText(f.small, label, bw - 16).c_str(), ImVec2(px, py - 4), ImVec2(px + bw, py + 24), ct.picture == file, true) && ct.picture != file) { ct.picture = file; g_settingsChanged = true; }
+        if (pill(dl, f, id, fitText(f.small, label, bw - 16).c_str(), ImVec2(px, py - 4), ImVec2(px + bw, py + 24), ct.picture == file, true) && ct.picture != file) { ct.picture = file; g_bgMatched[g_customEdit] = "\x01"; g_settingsChanged = true; }
         px += bw + 6;
     };
     {   // the refresh: the folder looked at again (pictures added since show), beside the word Picture
@@ -8120,7 +8154,7 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
     }
     pick("##ctpnone", "None", "");
     for (size_t i = 0; i < s.backgroundFiles.size() && i < 12; ++i) { char id[24]; std::snprintf(id, sizeof id, "##ctp%zu", i); pick(id, s.backgroundFiles[i], s.backgroundFiles[i]); }
-    const std::string where = "Import a picture (PNG or JPG): put it in the backgrounds folder in XPTablet's plugin folder, " + (s.backgroundsFolder.empty() ? std::string("plugins/XPTablet/backgrounds") : s.backgroundsFolder);
+    const std::string where = "Best size: 1600 x 960 pixels (or any picture of that 5:3 shape; others are cropped to fill). Import a picture (PNG or JPG): put it in the backgrounds folder in XPTablet's plugin folder, " + (s.backgroundsFolder.empty() ? std::string("plugins/XPTablet/backgrounds") : s.backgroundsFolder);
     dl->AddText(f.small, fontPx(f.small), ImVec2(a.x + 20, b.y - 44), kMuted, where.c_str(), nullptr, b.x - a.x - 40);
     if (hexTyping) { dl->AddRectFilled(ImVec2(0, h - kKbdH), ImVec2(w, h), themeTone(8, 16, 30, 255)); pageKeyboard(dl, f, w, h, act); }   // (a solid backing: the card does not show through the keys; before the card's press catcher, so the keys take their presses)
 }
@@ -8197,14 +8231,15 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     {   // the pages, down a sidebar as on an iPad: General, Display, Data at the top, Credits at the bottom
         const float sTop = kStatusH + kHeaderH + 10, sBot = h - 12, sW = 168;
         card(dl, ImVec2(12, sTop), ImVec2(12 + sW, sBot), f, nullptr);
-        // the pages: General, Display, Data, Notifications, Media (not on macOS) at the top; Credits at the bottom
+        // the pages: General, Display, Notifications, Media (not on macOS), Local Connect, Accounts, Data at the top; Credits at the bottom
         struct Tab { int id; const char* name; ImU32 tint; int glyph; };
         std::vector<Tab> tabs = {{0, "General", IM_COL32(110, 120, 140, 255), APP_SETTINGS}, {1, "Display", IM_COL32(64, 132, 230, 255), APP_WEATHER},
-                                 {2, "Data", IM_COL32(60, 190, 130, 255), APP_DOCUMENTS}, {4, "Notifications", IM_COL32(240, 70, 70, 255), APP_NOTES}};
+                                 {4, "Notifications", IM_COL32(240, 70, 70, 255), APP_NOTES}};
         if (!g_mac) tabs.push_back({5, "Media", IM_COL32(250, 45, 85, 255), APP_MUSIC});
         if (s.local.status != -2) tabs.push_back({6, "Local Connect", IM_COL32(24, 150, 170, 255), APP_BROWSER});   // (not shown until the host can serve it)
         else if (g_settingsTab == 6) g_settingsTab = 0;
         tabs.push_back({7, "Accounts", IM_COL32(150, 96, 250, 255), APP_SETTINGS});
+        tabs.push_back({2, "Data", IM_COL32(60, 190, 130, 255), APP_DOCUMENTS});
         if (g_mac && g_settingsTab == 5) g_settingsTab = 0;
         tabs.push_back({3, "Credits", IM_COL32(236, 152, 50, 255), APP_NOTES});
         // the highlight glides to the chosen page (as the setting buttons ease), drawn under the names
@@ -8460,9 +8495,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             if (pill(dl, f, id, "Remove", ImVec2(e.x - 86, a.y + 14), ImVec2(e.x - 10, a.y + 44), false, true)) act.localForget = d.name;
             ry += 66;
         }
-        ry += 8;
-        textAt(dl, f.bold, rx, ry, kInk, "Battery");
-        ry += 24;
+        ry += 8;   // (the battery: its switch says it)
         {   // greyed while the devices connected can't tell their battery (iPhone and iPad browsers): nothing to use
             bool anyOn = false, canTell = false;
             for (const LocalDevice& d : s.local.devices) if (d.connected) {
@@ -8473,7 +8506,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         }
         ry += 38;
         {   // (its height: the text wrapped to the column)
-            const char* t = "With a device connected, the tablet shows that device's charge and whether it is charging. iPhone and iPad browsers don't share it.";
+            const char* t = "The tablet shows the device's charge (iPhone and iPad browsers don't share it).";
             dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, t, nullptr, colW);
             ry += f.small->CalcTextSizeA(fontPx(f.small), FLT_MAX, colW, t).y + 12;
         }
@@ -8482,6 +8515,16 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             int dk = g_settings.localPhysicalKeys ? 1 : 0;
             choice("##chdevkeys", rx, ry, colW, "Typing On The Device", devNames, dk, true);
             if ((dk == 1) != g_settings.localPhysicalKeys) { g_settings.localPhysicalKeys = dk == 1; g_kbdKeysShown = false; }
+        }
+        {   // how often the devices get a new picture: smoother, or lighter on the computer and the network
+            textAt(dl, f.bold, rx, ry, kInk, "Refresh Rate");   // (the choice above leaves ry under its buttons)
+            ry += 20;
+            float v = (float)std::max(5, std::min(30, g_settings.localRate));
+            char txt[16]; std::snprintf(txt, sizeof txt, "%d / s", (int)std::lround(v));
+            if (smoothSlider(dl, f, "##lcrate", ImVec2(rx - 12, ry), ImVec2(rx + colW, ry + 30), v, 5.0f, 30.0f, 25, true, txt)) {
+                const int nv = (int)std::lround(v);
+                if (nv != g_settings.localRate) { g_settings.localRate = nv; g_settingsChanged = true; }
+            }
         }
         return;
     }
@@ -8935,7 +8978,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         g_bgTex = s.bgTex; g_bgW = s.bgW; g_bgH = s.bgH; g_bgPic = s.bgPicture;
         const int slot = g_customEdit >= 0 ? g_customEdit : (g_settings.wallpaper >= 7 && g_settings.wallpaper <= 9 ? g_settings.wallpaper - 7 : -1);
         act.backgroundWanted = slot >= 0 ? g_settings.customs[slot].picture : std::string();
-        static std::string matched[3];
+        std::string* matched = g_bgMatched;
         if (slot >= 0 && !act.backgroundWanted.empty() && s.bgPicture == act.backgroundWanted && s.bgAverage >= 0 && matched[slot] != act.backgroundWanted) {
             if (!matched[slot].empty() || g_customEdit >= 0) {   // (chosen now, not on loading): its background and accent from the picture
                 g_settings.customs[slot].bg = s.bgAverage;
@@ -8974,6 +9017,8 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     g_px = std::max(1.0f, s.pixelScale);
     g_embed = EmbedArea();
     g_wx = s.wxPlane;
+    g_localLive = false;
+    for (const LocalDevice& d : s.local.devices) g_localLive = g_localLive || d.connected;
     g_wxLogo = f.wxLogo;
     g_logo = f.logo; g_logoMask = f.logoMask;
     g_icons = f.icons;
@@ -9396,6 +9441,7 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
         {APP_VATSIM, 3, "VATSIM Radar: the network's traffic and ATC live"},
         {APP_VATSIMHUB, 3, "VATSIM: network stats, events, the AIP and pilot resources"},
         {APP_FR24, 3, "Flightradar24: real-world air traffic, live"},
+        {APP_DISCORD, 3, "Discord: your servers, messages and voice channels"},
         {APP_SPOTIFY, 4, "Spotify's web player"},
         {APP_YTMUSIC, 4, "YouTube Music's web player"},
         {APP_APPLEMUSIC, 4, "Apple Music on the web"},
@@ -9485,10 +9531,9 @@ const XpCmd kXpCmds[] = {   // xPilot's own commands, as its plugin names them (
     {"xpilot/toggle_nearby_atc", "Nearby ATC", "The controllers in range, their frequencies"},
     {"xpilot/toggle_notification_panel", "Notifications", "Its notification panel"},
     {"xpilot/toggle_aircraft_labels", "Aircraft Labels", "Other aircraft's labels, on or off"},
-    {"xpilot/toggle_tcas", "TCAS Control", "xPilot's traffic on the TCAS, on or off"},
-    {"xpilot/toggle_default_atis", "X-Plane ATIS", "X-Plane's own ATIS, on or off"},
-    {"xpilot/split_audio_channels", "Split Audio", "COM1 in one ear, COM2 in the other"},
 };
+// which are on (or open): as pressed here (xPilot does not say; one closed in xPilot itself stays lit until pressed again)
+std::map<std::string, bool> g_xpOn;
 void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const float top = kStatusH + kHeaderH + 10;
     std::vector<const XpCmd*> xp;
@@ -9523,11 +9568,14 @@ void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         const Ease e = eased(id, false, ImGui::IsItemHovered(), ImGui::IsItemActive());
         const float in = e.down * 3;
         const ImVec2 a2(a.x + in, a.y + in), b2(b.x - in, b.y - in);
-        dl->AddRectFilled(a2, b2, IM_COL32(255, 255, 255, (int)(14 + 16 * e.hot)), 22.0f);
-        dl->AddRect(a2, b2, IM_COL32(255, 255, 255, (int)(30 + 50 * e.hot)), 22.0f, 0, 1.2f);
+        const bool lit = g_xpOn[xp[i]->cmd];   // on or open: lit green
+        const float l = openness(id, lit);
+        dl->AddRectFilled(a2, b2, mixCol(IM_COL32(255, 255, 255, (int)(14 + 16 * e.hot)), IM_COL32(40, 170, 90, 120), l), 22.0f);
+        dl->AddRect(a2, b2, mixCol(IM_COL32(255, 255, 255, (int)(30 + 50 * e.hot)), IM_COL32(90, 230, 140, 230), l), 22.0f, 0, 1.2f + 0.6f * l);
         dl->AddText(f.title, fontPx(f.title), ImVec2(a2.x + 18, a2.y + 18), kInk, xp[i]->label);
-        dl->AddText(f.small, fontPx(f.small), ImVec2(a2.x + 18, a2.y + 54), kMuted, xp[i]->what, nullptr, tw - 36);
-        if (hit) act.xpilotCmd = xp[i]->cmd;
+        dl->AddText(f.small, fontPx(f.small), ImVec2(a2.x + 18, a2.y + 54), lit ? IM_COL32(200, 245, 215, 255) : kMuted, xp[i]->what, nullptr, tw - 36);
+        if (lit) textAt(dl, f.small, b2.x - 46, a2.y + 20, IM_COL32(120, 240, 160, 255), "On");
+        if (hit) { act.xpilotCmd = xp[i]->cmd; g_xpOn[xp[i]->cmd] = !lit; }
     }
 }
 
@@ -10252,6 +10300,13 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
 }
 
 int currentApp() { return g_app; }
+bool browserBarsHidden() { return g_barsHidden; }
+int localRefreshRate() { return std::max(5, std::min(30, g_settings.localRate)); }
+std::string localThemeJson() {   // the theme's colours, for Local Connect's page (its connecting and pairing screens)
+    const Backdrop bd = themeBackdrop(g_settings.wallpaper);
+    auto hex = [](ImU32 c) { char b[8]; std::snprintf(b, sizeof b, "#%02x%02x%02x", (unsigned)((c >> IM_COL32_R_SHIFT) & 255), (unsigned)((c >> IM_COL32_G_SHIFT) & 255), (unsigned)((c >> IM_COL32_B_SHIFT) & 255)); return std::string(b); };
+    return "{\"top\":\"" + hex(bd.top) + "\",\"bot\":\"" + hex(bd.bot) + "\",\"accent\":\"" + hex(accentCol(255)) + "\",\"accentLite\":\"" + hex(accentLite(255)) + "\"}";
+}
 bool gameWantsKeys() { return g_app == APP_GAMES && ((g_2048Keys && g_game == 0) || (g_arcKeys && g_game >= 2)); }
 void gameKey(int dir) { g_gameKeyDir = dir; }
 bool arcadeOnScreen() { return g_app == APP_GAMES && g_game >= 2; }
@@ -10449,6 +10504,10 @@ void openApp(int app) {
         g_app = APP_HOME;
         return;
     }
+    if (app == APP_SPOTIFY && g_localLive) {   // Spotify's playback rules: its web player won't play on a device through Local Connect
+        postNote("Spotify Is Off With Local Connect", "Spotify's web player won't play while a device shows the tablet. YouTube Music, Apple Music or SoundCloud will.", APP_SPOTIFY);
+        return;
+    }
     if (fromHome) { g_editMode = false; startPageAnim(true, app); }   // it grows out of its icon
     if (kApps[app].url) { openWeb(kApps[app].name, kApps[app].url, false, 100 + app); return; }   // its own tabs
     if (app == APP_BROWSER) { g_site = "Browser"; g_chrome = true; g_webGroup = 0; }
@@ -10641,7 +10700,7 @@ std::string settingsToText() {
     out += std::string("map_dark_auto=") + (g_settings.mapDarkAuto ? "1" : "0") + "\n";
     out += std::string("cabin_auto=") + (g_settings.cabinAuto ? "1" : "0") + "\n";
     { char ab[128]; std::snprintf(ab, sizeof ab, "arcade_best=%d,%d,%d,%d,%d,%d\n", g_settings.arcadeBest[0], g_settings.arcadeBest[1], g_settings.arcadeBest[2], g_settings.arcadeBest[3], g_settings.arcadeBest[4], g_settings.arcadeBest[5]); out += ab; }
-    out += std::string("local_connect=") + (g_settings.localConnect ? "1" : "0") + "\nlocal_battery=" + (g_settings.localBattery ? "1" : "0") + "\nlocal_physical_keys=" + (g_settings.localPhysicalKeys ? "1" : "0") + "\n";
+    out += std::string("local_connect=") + (g_settings.localConnect ? "1" : "0") + "\nlocal_battery=" + (g_settings.localBattery ? "1" : "0") + "\nlocal_physical_keys=" + (g_settings.localPhysicalKeys ? "1" : "0") + "\nlocal_rate=" + std::to_string(g_settings.localRate) + "\n";
     out += std::string("map_vatsim_atc=") + (g_settings.mapVatsimAtc ? "1" : "0") + "\nvatsim_atc_notes=" + (g_settings.vatsimAtcNotes ? "1" : "0") + "\n";
     for (int i = 0; i < 3; ++i) {   // the Customs: colours, and the picture's file name
         char cb[96]; std::snprintf(cb, sizeof cb, "custom%d_bg=%06X\ncustom%d_accent=%06X\n", i, g_settings.customs[i].bg & 0xFFFFFF, i, g_settings.customs[i].accent & 0xFFFFFF); out += cb;
@@ -10771,6 +10830,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_traffic_alt") g_settings.mapTrafficAltFt = std::max(0.0f, std::min(60000.0f, (float)std::atof(val.c_str())));
         else if (key == "physical_keys") g_settings.physicalKeys = v != 0;
         else if (key == "local_physical_keys") g_settings.localPhysicalKeys = v != 0;
+        else if (key == "local_rate") g_settings.localRate = std::max(5, std::min(30, v));
         else if (key == "custom_bg") g_settings.customs[0].bg = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;   // (one Custom, before)
         else if (key == "custom_accent") g_settings.customs[0].accent = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;
         else if (key.size() > 8 && key.compare(0, 6, "custom") == 0 && key[6] >= '0' && key[6] <= '2' && key[7] == '_') {

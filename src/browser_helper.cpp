@@ -209,7 +209,7 @@ std::vector<OpenReq> g_openQueue;   // pages asked for in a new window: opened a
 
 double nowS() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 // the sites whose own zoom is kept (as a level: 1.2 to its power), shown as 100 %
-// (the tablet's web apps: those sites at their own zooms; every other web app at 55 %)
+// (the tablet's web apps: those sites at their own zooms (Discord 75 %); every other web app at 55 %)
 // The Browser's own tabs (group 0): every site at 55 % of that (its own zoom x 0.55, any other site 55 %), not fitted.
 double siteBase(const std::string& host, int group) {
     auto has = [&](const char* d) { return host.find(d) != std::string::npos; };
@@ -217,6 +217,7 @@ double siteBase(const std::string& host, int group) {
     if (has("foreflight.com") || has("vatsim-radar.com")) pct = 0.65;
     else if (has("chartfox.org")) pct = 0.70;
     else if (has("simbrief.com")) pct = 0.50;
+    else if (has("discord.com")) pct = 0.75;
     const bool web = host.compare(0, 5, "file:") != 0 && !host.empty();
     if (group == 0 && web) pct = (pct > 0 ? pct : 1.0) * 0.55;
     else if (pct == 0 && group != 0 && web) pct = 0.55;

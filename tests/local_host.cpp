@@ -13,6 +13,7 @@
 
 #include "imgui.h"
 #include "localmirror.h"
+#include "localicons.h"
 #include "localpage.h"
 #include "localserver.h"
 #include "soft_raster.h"
@@ -40,6 +41,8 @@ int main(int argc, char** argv) {
     cfg.bindIp = "127.0.0.1"; cfg.allowLoopback = true; cfg.port = argc > 2 ? std::atoi(argv[2]) : 18543;
     cfg.dataDir = argv[1]; cfg.wireVersion = mirror::kPageVersion;
     for (const char* piece : kLocalPage) cfg.page += piece;
+    for (auto [mark, png] : { std::pair{std::string("%XPT_ICON%"), kLocalIconPng}, std::pair{std::string("%XPT_LOGO%"), kLocalLogoPng} })
+        for (std::size_t at; (at = cfg.page.find(mark)) != std::string::npos;) cfg.page.replace(at, mark.size(), png);
     localserver::start(cfg);
     mirror::start();
 

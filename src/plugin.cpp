@@ -50,6 +50,7 @@
 #include "localnet.h"
 #if defined(XPT_LOCAL_CONNECT)
 #include "localmirror.h"
+#include "localicons.h"
 #include "localpage.h"
 #include "localserver.h"
 #endif
@@ -782,6 +783,8 @@ void mapStop() {
 }
 
 // After each UI build: what the map asked for, and the tiles that arrived (a few per frame, so no frame takes long)
+// true once every secs (by the clock: the tablet is not drawn every frame, so a check on one frame number in N may never come)
+bool every(float& last, float secs) { const float now = XPLMGetElapsedTime(); if (now - last < secs) return false; last = now; return true; }
 void mapStep(const xpt::Actions& act) {
     // the airports' runways round the aircraft are wanted for the runway collision alert, map or no map: on the ground or
     // low (under 3000 ft above it), the airport index starts, and when the map is not on screen its view is the aircraft
@@ -791,7 +794,8 @@ void mapStep(const xpt::Actions& act) {
     if (!g_mapStarted) return;
     if (!act.mapShown && nearGround) {
         xpt::aptdat::setView(ms.lat, ms.lon, 4.0, 0.0, true);
-        if ((XPLMGetCycleNumber() & 31) == 0) {
+        static float t1 = -100;
+        if (every(t1, 0.5f)) {
             int n = 0;
             std::vector<xpt::AptPoint> pts;
             xpt::aptdat::get(g_sim.map.airports, pts, g_sim.map.aptIndexing, n);
@@ -801,7 +805,8 @@ void mapStep(const xpt::Actions& act) {
         xpt::tiles::want(g_tileWants);
         xpt::aptdat::setView(act.mapLat, act.mapLon, act.mapLayoutNm, act.mapPointNm, act.mapLayouts, act.mapPointMinFt);
         xpt::navdata::setView(act.mapLat, act.mapLon, act.mapNavNm, act.mapFixNm);
-        if ((XPLMGetCycleNumber() & 7) == 0) {
+        static float t2 = -100;
+        if (every(t2, 0.12f)) {
             int n = 0;
             xpt::aptdat::get(g_sim.map.airports, g_sim.map.airportPoints, g_sim.map.aptIndexing, n);
             g_sim.map.aptCount = n;
@@ -914,7 +919,7 @@ void acarsStep(const xpt::Actions& act) {
 // xPilot's own commands (its message window, nearby ATC...): looked for now and then (it may load after us), pressed for the tablet
 void xpilotStep(const xpt::Actions& act) {
     static const char* const names[] = {"xpilot/toggle_text_message_console", "xpilot/toggle_nearby_atc", "xpilot/toggle_notification_panel",
-                                        "xpilot/toggle_aircraft_labels", "xpilot/toggle_tcas", "xpilot/toggle_default_atis", "xpilot/split_audio_channels"};
+                                        "xpilot/toggle_aircraft_labels"};
     // (by the clock, not by an exact frame number: the tablet is not drawn every frame, and a check on one frame number in 256
     // could fall on frames it never draws, so xPilot was never found, 2026-11-22)
     static float lookedAt = -100, readAt = -100;
@@ -1262,6 +1267,66 @@ std::string oaName(const std::string& t) {
 // The airport's facts: its radio from the scenery and from OurAirports (merged, the same frequency once), and the CTAF by these rules:
 // the published CTAF; else UNICOM (the CTAF at most uncontrolled US fields); else the tower's frequency, used as the CTAF when the
 // tower is closed; else 122.900 (MULTICOM), the frequency for a field with none published.
+// VATSIM's own CTAF for an airport (its AIP: the station marked as the CTAF when no ATC is online), asked once an airport. On VATSIM
+// this is the frequency to use (it can differ from the real world's), and without one VATSIM's UNICOM, 122.800.
+struct VatsimCtaf { bool done = false; double mhz = 0; std::string station; };
+std::mutex g_vcMx;
+std::map<std::string, VatsimCtaf> g_vatsimCtaf;
+std::thread g_vcThread;
+std::atomic<bool> g_vcBusy{false};   // one asked at a time (another airport waits its turn, never holding up the sim)
+void vatsimCtafAsk(const std::string& icao) {
+    if (g_vcBusy.load()) return;
+    {
+        std::lock_guard<std::mutex> lk(g_vcMx);
+        if (g_vatsimCtaf.count(icao)) return;
+        g_vatsimCtaf[icao] = VatsimCtaf();
+    }
+    if (g_vcThread.joinable()) g_vcThread.join();   // (finished: not busy)
+    g_vcBusy.store(true);
+    g_vcThread = std::thread(xpt::guarded("VATSIM AIP", [icao] {
+        std::string body, err;
+        long status = 0;
+        VatsimCtaf r;
+        r.done = true;
+        if (wx::httpGet("https://my.vatsim.net/api/v2/aip/airports/" + icao + "/stations", body, status, err, 10, 1u << 20) && status == 200) {
+            // each station: {"callsign":..,"name":..,"frequency":..,"ctaf":true|false}; the one with ctaf true
+            for (size_t at = body.find("\"ctaf\""); at != std::string::npos; at = body.find("\"ctaf\"", at + 6)) {
+                size_t v = body.find(':', at);
+                if (v == std::string::npos) break;
+                while (++v < body.size() && body[v] == ' ') {}
+                if (body.compare(v, 4, "true") != 0) continue;
+                const size_t open = body.rfind('{', at), close = body.find('}', at);
+                if (open == std::string::npos || close == std::string::npos) break;
+                const std::string obj = body.substr(open, close - open);
+                auto field = [&](const char* name) {
+                    const size_t k = obj.find(std::string("\"") + name + "\"");
+                    if (k == std::string::npos) return std::string();
+                    size_t c = obj.find(':', k);
+                    if (c == std::string::npos) return std::string();
+                    ++c;
+                    while (c < obj.size() && (obj[c] == ' ' || obj[c] == '"')) ++c;
+                    size_t e = c;
+                    while (e < obj.size() && obj[e] != '"' && obj[e] != ',' && obj[e] != '}') ++e;
+                    return obj.substr(c, e - c);
+                };
+                const double mhz = std::atof(field("frequency").c_str());
+                if (mhz > 100 && mhz < 140) { r.mhz = mhz; r.station = field("callsign"); break; }
+            }
+        }
+        { std::lock_guard<std::mutex> lk(g_vcMx); g_vatsimCtaf[icao] = r; }
+        g_vcBusy.store(false);
+    }));
+}
+// the airport's CTAF as VATSIM has it, over the real world's (once VATSIM has answered)
+void vatsimCtafApply(xpt::AirportInfo& a) {
+    if (a.icao.empty() || !a.found) return;
+    VatsimCtaf v;
+    { std::lock_guard<std::mutex> lk(g_vcMx); auto it = g_vatsimCtaf.find(a.icao); if (it == g_vatsimCtaf.end()) return; v = it->second; }
+    if (!v.done) return;
+    a.vatsimCtaf = v.mhz > 0 ? v.mhz : 122.800;
+    a.vatsimCtafNote = v.mhz > 0 ? "VATSIM AIP" + (v.station.empty() ? std::string() : " (" + v.station + ")") : "VATSIM AIP: none set, UNICOM 122.800";
+}
+
 void buildAirportInfo() {
     xpt::AirportInfo& a = g_sim.airport;
     a.icao = g_aptWanted;
@@ -1326,6 +1391,7 @@ void airportsStep(const xpt::Actions& act) {
     std::shared_ptr<const xpt::AptGeo> g;
     std::string icao;
     if (xpt::aptdat::takeAirport(g, icao) && icao == g_aptWanted) { g_aptGeo = g; buildAirportInfo(); }
+    if (!g_aptWanted.empty()) { vatsimCtafAsk(g_aptWanted); if (g_sim.airport.vatsimCtaf <= 0) vatsimCtafApply(g_sim.airport); }
     else if (!g_sim.airport.busy && g_sim.airport.found && !g_aptMergedWithOA && xpt::ourairports::ready()) buildAirportInfo();
 }
 
@@ -1585,11 +1651,15 @@ void mediaStep(const xpt::Actions& act) {
     if (act.mediaPlayerMute >= 0) xpt::media::setMuted(false, act.mediaPlayerMute != 0);
     if (act.mediaMasterMute >= 0) xpt::media::setMuted(true, act.mediaMasterMute != 0);
     // the radios: xPilot says when COM1 or COM2 is receiving (looked for now and then: it may load after us)
-    static XPLMDataRef com1 = nullptr, com2 = nullptr, rxOld = nullptr, ptt = nullptr;
+    static XPLMDataRef com1 = nullptr, com2 = nullptr, rxOld = nullptr, ptt = nullptr, vu = nullptr;
+    static float radioLookedAt = -100;   // (by the clock: the tablet is not drawn every frame)
+    const float radioNow = XPLMGetElapsedTime();
     // X-Plane's own radios too: its ATC, ATIS and plugins' voices received on COM1 / COM2, and the pilot's voice sent
     static XPLMDataRef xpRx1 = XPLMFindDataRef("sim/atc/com1_rx"), xpRx2 = XPLMFindDataRef("sim/atc/com2_rx");
     static XPLMDataRef xpTx1 = XPLMFindDataRef("sim/atc/com1_tx"), xpTx2 = XPLMFindDataRef("sim/atc/com2_tx");
-    if ((XPLMGetCycleNumber() & 255) == 1 && ((!com1 && !rxOld) || !ptt)) {
+    if (radioNow - radioLookedAt > 3.0f && ((!com1 && !rxOld) || !ptt || !vu)) {
+        radioLookedAt = radioNow;
+        vu = XPLMFindDataRef("xpilot/audio/vu");   // xPilot 4: the level of what is heard now
         com1 = XPLMFindDataRef("xpilot/audio/com1_rx");
         com2 = XPLMFindDataRef("xpilot/audio/com2_rx");
         rxOld = XPLMFindDataRef("xpilot/audio/rx");
@@ -1599,11 +1669,20 @@ void mediaStep(const xpt::Actions& act) {
         if (!r) return false;
         return (XPLMGetDataRefTypes(r) & xplmType_Int) ? XPLMGetDatai(r) != 0 : XPLMGetDataf(r) > 0.5f;
     };
-    const bool pilotRx = on(com1) || on(com2) || on(rxOld), xpRx = on(xpRx1) || on(xpRx2);
+    // receiving: xPilot 4's level of what is heard (its com1_rx and com2_rx say only that a radio is set to receive: they stay on, and
+    // the radio showed Receiving all the time, 2026-11-22); older xPilots: their receive flags
+    bool pilotRx = false;
+    if (vu) {
+        static float heardUntil = -1;
+        const float level = (XPLMGetDataRefTypes(vu) & xplmType_Float) ? XPLMGetDataf(vu) : (float)XPLMGetDatai(vu);
+        if (level > 0.02f) heardUntil = radioNow + 0.4f;   // (held a moment over the gaps between words)
+        pilotRx = radioNow < heardUntil;
+    } else pilotRx = on(com1) || on(com2) || on(rxOld);
+    const bool xpRx = on(xpRx1) || on(xpRx2);
     // xPilot's push-to-talk: its dataref, and also its command itself (a key or button bound to it: some versions of xPilot do not
     // set the dataref then)
     static bool pttWatched = false;
-    if (!pttWatched && (XPLMGetCycleNumber() & 255) == 1) {
+    if (!pttWatched && radioLookedAt == radioNow) {   // (when the datarefs were just looked for)
         for (const char* name : {"xpilot/ptt", "xpilot/toggle_ptt"}) {
             if (XPLMCommandRef c = XPLMFindCommand(name)) {
                 XPLMRegisterCommandHandler(c, [](XPLMCommandRef, XPLMCommandPhase phase, void* toggle) -> int {
@@ -1827,7 +1906,7 @@ void ensureFrame() {
     }
     if (act.clearTileCache) clearTileCache();
     if (act.resetBrowserData) resetBrowserData();
-    if ((XPLMGetCycleNumber() & 15) == 0) dataInfoStep();
+    { static float t = -100; if (every(t, 0.25f)) dataInfoStep(); }
     airportsStep(act);
     docsStep(act);
     g_webShown = act.webShown;
@@ -2646,10 +2725,39 @@ void jetwayUndockStep() {   // the jetways go once the doors they were on have s
     if ((shut && now >= g_undockAt - 4.5) || now >= g_undockAt) { g_undockAt = -1; undockNow(); logMsg("jetway: sent away (the doors shut)"); }
 }
 
+bool g_sendingCmd = false;   // a command of ours is being sent (what it sets off is ours too)
 void once(const char* cmd) {
     const XPLMCommandRef c = XPLMFindCommand(cmd);
+    g_sendingCmd = true;
     if (c) XPLMCommandOnce(c); else logMsg("command %s not found", cmd);
+    g_sendingCmd = false;
 }
+// openSAM and X-Plane's own jetways (a stand with no SAM jetway): openSAM works them with X-Plane's toggle, and its own automatic
+// docking presses that toggle again when the beacon goes off. With the jetway already docked from the tablet, that press sent it
+// away (2026-11-22, KDTW A50). So X-Plane's toggle is watched: pressed by someone else just after the beacon went off, while the
+// tablet has the jetway docked, it is docked again (through openSAM, which keeps its own count of it).
+double g_beaconOffAt = -100, g_redockAt = -1;
+int jetwayToggleSeen(XPLMCommandRef, XPLMCommandPhase phase, void*) {
+    if (phase != xplm_CommandBegin || g_sendingCmd || !g_sim.ground.openSam) return 1;
+    bool docked = false;
+    for (bool w : g_refs.wantDoor) docked = docked || w;
+    const double now = XPLMGetElapsedTime();
+    if (docked && now - g_beaconOffAt < 6.0 && g_redockAt < 0) {
+        g_redockAt = now + 1.5;   // (after openSAM's own press has gone through)
+        logMsg("jetway: openSAM's automatic docking pressed X-Plane's jetway toggle after the beacon went off; docking again");
+    }
+    return 1;   // (it goes on: openSAM keeps its count)
+}
+void jetwayWatchStep() {
+    static bool watching = false, beaconWas = false;
+    if (!watching) if (XPLMCommandRef c = XPLMFindCommand("sim/ground_ops/jetway")) { XPLMRegisterCommandHandler(c, jetwayToggleSeen, 1, nullptr); watching = true; }
+    const double now = XPLMGetElapsedTime();
+    const bool beacon = g_sim.ground.beacon;
+    if (beaconWas && !beacon) g_beaconOffAt = now;
+    beaconWas = beacon;
+    if (g_redockAt >= 0 && now >= g_redockAt) { g_redockAt = -1; if (g_sim.ground.openSam) once("openSAM/dock_jwy"); }
+}
+void jetwayWatchStop() { if (XPLMCommandRef c = XPLMFindCommand("sim/ground_ops/jetway")) XPLMUnregisterCommandHandler(c, jetwayToggleSeen, 1, nullptr); }
 void toggleInt(XPLMDataRef ref) { if (ref) XPLMSetDatai(ref, XPLMGetDatai(ref) ? 0 : 1); }
 
 // What was pressed on the Ground page.
@@ -2988,7 +3096,11 @@ void localConnectStep() {
 #if defined(XPT_LOCAL_CONNECT)
     // who works the tablet now: a device (its keyboard choice), or the sim's mouse; and whether the device should raise its keyboard
     xpt::setDeviceInput(g_localRunning && xpt::localserver::clients() > 0 && g_lastDeviceDown > g_lastSimDown);
-    if (g_localRunning) xpt::mirror::setDeviceTyping(xpt::deviceKeysWanted());
+    if (g_localRunning) { xpt::mirror::setDeviceTyping(xpt::deviceKeysWanted()); xpt::mirror::setRate(xpt::localRefreshRate()); }
+    if (g_localRunning) {   // the tablet's theme, for the page's own screens
+        static float themeAt = -100; static std::string themeWas;
+        if (every(themeAt, 2.0f)) { std::string t = xpt::localThemeJson(); if (t != themeWas) { themeWas = t; xpt::localserver::setTheme(t); } }
+    }
     static std::string servedIp;
     static double lookedAt = -100;
     const double now = XPLMGetElapsedTime();
@@ -3013,6 +3125,8 @@ void localConnectStep() {
                 c.bindIp = ip; c.port = 8443;
                 c.dataDir = std::string(sys) + "Output/XPTablet/localconnect";
                 for (const char* piece : xpt::kLocalPage) c.page += piece;
+                for (auto [mark, png] : { std::pair{std::string("%XPT_ICON%"), xpt::kLocalIconPng}, std::pair{std::string("%XPT_LOGO%"), xpt::kLocalLogoPng} })
+                    for (std::size_t at; (at = c.page.find(mark)) != std::string::npos;) c.page.replace(at, mark.size(), png);
                 c.wireVersion = xpt::mirror::kPageVersion;
                 xpt::localserver::start(c);
                 xpt::mirror::start();
@@ -3059,6 +3173,7 @@ void localConnectStep() {
 
 float flightLoop(float dt, float, int, void*) {
     backspaceStep();   // (Backspace held: deleting on)
+    jetwayWatchStep();   // (openSAM's beacon-off press undoing the tablet's docking)
     {   // a thread stopped on an exception (caught): told in the log, from here (the main thread)
         const std::string f = xpt::crashlog::takeFailures();
         size_t s = 0;
@@ -3241,6 +3356,8 @@ PLUGIN_API void XPluginDisable(void) {
 }
 
 PLUGIN_API void XPluginStop(void) {
+    jetwayWatchStop();
+    if (g_vcThread.joinable()) g_vcThread.join();
     xpt::crashlog::uninstall();
     if (g_win) { XPLMDestroyWindow(g_win); g_win = nullptr; }
     for (const Cmd& c : g_cmds) XPLMUnregisterCommandHandler(c.ref, onCommand, 1, (void*)(intptr_t)c.id);

@@ -63,5 +63,9 @@ bool wantKey();
 
 bool poll(Incoming& in);           // the next thing a device sent, if any
 
+// The tablet's theme, for the page's own screens (connecting, the pairing code): a small JSON of colours, served at /theme
+// to anyone who opens the page (nothing private in it).
+void setTheme(const std::string& json);
+
 }   // namespace localserver
 }   // namespace xpt

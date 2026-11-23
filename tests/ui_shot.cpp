@@ -1164,7 +1164,7 @@ int main(int argc, char** argv) {
                 settings().wallpaper = keepWp;
             }
             settings().autoDim = false;
-            tap(st, 80, 196);   // Data
+            tap(st, 80, 364);   // Data
             settings().simbriefUser = "alpineaviation";
             st.plan.status = "Imported KSBN to KORD at 05:12Z"; st.plan.loaded = true;
             shot(st, APP_SETTINGS, "settings_data");
@@ -1174,7 +1174,7 @@ int main(int argc, char** argv) {
                 Settings fresh; settings() = fresh; layoutHome(); const std::string defaults = settingsToText();
                 settings() = keepAll;
                 settings().favoriteSlots = 2; settings().wallpaper = 3; settings().notifyTcas = false; settings().localConnect = true;
-                tap(st, 80, 196);   // Data
+                tap(st, 80, 364);   // Data
                 bool booted = false;
                 for (float yy = 330; yy < 390 && !booted; yy += 4) {
                     tap(st, 713, yy); tap(st, 713, yy);
@@ -1192,28 +1192,28 @@ int main(int argc, char** argv) {
                 for (int k = 0; k < 120 && !(tabletPoweredOn() && currentApp() == APP_HOME && k > 80); ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.1f; io.AddMousePosEvent(-1000, -1000);
                     ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); }   // (the boot it started has finished)
                 io.DeltaTime = 1.0f / 60.0f;
-                openApp(APP_SETTINGS); tap(st, 80, 196);
+                openApp(APP_SETTINGS); tap(st, 80, 364);
             }
             settings().simbriefUser.clear();
-            tap(st, 80, 280);   // Media
+            tap(st, 80, 238);   // Media
             settings().mediaDuck = 1; settings().duckRx = 0.35f; settings().duckTx = 0.15f;
             shot(st, APP_SETTINGS, "settings_media");
             if (settingsTabShown() != 5) { std::printf("FAIL: the Media tab of Settings was not opened (%d)\n", settingsTabShown()); ++failures; }
             settings().mediaDuck = 0;
-            tap(st, 80, 238);   // Notifications
+            tap(st, 80, 196);   // Notifications
             shot(st, APP_SETTINGS, "settings_notifications");
             if (settingsTabShown() != 4) { std::printf("FAIL: the Notifications tab of Settings was not opened (%d)\n", settingsTabShown()); ++failures; }
-            tap(st, 80, 364);   // Accounts
+            tap(st, 80, 322);   // Accounts
             shot(st, APP_SETTINGS, "settings_accounts");
             if (settingsTabShown() != 7) { std::printf("FAIL: the Accounts tab of Settings was not opened (%d)\n", settingsTabShown()); ++failures; }
             {   // where the host cannot serve Local Connect yet (the plugin today), Settings has no page for it: Accounts takes its place
                 SimState nl = st; nl.local.status = -2;
-                tap(nl, 80, 196); tap(nl, 80, 322);
+                tap(nl, 80, 364); tap(nl, 80, 280);
                 if (settingsTabShown() != 7) { std::printf("FAIL: without Local Connect, Accounts is in its place (%d)\n", settingsTabShown()); ++failures; }
                 shot(nl, APP_SETTINGS, "settings_no_local_connect");
-                tap(st, 80, 196);
+                tap(st, 80, 364);
             }
-            tap(st, 80, 322);   // Local Connect
+            tap(st, 80, 280);   // Local Connect
             {   // on, an Android phone connected (its battery the tablet's), an iPhone paired before, an iPad asking to pair
                 SimState lc = st;
                 settings().localConnect = true;
@@ -1572,6 +1572,20 @@ int main(int argc, char** argv) {
           wb.browser.activeTab = 1;
           press(wb, 300, 28 + 46 + 32 + 20); shot(wb, APP_BROWSER, "browser_keyboard");
           { SimState wc = wb; wc.clipboardHas = true; shot(wc, APP_BROWSER, "browser_keyboard_paste"); }   // (text in the clipboard: Paste over the keys)
+          {   // the bars fold and open again with the same button in the title bar
+            SimState wf = wb; openApp(APP_BROWSER);
+            press(wf, 800 - 34, 28 + 23); shot(wf, APP_BROWSER, "browser_bars_folded");
+            if (!browserBarsHidden()) { std::printf("FAIL: the title bar's button did not fold the browser bars\n"); ++failures; }
+            press(wf, 800 - 34, 28 + 23);
+            if (browserBarsHidden()) { std::printf("FAIL: the title bar's button did not open the browser bars again\n"); ++failures; }
+          }
+          {   // a device on Local Connect: Spotify greyed, and it does not open
+            SimState sl = s; LocalDevice d; d.connected = true; sl.local.devices.push_back(d);
+            shot(sl, APP_HOME, "home_local_spotify");
+            openApp(APP_SPOTIFY);
+            if (currentApp() != APP_HOME) { std::printf("FAIL: Spotify opened with a Local Connect device on\n"); ++failures; }
+            openApp(APP_HOME);
+          }
           {   // full screen (a video): the volume and Exit Full Screen side by side in the middle at the top; Exit takes its press over the page
             SimState fs = wb; fs.browser.fullscreen = true; fs.browser.tex = io.Fonts->TexID; fs.browser.texW = 800; fs.browser.texH = 480; fs.browser.mediaPlaying = true;
             openApp(APP_BROWSER);

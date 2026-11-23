@@ -15,6 +15,10 @@ R"XPT(<!doctype html>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-title" content="XPTablet">
+<meta name="application-name" content="XPTablet">
+<link rel="apple-touch-icon" href="data:image/png;base64,%XPT_ICON%">
+<link rel="icon" type="image/png" href="data:image/png;base64,%XPT_ICON%">
 <title>XPTablet</title>
 <style>
 html, body { margin: 0; height: 100%; background: #000; color: #ecf1fa; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; overscroll-behavior: none; }
@@ -22,22 +26,23 @@ html, body { margin: 0; height: 100%; background: #000; color: #ecf1fa; font: 15
         padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
         -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 canvas { display: none; touch-action: none; -webkit-tap-highlight-color: transparent; outline: none; background: #000; }
+:root { --top: #0a1226; --bot: #16264d; --accent: #4c8dff; --accentLite: #6ea3ff; }
 #panel { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px;
-         background: linear-gradient(180deg, #0a1226 0%, #16264d 100%); }
+         background: linear-gradient(180deg, var(--top) 0%, var(--bot) 100%); transition: background .6s; }
 #card { width: 100%; max-width: 380px; text-align: center; }
-#brand { font-weight: 800; letter-spacing: .5px; font-size: 22px; margin-bottom: 22px; }
-#brand span { font-weight: 500; font-size: 13px; letter-spacing: 4px; color: #6ea3ff; margin-left: 2px; }
+#brand { margin: 0 auto 24px; }
+#brand img { display: block; width: 180px; max-width: 60%; height: auto; margin: 0 auto; }
 h1 { font-size: 19px; font-weight: 700; margin: 0 0 6px; }
 p { margin: 0 0 16px; color: #9fb0cc; font-size: 14px; }
 #code { display: none; width: 100%; box-sizing: border-box; font: 700 30px/1.2 ui-monospace, Menlo, Consolas, monospace; letter-spacing: 12px; text-align: center; padding: 12px 0 12px 12px;
         color: #ecf1fa; background: rgba(10, 20, 38, .9); border: 1.5px solid rgba(255, 255, 255, .16); border-radius: 14px; outline: none; }
-#code:focus { border-color: #6ea3ff; }
+#code:focus { border-color: var(--accentLite); }
 #msg { min-height: 20px; margin-top: 12px; color: #ffb454; font-size: 14px; }
-#again { display: none; margin: 14px auto 0; font: 600 15px system-ui, sans-serif; color: #fff; background: #4c8dff; border: 0; border-radius: 999px; padding: 10px 26px; }
+#again { display: none; margin: 14px auto 0; font: 600 15px system-ui, sans-serif; color: #fff; background: var(--accent); border: 0; border-radius: 999px; padding: 10px 26px; }
 .tool { display: none; position: fixed; z-index: 5; width: 40px; height: 40px; border-radius: 12px; border: 0; padding: 0;
         background: rgba(10, 20, 38, .72); color: #ecf1fa; font: 600 18px system-ui, sans-serif; transition: opacity .4s; -webkit-tap-highlight-color: transparent; }
 #fs { top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); }
-#kbbtn { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); width: auto; padding: 0 14px; font-size: 14px; background: #4c8dff; }
+#kbbtn { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); width: auto; padding: 0 14px; font-size: 14px; background: var(--accent); }
 #kb { position: fixed; left: -1000px; top: 0; width: 10px; height: 10px; opacity: 0; font-size: 16px; }
 #turn { display: none; position: fixed; left: 0; right: 0; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); text-align: center; color: #93a4c0; font-size: 13px; pointer-events: none; }
 </style>
@@ -49,7 +54,7 @@ p { margin: 0 0 16px; color: #9fb0cc; font-size: 14px; }
 <button id="kbbtn" class="tool" type="button">Keyboard</button>
 <textarea id="kb" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Typing"></textarea>
 <div id="panel"><div id="card">
-  <div id="brand">XP<span>TABLET</span></div>
+  <div id="brand"><img alt="XPTablet" src="data:image/png;base64,%XPT_LOGO%"></div>
   <h1 id="title">Connecting To XPTablet</h1>
   <p id="hint">Looking for XPTablet on your computer...</p>
   <input id="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" aria-label="Pairing code">
@@ -93,7 +98,25 @@ R"XPT(<script>
   function send(a) { if (ws && ws.readyState === 1) ws.send(new Uint8Array(a)); }
   function text(u, at) { var n = 0, sh = 0, c; do { c = u[at++]; n |= (c & 0x7F) << sh; sh += 7; } while (c & 0x80 && at < u.length); return new TextDecoder().decode(u.subarray(at, at + n)); }
 
+  // ---- the tablet's theme on these screens (kept for the next visit, so the page opens in it) ----
+  var THEME = 'xptablet.lc.theme';
+  function applyTheme(t) {
+    if (!t || !t.top) return;
+    var r = document.documentElement.style;
+    r.setProperty('--top', t.top); r.setProperty('--bot', t.bot); r.setProperty('--accent', t.accent); r.setProperty('--accentLite', t.accentLite || t.accent);
+    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', t.top);
+  }
+  try { applyTheme(JSON.parse(localStorage.getItem(THEME) || 'null')); } catch (e) {}
+  function theme() {
+    fetch('/theme', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (t) {
+      if (!t || !t.top) return;
+      applyTheme(t); try { localStorage.setItem(THEME, JSON.stringify(t)); } catch (e) {}
+    }).catch(function () {});
+  }
+  setInterval(function () { if (panel.style.display !== 'none') theme(); }, 8000);   // (its screens shown: a theme changed in the sim follows)
+
   function connect() {
+    theme();
     if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} }
     stop = false; live = false; gotPicture = false;
     var s = new WebSocket('wss://' + location.host + '/ws');

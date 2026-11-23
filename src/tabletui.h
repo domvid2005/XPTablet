@@ -22,7 +22,7 @@ enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_
            APP_NAVIGRAPH, APP_VATSIM, APP_SKYVECTOR, APP_MUSIC, APP_DISPATCH, APP_NAVSEARCH,
            // the App Store and what it offers (web apps, installed or not), and Games
            APP_APPSTORE, APP_GAMES, APP_DATIS, APP_SPOTIFY, APP_YTMUSIC, APP_APPLEMUSIC, APP_SOUNDCLOUD, APP_YOUTUBE, APP_VATSIMHUB, APP_NATTRAK, APP_IVAO,
-           APP_TIMERS, APP_LOGBOOK, APP_ACARS, APP_XPILOT, APP_FR24,   // (App Store apps of XPTablet's own)
+           APP_TIMERS, APP_LOGBOOK, APP_ACARS, APP_XPILOT, APP_FR24, APP_DISCORD,   // (App Store apps of XPTablet's own)
            APP_COUNT };
 
 constexpr int kMaxFavorites = 7;   // the favorites bar holds up to 7 places (icons, or the 1 x 1 and 7 x 1 widgets); its size is chosen in Settings, 0 removes it
@@ -65,6 +65,7 @@ struct Settings {
     bool localBattery = true;     // with a device connected that tells its battery: the tablet's battery is that device's
     int arcadeBest[6] = {0, 0, 0, 0, 0, 0};   // the best scores of Contrail, Taxi Rush, Sky Patrol, Hangar Climb, Cockpit 21 (most miles), Cargo Load
     bool physicalKeys = false;    // typing: the computer's own keyboard (a thin bar instead of the on-screen keys)
+    int localRate = 15;               // Local Connect: pictures a second sent to the devices (5 to 30)
     bool localPhysicalKeys = false;   // typing from a Local Connect device: the device's own keyboard (the bar) instead of the tablet's keys
     bool mapRings = true;         // range rings round the aircraft (a quarter, half and all of the range), as on WXPlane's map
     bool mapIls = true;           // ILS and localizer courses (a layer of their own)
@@ -311,6 +312,8 @@ struct AirportInfo {
     struct Freq { std::string what; double mhz = 0; std::string note; };
     std::vector<Freq> freqs;      // every frequency, X-Plane's and OurAirports' merged
     Freq ctaf;                    // always set: published CTAF, else UNICOM, else the tower's (when closed), else 122.900 MULTICOM
+    double vatsimCtaf = 0;        // VATSIM's CTAF for it (its AIP's; 122.800 UNICOM when it sets none); 0 not known yet
+    std::string vatsimCtafNote;
     std::string metar;            // the latest report, when fetched
 };
 
@@ -508,6 +511,9 @@ void setBattery(float pct);
 std::string checklistFor(const std::string& text, const std::string& icao, const std::string& engine);   // the tablet's battery level (the emulators' test controls)   // a drawing for this type (its own, or its family's)
 
 int currentApp();
+bool browserBarsHidden();
+int localRefreshRate();   // Local Connect's pictures a second (Settings, Local Connect)
+std::string localThemeJson();   // the tablet's theme colours as JSON (Local Connect's page follows them)
 // The pointer (the sim's mouse, a finger, a paired device): queued, and fed to Dear ImGui a step a frame, so that a press always
 // finds the pointer on its spot the frame before (call pumpPointer before NewFrame)
 void queuePointer(float x, float y, int down);   // down: -1 a move, 1 pressed, 0 released

@@ -12,7 +12,7 @@ from svgpath import raster
 CELL = 256
 ORDER = ["cog", "list-status", "check-bold", "file-document", "star-four-points", "airplane", "airport", "web",   # pictograms
          "foreflight", "navigraph", "skyvector", "volanta", "vatsimradar", "simbrief", "power", "weather-partly-snowy-rainy", "chartfox", "music", "map", "file-document-edit",
-         "soundcloud", "youtube", "ytmusic", "applemusic", "vatsim", "nattrak", "ivao", "spotify", "flightradar24"]                                                       # tiles
+         "soundcloud", "youtube", "ytmusic", "applemusic", "vatsim", "nattrak", "ivao", "spotify", "flightradar24", "discord"]                                                       # tiles
 root = os.path.join(os.path.dirname(__file__), "..", "assets", "brands")
 
 def gradient(c0, c1, radial=False):
@@ -111,6 +111,12 @@ def tile(name):
         im = Image.open(os.path.join(root, "nattrak.webp")).convert("RGBA")
         n = np.asarray(im).astype(float)
         return place(np.full((CELL, CELL, 3), 255.0), n[..., :3], n[..., 3] / 255, (0, 0, n.shape[1], n.shape[0]), 222)
+    if name == "discord":   # its logo mark (Simple Icons' path, CC0), white on Discord's blurple
+        import re as _re
+        d = _re.search(r' d="([^"]+)"', open(os.path.join(root, "discord.svg")).read()).group(1)
+        a = np.asarray(raster(d, CELL, margin=6.0)).astype(float) / 255
+        out = np.zeros((CELL, CELL, 3)) + np.array((88, 101, 242), float)
+        return out * (1 - a[..., None]) + 255.0 * a[..., None]
     if name == "ivao":   # IVAO's ring and aircraft (its SVG), white on IVAO's blue
         import re as _re
         from svgpath import raster as _raster
