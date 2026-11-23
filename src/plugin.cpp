@@ -928,7 +928,11 @@ void xpilotStep(const xpt::Actions& act) {
         lookedAt = now;
         std::vector<std::string> found;
         for (const char* n : names) if (XPLMFindCommand(n)) found.push_back(n);
-        if (found != g_sim.xpilotCmds) { g_sim.xpilotCmds = found; logMsg("xPilot: %d command(s) for the tablet", (int)found.size()); }
+        if (found != g_sim.xpilotCmds) {
+            g_sim.xpilotCmds = found;
+            std::string list; for (const std::string& n : found) list += (list.empty() ? "" : ", ") + n;
+            logMsg("xPilot: %d command(s) for the tablet: %s", (int)found.size(), list.c_str());
+        }
         // its plugin, by its signature: running whatever its version names its commands (xPilot 4 renamed them, 2026-11-22)
         const bool loaded = XPLMFindPluginBySignature("org.vatsim.xpilot") != XPLM_NO_PLUGIN_ID;
         if (loaded != g_sim.xpilotLoaded) {
@@ -1678,7 +1682,19 @@ void mediaStep(const xpt::Actions& act) {
         if (level > 0.02f) heardUntil = radioNow + 0.4f;   // (held a moment over the gaps between words)
         pilotRx = radioNow < heardUntil;
     } else pilotRx = on(com1) || on(com2) || on(rxOld);
-    const bool xpRx = on(xpRx1) || on(xpRx2);
+    // X-Plane's ATC: its com1_rx / com2_rx (and _tx) can stay on with nothing said (a radio set to receive), and the media was paused
+    // for "X-Plane ATC" with no one talking (2026-11-22). So a flag counts only while it is fresh: one on for more than 20 seconds
+    // without a break is a radio's setting, not a voice, until it goes off again. With xPilot connected, X-Plane's ATC is not used.
+    auto fresh = [&](XPLMDataRef r, float& since) {
+        const bool v = on(r);
+        if (!v) { since = -1; return false; }
+        if (since < 0) since = radioNow;
+        return radioNow - since < 20.0f;
+    };
+    static float rx1Since = -1, rx2Since = -1, tx1Since = -1, tx2Since = -1;
+    const bool xpilotOnline = g_sim.xpilotLogin > 0;
+    const bool xpRx = !xpilotOnline && (fresh(xpRx1, rx1Since) | fresh(xpRx2, rx2Since));
+    const bool xpTx = !xpilotOnline && (fresh(xpTx1, tx1Since) | fresh(xpTx2, tx2Since));
     // xPilot's push-to-talk: its dataref, and also its command itself (a key or button bound to it: some versions of xPilot do not
     // set the dataref then)
     static bool pttWatched = false;
@@ -1695,7 +1711,7 @@ void mediaStep(const xpt::Actions& act) {
         }
     }
     const bool pilotTx = on(ptt) || g_pttCmd;
-    const bool rx = pilotRx || xpRx, tx = pilotTx || on(xpTx1) || on(xpTx2);
+    const bool rx = pilotRx || xpRx, tx = pilotTx || xpTx;
     const char* who = pilotRx || pilotTx ? "xPilot" : "X-Plane ATC";
     // (a tablet that is off or flat leaves the media alone)
     xpt::media::setDuck(xpt::tabletPoweredOn() ? st.mediaDuck : 0, rx || tx, rx || tx ? who : "", tx ? st.duckTx : st.duckRx);   // transmitting: its own level

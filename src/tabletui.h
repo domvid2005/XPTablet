@@ -87,6 +87,7 @@ struct Settings {
     std::string gatesFor;         // the flight plan the gates are for (its SimBrief id)
     std::string startGate;        // the stand the flight left from (found when the plan came in on the ground; "N/A" in the air)
     std::string arrivalGate;      // the stand it is going to (typed; shown on the destination's layout)
+    std::string parkingPick;      // a stand chosen on the map (Select Parking): "ICAO|NAME", marked green on the map
     std::string simbriefUser;     // SimBrief user name or pilot ID (the Flight Plan page and the route on the map)
     std::string hoppieCode;       // the user's Hoppie ACARS logon code (Settings, Accounts): the ACARS app
     bool mapProcedures = true;    // the plan's SID, STAR and approach on the map

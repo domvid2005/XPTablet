@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <map>
 #include <mutex>
 #include <thread>
 
@@ -108,6 +109,13 @@ void run() {
     bool ducked = false, pausedByUs = false, lowered = false;
     int duckedMode = 0;
     float duckedLevel = 1.0f;   // the volume it was lowered to
+    // the volumes as they were before the tablet changed any: put back when X-Plane closes (or the Media controls are switched off).
+    // The computer's, read now; each player's, read the first time it plays. Only what the tablet itself changed is put back.
+    float startMaster = -1; bool startMMute = false;
+    { float v; if (platform::masterVol(v)) startMaster = v; bool m; if (platform::masterMute(m)) startMMute = m; }
+    std::map<std::string, std::pair<float, bool>> startPlayer;   // by app
+    std::string playerApp;
+    bool touchedMaster = false, touchedPlayer = false;
     auto lastHeard = std::chrono::steady_clock::now() - std::chrono::hours(1);
     while (!g_quit) {
         platform::Info info;
@@ -131,6 +139,13 @@ void run() {
             setPMute = g_setPMute; g_setPMute = -1; setMMute = g_setMMute; g_setMMute = -1;
             mode = g_duckMode; rx = g_radioRx; rxName = g_radioName; level = g_duckLevel;
         }
+        if (active && !info.app.empty() && !startPlayer.count(info.app)) {   // a player seen for the first time: its volume as it was
+            float v; bool m = false;
+            if (platform::playerVol(v)) { platform::playerMute(m); startPlayer[info.app] = {v, m}; }
+        }
+        if (active) playerApp = info.app;
+        if (setPlayer >= 0 || setPMute >= 0) touchedPlayer = true;
+        if (setMaster >= 0 || setMMute >= 0) touchedMaster = true;
         for (int c : cmds) platform::send(c);
         if (seekTo >= 0) { platform::seek(seekTo); info.posSec = seekTo; }
         if (setPlayer >= 0) platform::setPlayerVol(setPlayer);
@@ -198,6 +213,8 @@ void run() {
         }
     }
     if (ducked) { if (lowered) platform::setVolume(1.0f); if (pausedByUs) platform::send(4); }
+    if (touchedMaster && startMaster >= 0) { platform::setMasterVol(startMaster); platform::setMasterMute(startMMute); }
+    if (touchedPlayer) { auto it = startPlayer.find(playerApp); if (it != startPlayer.end()) { platform::setPlayerVol(it->second.first); platform::setPlayerMute(it->second.second); } }
     platform::shutdown();
 }
 

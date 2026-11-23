@@ -4297,14 +4297,14 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     ImGui::InvisibleButton("##map", ImVec2(r1.x - r0.x, r1.y - r0.y));
     const ImGuiIO& io = ImGui::GetIO();
     if (ImGui::IsItemActivated()) g_mapPressPos = io.MousePos;
-    const bool mapTap = ImGui::IsItemDeactivated() && std::fabs(io.MousePos.x - g_mapPressPos.x) + std::fabs(io.MousePos.y - g_mapPressPos.y) < 6;
+    const bool mapTap = ImGui::IsItemDeactivated() && std::fabs(io.MousePos.x - g_mapPressPos.x) + std::fabs(io.MousePos.y - g_mapPressPos.y) < (g_touchInput ? 14 : 8);
     // by finger, a single tap is often the start of a drag or a pinch: a card opens (or closes) on a double tap there; one tap
     // still closes an open menu. With a mouse one click does it all.
     bool mapClick = mapTap;
     if (mapTap && g_touchInput && !g_mapMenu) {
         static double lastTapT = -10; static ImVec2 lastTapP(-1000, -1000);
         const double now = ImGui::GetTime();
-        const bool second = now - lastTapT < 0.40 && std::fabs(io.MousePos.x - lastTapP.x) + std::fabs(io.MousePos.y - lastTapP.y) < 30;
+        const bool second = now - lastTapT < 0.50 && std::fabs(io.MousePos.x - lastTapP.x) + std::fabs(io.MousePos.y - lastTapP.y) < 40;
         mapClick = second;
         lastTapT = second ? -10 : now; lastTapP = io.MousePos;
     }
@@ -4545,17 +4545,21 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                         if (q.x < r0.x - 40 || q.x > r1.x + 40 || q.y < r0.y - 20 || q.y > r1.y + 20) continue;
                         const bool picked = g_selKind == 6 && g_selKey == g.icao + "|" + std::to_string(si);
                         if (picked) dl->AddCircle(q, 8.0f, accentLite(255), 0, 2.2f);
-                        if (!g_settings.arrivalGate.empty() && s.plan.loaded && g.icao == s.plan.dest) {   // the flight's arrival gate: green, named
+                        {   // the flight's gates (departure at its origin, arrival at its destination) and a stand chosen on the map: green, named
                             std::string nm = st.name;
                             for (char& c : nm) c = (char)std::toupper((unsigned char)c);
-                            if (nm == g_settings.arrivalGate) {
+                            const bool dep = !nm.empty() && s.plan.loaded && g.icao == s.plan.origin && nm == g_settings.startGate;
+                            const bool arr = !nm.empty() && s.plan.loaded && g.icao == s.plan.dest && nm == g_settings.arrivalGate;
+                            const bool park = !nm.empty() && g_settings.parkingPick == g.icao + "|" + nm;
+                            if (dep || arr || park) {
                                 dl->AddCircleFilled(q, 9.0f, IM_COL32(60, 220, 110, 70), 0);
                                 dl->AddCircle(q, 9.0f, IM_COL32(60, 220, 110, 255), 0, 2.4f);
-                                g_labels.push_back({6, q, 10, "Gate " + st.name, "", IM_COL32(255, 255, 255, 255), 0, IM_COL32(30, 140, 70, 235)});
+                                g_labels.push_back({6, q, 10, (dep ? "Departure " : arr ? "Arrival " : "Parking ") + st.name, "", IM_COL32(255, 255, 255, 255), 0, IM_COL32(30, 140, 70, 235)});
                             }
                         }
-                        dl->AddCircleFilled(q, picked ? 4.0f : 3.0f, picked ? accentLite(255) : IM_COL32(255, 255, 255, 235), 0);
-                        dl->AddCircle(q, 3.0f, IM_COL32(20, 24, 32, 200), 0, 1.0f);
+                        const float sr = closest ? 4.5f : 3.0f;   // (bigger close in: easier to see and to tap)
+                        dl->AddCircleFilled(q, picked ? sr + 1.0f : sr, picked ? accentLite(255) : IM_COL32(255, 255, 255, 235), 0);
+                        dl->AddCircle(q, sr, IM_COL32(20, 24, 32, 200), 0, 1.0f);
                         if (closest && !st.name.empty()) textAt(dl, f.small, q.x + 5, q.y - fontPx(f.small) * 0.5f, sat ? kInk : IM_COL32(30, 36, 48, 255), st.name.c_str());
                     }
                 if (close)
@@ -5126,17 +5130,17 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         if (g_settings.mapRoute) for (size_t i = 0; i < m.route.size(); ++i) consider(toS(mercOf(m.route[i].lat, m.route[i].lon)), 5, std::to_string(i), 12);
         // airports come before navaids, ILS courses, fixes and route points (only traffic is ahead of them): their dot, or close in
         // anywhere on their layout; and on a layout, a stand (its dot) before the airport
-        if (g_settings.mapAirports && kind != 1) {
+        if (g_settings.mapAirports) {   // (with traffic tapped: a stand closer to the tap than the aircraft still wins, below)
             float aBest = 16.0f;
             std::string aKey;
-            if (g_mapZoom >= 7.0)
+            if (g_mapZoom >= 7.0 && kind != 1)
                 for (const AptPoint& a : m.airportPoints) {
                     if (a.rwyFt < (g_mapZoom >= 9.0 ? 0.0f : g_mapZoom >= 8.0 ? 5000.0f : 8000.0f)) continue;   // (its dot is not drawn)
                     const ImVec2 q = toS(mercOf(a.lat, a.lon));
                     const float d = std::sqrt((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y));
                     if (d < aBest) { aBest = d; aKey = a.icao; }
                 }
-            if (aKey.empty() && g_settings.mapVatsimAtc && g_mapZoom >= 6.0 && !s.vatsimAtc.empty())   // its VATSIM ATC badge (beside the dot) opens it too
+            if (aKey.empty() && kind != 1 && g_settings.mapVatsimAtc && g_mapZoom >= 6.0 && !s.vatsimAtc.empty())   // its VATSIM ATC badge (beside the dot) opens it too
                 for (const AptPoint& a : m.airportPoints) {
                     const ImVec2 q = toS(mercOf(a.lat, a.lon));
                     if (p.x < q.x - 4 || p.x > q.x + 70 || p.y < q.y - 26 || p.y > q.y + 4) continue;
@@ -5147,17 +5151,22 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     if (p.x <= q.x + 8 + letters.size() * 11.0f + 8 + 4) { aKey = a.icao; break; }
                 }
             bool stand = false;
-            if (g_mapShownNm < 1.9 && g_settings.mapStands)   // the stands are drawn
-                for (const auto& ap : m.airports) {
-                    float sBest = 11.0f;
-                    int si = -1;
+            if (g_mapShownNm < 1.9 && g_settings.mapStands) {   // the stands are drawn: the nearest within a finger's reach (its name too, close in)
+                const bool named = g_mapShownNm < 0.75;
+                float sBest = kind == 1 ? best : 24.0f;   // (an aircraft tapped: only a stand nearer than it)
+                std::string sKey;
+                for (const auto& ap : m.airports)
                     for (size_t i = 0; i < ap->stands.size(); ++i) {
                         const ImVec2 q = toS(ap->stands[i].p);
-                        const float d = std::sqrt((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y));
-                        if (d < sBest) { sBest = d; si = (int)i; }
+                        float d = std::sqrt((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y));
+                        if (named && !ap->stands[i].name.empty()) {   // on its name (drawn to the right of the dot)
+                            const float tw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, ap->stands[i].name.c_str()).x;
+                            if (p.x >= q.x && p.x <= q.x + 6 + tw && std::fabs(p.y - q.y) <= fontPx(f.small) * 0.6f) d = std::min(d, 2.0f);
+                        }
+                        if (d < sBest) { sBest = d; sKey = ap->icao + "|" + std::to_string(i); }
                     }
-                    if (si >= 0) { kind = 6; key = ap->icao + "|" + std::to_string(si); stand = true; break; }
-                }
+                if (!sKey.empty()) { kind = 6; key = sKey; stand = true; }
+            }
             if (!stand && !aKey.empty()) { kind = 4; key = aKey; }
             else if (!stand && kind == 0 && g_mapZoom >= 11.5)   // close in: anywhere on an airport's layout (a navaid, fix or ILS tapped on it wins)
                 for (const auto& ap : m.airports) {
@@ -5307,6 +5316,11 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     for (size_t k = 0; k < codes.size() && k < 12; ++k) { std::string c = codes[k]; for (char& ch : c) ch = (char)std::toupper((unsigned char)ch); const char* n = airlineName(c); L.push_back({1, c, n ? n : "not in XPTablet's list"}); }
                     if (codes.size() > 12) L.push_back({2, "and " + std::to_string(codes.size() - 12) + " more", ""});
                 } else L.push_back({2, "The scenery names no airlines for this stand.", ""});
+                if (!st.name.empty()) {   // chosen: marked green on the map (at the flight's origin or destination: its departure or arrival gate too)
+                    std::string nm = st.name;
+                    for (char& c : nm) c = (char)std::toupper((unsigned char)c);
+                    L.push_back({5, g_settings.parkingPick == icao + "|" + nm ? "Clear Parking" : "Select Parking", ""});
+                }
                 break;
             }
         } else if (g_selKind == 7 && m.airspaces) {   // an airspace: its name, and who is controlling it (frequency, name, message)
@@ -5383,6 +5397,23 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         if (L.empty() || at.x < -1e5f) g_selKind = 0;   // it has gone (out of range, landed, disconnected)
         else if (drawCard(dl, f, L, at, r0, r1)) {   // its button pressed
             if (g_selKind == 4) { g_aptSel = g_selKey; g_aptScroll = 0; openApp(APP_AIRPORTS); }
+            if (g_selKind == 6) {   // Select Parking (or Clear Parking)
+                const size_t bar = g_selKey.find('|');
+                const std::string icao = g_selKey.substr(0, bar);
+                const size_t si = bar == std::string::npos ? (size_t)-1 : (size_t)std::atoi(g_selKey.c_str() + bar + 1);
+                for (const auto& ap : m.airports) {
+                    if (ap->icao != icao || si >= ap->stands.size()) continue;
+                    std::string nm = ap->stands[si].name;
+                    for (char& c : nm) c = (char)std::toupper((unsigned char)c);
+                    const std::string pick = icao + "|" + nm;
+                    const bool clear = g_settings.parkingPick == pick;
+                    g_settings.parkingPick = clear ? std::string() : pick;
+                    if (s.plan.loaded && icao == s.plan.origin) { if (clear) { if (g_settings.startGate == nm) g_settings.startGate.clear(); } else g_settings.startGate = nm; }
+                    if (s.plan.loaded && icao == s.plan.dest) { if (clear) { if (g_settings.arrivalGate == nm) g_settings.arrivalGate.clear(); } else g_settings.arrivalGate = nm; }
+                    g_settingsChanged = true;
+                    break;
+                }
+            }
         }
     }
 
@@ -9543,6 +9574,14 @@ void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     const float top = kStatusH + kHeaderH + 10;
     std::vector<const XpCmd*> xp;
     for (const XpCmd& c : kXpCmds) for (const std::string& n : s.xpilotCmds) if (n == c.cmd) xp.push_back(&c);
+    {   // no text window in this xPilot (some versions): Messages opens its message panel (the latest messages) instead, in its place
+        static const XpCmd viaPanel = {"xpilot/toggle_notification_panel", "Messages", "Its message panel: the latest ATC, private and frequency messages"};
+        auto has = [&](const char* c) { for (const std::string& n : s.xpilotCmds) if (n == c) return true; return false; };
+        if (!has("xpilot/toggle_text_message_console") && has("xpilot/toggle_notification_panel")) {
+            xp.erase(std::remove_if(xp.begin(), xp.end(), [](const XpCmd* c) { return std::strcmp(c->cmd, "xpilot/toggle_notification_panel") == 0; }), xp.end());
+            xp.insert(xp.begin(), &viaPanel);
+        }
+    }
     card(dl, ImVec2(12, top), ImVec2(w - 12, top + 76), f, "XPILOT");
     const bool loaded = s.xpilotLoaded || !s.xpilotCmds.empty();
     // its own status: connected (as whom, how many aircraft it shows) or not, and the stations on the radios
@@ -10763,7 +10802,7 @@ std::string settingsToText() {
     std::snprintf(buf, sizeof buf, "browser_volume=%.2f\n", (double)g_settings.browserVolume);
     out += buf;
     auto oneLine = [](std::string v) { for (char& c : v) if (c == '\n' || c == '\r') c = ' '; return v; };
-    out += "gates_for=" + oneLine(g_settings.gatesFor) + "\nstart_gate=" + oneLine(g_settings.startGate) + "\narrival_gate=" + oneLine(g_settings.arrivalGate) + "\n";
+    out += "gates_for=" + oneLine(g_settings.gatesFor) + "\nstart_gate=" + oneLine(g_settings.startGate) + "\narrival_gate=" + oneLine(g_settings.arrivalGate) + "\nparking_pick=" + oneLine(g_settings.parkingPick) + "\n";
     return out;
 }
 
@@ -10901,6 +10940,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "gates_for") g_settings.gatesFor = val;
         else if (key == "start_gate") g_settings.startGate = val;
         else if (key == "arrival_gate") g_settings.arrivalGate = val;
+        else if (key == "parking_pick") g_settings.parkingPick = val;
         else if (key == "browser_volume") g_settings.browserVolume = std::max(0.0f, std::min(1.0f, (float)std::atof(val.c_str())));
     }
     if (!newStyle) {   // an older settings file: the site its one icon was set to
