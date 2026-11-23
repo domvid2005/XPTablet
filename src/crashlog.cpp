@@ -54,6 +54,11 @@ void frame(DWORD64 pc) {
 void walkCtx(CONTEXT* c) {
 #if defined(_M_X64)
     CONTEXT ctx = *c;
+    if (!ctx.Rip && !IsBadReadPtr((const void*)ctx.Rsp, 8)) {   // a call to address 0 (a function pointer that was empty): the caller's
+        out("  called from:\r\n");                               // return address is on top of the stack: the walk goes on from there
+        ctx.Rip = *(DWORD64*)ctx.Rsp;
+        ctx.Rsp += 8;
+    }
     for (int i = 0; i < 48 && ctx.Rip; ++i) {
         frame(ctx.Rip);
         DWORD64 imageBase = 0;
