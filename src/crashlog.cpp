@@ -19,6 +19,7 @@
 
 namespace xpt {
 namespace crashlog {
+namespace { const char* volatile g_here = nullptr; }
 
 #if defined(_WIN32)
 namespace {
@@ -116,6 +117,7 @@ LONG CALLBACK veh(EXCEPTION_POINTERS* ep) {
                       (unsigned long long)ep->ExceptionRecord->ExceptionInformation[1]);
         out(b);
     }
+    if (const char* w = g_here) { std::snprintf(b, sizeof b, "  XPTablet was in: %s\r\n", w); out(b); }
     walk(ep->ContextRecord);
     return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -175,6 +177,7 @@ void threadFailed(const char* name, const char* what) {
     g_failures += b;
     g_failures += '\n';
 }
+const char* here(const char* where) { const char* was = g_here; g_here = where; return was; }
 std::string takeFailures() {
     std::lock_guard<std::mutex> lk(g_failMx);
     std::string s;

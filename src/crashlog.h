@@ -15,6 +15,9 @@ std::string takeLast(const std::string& dir);
 // a thread's work stopped by an exception (caught: see guard.h): into the record now, and into the log from the main thread
 void threadFailed(const char* name, const char* what);
 std::string takeFailures();   // what threadFailed was told since the last call (the main thread logs it)
+// where XPTablet's code is now, on X-Plane's thread (a callback, a step of one): told in the record if it crashes. Returns what it was.
+const char* here(const char* where);
+struct In { const char* was; explicit In(const char* w) : was(here(w)) {} ~In() { here(was); } In(const In&) = delete; In& operator=(const In&) = delete; };
 
 }   // namespace crashlog
 }   // namespace xpt

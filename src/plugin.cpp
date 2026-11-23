@@ -1702,6 +1702,7 @@ void mediaStep(const xpt::Actions& act) {
         for (const char* name : {"xpilot/ptt", "xpilot/toggle_ptt"}) {
             if (XPLMCommandRef c = XPLMFindCommand(name)) {
                 XPLMRegisterCommandHandler(c, [](XPLMCommandRef, XPLMCommandPhase phase, void* toggle) -> int {
+                    xpt::crashlog::In crashIn_("xPilot's push-to-talk (watched)");
                     if (toggle) { if (phase == xplm_CommandBegin) g_pttCmd = !g_pttCmd; }
                     else g_pttCmd = phase != xplm_CommandEnd;
                     return 1;   // (xPilot still gets it)
@@ -1823,7 +1824,14 @@ void ensureFrame() {
     xpt::pumpPointer();   // (the pointer, whoever moved it: a step a frame, each press a frame after the pointer is on its spot)
     ImGui::NewFrame();
     xpt::Actions act;
+    xpt::crashlog::In crashIn_("the tablet's frame: building its page");
+    {   // (which page, in the record if it crashes)
+        static char where[96];
+        std::snprintf(where, sizeof where, "the tablet's frame: building its page (app %d)", xpt::currentApp());
+        xpt::crashlog::here(where);
+    }
     xpt::build(g_fonts, g_sim, g_logW, xpt::kLogicalH, act);
+    xpt::crashlog::here("the tablet's frame: drawing it and acting on its presses");
     ImGui::Render();
     xpt::clipDrawData(ImGui::GetDrawData(), g_batches);
 #if defined(XPT_LOCAL_CONNECT)
@@ -2020,6 +2028,7 @@ float userBrightness() {
 // ---- the cockpit tablet ---------------------------------------------------------------------------------------------------------------
 // Runs while X-Plane draws the 3-D cockpit's panel texture: the coordinates are that texture's pixels, origin bottom-left.
 int drawPanel(XPLMDrawingPhase, int, void*) {
+    xpt::crashlog::In crashIn_("drawing the cockpit tablet");
     if (!panelActive() || !g_ctx || !loadGl()) return 1;
     float l, b, w, h;
     panelPicture(l, b, w, h);
@@ -2060,10 +2069,12 @@ bool panelClick(XPLMMouseStatus status) {
 }
 
 void captureDraw(XPLMWindowID, void*) {}
-int captureClick(XPLMWindowID, int, int, XPLMMouseStatus status, void*) { return (g_captureClicks && panelClick(status)) ? 1 : 0; }
+int captureClick(XPLMWindowID, int, int, XPLMMouseStatus status, void*) {
+    xpt::crashlog::In crashIn_("a click on the cockpit tablet"); return (g_captureClicks && panelClick(status)) ? 1 : 0; }
 int capturePass(XPLMWindowID, int, int, XPLMMouseStatus, void*) { return 0; }
 XPLMCursorStatus captureCursor(XPLMWindowID, int, int, void*) { return xplm_CursorDefault; }
 int captureWheel(XPLMWindowID, int, int, int wheel, int clicks, void*) {
+    xpt::crashlog::In crashIn_("the wheel on the cockpit tablet");
     float x, y;
     if (!g_captureClicks || wheel != 0 || !g_ctx || !panelPointer(x, y)) return 0;
     ImGui::SetCurrentContext(g_ctx);
@@ -2096,6 +2107,7 @@ void backspaceStep() {
     else g_bsDownAt = -1;
 }
 int keySniffer(char key, XPLMKeyFlags flags, char vkey, void*) {
+    xpt::crashlog::In crashIn_("a key");
     if (xpt::gameWantsKeys() && !(flags & (xplm_ControlFlag | xplm_OptionAltFlag))) {   // 2048 pressed: W A S D and the arrows play it
         const unsigned char vk = (unsigned char)vkey;
         const char c = (char)std::tolower((unsigned char)key);
@@ -2144,6 +2156,7 @@ int keySniffer(char key, XPLMKeyFlags flags, char vkey, void*) {
     return 1;
 }
 void winKey(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey, void*, int losingFocus) {
+    xpt::crashlog::In crashIn_("a key in the window");
     if (losingFocus) return;
     const unsigned char vk = (unsigned char)vkey, ch = (unsigned char)key;
     const bool down = (flags & xplm_DownFlag) != 0, up = (flags & xplm_UpFlag) != 0;
@@ -2217,6 +2230,7 @@ void winToLayout(int x, int y, float& lx, float& ly) {
 }
 
 void winDraw(XPLMWindowID w, void*) {
+    xpt::crashlog::In crashIn_("drawing the window");
     if (!g_ctx || !loadGl()) return;
     ensureFrame();
     int l = 0, t = 0, r = 0, b = 0;
@@ -2233,6 +2247,7 @@ void winDraw(XPLMWindowID w, void*) {
     drawEmbedded((float)l + g_winOx, (float)t - g_winOy, g_winScale, g_winScale, g_drUiScale ? std::max(1.0f, XPLMGetDataf(g_drUiScale)) : 1.0f, bright);
 }
 int winClick(XPLMWindowID, int x, int y, XPLMMouseStatus status, void*) {
+    xpt::crashlog::In crashIn_("a click in the window");
     if (!g_ctx) return 1;
     ImGui::SetCurrentContext(g_ctx);
     float lx, ly;
@@ -2248,6 +2263,7 @@ int winClick(XPLMWindowID, int x, int y, XPLMMouseStatus status, void*) {
 }
 int winRightClick(XPLMWindowID, int, int, XPLMMouseStatus, void*) { return 1; }
 int winWheel(XPLMWindowID, int x, int y, int wheel, int clicks, void*) {
+    xpt::crashlog::In crashIn_("the wheel in the window");
     if (!g_ctx) return 1;
     ImGui::SetCurrentContext(g_ctx);
     float lx, ly;
@@ -2359,6 +2375,7 @@ void registerDatarefs(const std::string& prefix) {
 enum { CMD_TOGGLE, CMD_HOME, CMD_CLICK, CMD_WHEEL_UP, CMD_WHEEL_DOWN, CMD_NOP, CMD_PLANE_DOCS, CMD_MAP0 = 50, CMD_APP0 = 100 };
 
 int onCommand(XPLMCommandRef, XPLMCommandPhase phase, void* ref) {
+    xpt::crashlog::In crashIn_("a command of XPTablet");
     const int id = (int)(intptr_t)ref;
     if (id == CMD_CLICK) {   // the aircraft's own tablet hotspot: a press while held, at the place the mouse points on the panel
         if (phase == xplm_CommandBegin) panelClick(xplm_MouseDown);
@@ -2754,6 +2771,7 @@ void once(const char* cmd) {
 // tablet has the jetway docked, it is docked again (through openSAM, which keeps its own count of it).
 double g_beaconOffAt = -100, g_redockAt = -1;
 int jetwayToggleSeen(XPLMCommandRef, XPLMCommandPhase phase, void*) {
+    xpt::crashlog::In crashIn_("X-Plane's jetway command (watched)");
     if (phase != xplm_CommandBegin || g_sendingCmd || !g_sim.ground.openSam) return 1;
     bool docked = false;
     for (bool w : g_refs.wantDoor) docked = docked || w;
@@ -3046,6 +3064,7 @@ bool captureTablet(std::vector<unsigned char>& out, int& W, int& H) {
 
 // Each frame X-Plane draws (whether or not the tablet is on screen): with a device connected, the tablet's picture for it
 int mirrorDraw(XPLMDrawingPhase, int, void*) {
+    xpt::crashlog::In crashIn_("drawing the picture for Local Connect");
     if (!g_localRunning) return 1;
     const bool watched = xpt::localserver::clients() > 0;
     g_mirrorScale = watched ? 1.5f : 0.0f;
@@ -3188,17 +3207,23 @@ void localConnectStep() {
 }
 
 float flightLoop(float dt, float, int, void*) {
+    xpt::crashlog::In crashIn_("the flight loop");
     backspaceStep();   // (Backspace held: deleting on)
+    xpt::crashlog::here("the flight loop: jetwayWatchStep");
     jetwayWatchStep();   // (openSAM's beacon-off press undoing the tablet's docking)
     {   // a thread stopped on an exception (caught): told in the log, from here (the main thread)
         const std::string f = xpt::crashlog::takeFailures();
         size_t s = 0;
         while (s < f.size()) { size_t e = f.find('\n', s); if (e == std::string::npos) e = f.size(); if (e > s) logMsg("%s", f.substr(s, e - s).c_str()); s = e + 1; }
     }
+    xpt::crashlog::here("the flight loop: findSimRefs");
     findSimRefs();
     if ((XPLMGetCycleNumber() & 7) == 0) { readSimState(); g_sim.ground.slidesAuto = g_slidesAuto; followJetways(); slidesAutoStep(); readMapState(); }
+    xpt::crashlog::here("the flight loop: slidesHoldStep");
     slidesHoldStep();
+    xpt::crashlog::here("the flight loop: cabinAutoStep");
     cabinAutoStep();
+    xpt::crashlog::here("the flight loop: jetwayUndockStep");
     jetwayUndockStep();
     {   // the METAR search's answer
         xpt::MetarAnswer a;
@@ -3217,10 +3242,13 @@ float flightLoop(float dt, float, int, void*) {
     g_battery = std::max(0.0f, std::min(100.0f, g_battery + sec * (fed ? 100.0f / 5400.0f : -100.0f / 21600.0f)));
     g_sim.batteryPct = (int)std::lround(g_battery);
     g_sim.charging = fed;
+    xpt::crashlog::here("the flight loop: localConnectStep");
     localConnectStep();
     if (xpt::takeSettingsChanged()) saveSettings();
     saveSettingsIfChanged(sec);
+    xpt::crashlog::here("the flight loop: chimeStep");
     chimeStep();
+    xpt::crashlog::here("the flight loop: updateNotify");
     updateNotify();
     if (xpt::takeNotesChanged()) saveNotes();
     if (xpt::takeLogbookChanged()) saveLogbook();
@@ -3245,6 +3273,7 @@ float flightLoop(float dt, float, int, void*) {
         if (k != lastToLissEng) { const bool first = lastToLissEng == -100; lastToLissEng = k; if (!first) loadChecklist(); }
     }
     if ((XPLMGetCycleNumber() & 255) == 0) g_sim.wxPlane = XPLMFindPluginBySignature(kWxPlaneSignature) != XPLM_NO_PLUGIN_ID;   // it may load after us
+    xpt::crashlog::here("the flight loop: updateCaptureWindow");
     updateCaptureWindow();
     return -1.0f;   // every frame
 }
