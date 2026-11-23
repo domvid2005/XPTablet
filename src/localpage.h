@@ -41,7 +41,11 @@ p { margin: 0 0 16px; color: #9fb0cc; font-size: 14px; }
 #again { display: none; margin: 14px auto 0; font: 600 15px system-ui, sans-serif; color: #fff; background: var(--accent); border: 0; border-radius: 999px; padding: 10px 26px; }
 .tool { display: none; position: fixed; z-index: 5; width: 40px; height: 40px; border-radius: 12px; border: 0; padding: 0;
         background: rgba(10, 20, 38, .72); color: #ecf1fa; font: 600 18px system-ui, sans-serif; transition: opacity .4s; -webkit-tap-highlight-color: transparent; }
-#fs { top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); }
+#fs { top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); display: none; align-items: center; justify-content: center;
+      background: rgba(10, 20, 38, .82); border: 1.5px solid rgba(255, 255, 255, .35); box-shadow: 0 2px 10px rgba(0, 0, 0, .45); cursor: pointer; }
+#fs svg { display: block; margin: auto; }
+#fshint { display: none; position: fixed; z-index: 6; top: calc(58px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); max-width: 240px;
+          padding: 10px 12px; border-radius: 12px; background: rgba(10, 20, 38, .94); color: #ecf1fa; font-size: 13px; line-height: 1.35; box-shadow: 0 4px 16px rgba(0, 0, 0, .5); }
 #kbbtn { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); width: auto; padding: 0 14px; font-size: 14px; background: var(--accent); }
 #kb { position: fixed; left: -1000px; top: 0; width: 10px; height: 10px; opacity: 0; font-size: 16px; }
 #turn { display: none; position: fixed; left: 0; right: 0; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); text-align: center; color: #93a4c0; font-size: 13px; pointer-events: none; }
@@ -50,7 +54,8 @@ p { margin: 0 0 16px; color: #9fb0cc; font-size: 14px; }
 <body>
 <div id="wrap"><canvas id="canvas" width="800" height="480"></canvas></div>
 <div id="turn">Turn your device sideways for a larger tablet.</div>
-<button id="fs" class="tool" type="button" aria-label="Full screen">&#x26F6;</button>
+<button id="fs" class="tool" type="button" aria-label="Full Screen" title="Full Screen"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path id="fsin" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><path id="fsout" style="display:none" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></button>
+<div id="fshint">To fill the screen on iPhone: tap Share, then Add To Home Screen, and open XPTablet from there.</div>
 <button id="kbbtn" class="tool" type="button">Keyboard</button>
 <textarea id="kb" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Typing"></textarea>
 <div id="panel"><div id="card">
@@ -73,6 +78,7 @@ R"XPT(<script>
   function show(title, hint, opts) {   // the card over the picture: connecting, the code, or why not
     opts = opts || {};
     panel.style.display = 'flex'; canvas.style.display = 'none'; $('turn').style.display = 'none';
+    $('fs').style.display = 'none'; $('fshint').style.display = 'none';
     $('title').textContent = title; $('hint').textContent = hint || '';
     code.style.display = opts.code ? 'block' : 'none';
     $('again').style.display = opts.again ? 'block' : 'none';
@@ -198,23 +204,27 @@ R"XPT(
   });
   // ---- full screen, where the browser allows it (Android, computers, iPad; an iPhone: Add To Home Screen instead) ----
   var fsBtn = $('fs'), root = document.documentElement, fsIdle = null;
-  var canFs = !!(root.requestFullscreen || root.webkitRequestFullscreen) && !window.navigator.standalone;
+  // (an iPhone's Safari has no full screen for pages: the button tells how, from the home screen; opened from there it is full already)
+  var canFs = !!(root.requestFullscreen || root.webkitRequestFullscreen), standalone = !!window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  var fsHint = $('fshint');
   function inFs() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
-  function fsShow() {   // shown a while after a touch, then it fades (it sits over a corner of the picture)
-    if (!canFs || !live) return;
-    fsBtn.style.display = 'block'; fsBtn.style.opacity = '1';
-    clearTimeout(fsIdle); fsIdle = setTimeout(function () { fsBtn.style.opacity = '0.25'; }, 3500);
+  function fsIcon() { var f = inFs(); $('fsin').style.display = f ? 'none' : ''; $('fsout').style.display = f ? '' : 'none'; fsBtn.setAttribute('aria-label', f ? 'Exit Full Screen' : 'Full Screen'); fsBtn.title = fsBtn.getAttribute('aria-label'); }
+  function fsShow() {   // always there while the tablet shows; bright after a touch or the mouse moving, then a little faded
+    if (standalone || !live) return;
+    fsBtn.style.display = 'flex'; fsBtn.style.opacity = '1';
+    clearTimeout(fsIdle); fsIdle = setTimeout(function () { fsBtn.style.opacity = '0.55'; }, 4000);
   }
-  fsBtn.addEventListener('click', function (e) {
-    e.preventDefault();
+  function toggleFs() {
+    if (!canFs) { fsHint.style.display = fsHint.style.display === 'block' ? 'none' : 'block'; setTimeout(function () { fsHint.style.display = 'none'; }, 7000); return; }
     if (inFs()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); }
     else { var p = (root.requestFullscreen || root.webkitRequestFullscreen).call(root); if (p && p.catch) p.catch(function () {}); }
-    fsShow();
-  });
-  document.addEventListener('fullscreenchange', function () { setTimeout(fit, 60); });
-  document.addEventListener('webkitfullscreenchange', function () { setTimeout(fit, 60); });
+  }
+  fsBtn.addEventListener('click', function (e) { e.preventDefault(); toggleFs(); fsShow(); });
+  window.addEventListener('keydown', function (e) { if (e.key === 'F11' && canFs && live) { e.preventDefault(); toggleFs(); } }, true);   // (F11: the page itself full screen, its button in step)
+  document.addEventListener('fullscreenchange', function () { fsIcon(); setTimeout(fit, 60); });
+  document.addEventListener('webkitfullscreenchange', function () { fsIcon(); setTimeout(fit, 60); });
   function ptr(k, e, touch) { var p = at(e); send(bytes(73, k | (touch ? 16 : 0), p[0] & 255, p[0] >> 8, p[1] & 255, p[1] >> 8)); }   // 'I'
-  canvas.addEventListener('pointermove', function (e) { if (!e.isPrimary || e.pointerType === 'touch') return; ptr(0, e, false); e.preventDefault(); });
+  canvas.addEventListener('pointermove', function (e) { if (!e.isPrimary || e.pointerType === 'touch') return; ptr(0, e, false); fsShow(); e.preventDefault(); });
   canvas.addEventListener('pointerdown', function (e) { if (!e.isPrimary || e.pointerType === 'touch') return; try { canvas.setPointerCapture(e.pointerId); } catch (x) {} ptr(1, e, false); e.preventDefault(); });
   canvas.addEventListener('pointerup', function (e) { if (!e.isPrimary || e.pointerType === 'touch') return; ptr(2, e, false); e.preventDefault(); });
   canvas.addEventListener('pointercancel', function (e) { if (e.pointerType !== 'touch') send(bytes(73, 6)); });

@@ -84,6 +84,8 @@ try {
   check(await until(async () => (await picture()) !== before), 'a mouse click works the tablet too');
   await sleep(1200);
   await shot('5_mirror_pulldown');
+  // the full-screen button: shown in the corner (with its icon), above the picture
+  check(await until(async () => (await js("(function(){var b=document.getElementById('fs'),r=b.getBoundingClientRect();return getComputedStyle(b).display!=='none'&&r.width>30&&parseFloat(getComputedStyle(b).opacity)>0.4&&!!b.querySelector('svg')})()")) === true), 'the full-screen button shows in the corner');
   // reload: straight back in, no code
   const pairsBefore = hostLines.filter((l) => /^pair: /.test(l)).length;
   await cdp('Page.navigate', { url: `https://127.0.0.1:${port}/` });
