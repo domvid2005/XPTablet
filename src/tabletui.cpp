@@ -123,11 +123,16 @@ bool g_installedRead = false;   // the settings file had its list (else D-ATIS c
 bool storeApp(int app) { return app == APP_GAMES || (app >= APP_DATIS && app < APP_COUNT); }
 bool installed(int app) {
     if (app == APP_XPILOT) return false;   // (a page of the VATSIM app now: never an icon, even where it was installed before)
+    if (app == APP_LIVEMAP || app == APP_IVAO) return false;   // taken out (2026-11-22: Volanta and IVAO's Webeye did not work in the tablet)
     if (!storeApp(app)) return true;
     for (const std::string& id : g_settings.installed) if (id == kApps[app].id) return true;
     return false;
 }
 bool g_settingsChanged = false;
+bool g_deviceInput = false;   // a Local Connect device is working the tablet (set by the plugin)
+void setDeviceInput(bool on) { g_deviceInput = on; }
+// the keys in use: the computer's (or the device's) own keyboard, with a thin bar, or the tablet's on-screen keys; a device has its own choice
+bool physicalNow() { return g_deviceInput ? g_settings.localPhysicalKeys : g_settings.physicalKeys; }
 std::string g_url = "https://chartfox.org", g_site = "Browser";   // what the web page shows
 int favSlots() { return std::max(0, std::min(kMaxFavorites, g_settings.favoriteSlots)); }
 bool g_mac = false;              // macOS (told by the host): no media controls
@@ -139,6 +144,18 @@ int g_webGroup = 0;   // whose tabs are shown: 0 the Browser's (and documents'),
 bool g_webHold = false;   // the shown tab is not this group's yet (one moment): no picture from another group's page
 
 void openWeb(const char* site, const char* url, bool chrome, int group = 0);
+// ---- the VATSIM page's bubbles (here: the browser's Home goes to a bubble's own page)
+struct VatsimBubble { const char* name; const char* what; const char* url; ImU32 col; };
+const VatsimBubble kVatsimBubbles[] = {
+        {"Stats", "Your hours, flights and the network's numbers", "https://stats.vatsim.net", IM_COL32(40, 120, 220, 255)},
+        {"AIP", "Airports, their controllers and procedures (myVATSIM)", "https://my.vatsim.net", IM_COL32(40, 160, 120, 255)},
+        {"Events", "What is on across the network", "https://my.vatsim.net/events", IM_COL32(220, 120, 40, 255)},
+        {"Pilot Resources", "Guides, charts, maps and tools", "https://vatsim.net/docs/pilots/pilots", IM_COL32(140, 90, 220, 255)},
+        {"natTrak", "North Atlantic oceanic clearances", "https://nattrak.vatsim.net", IM_COL32(20, 90, 150, 255)},
+        {"xPilot", "Its messages, nearby ATC and more, opened in the sim", nullptr, IM_COL32(30, 44, 70, 255)},
+};
+const int kVatsimGroup0 = 1000;   // each bubble's tabs a group of their own (1000 + its number), so each opens its own page
+// (each opens its own page: sharing one group, every bubble after the first showed that first page, 2026-11-22)
 double localOffsetAt(const MapState& m, double lat, double lon, bool& estimate);
 void fillConcave(ImDrawList* dl, std::vector<ImVec2> v, ImU32 col);
 std::string zoneOf(double lat, double lon, double offS, long long utc);
@@ -1333,8 +1350,8 @@ void normalizeLayout(int capacity) {
     std::vector<int> fav;
     bool favWidget[W_COUNT] = {};
     for (int a : g_settings.favorites) {   // apps, and the bar's two widgets (no folders)
-        if (isApp(a) && !seen[a]) { seen[a] = true; fav.push_back(a); }
-        else if (dockWidget(a) && !favWidget[a - kWidget0]) { favWidget[a - kWidget0] = true; fav.push_back(a); }
+        if (isApp(a) && !seen[a] && a != APP_LIVEMAP && a != APP_IVAO) { seen[a] = true; fav.push_back(a); }   // (Volanta and IVAO: taken out)
+        else if (dockWidget(a) && a - kWidget0 != W_VOLANTA && !favWidget[a - kWidget0]) { favWidget[a - kWidget0] = true; fav.push_back(a); }   // (Volanta's: taken out)
     }
     std::vector<int> spill;   // favorites beyond the bar's size go to the grid (by the places they take)
     auto spanOf = [&]() { int n = 0; for (int a : fav) n += favSpan(a); return n; };
@@ -1352,6 +1369,7 @@ void normalizeLayout(int capacity) {
     std::vector<char> folderSeen(folders.size(), 0);
     bool widgetSeen[W_COUNT] = {};
     for (int k = 0; k < W_COUNT; ++k) widgetSeen[k] = favWidget[k];   // (one in the bar is not on a page too)
+    widgetSeen[W_VOLANTA] = true;   // (Volanta's overlay: taken out with its app, so never kept on a page)
     for (int& a : order) {
         if (isWidget(a)) { if (widgetSeen[a - kWidget0]) a = -1; else widgetSeen[a - kWidget0] = true; continue; }
         if (isFolder(a)) { if (folderSeen[a - kFolder0]) a = -1; else folderSeen[a - kFolder0] = 1; continue; }
@@ -1957,6 +1975,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         textAt(dl, f.bold, a.x + 18, a.y + 14, kInk, "Add A Widget");
         float y = a.y + 46;
         for (int k = 0; k < W_COUNT; ++k) {
+            if (k == W_VOLANTA) continue;   // (taken out with the Volanta app)
             bool there = false;
             for (int x : order) if (x == kWidget0 + k) there = true;
             for (int x : g_settings.favorites) if (x == kWidget0 + k) there = true;
@@ -2249,6 +2268,7 @@ bool g_kbdShift = false, g_kbdSymbols = false;
 bool g_kbdCaps = false;      // shift locked (a quick double tap on Shift): capitals until Shift is tapped again
 double g_kbdShiftT = -10;    // when Shift was last tapped
 bool g_kbdKeysShown = false; // with the physical keyboard set: the on-screen keys asked for anyway
+bool deviceKeysWanted() { return g_deviceInput && g_settings.localPhysicalKeys && g_kbd && !g_kbdKeysShown; }
 bool g_wantedKbd = false;            // the page's own wish for a keyboard, last frame
 std::string g_addrEdit;
 bool g_webHover = false;
@@ -2373,7 +2393,7 @@ namespace {
 // The on-screen keyboard across the bottom of the page, top at y. Returns its height.
 float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y);
 float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
-    if (g_settings.physicalKeys && !g_kbdKeysShown) return keyboardBar(dl, f, w, y);
+    if (physicalNow() && !g_kbdKeysShown) return keyboardBar(dl, f, w, y);
     {   // capitals where a sentence starts (notes, a folder's name): Shift comes on by itself, as on an iPad (tapped, it goes off)
         static const std::string* lastInto = nullptr;
         static size_t lastLen = (size_t)-1;
@@ -2481,7 +2501,7 @@ float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y) {
     return kKbdBarH;
 }
 // how tall the keyboard is now (the full keys, or the physical keyboard's bar)
-float keyboardHeight() { return g_settings.physicalKeys && !g_kbdKeysShown ? kKbdBarH : 5 * 34 + 4 * 5 + 16; }
+float keyboardHeight() { return physicalNow() && !g_kbdKeysShown ? kKbdBarH : 5 * 34 + 4 * 5 + 16; }
 
 // The page: the browser's picture in the rectangle, with the pointer and the wheel going to it.
 // dragScrolls (a document): a drag moves the page as a finger would (sent as the wheel), a tap clicks; else the pointer as a mouse
@@ -2818,7 +2838,8 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         if (iconButton("##wreload", ImVec2(w - 52, kStatusH + 6), ImVec2(w - 16, kStatusH + kHeaderH - 6), true)) act.webNav = b.loading ? 4 : 3;
         reloadIcon(dl, ImVec2(w - 34, my), ink);
         // home: the app's own start page again
-        const char* homeUrl = (g_webGroup >= 100 && g_webGroup - 100 < APP_COUNT) ? kApps[g_webGroup - 100].url : nullptr;
+        const char* homeUrl = (g_webGroup >= kVatsimGroup0 && g_webGroup - kVatsimGroup0 < 5) ? kVatsimBubbles[g_webGroup - kVatsimGroup0].url
+                            : (g_webGroup >= 100 && g_webGroup - 100 < APP_COUNT) ? kApps[g_webGroup - 100].url : nullptr;
         if (iconButton("##whome", ImVec2(w - 132, kStatusH + 6), ImVec2(w - 96, kStatusH + kHeaderH - 6), homeUrl != nullptr) && homeUrl) g_appHomeClosing = 1;
         if (g_appHomeClosing && homeUrl && b.status == 1 && !act.webTabClose) {
             if (tabs.size() > 1) act.webTabClose = tabs.back().id;   // (the app's own first tab stays)
@@ -2923,7 +2944,8 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         const float t = (float)std::fmod(ImGui::GetTime() * 0.8, 1.0);
         dl->AddRectFilled(ImVec2(w * t - w * 0.25f, pageTop - 2), ImVec2(w * t, pageTop + 1), IM_COL32(90, 160, 255, 255));
     }
-    // the keys sit over the page (the page keeps its size: it is not laid out again for them); taps on them stay theirs
+    // the keys come up under the page: the page slides up above them, laid out again in the room left (so the field being typed
+    // in stays in sight), and back down when they go
     {   // the last tab closed: its keys go too (the on-screen keyboard, or the physical keyboard's bar)
         static size_t hadTabs = 0;
         if (g_webGroup == 0 && tabs.empty() && hadTabs > 0 && g_kbd && (g_kbdTarget == 0 || g_kbdTarget == 1)) { g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr; }
@@ -2945,7 +2967,7 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         dl->AddLine(ImVec2(c.x, c.y - 18), ImVec2(c.x, c.y + 18), kInk, 3.5f);
         textCentered(dl, f.bold, c.x, c.y + 64, kInk, "New Tab");
         if (hit) { g_browserNoTabs = false; act.webTabNew = true; act.webTabGroup = 0; act.webTabUrl.clear(); g_kbd = true; g_kbdTarget = 1; g_addrEdit.clear(); }
-    } else webView(dl, f, s, 0, pageTop + 1, w, h - pageTop - 1, act, false, (g_historyOpen || g_volumeOpen) ? 0.0f : h - pageTop - 1 - kbH);   // (a card open: the page waits)
+    } else webView(dl, f, s, 0, pageTop + 1, w, h - pageTop - 1 - kbH, act, false, (g_historyOpen || g_volumeOpen) ? 0.0f : -1.0f);   // (a card open: the page waits)
     const float histT = openness("##histopen", g_chrome && g_historyOpen && !g_barsHidden);
     if (g_chrome && !g_barsHidden && histT > 0.01f) {   // the Browser's pages, newest first; a tap goes there; Clear History empties it (it drops in)
         const int histV0 = dl->VtxBuffer.Size;
@@ -7238,7 +7260,6 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"ForeFlight Icon", "The ForeFlight logo is a trademark of ForeFlight LLC, used only to show their web app", "Trademark"},
         {"Navigraph Icon", "The Navigraph logo is a trademark of Navigraph, used only to show their charts web app", "Trademark"},
         {"SkyVector Icon", "The SkyVector logo is a trademark of SkyVector (Seattle Avionics), used only to show their web app", "Trademark"},
-        {"Volanta Icon", "The Volanta logo is a trademark of Orbx, used only to show their web map", "Trademark"},
         {"ChartFox Icon", "The ChartFox logo is a trademark of ChartFox (chartfox.org), used only to show their charts web app", "Trademark"},
         {"SimBrief Icon", "The SimBrief logo is a trademark of SimBrief (Navigraph), used only to show their web app", "Trademark"},
         {"VATSIM Radar Icon", "The VATSIM Radar logo belongs to VATSIM Radar (vatsim-radar.com), used only to show their web map", "Trademark"},
@@ -7246,13 +7267,12 @@ void creditsPage(ImDrawList* dl, const Fonts& f, float left, float w, float h) {
         {"Local Connect", "Mbed TLS (trustedfirmware.org/projects/mbed-tls): the encryption between the computer and paired devices. stb_image_write by Sean Barrett: the tablet's picture for them", "Apache-2.0; MIT / public domain"},
         {"Flightradar24 Icon", "The Flightradar24 logo belongs to Flightradar24 AB (flightradar24.com), used only to show their web app", "Trademark"},
         {"natTrak Icon", "The natTrak logo belongs to VATSIM's natTrak (nattrak.vatsim.net), used only to show their web app", "Trademark"},
-        {"IVAO Icon", "The IVAO logo is a trademark of the International Virtual Aviation Organisation (ivao.aero), used only to show their Webeye map", "Trademark"},
         {"Spotify, YouTube, YouTube Music, Apple Music and SoundCloud icons", "Their logos are trademarks of Spotify AB, Google LLC, Apple Inc. and SoundCloud Global Limited, used only to show their web players", "Trademark"},
         {"ACARS And CPDLC", "Hoppie's ACARS network (hoppie.nl): telex, pre-departure clearances and CPDLC, with your own logon code; for flight simulation only", "Free service"},
         {"VATSIM ATC And Airspaces", "VATSIM data feed (data.vatsim.net); FIR and airspace boundaries from the VATSpy Data Project (github.com/vatsimnetwork/vatspy-data-project), fetched and shown as published", "CC BY-SA 4.0"},
         {"Jetways", "openSAM by Holger Teutsch (hotbso) and contributors (github.com/hotbso/openSAM), its commands and datarefs (no openSAM code is in XPTablet)", "LGPL-2.1"},
         {"Games", "Knots and Crosses, 2048 (after Gabriele Cirulli's game), and Contrail, Taxi Rush, Sky Patrol, Hangar Climb, Cockpit 21 and Cargo Load: all made for XPTablet, every map, rule and drawing its own", ""},
-        {"", "XPTablet is not made by or affiliated with ForeFlight, Navigraph, SkyVector, Volanta / Orbx, VATSIM Radar, ChartFox, SimBrief, VATSIM, IVAO, Spotify, Google / YouTube, Apple, SoundCloud or openSAM.", ""},
+        {"", "XPTablet is not made by or affiliated with ForeFlight, Navigraph, SkyVector, VATSIM Radar, ChartFox, SimBrief, VATSIM, Spotify, Google / YouTube, Apple, SoundCloud or openSAM.", ""},
     };
     float y = top + 38 - g_creditsScroll;
     const float x0 = left + 18, xLic = w - 30, wrap = w - 30 - x0 - 150;
@@ -7528,12 +7548,28 @@ double trackSince(const MediaState& m) {   // when this track began to be shown
 // a volume slider, a speaker and its name at its left: "Media" (the player's own) or "PC" (the computer's). The media's is greyed
 // and inert while XPTablet holds the music down for the radio (it would only fight the lowering; it comes back with the volume)
 constexpr float kVolLabelW = 62;
-void volumeSlider(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, float x1, float vol, float& out, bool computer, bool enabled = true) {
+// A volume: its speaker (tapped: muted, or not; drawn crossed out while muted, as the computer has it), its name and the slider
+// (greyed while muted). muteOut: 1 or 0 when the speaker was tapped, else left.
+void volumeSlider(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, float x1, float vol, float& out, bool computer, bool enabled = true,
+                  bool muted = false, int* muteOut = nullptr) {
     const ImVec2 c(a.x + 10, a.y + 15);
-    const ImU32 col = enabled ? IM_COL32(210, 222, 242, 255) : IM_COL32(210, 222, 242, 90);
+    char mid[48]; std::snprintf(mid, sizeof mid, "%s_mute", id);
+    ImGui::SetCursorScreenPos(ImVec2(a.x - 4, a.y));
+    const bool tap = ImGui::InvisibleButton(mid, ImVec2(kVolLabelW - 4, 30)) && muteOut;
+    const Ease e = eased(mid, false, ImGui::IsItemHovered() && muteOut, ImGui::IsItemActive());
+    if (e.hot > 0.01f) dl->AddCircleFilled(c, 13.0f, IM_COL32(255, 255, 255, (int)(26 * e.hot + 20 * e.down)), 24);
+    if (tap) *muteOut = muted ? 0 : 1;
+    const ImU32 col = enabled && !muted ? IM_COL32(210, 222, 242, 255) : IM_COL32(210, 222, 242, 110);
     dl->AddRectFilled(ImVec2(c.x - 6, c.y - 3), ImVec2(c.x - 2, c.y + 3), col, 1.0f);
     dl->AddTriangleFilled(ImVec2(c.x - 3, c.y - 3), ImVec2(c.x + 3, c.y - 8), ImVec2(c.x + 3, c.y + 8), col);
     dl->AddTriangleFilled(ImVec2(c.x - 3, c.y - 3), ImVec2(c.x + 3, c.y + 8), ImVec2(c.x - 3, c.y + 3), col);
+    if (muted) {   // a cross beside it
+        dl->AddLine(ImVec2(c.x + 5, c.y - 4), ImVec2(c.x + 11, c.y + 4), IM_COL32(255, 110, 100, 255), 1.8f);
+        dl->AddLine(ImVec2(c.x + 11, c.y - 4), ImVec2(c.x + 5, c.y + 4), IM_COL32(255, 110, 100, 255), 1.8f);
+    } else if (enabled) {   // its sound
+        dl->PathArcTo(ImVec2(c.x + 3, c.y), 6.0f, -0.8f, 0.8f, 8); dl->PathStroke(col, 0, 1.5f);
+    }
+    enabled = enabled && !muted;
     textAt(dl, f.small, a.x + 22, std::floor(c.y - fontPx(f.small) * 0.5f), enabled ? kInk : IM_COL32(236, 241, 250, 90), computer ? "PC" : "Media");
     char txt[16];
     std::snprintf(txt, sizeof txt, "%d%%", (int)std::lround(vol * 100));
@@ -7588,8 +7624,8 @@ void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
     playerButtons(dl, m, ImVec2(std::floor((x + x1) * 0.5f), y + 20), 22.0f, "##mp", act);
     y += 62;
     // the volumes: the player's own, and (Windows) the computer's
-    if (m.playerVolume >= 0) { float v = -1; volumeSlider(dl, f, "##mpvol", ImVec2(x, y), x1, m.playerVolume, v, false, !m.ducked); if (v >= 0) act.mediaPlayerVol = v; y += 38; }
-    if (m.masterVolume >= 0) { float v = -1; volumeSlider(dl, f, "##mpmaster", ImVec2(x, y), x1, m.masterVolume, v, true); if (v >= 0) act.mediaMasterVol = v; y += 38; }
+    if (m.playerVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##mpvol", ImVec2(x, y), x1, m.playerVolume, v, false, !m.ducked, m.playerMuted, &mu); if (v >= 0) act.mediaPlayerVol = v; if (mu >= 0) act.mediaPlayerMute = mu; y += 38; }
+    if (m.masterVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##mpmaster", ImVec2(x, y), x1, m.masterVolume, v, true, true, m.masterMuted, &mu); if (v >= 0) act.mediaMasterVol = v; if (mu >= 0) act.mediaMasterMute = mu; y += 38; }
     y += 4;
     dl->AddLine(ImVec2(x, y), ImVec2(x1, y), IM_COL32(255, 255, 255, 24));
     textAt(dl, f.small, x, y + 10, m.radioRx ? kWarn : kMuted, radioLine(m).c_str());
@@ -7762,9 +7798,9 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         if (md.active) progressBar(dl, f, md, ImVec2(a.x + 16, a.y + 104), b.x - 16, "##ccprog", true, act);
         playerButtons(dl, md, ImVec2(std::floor((a.x + b.x) * 0.5f), a.y + 140), 18.0f, "##ccmp", act);
         const float volY = a.y + kCcMediaBase - 38;   // the media's volume (or, when the player keeps it to itself, the radio's line), then the computer's
-        if (md.active && md.playerVolume >= 0) { float v = -1; volumeSlider(dl, f, "##ccvol", ImVec2(a.x + 10, volY), b.x - 12, md.playerVolume, v, false, !md.ducked); if (v >= 0) act.mediaPlayerVol = v; }
+        if (md.active && md.playerVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##ccvol", ImVec2(a.x + 10, volY), b.x - 12, md.playerVolume, v, false, !md.ducked, md.playerMuted, &mu); if (v >= 0) act.mediaPlayerVol = v; if (mu >= 0) act.mediaPlayerMute = mu; }
         else textCentered(dl, f.small, (a.x + b.x) * 0.5f, volY + 14, md.radioRx || md.radioTx ? kWarn : kMuted, fitText(f.small, radioLine(md), colL - 24).c_str());
-        if (md.masterVolume >= 0) { float v = -1; volumeSlider(dl, f, "##ccmaster", ImVec2(a.x + 10, volY + 34), b.x - 12, md.masterVolume, v, true); if (v >= 0) act.mediaMasterVol = v; }
+        if (md.masterVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##ccmaster", ImVec2(a.x + 10, volY + 34), b.x - 12, md.masterVolume, v, true, true, md.masterMuted, &mu); if (v >= 0) act.mediaMasterVol = v; if (mu >= 0) act.mediaMasterMute = mu; }
         // the Music app
         ImGui::SetCursorScreenPos(ImVec2(a.x + 16, a.y + 16));
         if (ImGui::InvisibleButton("##ccart", ImVec2(art, art))) { g_ccTarget = 0; openApp(APP_MUSIC); }
@@ -8373,9 +8409,26 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         ry += 8;
         textAt(dl, f.bold, rx, ry, kInk, "Battery");
         ry += 24;
-        toggle("##lcbatt", rx, ry, colW, "Use The Device's Battery", g_settings.localBattery, true);
+        {   // greyed while the devices connected can't tell their battery (iPhone and iPad browsers): nothing to use
+            bool anyOn = false, canTell = false;
+            for (const LocalDevice& d : s.local.devices) if (d.connected) {
+                anyOn = true;
+                if (d.batteryPct >= 0 || (d.kind != "iPhone" && d.kind != "iPad")) canTell = true;
+            }
+            toggle("##lcbatt", rx, ry, colW, "Use The Device's Battery", g_settings.localBattery, !anyOn || canTell);
+        }
         ry += 38;
-        dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "With a device connected, the tablet shows that device's charge and whether it is charging, instead of its own. Android's Chrome and other Chromium browsers share these; iPhone and iPad browsers do not, so there the tablet keeps its own battery.", nullptr, colW);
+        {   // (its height: the text wrapped to the column)
+            const char* t = "With a device connected, the tablet shows that device's charge and whether it is charging. iPhone and iPad browsers don't share it.";
+            dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, t, nullptr, colW);
+            ry += f.small->CalcTextSizeA(fontPx(f.small), FLT_MAX, colW, t).y + 12;
+        }
+        {   // typing from a device: the tablet's keys (in its picture), or the device's own keyboard (raised on the device)
+            const char* devNames[2] = {"Tablet's Keys", "Device's Keyboard"};
+            int dk = g_settings.localPhysicalKeys ? 1 : 0;
+            choice("##chdevkeys", rx, ry, colW, "Typing On The Device", devNames, dk, true);
+            if ((dk == 1) != g_settings.localPhysicalKeys) { g_settings.localPhysicalKeys = dk == 1; g_kbdKeysShown = false; }
+        }
         return;
     }
     if (g_settingsTab == 5 && !g_mac) {   // ---- Media: the Music app and the pull-down's player; what the radio does to the music
@@ -8570,13 +8623,6 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
 
     // ---- Data: SimBrief, and where the tablet's data comes from
     float y = top;
-    // Volanta's stream overlay (its widget on the home screen): the address the Volanta app serves it at
-    textAt(dl, f.bold, lx, y, kInk, "Volanta Overlay");
-    textAt(dl, f.small, lx + 150, y + 2, kMuted, "For the home screen's Volanta widget (Volanta, Settings, Stream overlay)");
-    y += 22;
-    hiddenField(dl, f, "##volov", g_settings.volantaOverlay, ImVec2(lx, y), ImVec2(w - 12 - 200, y + 32), "http://localhost:53011", 2);
-    if (g_kbd && g_kbdTarget == 2 && g_typeInto == &g_settings.volantaOverlay) { if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; } pageKeyboard(dl, f, w, h, act); return; }
-    y += 42;
     textAt(dl, f.bold, lx, y, kInk, "Data");
     y += 24;
     for (const auto& kv : s.dataInfo) {
@@ -9265,7 +9311,6 @@ bool* storeFlag(int app) {
     switch (app) {
     case APP_CHARTS: return &g_settings.showCharts;
     case APP_NAVIGRAPH: return &g_settings.showNavigraph;
-    case APP_LIVEMAP: return &g_settings.showLive;
     case APP_VATSIM: return &g_settings.showVatsim;
     case APP_FOREFLIGHT: return &g_settings.showForeflight;
     case APP_SKYVECTOR: return &g_settings.showSkyvector;
@@ -9291,9 +9336,7 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
         {APP_LOGBOOK, 2, "Every flight logged by itself: times, route, landing rate and fuel"},
         {APP_ACARS, 3, "Hoppie ACARS: CPDLC, pre-departure clearances and telex on VATSIM and IVAO"},
         {APP_VATSIM, 3, "VATSIM Radar: the network's traffic and ATC live"},
-        {APP_LIVEMAP, 3, "Volanta's live map of your flights"},
         {APP_VATSIMHUB, 3, "VATSIM: network stats, events, the AIP and pilot resources"},
-        {APP_IVAO, 3, "IVAO's live map of pilots and controllers"},
         {APP_FR24, 3, "Flightradar24: real-world air traffic, live"},
         {APP_SPOTIFY, 4, "Spotify's web player"},
         {APP_YTMUSIC, 4, "YouTube Music's web player"},
@@ -9359,15 +9402,7 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
 
 // ---- VATSIM: a page of bubbles, each a part of VATSIM's own sites (they open as the app's tabs) ----------------------------------------
 void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
-    struct Bubble { const char* name; const char* what; const char* url; ImU32 col; };
-    static const Bubble bubbles[] = {
-        {"Stats", "Your hours, flights and the network's numbers", "https://stats.vatsim.net", IM_COL32(40, 120, 220, 255)},
-        {"AIP", "Airports, their controllers and procedures (myVATSIM)", "https://my.vatsim.net", IM_COL32(40, 160, 120, 255)},
-        {"Events", "What is on across the network", "https://my.vatsim.net/events", IM_COL32(220, 120, 40, 255)},
-        {"Pilot Resources", "Guides, charts, maps and tools", "https://vatsim.net/docs/pilots/pilots", IM_COL32(140, 90, 220, 255)},
-        {"natTrak", "North Atlantic oceanic clearances", "https://nattrak.vatsim.net", IM_COL32(20, 90, 150, 255)},
-        {"xPilot", "Its messages, nearby ATC and more, opened in the sim", nullptr, IM_COL32(30, 44, 70, 255)},
-    };
+    const VatsimBubble* bubbles = kVatsimBubbles;
     const float top = kStatusH + kHeaderH + 16, gap = 14, bw = std::floor((w - 32 - 2 * gap) / 3), bh = std::floor((h - top - 14 - gap) / 2);
     for (int i = 0; i < 6; ++i) {
         const ImVec2 a(16 + (i % 3) * (bw + gap), top + (i / 3) * (bh + gap)), b(a.x + bw, a.y + bh);
@@ -9381,7 +9416,7 @@ void vatsimHubPage(ImDrawList* dl, const Fonts& f, float w, float h) {
         dl->AddRect(a2, b2, IM_COL32(255, 255, 255, (int)(30 + 60 * e.hot)), 28.0f, 0, 1.2f);
         dl->AddText(f.title, fontPx(f.title), ImVec2(a2.x + 22, a2.y + 22), IM_COL32(255, 255, 255, 255), bubbles[i].name);
         dl->AddText(f.small, fontPx(f.small), ImVec2(a2.x + 22, a2.y + 62), IM_COL32(235, 240, 250, 220), bubbles[i].what, nullptr, bw - 44);
-        if (hit) { if (bubbles[i].url) openWeb("VATSIM", bubbles[i].url, false, 100 + APP_VATSIMHUB); else { g_app = APP_XPILOT; g_animPage = -1; } g_backTo = APP_VATSIMHUB; g_subT0 = ImGui::GetTime(); }
+        if (hit) { if (bubbles[i].url) openWeb("VATSIM", bubbles[i].url, false, kVatsimGroup0 + i); else { g_app = APP_XPILOT; g_animPage = -1; } g_backTo = APP_VATSIMHUB; g_subT0 = ImGui::GetTime(); }
     }
 }
 
@@ -9401,7 +9436,7 @@ void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     std::vector<const XpCmd*> xp;
     for (const XpCmd& c : kXpCmds) for (const std::string& n : s.xpilotCmds) if (n == c.cmd) xp.push_back(&c);
     card(dl, ImVec2(12, top), ImVec2(w - 12, top + 76), f, "XPILOT");
-    const bool loaded = !s.xpilotCmds.empty();
+    const bool loaded = s.xpilotLoaded || !s.xpilotCmds.empty();
     // its own status: connected (as whom, how many aircraft it shows) or not, and the stations on the radios
     std::string head = !loaded ? "xPilot is not loaded (its plugin is not running)"
                      : s.xpilotLogin > 0 ? "Connected" + (s.xpilotCallsign.empty() ? std::string() : " As " + s.xpilotCallsign) + (s.xpilotLogin == 2 ? " (Observer)" : "")
@@ -9415,6 +9450,10 @@ void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     } else line += "  \xC2\xB7  connect in the xPilot app; typing stays in xPilot's own windows";
     textAt(dl, f.small, 28, top + 52, kMuted, line.c_str());
     if (!loaded) return;
+    if (xp.empty()) {   // running, but its commands are not the ones the tablet knows (a newer xPilot): its own windows meanwhile
+        textAt(dl, f.small, 28, top + 100, kMuted, "This xPilot version's window commands aren't known to the tablet yet: use xPilot's own windows.");
+        return;
+    }
     const float y0 = top + 90, gap = 12, cols = 3, tw = std::floor((w - 24 - gap * (cols - 1)) / cols);
     const int rows = ((int)xp.size() + 2) / 3;
     const float th = std::min(150.0f, std::floor((h - 12 - y0 - gap * (rows - 1)) / std::max(1, rows)));
@@ -10324,7 +10363,8 @@ bool appVisible(int app) {
     case APP_CHARTS: return g_settings.showCharts;
     case APP_NAVIGRAPH: return g_settings.showNavigraph;
     case APP_SIMBRIEF: return g_settings.showSimbrief;
-    case APP_LIVEMAP: return g_settings.showLive;
+    case APP_LIVEMAP: return false;                    // taken out: Volanta did not work in the tablet
+    case APP_IVAO: return false;                       // taken out: IVAO's Webeye did not work in the tablet
     case APP_VATSIM: return g_settings.showVatsim;
     case APP_FOREFLIGHT: return g_settings.showForeflight;
     case APP_SKYVECTOR: return g_settings.showSkyvector;
@@ -10541,7 +10581,7 @@ std::string settingsToText() {
     out += std::string("map_dark_auto=") + (g_settings.mapDarkAuto ? "1" : "0") + "\n";
     out += std::string("cabin_auto=") + (g_settings.cabinAuto ? "1" : "0") + "\n";
     { char ab[128]; std::snprintf(ab, sizeof ab, "arcade_best=%d,%d,%d,%d,%d,%d\n", g_settings.arcadeBest[0], g_settings.arcadeBest[1], g_settings.arcadeBest[2], g_settings.arcadeBest[3], g_settings.arcadeBest[4], g_settings.arcadeBest[5]); out += ab; }
-    out += std::string("local_connect=") + (g_settings.localConnect ? "1" : "0") + "\nlocal_battery=" + (g_settings.localBattery ? "1" : "0") + "\n";
+    out += std::string("local_connect=") + (g_settings.localConnect ? "1" : "0") + "\nlocal_battery=" + (g_settings.localBattery ? "1" : "0") + "\nlocal_physical_keys=" + (g_settings.localPhysicalKeys ? "1" : "0") + "\n";
     out += std::string("map_vatsim_atc=") + (g_settings.mapVatsimAtc ? "1" : "0") + "\nvatsim_atc_notes=" + (g_settings.vatsimAtcNotes ? "1" : "0") + "\n";
     for (int i = 0; i < 3; ++i) {   // the Customs: colours, and the picture's file name
         char cb[96]; std::snprintf(cb, sizeof cb, "custom%d_bg=%06X\ncustom%d_accent=%06X\n", i, g_settings.customs[i].bg & 0xFFFFFF, i, g_settings.customs[i].accent & 0xFFFFFF); out += cb;
@@ -10670,6 +10710,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_traffic_range") g_settings.mapTrafficRangeNm = std::max(0.0f, std::min(2000.0f, (float)std::atof(val.c_str())));
         else if (key == "map_traffic_alt") g_settings.mapTrafficAltFt = std::max(0.0f, std::min(60000.0f, (float)std::atof(val.c_str())));
         else if (key == "physical_keys") g_settings.physicalKeys = v != 0;
+        else if (key == "local_physical_keys") g_settings.localPhysicalKeys = v != 0;
         else if (key == "custom_bg") g_settings.customs[0].bg = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;   // (one Custom, before)
         else if (key == "custom_accent") g_settings.customs[0].accent = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;
         else if (key.size() > 8 && key.compare(0, 6, "custom") == 0 && key[6] >= '0' && key[6] <= '2' && key[7] == '_') {

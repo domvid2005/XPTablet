@@ -41,10 +41,12 @@ void jpgOut(void* ctx, void* data, int size) { ((std::string*)ctx)->append((cons
 void put16(std::string& o, int v) { o.push_back((char)(v & 255)); o.push_back((char)((v >> 8) & 255)); }
 
 // 'F', the whole picture's size, the piece's place and size, 1 if it is a whole picture, then the piece as a JPEG
+std::atomic<bool> g_devTyping{false};
+// (its flag byte: 1 a whole picture; 2 the tablet is typing and wants the device's own keyboard)
 std::string frameMessage(const std::vector<unsigned char>& rgb, int W, int H, int x, int y, int w, int h, bool key) {
     std::string m = "F";
     put16(m, W); put16(m, H); put16(m, x); put16(m, y); put16(m, w); put16(m, h);
-    m.push_back((char)(key ? 1 : 0));
+    m.push_back((char)((key ? 1 : 0) | (g_devTyping.load() ? 2 : 0)));
     if (x == 0 && w == W) stbi_write_jpg_to_func(jpgOut, &m, w, h, 3, rgb.data() + (size_t)y * W * 3, kQuality);
     else {
         std::vector<unsigned char> part((size_t)w * h * 3);
@@ -160,6 +162,8 @@ bool nextInput(Input& in) {
     }
     return false;
 }
+
+void setDeviceTyping(bool on) { g_devTyping.store(on); }
 
 }   // namespace mirror
 }   // namespace xpt

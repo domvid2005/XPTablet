@@ -280,6 +280,10 @@ bool setPlayerVol(float v) {
 }
 bool masterVol(float&) { return false; }   // (no one way to it on Linux: PulseAudio, PipeWire, ALSA)
 bool setMasterVol(float) { return false; }
+bool playerMute(bool&) { return false; }
+bool setPlayerMute(bool) { return false; }
+bool masterMute(bool&) { return false; }
+bool setMasterMute(bool) { return false; }
 
 } // namespace platform
 } // namespace media

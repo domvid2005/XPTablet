@@ -173,6 +173,7 @@ int g_panelWritesLogged = 0;      // how many of the aircraft's switchings of it
 float g_brightness = 1.0f;
 float g_mirrorScale = 0;              // Local Connect: the scale a connected device is shown the tablet at (0: none connected)
 unsigned g_texChanges = 0;           // counts the pictures given to the graphics card (a web page's, a map tile, a document, a cover): the mirror looks again
+double g_lastDeviceDown = -1, g_lastSimDown = -1;   // when a device, and the sim's own mouse, last pressed on the tablet
 double g_remotePointerUntil = -1;    // a device's pointer has the tablet until then (the sim's own pointer waits)
 bool g_captureClicks = true;   // AviTab.json's panel/disable_capture_window turns this off (the aircraft sends AviTab/click_left itself)
 bool g_ownsAviTab = false;     // we registered the avitab/* datarefs and AviTab/* commands (AviTab itself is not running)
@@ -903,16 +904,35 @@ void xpilotStep(const xpt::Actions& act) {
         std::vector<std::string> found;
         for (const char* n : names) if (XPLMFindCommand(n)) found.push_back(n);
         if (found != g_sim.xpilotCmds) { g_sim.xpilotCmds = found; logMsg("xPilot: %d command(s) for the tablet", (int)found.size()); }
+        // its plugin, by its signature: running whatever its version names its commands (xPilot 4 renamed them, 2026-11-22)
+        const bool loaded = XPLMFindPluginBySignature("org.vatsim.xpilot") != XPLM_NO_PLUGIN_ID;
+        if (loaded != g_sim.xpilotLoaded) {
+            g_sim.xpilotLoaded = loaded;
+            if (loaded) {   // what this xPilot offers (its datarefs), once, in the log: for matching the tablet to a new version
+                const int n = XPLMCountDataRefs();
+                std::vector<XPLMDataRef> all((size_t)std::max(0, n));
+                if (n > 0) XPLMGetDataRefsByIndex(0, n, all.data());
+                std::string names;
+                int count = 0;
+                for (XPLMDataRef d : all) {
+                    XPLMDataRefInfo_t info;
+                    info.structSize = sizeof info;
+                    XPLMGetDataRefInfo(d, &info);
+                    if (info.name && std::strncmp(info.name, "xpilot/", 7) == 0 && count < 60) { names += (count ? ", " : "") + std::string(info.name); ++count; }
+                }
+                logMsg("xPilot is running (%d of its command(s) known to the tablet); its datarefs: %s", (int)found.size(), names.empty() ? "none" : names.c_str());
+            }
+        }
     }
     if (!act.xpilotCmd.empty()) if (XPLMCommandRef c = XPLMFindCommand(act.xpilotCmd.c_str())) XPLMCommandOnce(c);
     if ((XPLMGetCycleNumber() % 32) == 5) {   // its connection, callsign, tuned stations and aircraft count (xPilot's own datarefs)
         static XPLMDataRef st = nullptr, cs = nullptr, c1 = nullptr, c2 = nullptr, na = nullptr;
-        if (!st && !g_sim.xpilotCmds.empty()) {
+        if (!st && (g_sim.xpilotLoaded || !g_sim.xpilotCmds.empty())) {
             st = XPLMFindDataRef("xpilot/login/status"); cs = XPLMFindDataRef("xpilot/login/callsign");
             c1 = XPLMFindDataRef("xpilot/com1_station_callsign"); c2 = XPLMFindDataRef("xpilot/com2_station_callsign"); na = XPLMFindDataRef("xpilot/num_aircraft");
         }
         auto text = [](XPLMDataRef r) { char b[64] = ""; if (r) { const int n = XPLMGetDatab(r, b, 0, 63); b[std::max(0, std::min(63, n))] = 0; } return std::string(b); };
-        g_sim.xpilotLogin = st && !g_sim.xpilotCmds.empty() ? XPLMGetDatai(st) : -1;
+        g_sim.xpilotLogin = st && (g_sim.xpilotLoaded || !g_sim.xpilotCmds.empty()) ? XPLMGetDatai(st) : -1;
         g_sim.xpilotCallsign = text(cs); g_sim.xpilotCom1 = text(c1); g_sim.xpilotCom2 = text(c2);
         g_sim.xpilotAircraft = na ? XPLMGetDatai(na) : 0;
     }
@@ -1541,6 +1561,8 @@ void mediaStep(const xpt::Actions& act) {
     if (act.mediaSeek >= 0) xpt::media::seek(act.mediaSeek);
     if (act.mediaPlayerVol >= 0) xpt::media::setPlayerVolume(act.mediaPlayerVol);
     if (act.mediaMasterVol >= 0) xpt::media::setMasterVolume(act.mediaMasterVol);
+    if (act.mediaPlayerMute >= 0) xpt::media::setMuted(false, act.mediaPlayerMute != 0);
+    if (act.mediaMasterMute >= 0) xpt::media::setMuted(true, act.mediaMasterMute != 0);
     // the radios: xPilot says when COM1 or COM2 is receiving (looked for now and then: it may load after us)
     static XPLMDataRef com1 = nullptr, com2 = nullptr, rxOld = nullptr, ptt = nullptr;
     // X-Plane's own radios too: its ATC, ATIS and plugins' voices received on COM1 / COM2, and the pilot's voice sent
@@ -1586,7 +1608,7 @@ void mediaStep(const xpt::Actions& act) {
     m.radioTx = tx;
     m.radioSource = rx ? who : n.radioApp ? n.radioAppName : "";
     m.ducked = n.ducked;
-    m.playerVolume = n.playerVolume; m.masterVolume = n.masterVolume;
+    m.playerVolume = n.playerVolume; m.masterVolume = n.masterVolume; m.playerMuted = n.playerMuted; m.masterMuted = n.masterMuted;
     // the cover, into a texture of its own (mipmapped: it is shown small and large)
     static int version = 0;
     std::vector<uint8_t> px;
@@ -1909,6 +1931,7 @@ bool panelClick(XPLMMouseStatus status) {
     if (status == xplm_MouseDown) {
         if (!on) return false;
         lastX = x; lastY = y;
+        g_lastSimDown = XPLMGetElapsedTime();
         xpt::queuePointer(x, y, 1);   // (queued: the press lands a frame after the pointer is there, see pumpPointer)
         g_captureDown = true;
         return true;
@@ -2054,6 +2077,7 @@ int winClick(XPLMWindowID, int x, int y, XPLMMouseStatus status, void*) {
     ImGui::SetCurrentContext(g_ctx);
     float lx, ly;
     winToLayout(x, y, lx, ly);
+    if (status == xplm_MouseDown) g_lastSimDown = XPLMGetElapsedTime();
     // queued (see pumpPointer): a press that comes with its position, the sim not having reported the pointer there the frame
     // before, moves the pointer first and lands on the next frame. Given straight to Dear ImGui such presses were lost on the
     // home screen's icons (2026-11-21: apps opened only after many clicks, at a low frame rate)
@@ -2871,12 +2895,19 @@ void remoteInput() {
         switch (in.kind) {
         // (through the tablet's own stepping of the pointer: where it is first, the press on the next frame, the release on another)
         case xpt::mirror::Input::MOVE: xpt::queuePointer(x, y, -1); g_remotePointerUntil = now + 0.6; break;
-        case xpt::mirror::Input::DOWN: xpt::setTouchInput(in.touch); xpt::queuePointer(x, y, 1); g_remotePointerUntil = now + 600; break;   // (until it lifts)
+        case xpt::mirror::Input::DOWN: xpt::setTouchInput(in.touch); xpt::queuePointer(x, y, 1); g_remotePointerUntil = now + 600; g_lastDeviceDown = now; break;   // (until it lifts)
         case xpt::mirror::Input::UP: xpt::queuePointer(x, y, 0); g_remotePointerUntil = now + (in.touch ? 0.3 : 0.6); break;
         case xpt::mirror::Input::CANCEL: xpt::queuePointer(-1000, -1000, 0); g_remotePointerUntil = now + 0.2; break;
         case xpt::mirror::Input::WHEEL: io.AddMouseWheelEvent(0, (float)in.code); break;
-        case xpt::mirror::Input::KEY: if (xpt::tabletTyping()) xpt::tabletKey(in.code, false); break;
-        case xpt::mirror::Input::CHAR: if (xpt::tabletTyping()) xpt::tabletKey(in.code, true); break;
+        // keys: into the tablet's own text box, or into a web page's field (as the computer's keyboard reaches it)
+        case xpt::mirror::Input::KEY:
+            if (xpt::tabletTyping()) xpt::tabletKey(in.code, false);
+            else if (xpt::webTyping() && g_webShown && xpt::browser::started()) { xpt::browser::push(xptb::CMD_KEY, 0, 0, in.code, 1); xpt::browser::push(xptb::CMD_KEY, 0, 0, in.code, 0); if (in.code == 13) xpt::browser::push(xptb::CMD_CHAR, 0, 0, 13); }
+            break;
+        case xpt::mirror::Input::CHAR:
+            if (xpt::tabletTyping()) xpt::tabletKey(in.code, true);
+            else if (xpt::webTyping() && g_webShown && xpt::browser::started()) xpt::browser::push(xptb::CMD_CHAR, 0, 0, in.code);
+            break;
         case xpt::mirror::Input::GAME_KEY: if (xpt::currentApp() == xpt::APP_GAMES && !xpt::tabletTyping()) xpt::gameKeyEvent(in.code, in.down); break;
         }
     }
@@ -2890,6 +2921,9 @@ void remoteInput() {
 void localConnectStep() {
     xpt::LocalConnectState& L = g_sim.local;
 #if defined(XPT_LOCAL_CONNECT)
+    // who works the tablet now: a device (its keyboard choice), or the sim's mouse; and whether the device should raise its keyboard
+    xpt::setDeviceInput(g_localRunning && xpt::localserver::clients() > 0 && g_lastDeviceDown > g_lastSimDown);
+    if (g_localRunning) xpt::mirror::setDeviceTyping(xpt::deviceKeysWanted());
     static std::string servedIp;
     static double lookedAt = -100;
     const double now = XPLMGetElapsedTime();
@@ -3078,9 +3112,14 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
     loadLogbook();
     loadShapesFile();
 
-    g_menuItem = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "XPTablet", nullptr, 0);
-    g_menu = XPLMCreateMenu("XPTablet", XPLMFindPluginsMenu(), g_menuItem, menuHandler, nullptr);
-    XPLMAppendMenuItem(g_menu, "Show / hide tablet window", nullptr, 0);
+    // in the Plugins menu, one item: XPTablet, which shows or hides the tablet window (no submenu, as WXPlane's)
+    if (XPLMCommandRef toggle = XPLMFindCommand("XPTablet/toggle_tablet"))
+        g_menuItem = XPLMAppendMenuItemWithCommand(XPLMFindPluginsMenu(), "XPTablet", toggle);
+    else {   // (no command: the submenu as before)
+        g_menuItem = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "XPTablet", nullptr, 0);
+        g_menu = XPLMCreateMenu("XPTablet", XPLMFindPluginsMenu(), g_menuItem, menuHandler, nullptr);
+        XPLMAppendMenuItem(g_menu, "Show / hide tablet window", nullptr, 0);
+    }
     return 1;
 }
 

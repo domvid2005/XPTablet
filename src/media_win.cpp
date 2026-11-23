@@ -297,6 +297,39 @@ bool setMasterVol(float v) {
     return ok;
 }
 
+bool masterMute(bool& m) {
+    IAudioEndpointVolume* ev = endpointVolume();
+    if (!ev) return false;
+    BOOL b = FALSE;
+    const bool ok = SUCCEEDED(ev->GetMute(&b));
+    ev->Release();
+    m = b != FALSE;
+    return ok;
+}
+bool setMasterMute(bool m) {
+    IAudioEndpointVolume* ev = endpointVolume();
+    if (!ev) return false;
+    const bool ok = SUCCEEDED(ev->SetMute(m ? TRUE : FALSE, nullptr));
+    ev->Release();
+    return ok;
+}
+bool playerMute(bool& m) {
+    std::vector<Session> list = sessions();
+    bool got = false;
+    for (Session& s : list)
+        if (s.vol && isPlayer(s)) { BOOL b = FALSE; if (SUCCEEDED(s.vol->GetMute(&b))) { m = b != FALSE; got = true; } break; }
+    release(list);
+    return got;
+}
+bool setPlayerMute(bool m) {
+    std::vector<Session> list = sessions();
+    bool any = false;
+    for (Session& s : list)
+        if (s.vol && isPlayer(s)) { s.vol->SetMute(m ? TRUE : FALSE, nullptr); any = true; }
+    release(list);
+    return any;
+}
+
 bool radioApps(std::string& who) {
     std::vector<Session> list = sessions();
     bool heard = false;

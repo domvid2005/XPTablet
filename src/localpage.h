@@ -34,12 +34,20 @@ p { margin: 0 0 16px; color: #9fb0cc; font-size: 14px; }
 #code:focus { border-color: #6ea3ff; }
 #msg { min-height: 20px; margin-top: 12px; color: #ffb454; font-size: 14px; }
 #again { display: none; margin: 14px auto 0; font: 600 15px system-ui, sans-serif; color: #fff; background: #4c8dff; border: 0; border-radius: 999px; padding: 10px 26px; }
+.tool { display: none; position: fixed; z-index: 5; width: 40px; height: 40px; border-radius: 12px; border: 0; padding: 0;
+        background: rgba(10, 20, 38, .72); color: #ecf1fa; font: 600 18px system-ui, sans-serif; transition: opacity .4s; -webkit-tap-highlight-color: transparent; }
+#fs { top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); }
+#kbbtn { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); width: auto; padding: 0 14px; font-size: 14px; background: #4c8dff; }
+#kb { position: fixed; left: -1000px; top: 0; width: 10px; height: 10px; opacity: 0; font-size: 16px; }
 #turn { display: none; position: fixed; left: 0; right: 0; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); text-align: center; color: #93a4c0; font-size: 13px; pointer-events: none; }
 </style>
 </head>
 <body>
 <div id="wrap"><canvas id="canvas" width="800" height="480"></canvas></div>
 <div id="turn">Turn your device sideways for a larger tablet.</div>
+<button id="fs" class="tool" type="button" aria-label="Full screen">&#x26F6;</button>
+<button id="kbbtn" class="tool" type="button">Keyboard</button>
+<textarea id="kb" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Typing"></textarea>
 <div id="panel"><div id="card">
   <div id="brand">XP<span>TABLET</span></div>
   <h1 id="title">Connecting To XPTablet</h1>
@@ -52,7 +60,7 @@ p { margin: 0 0 16px; color: #9fb0cc; font-size: 14px; }
 R"XPT(<script>
 (function () {
   'use strict';
-  var VERSION = 3, TOKEN = 'xptablet.lc.token';
+  var VERSION = 4, TOKEN = 'xptablet.lc.token';
   var $ = function (id) { return document.getElementById(id); };
   var canvas = $('canvas'), ctx = canvas.getContext('2d'), wrap = $('wrap'), panel = $('panel'), code = $('code');
   var ws = null, stop = false, reload = false, live = false, fullW = 800, fullH = 480, chain = Promise.resolve(), gotPicture = false;
@@ -122,14 +130,15 @@ R"XPT(<script>
     else { stop = true; reload = st === 2; show('Not Connected', '', { again: true, msg: t || 'The computer turned this device away.' }); try { ws.close(); } catch (e) {} }
   }
   function picture(u) {   // a piece of the tablet's picture: drawn in the order they came
-    var W = u[1] | (u[2] << 8), H = u[3] | (u[4] << 8), x = u[5] | (u[6] << 8), y = u[7] | (u[8] << 8), key = u[13] === 1;
+    var W = u[1] | (u[2] << 8), H = u[3] | (u[4] << 8), x = u[5] | (u[6] << 8), y = u[7] | (u[8] << 8), key = (u[13] & 1) !== 0;
+    typingNow((u[13] & 2) !== 0);   // (2: the tablet is typing, and wants this device's own keyboard)
     var blob = new Blob([u.subarray(14)], { type: 'image/jpeg' });
     chain = chain.then(function () { return createImageBitmap(blob); }).then(function (bmp) {
       if (canvas.width !== W || canvas.height !== H) { if (!key) return; canvas.width = W; canvas.height = H; }
       fullW = W; fullH = H;
       ctx.drawImage(bmp, x, y);
       if (bmp.close) bmp.close();
-      if (!gotPicture && live) { gotPicture = true; panel.style.display = 'none'; canvas.style.display = 'block'; }
+      if (!gotPicture && live) { gotPicture = true; panel.style.display = 'none'; canvas.style.display = 'block'; fsShow(); }
       fit();
     }).catch(function () {});
   }
@@ -147,6 +156,40 @@ R"XPT(<script>
 R"XPT(
   // ---- touches, scrolls and keys: sent as they are, placed as fractions of the picture ----
   function at(e) { var r = canvas.getBoundingClientRect(); return [Math.max(0, Math.min(65535, Math.round((e.clientX - r.left) / r.width * 65535))), Math.max(0, Math.min(65535, Math.round((e.clientY - r.top) / r.height * 65535)))]; }
+  // ---- the device's own keyboard (when the tablet is set to use it): a hidden box raised by a tap, its typing sent on ----
+  var kb = $('kb'), kbbtn = $('kbbtn'), typing = false;
+  function typingNow(on) {
+    if (on === typing) return;
+    typing = on;
+    kbbtn.style.display = on ? 'block' : 'none';
+    if (!on && document.activeElement === kb) kb.blur();
+  }
+  function raiseKeys() { if (typing) { kb.value = ''; kb.focus({ preventScroll: true }); } }   // (only from a tap: browsers raise keyboards for those)
+  kbbtn.addEventListener('click', function (e) { e.preventDefault(); raiseKeys(); });
+  kb.addEventListener('input', function (e) {   // (phones: what was typed comes here, not as keys)
+    var t = e.inputType || '';
+    if (t === 'deleteContentBackward') send(bytes(73, 4, 8, 0));
+    else if (t === 'insertLineBreak' || t === 'insertParagraph') send(bytes(73, 4, 13, 0));
+    else if (e.data) for (var i = 0; i < e.data.length; ++i) { var c = e.data.charCodeAt(i); if (c >= 32 && c < 127) send(bytes(73, 5, c, 0)); }
+    kb.value = '';
+  });
+  // ---- full screen, where the browser allows it (Android, computers, iPad; an iPhone: Add To Home Screen instead) ----
+  var fsBtn = $('fs'), root = document.documentElement, fsIdle = null;
+  var canFs = !!(root.requestFullscreen || root.webkitRequestFullscreen) && !window.navigator.standalone;
+  function inFs() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+  function fsShow() {   // shown a while after a touch, then it fades (it sits over a corner of the picture)
+    if (!canFs || !live) return;
+    fsBtn.style.display = 'block'; fsBtn.style.opacity = '1';
+    clearTimeout(fsIdle); fsIdle = setTimeout(function () { fsBtn.style.opacity = '0.25'; }, 3500);
+  }
+  fsBtn.addEventListener('click', function (e) {
+    e.preventDefault();
+    if (inFs()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); }
+    else { var p = (root.requestFullscreen || root.webkitRequestFullscreen).call(root); if (p && p.catch) p.catch(function () {}); }
+    fsShow();
+  });
+  document.addEventListener('fullscreenchange', function () { setTimeout(fit, 60); });
+  document.addEventListener('webkitfullscreenchange', function () { setTimeout(fit, 60); });
   function ptr(k, e, touch) { var p = at(e); send(bytes(73, k | (touch ? 16 : 0), p[0] & 255, p[0] >> 8, p[1] & 255, p[1] >> 8)); }   // 'I'
   canvas.addEventListener('pointermove', function (e) { if (!e.isPrimary || e.pointerType === 'touch') return; ptr(0, e, false); e.preventDefault(); });
   canvas.addEventListener('pointerdown', function (e) { if (!e.isPrimary || e.pointerType === 'touch') return; try { canvas.setPointerCapture(e.pointerId); } catch (x) {} ptr(1, e, false); e.preventDefault(); });
@@ -162,6 +205,7 @@ R"XPT(
     if (e.touches.length >= 2) { if (finger !== null) { ptr(2, down, true); finger = null; } pinch = span(e.touches); return; }
     var t = e.changedTouches[0];
     finger = t.identifier; still = true; down = { clientX: t.clientX, clientY: t.clientY };
+    fsShow();
     ptr(0, down, true); ptr(1, down, true);
   }, { passive: false });
   canvas.addEventListener('touchmove', function (e) {
@@ -177,15 +221,16 @@ R"XPT(
     for (var i = 0; i < e.changedTouches.length; ++i) { var t = e.changedTouches[i]; if (t.identifier !== finger) continue;
       if (!still) down = { clientX: t.clientX, clientY: t.clientY };
       ptr(2, down, true); finger = null; }
+    if (typing && document.activeElement !== kb) raiseKeys();   // (typing already: a tap on the picture raises the keyboard again)
   }
   canvas.addEventListener('touchend', lift, { passive: false });
   canvas.addEventListener('touchcancel', lift, { passive: false });
   // a keyboard on the device: the arrows, W A S D and Space play the tablet's games (pressed and let go, as on the computer)
   var GAME = { ArrowLeft: 0, ArrowRight: 1, ArrowUp: 2, ArrowDown: 3, a: 0, d: 1, w: 2, s: 3, A: 0, D: 1, W: 2, S: 3, ' ': 4 };
-  function gameKey(e, on) { if (!live || e.target === code || e.ctrlKey || e.metaKey || e.repeat) return false; var k = GAME[e.key]; if (k === undefined) return false; send(bytes(73, 7, k, on ? 1 : 0)); return true; }
+  function gameKey(e, on) { if (!live || e.target === code || e.target === kb || e.ctrlKey || e.metaKey || e.repeat) return false; var k = GAME[e.key]; if (k === undefined) return false; send(bytes(73, 7, k, on ? 1 : 0)); return true; }
   window.addEventListener('keyup', function (e) { if (gameKey(e, false)) e.preventDefault(); });
   window.addEventListener('keydown', function (e) {   // and it types into the tablet's text fields
-    if (gameKey(e, true) && e.key.indexOf('Arrow') === 0) { e.preventDefault(); return; }
+    if (e.target !== kb && gameKey(e, true) && e.key.indexOf('Arrow') === 0) { e.preventDefault(); return; }
     if (!live || e.target === code || e.ctrlKey || e.metaKey) return;
     if (e.key === 'Backspace') { send(bytes(73, 4, 8, 0)); e.preventDefault(); }
     else if (e.key === 'Enter') { send(bytes(73, 4, 13, 0)); e.preventDefault(); }

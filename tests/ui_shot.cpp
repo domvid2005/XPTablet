@@ -690,15 +690,12 @@ int main(int argc, char** argv) {
                 if (fv.size() != 7 || std::find(fv.begin(), fv.end(), kWidget0 + W_FPS) == fv.end()) { std::printf("FAIL: Frame Rate in a 7-place favorites bar (%zu)\n", fv.size()); ++failures; }
                 for (int x : settings().order) if (x == kWidget0 + W_FPS) { std::printf("FAIL: Frame Rate both in the bar and on a page\n"); ++failures; }
                 shot(hw, APP_HOME, "home_dock_fps");
-                settings().favorites = {kWidget0 + W_VOLANTA};
+                // Volanta (its app and its overlay) and IVAO's Webeye: taken out; saved anywhere on the home screen, they are dropped
+                settings().favorites = {kWidget0 + W_VOLANTA, APP_LIVEMAP, APP_IVAO, APP_MAP};
+                settings().order.push_back(APP_LIVEMAP); settings().order.push_back(APP_IVAO); settings().order.push_back(kWidget0 + W_VOLANTA);
                 layoutHome();
-                shot(hw, APP_HOME, "home_dock_volanta");
-                settings().favorites = {kWidget0 + W_VOLANTA, APP_MAP};   // (no room for the Map beside it: to a page)
-                layoutHome();
-                if (settings().favorites.size() != 1) { std::printf("FAIL: the bar holds more than its seven places\n"); ++failures; }
-                settings().favoriteSlots = 3; layoutHome();   // (too narrow for Volanta's overlay: it goes to a page)
-                bool onPage = false; for (int x : settings().order) if (x == kWidget0 + W_VOLANTA) onPage = true;
-                if (!settings().favorites.empty() || !onPage) { std::printf("FAIL: Volanta's overlay leaves a 3-place bar for a page\n"); ++failures; }
+                if (settings().favorites != std::vector<int>{APP_MAP}) { std::printf("FAIL: the taken-out apps leave the favorites bar (%zu)\n", settings().favorites.size()); ++failures; }
+                for (int x : settings().order) if (x == APP_LIVEMAP || x == APP_IVAO || x == kWidget0 + W_VOLANTA) { std::printf("FAIL: the taken-out apps leave the home pages (%d)\n", x); ++failures; }
             }
             {   // Add Widget: at the top of the page, the icons there pushed down (and on), none lost
                 settings() = keep; layoutHome();
@@ -1575,10 +1572,10 @@ int main(int argc, char** argv) {
           wb.browser.activeTab = 1;
           press(wb, 300, 28 + 46 + 32 + 20); shot(wb, APP_BROWSER, "browser_keyboard");
           // a web app already open in a tab is shown again (its tab selected), not loaded over the shown page
-          { settings().showLive = true; openApp(APP_LIVEMAP);
+          { settings().showSimbrief = true; openApp(APP_SIMBRIEF);
             Actions got;
             for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, wb, 800, kLogicalH, act); ImGui::Render(); if (act.webTabSelect || act.webTabNew || !act.webNavigate.empty()) got = act; }
-            if (got.webTabSelect != 3) { std::printf("FAIL: Volanta's tab is shown again (%d, new %d, nav %s)\n", got.webTabSelect, got.webTabNew ? 1 : 0, got.webNavigate.c_str()); ++failures; } }
+            if (got.webTabSelect != 2) { std::printf("FAIL: SimBrief's tab is shown again (%d, new %d, nav %s)\n", got.webTabSelect, got.webTabNew ? 1 : 0, got.webNavigate.c_str()); ++failures; } }
           // a web app not open gets a tab of its own
           { openApp(APP_SIMBRIEF); SimState w2 = wb; w2.browser.tabs.erase(w2.browser.tabs.begin() + 1);
             Actions got;

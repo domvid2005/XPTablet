@@ -10,7 +10,7 @@
 namespace xpt {
 namespace mirror {
 
-constexpr int kPageVersion = 3;   // the page's and these messages' version (see src/localpage.h)
+constexpr int kPageVersion = 4;   // the page's and these messages' version (see src/localpage.h)
 
 void start();
 void stop();
@@ -30,6 +30,8 @@ struct Input {
     bool touch = false;   // a finger (not a mouse)
 };
 bool nextInput(Input& in);   // the next thing a device did, if any
+// The tablet is typing and the device should raise its own keyboard (sent with each picture, so the device knows)
+void setDeviceTyping(bool on);
 
 }   // namespace mirror
 }   // namespace xpt

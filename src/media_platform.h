@@ -24,6 +24,10 @@ bool playerVol(float& v);                       // the player's own volume, 0..1
 bool setPlayerVol(float v);
 bool masterVol(float& v);                       // the computer's own volume (Windows: the speakers'), 0..1; false: not here
 bool setMasterVol(float v);
+bool playerMute(bool& m);                       // muted (the player's sound, as Windows' Volume Mixer shows it); false: not known
+bool setPlayerMute(bool m);
+bool masterMute(bool& m);                       // the computer's sound muted (Windows: the speakers', as the taskbar shows it)
+bool setMasterMute(bool m);
 
 } // namespace platform
 } // namespace media

@@ -23,6 +23,7 @@ struct Now {
     bool ducked = false;          // the music is lowered or paused for the radio now
     float playerVolume = -1;      // the player's own volume, 0..1 (-1: it keeps it to itself)
     float masterVolume = -1;      // the computer's (Windows), 0..1 (-1: not here)
+    bool playerMuted = false, masterMuted = false;   // muted (the player's sound; the computer's), as Windows has them
 };
 
 void start();
@@ -33,6 +34,7 @@ void command(int what);                                                   // 1 p
 void seek(double sec);                                                    // to this point of the track
 void setPlayerVolume(float v);                                            // the player's own volume, 0..1
 void setMasterVolume(float v);                                            // the computer's (Windows)
+void setMuted(bool computer, bool muted);                                 // the player's sound muted (or the computer's)
 // each frame: 0 leave the music, 1 lower it to 50 %, 2 pause it, while radioRx (xPilot's COM1/COM2) or a radio app is heard
 void setDuck(int mode, bool radioRx, const std::string& radioName, float level = 0.5f);   // level: the volume when lowered (mode 1)
 

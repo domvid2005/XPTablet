@@ -65,6 +65,7 @@ struct Settings {
     bool localBattery = true;     // with a device connected that tells its battery: the tablet's battery is that device's
     int arcadeBest[6] = {0, 0, 0, 0, 0, 0};   // the best scores of Contrail, Taxi Rush, Sky Patrol, Hangar Climb, Cockpit 21 (most miles), Cargo Load
     bool physicalKeys = false;    // typing: the computer's own keyboard (a thin bar instead of the on-screen keys)
+    bool localPhysicalKeys = false;   // typing from a Local Connect device: the device's own keyboard (the bar) instead of the tablet's keys
     bool mapRings = true;         // range rings round the aircraft (a quarter, half and all of the range), as on WXPlane's map
     bool mapIls = true;           // ILS and localizer courses (a layer of their own)
     bool mapWaypoints = false;    // fixes
@@ -218,6 +219,7 @@ struct MediaState {
     std::string radioSource;      // what the radio is heard through ("xPilot", "TrackAudio"...), "" none
     float playerVolume = -1;      // the player's own volume, 0..1 (-1: it keeps it to itself)
     float masterVolume = -1;      // the computer's (Windows), 0..1 (-1: not here)
+    bool playerMuted = false, masterMuted = false;   // muted, as Windows has them (the player's sound; the computer's)
 };
 
 struct VatsimPilot {
@@ -371,6 +373,7 @@ struct SimState {
     int batteryPct = 100;         // the tablet's own battery
     LocalConnectState local;      // Local Connect (Settings)
     AcarsState acars;             // Hoppie's ACARS (the ACARS app)
+    bool xpilotLoaded = false;    // xPilot's plugin is running (by its signature, whatever its version's commands)
     int xpilotLogin = -1;         // xPilot's connection (its xpilot/login/status): 0 not connected, 1 a pilot, 2 an observer; -1 not known
     std::string xpilotCallsign, xpilotCom1, xpilotCom2;   // its callsign on the network, the stations tuned on COM1 and COM2
     int xpilotAircraft = 0;       // the aircraft it is drawing
@@ -444,6 +447,7 @@ struct Actions {
     int webVolume = -1;           // the Browser's media volume, 0..100, when changed (-1 none)
     float mediaPlayerVol = -1;    // the player's own volume set (0..1), -1 none
     float mediaMasterVol = -1;    // the computer's volume set (0..1), -1 none
+    int mediaPlayerMute = -1, mediaMasterMute = -1;   // muted (1) or not (0) set by a tap on a slider's speaker, -1 none
     bool webExitFullscreen = false;
     std::string webTabUrl;
     int webTabSelect = 0, webTabClose = 0;   // a tab's id: show it, close it (0: none)
@@ -525,6 +529,8 @@ void setSeasonalPreview(bool all);
 int settingsTabShown();   // the Settings page's tab (for the tests)
 void celebrate(int which);   // the midnight celebration now: 0 New Year, 1 Christmas (it starts by itself at midnight; this is for a preview)
 bool celebrationShown();     // it is up (it stays until its Dismiss button is pressed)
+void setDeviceInput(bool on);   // a Local Connect device is working the tablet now (its keyboard choice applies)
+bool deviceKeysWanted();        // typing now, from a device that uses its own keyboard (the device raises it)
 unsigned settingsReveal();   // which of Settings' hidden fields are shown now (a bit each: SimBrief, Hoppie, Volanta, Local Connect's address)
 bool seasonalOnDate(int theme, int year, int month, int day);   // seasonal theme n (0 New Year .. 15 Breast Cancer Awareness) on that date
 const char* seasonalName(int theme);   // every seasonal colour theme offered whatever the date (the browser emulator)

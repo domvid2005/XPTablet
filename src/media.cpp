@@ -27,6 +27,7 @@ int g_artW = 0, g_artH = 0;
 std::vector<int> g_cmds;
 double g_seekTo = -1;   // a seek waiting (seconds)
 float g_setPlayer = -1, g_setMaster = -1;   // volumes waiting to be set
+int g_setPMute = -1, g_setMMute = -1;       // mutes waiting to be set (1 muted, 0 not)
 std::chrono::steady_clock::time_point g_posAt;   // when g_now.posSec was read
 int g_duckMode = 0;
 float g_duckLevel = 0.5f;   // lowered: to this volume
@@ -118,6 +119,7 @@ void run() {
         double seekTo = -1;
         float setPlayer = -1, setMaster = -1;
         int mode;
+        int setPMute = -1, setMMute = -1;
         float level = 0.5f;
         bool rx;
         std::string rxName;
@@ -126,17 +128,22 @@ void run() {
             cmds.swap(g_cmds);
             seekTo = g_seekTo; g_seekTo = -1;
             setPlayer = g_setPlayer; g_setPlayer = -1; setMaster = g_setMaster; g_setMaster = -1;
+            setPMute = g_setPMute; g_setPMute = -1; setMMute = g_setMMute; g_setMMute = -1;
             mode = g_duckMode; rx = g_radioRx; rxName = g_radioName; level = g_duckLevel;
         }
         for (int c : cmds) platform::send(c);
         if (seekTo >= 0) { platform::seek(seekTo); info.posSec = seekTo; }
         if (setPlayer >= 0) platform::setPlayerVol(setPlayer);
         if (setMaster >= 0) platform::setMasterVol(setMaster);
+        if (setPMute >= 0) platform::setPlayerMute(setPMute != 0);
+        if (setMMute >= 0) platform::setMasterMute(setMMute != 0);
         // the volumes: read a few times a second (and at once after one was set)
         static int volTick = 0;
         float pv = -1, mv = -1;
-        const bool readVol = (++volTick & 1) == 0 || setPlayer >= 0 || setMaster >= 0;
-        if (readVol) { if (!active || !platform::playerVol(pv)) pv = -1; if (!platform::masterVol(mv)) mv = -1; }
+        const bool readVol = (++volTick & 1) == 0 || setPlayer >= 0 || setMaster >= 0 || setPMute >= 0 || setMMute >= 0;
+        bool pm = false, mm = false;
+        if (readVol) { if (!active || !platform::playerVol(pv)) pv = -1; if (!platform::masterVol(mv)) mv = -1;
+                       if (!active || !platform::playerMute(pm)) pm = false; if (!platform::masterMute(mm)) mm = false; }
         // the cover: when the track (or its picture) changes
         const std::string artKey = info.title + "\x01" + info.artist + "\x01" + (artBytes.empty() ? info.artUrl : std::to_string(artBytes.size()));
         if (active && artKey != lastArtKey) {
@@ -182,7 +189,7 @@ void run() {
             g_posAt = std::chrono::steady_clock::now();
             g_now.radioApp = apps; g_now.radioAppName = apps ? who : rxName;
             g_now.ducked = ducked;
-            if (readVol) { g_now.playerVolume = pv; g_now.masterVolume = mv; }
+            if (readVol) { g_now.playerVolume = pv; g_now.masterVolume = mv; g_now.playerMuted = pm; g_now.masterMuted = mm; }
         }
         for (int i = 0; i < 5 && !g_quit; ++i) {   // a quarter second, sooner for a command
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -220,6 +227,11 @@ Now now() {
 }
 void seek(double sec) { std::lock_guard<std::mutex> lk(g_mx); g_seekTo = std::max(0.0, sec); }
 void setPlayerVolume(float v) { std::lock_guard<std::mutex> lk(g_mx); g_setPlayer = std::max(0.0f, std::min(1.0f, v)); g_now.playerVolume = g_setPlayer; }
+void setMuted(bool computer, bool muted) {
+    std::lock_guard<std::mutex> lk(g_mx);
+    (computer ? g_setMMute : g_setPMute) = muted ? 1 : 0;
+    (computer ? g_now.masterMuted : g_now.playerMuted) = muted;
+}
 void setMasterVolume(float v) { std::lock_guard<std::mutex> lk(g_mx); g_setMaster = std::max(0.0f, std::min(1.0f, v)); g_now.masterVolume = g_setMaster; }
 bool takeArt(int& version, std::vector<uint8_t>& rgba, int& w, int& h) {
     std::lock_guard<std::mutex> lk(g_mx);

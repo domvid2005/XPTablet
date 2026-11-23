@@ -191,7 +191,7 @@ struct Tab {
     int fitRounds = 0;               // corrections since the page loaded (a page that keeps growing is not chased for ever)
     std::string host;                // the page's site: a new one starts fitting again from 100 %
     double base = 0;                 // a site with a zoom of its own (shown as 100 %): ForeFlight and VATSIM Radar 65 %, ChartFox 70 %,
-                                     // SimBrief 50 %; there the zoom is that, not fitted (0: none, the page is fitted to the width)
+                                     // SimBrief 50 %, any other web app's 55 %; there the zoom is that, not fitted (0: none, the page is fitted)
     std::vector<uint8_t> view;       // the newest picture of the page
     int vw = 0, vh = 0;
     std::vector<uint8_t> popup;      // a drop-down list open on the page, drawn over it
@@ -208,12 +208,14 @@ std::vector<OpenReq> g_openQueue;   // pages asked for in a new window: opened a
 
 double nowS() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 // the sites whose own zoom is kept (as a level: 1.2 to its power), shown as 100 %
-double siteBase(const std::string& host) {
+// (the tablet's web apps: those sites at their own zooms; every other web app at 55 %; the Browser's own tabs fitted to the width)
+double siteBase(const std::string& host, int group) {
     auto has = [&](const char* d) { return host.find(d) != std::string::npos; };
     double pct = 0;
     if (has("foreflight.com") || has("vatsim-radar.com")) pct = 0.65;
     else if (has("chartfox.org")) pct = 0.70;
     else if (has("simbrief.com")) pct = 0.50;
+    else if (group != 0 && host.compare(0, 5, "file:") != 0 && !host.empty()) pct = 0.55;
     return pct > 0 ? std::log(pct) / std::log(1.2) : 0.0;
 }
 std::string hostPart(const std::string& u) {
@@ -398,7 +400,7 @@ void CEF_CALLBACK onAddressChange(cef_display_handler_t*, cef_browser_t* b, cef_
     if (host != t->host) {   // another site: its own fit, from 100 % (or the site's own zoom); a zoom chosen for the tab stays
         t->host = host;
         const double was = t->base;
-        t->base = siteBase(host);
+        t->base = siteBase(host, t->group);
         if (t->manual) t->zoom += t->base - was;   // (chosen: kept against the site's own)
         else if (t->zoom != t->base) { t->zoom = t->base; t->fitChecks.clear(); applyZoom(*t); }
         t->fitRounds = 0;
