@@ -132,7 +132,7 @@ endif()
 
 # --- The plugin: <build>/package/XPTablet/<lin_x64|mac_x64|win_x64>/XPTablet.xpl ------------------------------------------
 if(XPT_BUILD_PLUGIN)
-  add_library(XPTablet MODULE src/plugin.cpp src/crashlog.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp src/tiles.cpp src/aptdat.cpp src/ourairports.cpp src/navdata.cpp src/vatsim.cpp src/vatsim_parse.cpp src/airspace.cpp src/simbrief.cpp src/media.cpp src/localnet.cpp ${XPT_MEDIA_SRC})
+  add_library(XPTablet MODULE src/plugin.cpp src/crashlog.cpp src/clipboard.cpp src/json_mini.cpp src/http.cpp src/metarfetch.cpp src/browser.cpp src/tiles.cpp src/aptdat.cpp src/ourairports.cpp src/navdata.cpp src/vatsim.cpp src/vatsim_parse.cpp src/airspace.cpp src/simbrief.cpp src/media.cpp src/localnet.cpp ${XPT_MEDIA_SRC})
   target_include_directories(XPTablet PRIVATE "${XPLANE_SDK}/CHeaders/XPLM" third_party/stb)
   target_compile_definitions(XPTablet PRIVATE XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM303=1 XPLM400=1)   # (400: X-Plane 12's sound, for the notification chime)
   target_link_libraries(XPTablet PRIVATE xpt_ui ${XPT_CURL} Threads::Threads ${CMAKE_DL_LIBS})

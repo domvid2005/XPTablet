@@ -43,6 +43,7 @@
 #include "samscan.h"
 #include "crashlog.h"
 #include "guard.h"
+#include "clipboard.h"
 #include "navdata.h"
 #include "vatsim.h"
 #include "airspace.h"
@@ -680,6 +681,20 @@ void browserStep(const xpt::Actions& act) {
         }
     }
     if (act.webExitFullscreen) br::push(xptb::CMD_EXIT_FULLSCREEN);
+    if (act.webEdit) br::push(xptb::CMD_EDIT, act.webEdit);
+    if (act.paste) { std::string t; if (xpt::clipboard::get(t)) xpt::pasteText(t); }
+    {   // the clipboard: whether it holds text, looked at while typing (the keyboard offers Paste)
+        static float lookedAt = -100;
+        const float now = XPLMGetElapsedTime();
+#if defined(_WIN32)
+        const float every = 0.5f;
+#else
+        const float every = 1.5f;   // (asked through a small program: less often)
+#endif
+        const bool typing = xpt::tabletTyping() || xpt::webTyping();
+        if (!typing) g_sim.clipboardHas = false;
+        else if (now - lookedAt > every) { lookedAt = now; g_sim.clipboardHas = xpt::clipboard::hasText(); }
+    }
     if (act.webTabSelect) br::push(xptb::CMD_TAB_SELECT, act.webTabSelect);
     if (act.webTabClose) br::push(xptb::CMD_TAB_CLOSE, act.webTabClose);
     bool loading = false, back = false, fwd = false, kbd = false;
@@ -688,7 +703,7 @@ void browserStep(const xpt::Actions& act) {
     bool full = false;
     bool zAuto = true;
     if (br::info(b.url, b.title, loading, back, fwd, kbd, tabs, active, zoom, full, &zAuto)) {
-        b.zoomPct = zoom; b.fullscreen = full; b.zoomAuto = zAuto;
+        b.zoomPct = zoom; b.fullscreen = full; b.zoomAuto = zAuto; b.mediaPlaying = br::mediaPlaying();
         b.loading = loading; b.canBack = back; b.canForward = fwd; b.wantsKeyboard = kbd;
         b.tabs.clear();
         for (const br::TabInfo& t : tabs) b.tabs.push_back({t.id, t.title, t.url, t.loading, t.group});
@@ -900,7 +915,12 @@ void acarsStep(const xpt::Actions& act) {
 void xpilotStep(const xpt::Actions& act) {
     static const char* const names[] = {"xpilot/toggle_text_message_console", "xpilot/toggle_nearby_atc", "xpilot/toggle_notification_panel",
                                         "xpilot/toggle_aircraft_labels", "xpilot/toggle_tcas", "xpilot/toggle_default_atis", "xpilot/split_audio_channels"};
-    if ((XPLMGetCycleNumber() % 256) == 3) {
+    // (by the clock, not by an exact frame number: the tablet is not drawn every frame, and a check on one frame number in 256
+    // could fall on frames it never draws, so xPilot was never found, 2026-11-22)
+    static float lookedAt = -100, readAt = -100;
+    const float now = XPLMGetElapsedTime();
+    if (now - lookedAt > 3.0f) {
+        lookedAt = now;
         std::vector<std::string> found;
         for (const char* n : names) if (XPLMFindCommand(n)) found.push_back(n);
         if (found != g_sim.xpilotCmds) { g_sim.xpilotCmds = found; logMsg("xPilot: %d command(s) for the tablet", (int)found.size()); }
@@ -925,7 +945,8 @@ void xpilotStep(const xpt::Actions& act) {
         }
     }
     if (!act.xpilotCmd.empty()) if (XPLMCommandRef c = XPLMFindCommand(act.xpilotCmd.c_str())) XPLMCommandOnce(c);
-    if ((XPLMGetCycleNumber() % 32) == 5) {   // its connection, callsign, tuned stations and aircraft count (xPilot's own datarefs)
+    if (now - readAt > 0.5f) {   // its connection, callsign, tuned stations and aircraft count (xPilot's own datarefs)
+        readAt = now;
         static XPLMDataRef st = nullptr, cs = nullptr, c1 = nullptr, c2 = nullptr, na = nullptr;
         if (!st && (g_sim.xpilotLoaded || !g_sim.xpilotCmds.empty())) {
             st = XPLMFindDataRef("xpilot/login/status"); cs = XPLMFindDataRef("xpilot/login/callsign");
@@ -1961,6 +1982,24 @@ void noKey(XPLMWindowID, char, XPLMKeyFlags, char, void*, int) {}
 // delete 46).
 // Settings, Display, "Physical keyboard": while a text box takes typing, the computer's keys go to it wherever X-Plane's focus is
 // (the cockpit tablet too); everything else (Escape, the arrows, X-Plane's own keys when nothing is typed in) goes on as usual
+// Backspace held down on the computer's keyboard deletes on (as a text box does): after a moment, a character every 1/20 s, while X-Plane
+// does not repeat it itself (if it does, its repeats are used)
+double g_bsDownAt = -1, g_bsNext = -1;
+bool g_bsOsRepeats = false;
+void backspaceHeld(bool down, bool up) {
+    const double now = XPLMGetElapsedTime();
+    if (down) { if (g_bsDownAt >= 0) g_bsOsRepeats = true; else { g_bsDownAt = now; g_bsNext = now + 0.45; g_bsOsRepeats = false; } }
+    if (up) g_bsDownAt = -1;
+}
+void backspaceStep() {
+    if (g_bsDownAt < 0 || g_bsOsRepeats) return;
+    const double now = XPLMGetElapsedTime();
+    if (now < g_bsNext) return;
+    g_bsNext = now + 0.05;
+    if (xpt::tabletTyping()) xpt::tabletKey(8, false);
+    else if (xpt::webTyping() && g_webShown && xpt::browser::started()) { xpt::browser::push(xptb::CMD_KEY, 0, 0, 8, 1); xpt::browser::push(xptb::CMD_KEY, 0, 0, 8, 0); }
+    else g_bsDownAt = -1;
+}
 int keySniffer(char key, XPLMKeyFlags flags, char vkey, void*) {
     if (xpt::gameWantsKeys() && !(flags & (xplm_ControlFlag | xplm_OptionAltFlag))) {   // 2048 pressed: W A S D and the arrows play it
         const unsigned char vk = (unsigned char)vkey;
@@ -1973,6 +2012,20 @@ int keySniffer(char key, XPLMKeyFlags flags, char vkey, void*) {
         }
     }
     if (!xpt::settings().physicalKeys) return 1;
+    if ((flags & xplm_ControlFlag) && !(flags & xplm_OptionAltFlag) && (xpt::tabletTyping() || (xpt::webTyping() && g_webShown && xpt::browser::started()))) {
+        // copy, cut, paste and select all, with the computer's clipboard: in the page's field, or the tablet's own box (its whole text)
+        const unsigned char vk = (unsigned char)vkey;
+        const int what = vk == 'C' ? 1 : vk == 'X' ? 2 : vk == 'V' ? 3 : vk == 'A' ? 4 : 0;
+        if (what) {
+            if (flags & xplm_DownFlag) {
+                if (!xpt::tabletTyping()) xpt::browser::push(xptb::CMD_EDIT, what);
+                else if (what == 3) { std::string t; if (xpt::clipboard::get(t)) xpt::pasteText(t); }
+                else if (what == 1 || what == 2) { const std::string t = xpt::typedText(); if (!t.empty()) { xpt::clipboard::set(t); if (what == 2) xpt::clearTyped(); } }
+            }
+            return 0;
+        }
+    }
+    if ((unsigned char)vkey == 8) backspaceHeld((flags & xplm_DownFlag) != 0, (flags & xplm_UpFlag) != 0);
     // a web page's text field (a site's search box) with the computer's keyboard: the keys go to the page, not to X-Plane
     if (xpt::webTyping() && g_webShown && xpt::browser::started() && !xpt::tabletTyping()) {
         namespace br = xpt::browser;
@@ -2000,6 +2053,18 @@ void winKey(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey, void*, int lo
     const unsigned char vk = (unsigned char)vkey, ch = (unsigned char)key;
     const bool down = (flags & xplm_DownFlag) != 0, up = (flags & xplm_UpFlag) != 0;
     const bool editKey = vk == 8 || vk == 9 || vk == 13 || vk == 27 || (vk >= 33 && vk <= 40) || vk == 46;
+    if ((flags & xplm_ControlFlag) && !(flags & xplm_OptionAltFlag)) {   // copy, cut, paste, select all (as in keySniffer)
+        const int what = vk == 'C' ? 1 : vk == 'X' ? 2 : vk == 'V' ? 3 : vk == 'A' ? 4 : 0;
+        if (what) {
+            if (!down) return;
+            if (xpt::tabletTyping()) {
+                if (what == 3) { std::string t; if (xpt::clipboard::get(t)) xpt::pasteText(t); }
+                else if (what == 1 || what == 2) { const std::string t = xpt::typedText(); if (!t.empty()) { xpt::clipboard::set(t); if (what == 2) xpt::clearTyped(); } }
+            } else if (g_webShown && xpt::browser::started()) xpt::browser::push(xptb::CMD_EDIT, what);
+            return;
+        }
+    }
+    if (vk == 8) backspaceHeld(down, up);
     if (xpt::tabletTyping()) {   // the address bar, a note, a search
         if (!down) return;
         if (vk == 8 || vk == 13) xpt::tabletKey(vk, false);
@@ -2993,6 +3058,7 @@ void localConnectStep() {
 }
 
 float flightLoop(float dt, float, int, void*) {
+    backspaceStep();   // (Backspace held: deleting on)
     {   // a thread stopped on an exception (caught): told in the log, from here (the main thread)
         const std::string f = xpt::crashlog::takeFailures();
         size_t s = 0;

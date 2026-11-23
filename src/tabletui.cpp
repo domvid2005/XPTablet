@@ -58,11 +58,26 @@ void logStep(const SimState& s);   // the logbook's watch on the flight (below)
 // a finger's drag up or down over a list scrolls it, even begun on one of its rows (whose tap is then let go); the mouse's too
 bool g_touchScrolling = false;
 bool g_touchInput = false;   // the last press came from a finger (a phone or tablet browser): the map opens its cards on a double tap
+// the scroll bars drawn (this frame and the last): a press begun on one drags the bar, not the list (the list dragged the other
+// way at once, fighting the bar, and took its press away, 2026-11-22)
+std::vector<ImRect> g_barRects[2];
+int g_barFrame = -1;
+std::vector<ImRect>& barsNow() {
+    const int fr = ImGui::GetFrameCount();
+    if (fr != g_barFrame) { g_barRects[0].swap(g_barRects[1]); g_barRects[1].clear(); g_barFrame = fr; }
+    return g_barRects[1];
+}
+bool onScrollBar(ImVec2 p) {
+    barsNow();
+    for (int k = 0; k < 2; ++k) for (const ImRect& r : g_barRects[k]) if (r.Contains(p)) return true;
+    return false;
+}
 void touchScroll(float& scroll, ImVec2 a, ImVec2 b) {
     ImGuiIO& io = ImGui::GetIO();
     if (!io.MouseDown[0]) return;
     const ImVec2 c = io.MouseClickedPos[0];
     if (c.x < a.x || c.x > b.x || c.y < a.y || c.y > b.y) return;
+    if (onScrollBar(c)) return;
     const float dx = io.MousePos.x - c.x, dy = io.MousePos.y - c.y;
     if (!g_touchScrolling && std::fabs(dy) > 8 && std::fabs(dy) > std::fabs(dx) * 1.2f) g_touchScrolling = true;
     if (!g_touchScrolling) return;
@@ -147,7 +162,7 @@ void openWeb(const char* site, const char* url, bool chrome, int group = 0);
 struct VatsimBubble { const char* name; const char* what; const char* url; ImU32 col; };
 const VatsimBubble kVatsimBubbles[] = {
         {"Stats", "Your hours, flights and the network's numbers", "https://stats.vatsim.net", IM_COL32(40, 120, 220, 255)},
-        {"AIP", "Airports, their controllers and procedures (myVATSIM)", "https://my.vatsim.net", IM_COL32(40, 160, 120, 255)},
+        {"AIP", "Airports, their controllers and procedures (myVATSIM)", "https://my.vatsim.net/pilots/aip", IM_COL32(40, 160, 120, 255)},
         {"Events", "What is on across the network", "https://my.vatsim.net/events", IM_COL32(220, 120, 40, 255)},
         {"Pilot Resources", "Guides, charts, maps and tools", "https://vatsim.net/docs/pilots/pilots", IM_COL32(140, 90, 220, 255)},
         {"natTrak", "North Atlantic oceanic clearances", "https://nattrak.vatsim.net", IM_COL32(20, 90, 150, 255)},
@@ -2217,7 +2232,7 @@ bool pill(ImDrawList* dl, const Fonts& f, const char* id, const char* label, ImV
 
 // A slider whose knob glides: it follows the finger smoothly, settles on the nearest step when let go (steps > 0), and eases to a
 // value set from elsewhere (auto dim). Greyed and inert when not enabled. Returns true when the user changed the value.
-bool smoothSlider(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, ImVec2 b, float& v, float vmin, float vmax, int steps, bool enabled, const char* text) {
+bool smoothSlider(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, ImVec2 b, float& v, float vmin, float vmax, int steps, bool enabled, const char* text, float knobR = 11.0f) {
     static ImGuiStorage shownAt;   // where each slider's knob is drawn (0..1), by id
     // the value's room on the right fits its text (a short % leaves the track long), at least that of "100%"
     const float textW = (text && *text) ? std::max(f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, "100%").x, f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, text).x) + 6 : 0;
@@ -2250,8 +2265,8 @@ bool smoothSlider(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, ImVe
         const float tx = x0 + (x1 - x0) * i / steps;
         dl->AddCircleFilled(ImVec2(tx, cy), 2.0f, IM_COL32(255, 255, 255, enabled ? 70 : 30), 0);
     }
-    dl->AddCircleFilled(ImVec2(kx, cy + 1.5f), 11.0f, IM_COL32(0, 0, 0, 60), 0);   // a soft shadow
-    dl->AddCircleFilled(ImVec2(kx, cy), active ? 12.0f : 11.0f, enabled ? (hot || active ? IM_COL32(255, 255, 255, 255) : IM_COL32(236, 241, 250, 255)) : IM_COL32(150, 160, 180, 255), 0);
+    dl->AddCircleFilled(ImVec2(kx, cy + 1.5f), knobR, IM_COL32(0, 0, 0, 60), 0);   // a soft shadow
+    dl->AddCircleFilled(ImVec2(kx, cy), active ? knobR + 1.0f : knobR, enabled ? (hot || active ? IM_COL32(255, 255, 255, 255) : IM_COL32(236, 241, 250, 255)) : IM_COL32(150, 160, 180, 255), 0);
     textRight(dl, f.bold, b.x, std::floor(cy - fontPx(f.bold) * 0.5f), enabled ? kInk : kMuted, text);
     return changed;
 }
@@ -2385,13 +2400,33 @@ bool webTypingAddress() { return g_kbd && g_kbdTarget == 1; }
 void webAddressKey(int code, bool isChar) { Actions none; typeKey(none, code, isChar); }
 bool tabletTyping() { return g_kbd && (g_kbdTarget == 1 || (g_kbdTarget == 2 && g_typeInto)); }
 void tabletKey(int code, bool isChar) { Actions none; typeKey(none, code, isChar); }
+// the clipboard's text, typed in (line ends: a new line in a note, else a space; other characters the keys have not, left out)
+void pasteText(const std::string& text) {
+    Actions none;
+    const bool lines = g_kbdTarget == 2 && g_typeMultiline;
+    for (size_t i = 0; i < text.size() && i < 4000; ++i) {
+        const unsigned char c = (unsigned char)text[i];
+        if (c == '\r') continue;
+        if (c == '\n' || c == '\t') { if (lines && c == '\n') { if (g_typeInto) { *g_typeInto += '\n'; g_typeChanged = true; } } else typeKey(none, ' ', true); continue; }
+        if (c >= 32 && c < 127) typeKey(none, c, true);
+    }
+}
+std::string typedText() { return g_kbdTarget == 2 && g_typeInto ? *g_typeInto : g_kbdTarget == 1 ? g_addrEdit : std::string(); }
+void clearTyped() { if (g_kbdTarget == 2 && g_typeInto) { g_typeInto->clear(); g_typeChanged = true; } else if (g_kbdTarget == 1) g_addrEdit.clear(); }
 
 namespace {
 
 // The on-screen keyboard across the bottom of the page, top at y. Returns its height.
 float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y);
+bool g_clipHas = false;   // the computer's clipboard has text (from SimState): Paste is offered over the keys
 float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
     if (physicalNow() && !g_kbdKeysShown) return keyboardBar(dl, f, w, y);
+    if (g_clipHas) {   // Paste, a bubble over the keys' top right corner: the clipboard's text into the box (or the page's field)
+        const ImVec2 pa(w - 96, y - 38), pe(w - 10, y - 8);
+        dl->AddRectFilled(ImVec2(pa.x + 1, pa.y + 3), ImVec2(pe.x + 1, pe.y + 3), IM_COL32(0, 0, 0, 70), 15.0f);
+        dl->AddRectFilled(pa, pe, themeTone(20, 30, 50, 245), 15.0f);
+        if (pill(dl, f, "##kbpaste", "Paste", pa, pe, false, true)) { if (g_kbdTarget == 0) act.webEdit = 3; else act.paste = true; }
+    }
     {   // capitals where a sentence starts (notes, a folder's name): Shift comes on by itself, as on an iPad (tapped, it goes off)
         static const std::string* lastInto = nullptr;
         static size_t lastLen = (size_t)-1;
@@ -2521,6 +2556,7 @@ void webView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float 
     dl->AddImage(b.tex, ImVec2(x0, y0), ImVec2(x0 + w, y0 + h));
     // the pointer: moves, presses and the wheel, in the page's own units (one per layout unit)
     ImGui::SetCursorScreenPos(ImVec2(x0, y0));
+    ImGui::SetNextItemAllowOverlap();   // (what is drawn over the page, as Exit Full Screen, takes its own presses)
     ImGui::InvisibleButton("##web", ImVec2(w, inputH >= 0 ? std::max(1.0f, inputH) : h));
     const ImGuiIO& io = ImGui::GetIO();
     const bool hovered = ImGui::IsItemHovered(), active = ImGui::IsItemActive();
@@ -2576,7 +2612,7 @@ void webZoomControls(ImDrawList* dl, const Fonts& f, const BrowserState& b, Acti
     std::snprintf(id, sizeof id, "##%szreset", tag);
     const ImVec2 za(x0 + 38, y0 + 2), ze(x0 + 88, y1 - 2);
     const bool chosen = enabled && !b.zoomAuto;
-    // tapped (a zoom chosen): back to fitting; tapped twice: a percentage typed on the keys (Enter sets it)
+    // tapped once: a percentage typed on the keys (Enter sets it); tapped twice: back to the page's own (its 100 %)
     ImGui::SetCursorScreenPos(za);
     ImGui::BeginDisabled(!enabled);
     const bool zhit = ImGui::InvisibleButton(id, ImVec2(ze.x - za.x, ze.y - za.y)) && enabled;
@@ -2591,8 +2627,10 @@ void webZoomControls(ImDrawList* dl, const Fonts& f, const BrowserState& b, Acti
     const bool typing = g_zoomTyping && g_typeInto == &g_zoomEdit;
     if (zhot || typing) dl->AddRectFilled(za, ze, IM_COL32(255, 255, 255, typing ? 34 : 20), 8.0f);
     if (typing) dl->AddRect(za, ze, accentLite(220), 8.0f, 0, 1.4f);
-    if (zdouble) { g_zoomTyping = true; g_zoomEdit.clear(); g_typeInto = &g_zoomEdit; g_typeMultiline = false; g_kbd = true; g_kbdTarget = 2; }
-    else if (zhit && chosen && !typing) act.webZoom = 2;
+    if (zdouble) {   // (its first tap began the typing: put away)
+        if (g_zoomTyping) { g_zoomTyping = false; g_zoomEdit.clear(); if (g_typeInto == &g_zoomEdit) { g_typeInto = nullptr; g_kbd = false; g_kbdTarget = 0; } }
+        act.webZoom = 2;
+    } else if (zhit && !typing) { g_zoomTyping = true; g_zoomEdit.clear(); g_typeInto = &g_zoomEdit; g_typeMultiline = false; g_kbd = true; g_kbdTarget = 2; }
     if (typing) {
         const std::string tt = g_zoomEdit + "%";
         textCentered(dl, f.small, (za.x + ze.x) * 0.5f, std::floor((y0 + y1) * 0.5f - fontPx(f.small) * 0.5f), kInk, tt.c_str());
@@ -2698,14 +2736,14 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
             if (++skip > 1) { g_volumeOpen = false; skip = 0; }
         }
     };
-    auto volumePanel = [&](ImVec2 a) {   // (it drops in from its button, and fades away)
+    auto volumePanel = [&](ImVec2 a, float fromX = -1) {   // (it drops in from its button, and fades away; fromX: the button's middle)
         const float vt = openness("##volopen", g_volumeOpen);
         if (vt < 0.01f) return;
         const int v0 = dl->VtxBuffer.Size;
         ImGui::BeginDisabled(!g_volumeOpen);
         volumeBody(a);
         ImGui::EndDisabled();
-        popIn(dl, v0, ImVec2(a.x + 220, a.y), vt);
+        popIn(dl, v0, ImVec2(fromX >= 0 ? fromX : a.x + 220, a.y), vt);
     };
     if (videoFull(s)) {   // full screen: the page on the whole tablet; "Exit Full Screen" shows for a while when the pointer moves
         webView(dl, f, s, 0, 0, w, h, act);
@@ -2714,16 +2752,17 @@ void browserPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         const ImVec2 mp = ImGui::GetIO().MousePos;
         if (mp.x != lastMouse.x || mp.y != lastMouse.y) { movedAt = ImGui::GetTime(); lastMouse = mp; }
         const float k = 1.0f - smooth01((float)(ImGui::GetTime() - movedAt - 2.5) / 0.4f);
+        // the two bubbles, side by side in the middle at the top: the tablet's volume (it pops open its slider) and Exit Full Screen
+        const float vb = 38, xb = 140, gap = 8, x0 = std::floor((w - vb - gap - xb) * 0.5f);
         if (k > 0.01f) {
-            const ImVec2 a(w - 150, 10), e(w - 10, 40);
+            const ImVec2 va(x0, 10), ve(x0 + vb, 40), a(x0 + vb + gap, 10), e(x0 + vb + gap + xb, 40);
+            dl->AddRectFilled(va, ve, IM_COL32(0, 0, 0, (int)(150 * k)), 15.0f);
+            volumeButton("##fvol", va, ve);
             dl->AddRectFilled(a, e, IM_COL32(0, 0, 0, (int)(150 * k)), 15.0f);
             if (pill(dl, f, "##webfullx", "Exit Full Screen", a, e, false, true)) act.webExitFullscreen = true;
-            if (g_webGroup == 0) {
-                dl->AddRectFilled(ImVec2(w - 196, 10), ImVec2(w - 158, 40), IM_COL32(0, 0, 0, (int)(150 * k)), 15.0f);
-                volumeButton("##fvol", ImVec2(w - 196, 10), ImVec2(w - 158, 40));
-            }
         }
-        if (g_webGroup == 0) { if (g_volumeOpen) movedAt = ImGui::GetTime(); volumePanel(ImVec2(w - 250, 46)); }
+        if (g_volumeOpen) movedAt = ImGui::GetTime();
+        volumePanel(ImVec2(x0, 46), x0 + vb * 0.5f);
         return;
     }
     // the tab strip: each tab with its page's title and a close button; + (the Browser's) opens a blank one and the address bar
@@ -6057,6 +6096,7 @@ void airportsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     aptMax = std::max(0.0f, contentH - (rb.y - ra.y) + 30);
     g_aptScroll = std::min(g_aptScroll, aptMax);
     dl->PopClipRect();
+    g_aptScroll = scrollBar(dl, "##aptbar", rb.x - 8, ra.y + 8, rb.y - 8, g_aptScroll, aptMax + (rb.y - ra.y), rb.y - ra.y);
     pageKeyboard(dl, f, w, h, act);
 }
 
@@ -6643,6 +6683,7 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         textRight(dl, f.small, xs[3], ry + 1, kInk, tail.c_str());
     }
     dl->PopClipRect();
+    g_fplScroll = scrollBar(dl, "##fplbar", lb.x - 8, listTop, bot - 8, g_fplScroll, total, bot - 8 - listTop);   // (draggable)
 }
 
 void glass(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha = 1.0f);
@@ -7333,7 +7374,7 @@ std::string agoText(double t) {
     return b;
 }
 // the pull-down's boxes, sized so the left column (Media, Brightness, Flight) ends clear of the bar at the bottom, as the list does
-constexpr float kCcMediaBase = 196, kCcBrightH = 88, kCcGap = 10, kCcBottomGap = 36;
+constexpr float kCcMediaBase = 204, kCcBrightH = 88, kCcGap = 10, kCcBottomGap = 36;
 float g_ccMediaH = kCcMediaBase;   // the media card's height: a row more when the computer's volume is there under the media's
 // a thin scroll bar at x, from y0 to y1, for content taller than what shows (nothing when it all fits)
 // It can be dragged (the thumb, or a press on the track moves it there) and returns the scroll, changed or not; it widens on hover.
@@ -7342,6 +7383,7 @@ float scrollBar(ImDrawList* dl, const char* id, float x, float y0, float y1, flo
     const float track = y1 - y0, len = std::max(24.0f, track * shown / content), maxS = content - shown;
     ImGui::SetCursorScreenPos(ImVec2(x - 8, y0));
     ImGui::InvisibleButton(id, ImVec2(16, track));
+    barsNow().push_back(ImRect(ImVec2(x - 10, y0), ImVec2(x + 10, y1)));   // (a drag begun here is the bar's: see touchScroll)
     static float grabOff = 0;
     const float t0 = std::max(0.0f, std::min(1.0f, scroll / std::max(1.0f, maxS)));
     const float top0 = y0 + (track - len) * t0;
@@ -7549,7 +7591,7 @@ constexpr float kVolLabelW = 62;
 // A volume: its speaker (tapped: muted, or not; drawn crossed out while muted, as the computer has it), its name and the slider
 // (greyed while muted). muteOut: 1 or 0 when the speaker was tapped, else left.
 void volumeSlider(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, float x1, float vol, float& out, bool computer, bool enabled = true,
-                  bool muted = false, int* muteOut = nullptr) {
+                  bool muted = false, int* muteOut = nullptr, const char* label = nullptr) {
     const ImVec2 c(a.x + 10, a.y + 15);
     char mid[48]; std::snprintf(mid, sizeof mid, "%s_mute", id);
     ImGui::SetCursorScreenPos(ImVec2(a.x - 4, a.y));
@@ -7568,11 +7610,23 @@ void volumeSlider(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, floa
         dl->PathArcTo(ImVec2(c.x + 3, c.y), 6.0f, -0.8f, 0.8f, 8); dl->PathStroke(col, 0, 1.5f);
     }
     enabled = enabled && !muted;
-    textAt(dl, f.small, a.x + 22, std::floor(c.y - fontPx(f.small) * 0.5f), enabled ? kInk : IM_COL32(236, 241, 250, 90), computer ? "PC" : "Media");
+    textAt(dl, f.small, a.x + 25, std::floor(c.y - fontPx(f.small) * 0.5f), enabled ? kInk : IM_COL32(236, 241, 250, 90), label ? label : computer ? "PC" : "Media");
     char txt[16];
     std::snprintf(txt, sizeof txt, "%d%%", (int)std::lround(vol * 100));
     float v = vol;
-    if (smoothSlider(dl, f, id, ImVec2(a.x + kVolLabelW, a.y), ImVec2(x1, a.y + 30), v, 0.0f, 1.0f, 0, enabled, txt)) out = v;
+    if (smoothSlider(dl, f, id, ImVec2(a.x + kVolLabelW, a.y), ImVec2(x1, a.y + 30), v, 0.0f, 1.0f, 0, enabled, txt, 8.0f)) out = v;   // (a smaller knob: clear of the buttons above)
+}
+
+// While a page in the tablet (the Browser's or a web app's) plays a video or sound, the media slider is the tablet's own volume
+// (its pages'); its speaker mutes them (and back to where it was)
+float g_tabletUnmuteVol = 0.6f;
+void tabletVolumeRow(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 a, float x1, Actions& act) {
+    float v = -1; int mu = -1;
+    const float vol = g_settings.browserVolume;
+    volumeSlider(dl, f, id, a, x1, vol, v, false, true, vol <= 0.001f, &mu, "Tablet");
+    if (mu == 1) { if (vol > 0.001f) g_tabletUnmuteVol = vol; v = 0.0f; }
+    else if (mu == 0) v = std::max(0.05f, g_tabletUnmuteVol);
+    if (v >= 0) { g_settings.browserVolume = v; g_settingsChanged = true; act.webVolume = (int)std::lround(v * 100); }
 }
 
 void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
@@ -7622,7 +7676,8 @@ void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
     playerButtons(dl, m, ImVec2(std::floor((x + x1) * 0.5f), y + 20), 22.0f, "##mp", act);
     y += 62;
     // the volumes: the player's own, and (Windows) the computer's
-    if (m.playerVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##mpvol", ImVec2(x, y), x1, m.playerVolume, v, false, !m.ducked, m.playerMuted, &mu); if (v >= 0) act.mediaPlayerVol = v; if (mu >= 0) act.mediaPlayerMute = mu; y += 38; }
+    if (s.browser.mediaPlaying) { tabletVolumeRow(dl, f, "##mptab", ImVec2(x, y), x1, act); y += 38; }
+    else if (m.playerVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##mpvol", ImVec2(x, y), x1, m.playerVolume, v, false, !m.ducked, m.playerMuted, &mu); if (v >= 0) act.mediaPlayerVol = v; if (mu >= 0) act.mediaPlayerMute = mu; y += 38; }
     if (m.masterVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##mpmaster", ImVec2(x, y), x1, m.masterVolume, v, true, true, m.masterMuted, &mu); if (v >= 0) act.mediaMasterVol = v; if (mu >= 0) act.mediaMasterMute = mu; y += 38; }
     y += 4;
     dl->AddLine(ImVec2(x, y), ImVec2(x1, y), IM_COL32(255, 255, 255, 24));
@@ -7796,7 +7851,8 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         if (md.active) progressBar(dl, f, md, ImVec2(a.x + 16, a.y + 104), b.x - 16, "##ccprog", true, act);
         playerButtons(dl, md, ImVec2(std::floor((a.x + b.x) * 0.5f), a.y + 140), 18.0f, "##ccmp", act);
         const float volY = a.y + kCcMediaBase - 38;   // the media's volume (or, when the player keeps it to itself, the radio's line), then the computer's
-        if (md.active && md.playerVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##ccvol", ImVec2(a.x + 10, volY), b.x - 12, md.playerVolume, v, false, !md.ducked, md.playerMuted, &mu); if (v >= 0) act.mediaPlayerVol = v; if (mu >= 0) act.mediaPlayerMute = mu; }
+        if (s.browser.mediaPlaying) tabletVolumeRow(dl, f, "##cctab", ImVec2(a.x + 10, volY), b.x - 12, act);
+        else if (md.active && md.playerVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##ccvol", ImVec2(a.x + 10, volY), b.x - 12, md.playerVolume, v, false, !md.ducked, md.playerMuted, &mu); if (v >= 0) act.mediaPlayerVol = v; if (mu >= 0) act.mediaPlayerMute = mu; }
         else textCentered(dl, f.small, (a.x + b.x) * 0.5f, volY + 14, md.radioRx || md.radioTx ? kWarn : kMuted, fitText(f.small, radioLine(md), colL - 24).c_str());
         if (md.masterVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##ccmaster", ImVec2(a.x + 10, volY + 34), b.x - 12, md.masterVolume, v, true, true, md.masterMuted, &mu); if (v >= 0) act.mediaMasterVol = v; if (mu >= 0) act.mediaMasterMute = mu; }
         // the Music app
@@ -8870,6 +8926,7 @@ void drawCelebration(ImDrawList* dl, const Fonts& f, float w, float h) {
 }
 void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     if (!ImGui::GetIO().MouseDown[0]) g_touchScrolling = false;
+    g_clipHas = s.clipboardHas;
     logStep(s);   // (the logbook keeps watching, whatever page is shown)
     seasonalStep();   // (a seasonal theme that has ended gives way; one that has begun is announced once)
     acarsStep(s, act);   // (and ACARS keeps listening)
@@ -9200,6 +9257,7 @@ void navSearchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
         }
     }
     dl->PopClipRect();
+    g_navScroll = scrollBar(dl, "##navbar", w - 18, ly0 + 6, ly1 - 6, g_navScroll, content, ly1 - ly0);   // (draggable)
     pageKeyboard(dl, f, w, h, act);
 }
 
@@ -9681,6 +9739,7 @@ void logbookPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, flo
         if (pill(dl, f, id, "Delete", ImVec2(w - 96, y), ImVec2(w - 28, y + 26), false, true)) del = i;
     }
     dl->PopClipRect();
+    g_logScroll = scrollBar(dl, "##logbar", w - 18, listTop + 18, lb - 8, g_logScroll, content, shown);   // (draggable)
     if (del >= 0) { g_log.erase(g_log.begin() + del); g_logChanged = true; }
 }
 
@@ -9870,6 +9929,7 @@ void acarsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
         }
     }
     dl->PopClipRect();
+    g_acScroll = scrollBar(dl, "##acbar", w - 18, listTop + 2, lb - 8, g_acScroll, content, lb - listTop - 8);   // (draggable)
     pageKeyboard(dl, f, w, h, act);
 }
 

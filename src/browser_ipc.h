@@ -11,7 +11,7 @@ namespace xptb {
 constexpr const char* kStartPage = "https://duckduckgo.com/";   // a new tab, and the one left when the last is closed
 
 constexpr uint32_t kMagic = 0x58505442;   // "XPTB"
-constexpr uint32_t kVersion = 5;         // 2: tabs; 3: tab groups (the Browser's, and each web app's), zoom; 4: zoom to fit, wheel across; 5: media volume, the Browser may have no tabs
+constexpr uint32_t kVersion = 7;         // 2: tabs; 3: tab groups (the Browser's, and each web app's), zoom; 4: zoom to fit, wheel across; 5: media volume, the Browser may have no tabs; 6: media playing; 7: copy and paste
 constexpr int kMaxW = 2048, kMaxH = 1536;  // the largest page picture, pixels
 constexpr int kCmds = 64;                  // commands the ring holds
 constexpr int kTextLen = 2048;             // a URL, or a few typed characters
@@ -32,7 +32,8 @@ enum CmdType : int32_t {
     CMD_TAB_SELECT,   // a: the tab's id
     CMD_ZOOM,         // a: +1 closer, -1 farther (the shown tab's own zoom, kept), 0 back to fitting the page to the view
     CMD_EXIT_FULLSCREEN,  // the shown page leaves full screen (a video's)
-    CMD_MEDIA_VOLUME      // a: 0..100, the volume of the Browser's videos and sounds (its own tabs, not the web apps')
+    CMD_MEDIA_VOLUME,     // a: 0..100, the volume of the tablet's videos and sounds (every tab: the Browser's and the web apps')
+    CMD_EDIT              // a: 1 copy, 2 cut, 3 paste, 4 select all (in the shown page's focused frame, with the computer's clipboard)
 };
 // Navigation, pointer and keys always go to the tab shown.
 
@@ -66,6 +67,7 @@ struct Shared {
     int32_t zoomPct;                   // the shown tab's zoom, percent
     int32_t zoomAuto;                  // 1: it is the zoom that fits the page's width (no zoom chosen for the tab)
     int32_t fullscreen;                // the shown tab is full screen (a video): the tablet gives it the whole screen
+    int32_t mediaPlaying;              // a video or sound is playing in one of the tabs (any group), as the pages last said
     uint8_t pixels[2][kMaxW * kMaxH * 4];   // BGRA, rows top to bottom
 };
 

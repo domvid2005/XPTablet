@@ -1571,6 +1571,18 @@ int main(int argc, char** argv) {
           wb.browser.tabs = {{1, "ChartFox - Free Flight Simulation Charts", "https://chartfox.org/", false, 0}, {2, "SimBrief Dispatch", "https://dispatch.simbrief.com/", true, 100 + APP_SIMBRIEF}, {3, "", "https://fly.volanta.app/", false, 100 + APP_LIVEMAP}};   // the Browser's, SimBrief's and Volanta's
           wb.browser.activeTab = 1;
           press(wb, 300, 28 + 46 + 32 + 20); shot(wb, APP_BROWSER, "browser_keyboard");
+          { SimState wc = wb; wc.clipboardHas = true; shot(wc, APP_BROWSER, "browser_keyboard_paste"); }   // (text in the clipboard: Paste over the keys)
+          {   // full screen (a video): the volume and Exit Full Screen side by side in the middle at the top; Exit takes its press over the page
+            SimState fs = wb; fs.browser.fullscreen = true; fs.browser.tex = io.Fonts->TexID; fs.browser.texW = 800; fs.browser.texH = 480; fs.browser.mediaPlaying = true;
+            openApp(APP_BROWSER);
+            bool exited = false;
+            const bool downs[6] = {false, false, true, true, false, false};
+            for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(800 * 0.5f + 46, 25); io.AddMouseButtonEvent(0, d);
+                ImGui::NewFrame(); Actions act; build(fonts, fs, 800, kLogicalH, act); ImGui::Render(); if (act.webExitFullscreen) exited = true; }
+            if (!exited) { std::printf("FAIL: Exit Full Screen takes its press over the page\n"); ++failures; }
+            shot(fs, APP_BROWSER, "browser_fullscreen");
+            shot(fs, APP_MUSIC, "music_tablet_volume");
+          }
           // a web app already open in a tab is shown again (its tab selected), not loaded over the shown page
           { settings().showSimbrief = true; openApp(APP_SIMBRIEF);
             Actions got;

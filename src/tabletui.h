@@ -196,6 +196,7 @@ struct BrowserState {
     int zoomPct = 100;            // the shown page's zoom
     bool zoomAuto = true;         // it is the zoom fitting the page to the view (none chosen for the tab)
     bool fullscreen = false;      // the shown page is full screen (a video): it takes the whole tablet
+    bool mediaPlaying = false;    // a video or sound is playing in one of the tablet's pages (the Browser's or a web app's)
 };
 
 // A pilot on VATSIM (the Map's traffic card): who, where, and the filed flight plan.
@@ -375,6 +376,7 @@ struct SimState {
     AcarsState acars;             // Hoppie's ACARS (the ACARS app)
     bool xpilotLoaded = false;    // xPilot's plugin is running (by its signature, whatever its version's commands)
     int xpilotLogin = -1;         // xPilot's connection (its xpilot/login/status): 0 not connected, 1 a pilot, 2 an observer; -1 not known
+    bool clipboardHas = false;    // the computer's clipboard holds text (looked at while typing): the keyboard offers Paste
     std::string xpilotCallsign, xpilotCom1, xpilotCom2;   // its callsign on the network, the stations tuned on COM1 and COM2
     int xpilotAircraft = 0;       // the aircraft it is drawing
     std::vector<std::string> xpilotCmds;   // xPilot's own commands found in the sim (its message window, nearby ATC...): buttons for them
@@ -445,6 +447,8 @@ struct Actions {
     int webZoom = 0;              // the shown page: +1 closer, -1 farther, 2 back to 100 %, 3 to webZoomPct
     int webZoomPct = 100;
     int webVolume = -1;           // the Browser's media volume, 0..100, when changed (-1 none)
+    int webEdit = 0;              // the page: 1 copy, 2 cut, 3 paste, 4 select all (0 none)
+    bool paste = false;           // Paste on the keyboard: the clipboard's text into the tablet's own text box (pasteText)
     float mediaPlayerVol = -1;    // the player's own volume set (0..1), -1 none
     float mediaMasterVol = -1;    // the computer's volume set (0..1), -1 none
     int mediaPlayerMute = -1, mediaMasterMute = -1;   // muted (1) or not (0) set by a tap on a slider's speaker, -1 none
@@ -529,6 +533,9 @@ void setSeasonalPreview(bool all);
 int settingsTabShown();   // the Settings page's tab (for the tests)
 void celebrate(int which);   // the midnight celebration now: 0 New Year, 1 Christmas (it starts by itself at midnight; this is for a preview)
 bool celebrationShown();     // it is up (it stays until its Dismiss button is pressed)
+void pasteText(const std::string& text);   // typed into the text box being typed in (the tablet's own, or the address bar)
+std::string typedText();                   // what that box holds (for copying it)
+void clearTyped();                         // emptied (a cut)
 void setDeviceInput(bool on);   // a Local Connect device is working the tablet now (its keyboard choice applies)
 bool deviceKeysWanted();        // typing now, from a device that uses its own keyboard (the device raises it)
 unsigned settingsReveal();   // which of Settings' hidden fields are shown now (a bit each: SimBrief, Hoppie, Volanta, Local Connect's address)

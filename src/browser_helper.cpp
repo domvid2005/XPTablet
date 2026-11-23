@@ -184,6 +184,7 @@ struct Tab {
     std::string url, title;
     bool loading = false, back = false, fwd = false;
     bool fullscreen = false;         // the page asked for full screen (a video)
+    bool playing = false;            // a video or sound is playing on it (as it last said: asked every second)
     // the zoom: Chromium's level (1.2 to its power); chosen with + / - (kept for this tab), else the one fitting the page's width
     double zoom = 0;
     bool manual = false;
@@ -208,14 +209,17 @@ std::vector<OpenReq> g_openQueue;   // pages asked for in a new window: opened a
 
 double nowS() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 // the sites whose own zoom is kept (as a level: 1.2 to its power), shown as 100 %
-// (the tablet's web apps: those sites at their own zooms; every other web app at 55 %; the Browser's own tabs fitted to the width)
+// (the tablet's web apps: those sites at their own zooms; every other web app at 55 %)
+// The Browser's own tabs (group 0): every site at 55 % of that (its own zoom x 0.55, any other site 55 %), not fitted.
 double siteBase(const std::string& host, int group) {
     auto has = [&](const char* d) { return host.find(d) != std::string::npos; };
     double pct = 0;
     if (has("foreflight.com") || has("vatsim-radar.com")) pct = 0.65;
     else if (has("chartfox.org")) pct = 0.70;
     else if (has("simbrief.com")) pct = 0.50;
-    else if (group != 0 && host.compare(0, 5, "file:") != 0 && !host.empty()) pct = 0.55;
+    const bool web = host.compare(0, 5, "file:") != 0 && !host.empty();
+    if (group == 0 && web) pct = (pct > 0 ? pct : 1.0) * 0.55;
+    else if (pct == 0 && group != 0 && web) pct = 0.55;
     return pct > 0 ? std::log(pct) / std::log(1.2) : 0.0;
 }
 std::string hostPart(const std::string& u) {
@@ -258,10 +262,11 @@ void publishInfo() {
     g_shm->infoSeq.fetch_add(1);
 }
 template <class T> void unref(T* p);   // (below)
-// the Browser's media volume (its own tabs: group 0), set on every video and sound on the page, and again on what comes later
+// the tablet's media volume (every tab: the Browser's and the web apps'), set on every video and sound on the page, and again on what
+// comes later
 int g_mediaVol = 100;
 void applyVolume(Tab& t) {
-    if (!t.br || t.group != 0) return;
+    if (!t.br) return;
     cef_frame_t* f = t.br->get_main_frame(t.br);
     if (!f) return;
     char js[400];
@@ -278,6 +283,18 @@ void applyZoom(Tab& t) {
     if (!t.br) return;
     cef_browser_host_t* h = t.br->get_host(t.br);
     if (h) { h->set_zoom_level(h, t.zoom); unref(h); }
+}
+// asks a page whether a video or sound is playing on it (the answer comes back as a console message, onConsole)
+void askPlaying(Tab& t) {
+    if (!t.br) return;
+    cef_frame_t* f = t.br->get_main_frame(t.br);
+    if (!f) return;
+    cef_string_t js = {}, u = {};
+    setStr(&js, "(function(){var p=0;document.querySelectorAll('video,audio').forEach(function(e){if(!e.paused&&!e.ended&&e.readyState>2&&!e.muted)p=1;});"
+                "console.log('__xptplay '+p);})()");
+    f->execute_java_script(f, &js, &u, 0);
+    cef.utf16_clear(&js);
+    unref(f);
 }
 // asks the page how wide it is against the view (the answer comes back as a console message, onConsole)
 void askFit(Tab& t) {
@@ -416,6 +433,10 @@ void CEF_CALLBACK onTitleChange(cef_display_handler_t*, cef_browser_t* b, const 
 int CEF_CALLBACK onConsole(cef_display_handler_t*, cef_browser_t* b, cef_log_severity_t level, const cef_string_t* message, const cef_string_t* source, int line) {
     if (message) {   // the page's width (askFit): wider than the view, it is zoomed out until it fits (never in past 100 %, never under 30 %)
         const std::string m = toUtf8(message);
+        if (m.compare(0, 10, "__xptplay ") == 0) {
+            if (Tab* t = tabOf(b)) t->playing = m.size() > 10 && m[10] == '1';
+            return 1;
+        }
         if (m.compare(0, 9, "__xptfit ") == 0) {
             Tab* t = tabOf(b);
             double sw = 0, iw = 0;
@@ -614,6 +635,16 @@ void runCommand(const xptb::Cmd& c) {
     case xptb::CMD_RELOAD: if (br) br->reload(br); break;
     case xptb::CMD_STOP: if (br) br->stop_load(br); break;
     case xptb::CMD_TAB_NEW: openTab(c.text, c.b); break;
+    case xptb::CMD_EDIT:   // copy, cut, paste, select all: in the frame with the focus (a field in a frame of the page), else the page
+        if (br) {
+            cef_frame_t* f = br->get_focused_frame(br);
+            if (!f) f = br->get_main_frame(br);
+            if (f) {
+                if (c.a == 1) f->copy(f); else if (c.a == 2) f->cut(f); else if (c.a == 3) f->paste(f); else if (c.a == 4) f->select_all(f);
+                unref(f);
+            }
+        }
+        break;
     case xptb::CMD_MEDIA_VOLUME:
         g_mediaVol = std::max(0, std::min(100, c.a));
         for (Tab& t : g_tabs) applyVolume(t);
@@ -623,11 +654,19 @@ void runCommand(const xptb::Cmd& c) {
             cef_frame_t* f = br->get_main_frame(br);
             if (f) {
                 cef_string_t js = {}, u = {};
-                setStr(&js, "if (document.fullscreenElement) document.exitFullscreen();");
+                setStr(&js, "if (document.fullscreenElement) document.exitFullscreen(); else if (document.webkitFullscreenElement) document.webkitExitFullscreen();");
                 f->execute_java_script(f, &js, &u, 0);
                 cef.utf16_clear(&js);
                 unref(f);
             }
+            // and Esc, as the page's own way out (a player that keeps full screen to itself)
+            withHost([](cef_browser_host_t* h, const xptb::Cmd&) {
+                cef_key_event_t k;
+                std::memset(&k, 0, sizeof k);
+                k.windows_key_code = 27;
+                k.type = KEYEVENT_RAWKEYDOWN; h->send_key_event(h, &k);
+                k.type = KEYEVENT_KEYUP; h->send_key_event(h, &k);
+            }, c);
         }
         break;
     case xptb::CMD_ZOOM:   // Chromium's zoom levels: 1.2 to the power of the level (0.5 a step: about 10 %)
@@ -798,6 +837,16 @@ int main(int argc, char** argv) {
             const std::vector<OpenReq> q = std::move(g_openQueue);
             g_openQueue.clear();
             for (const OpenReq& r : q) openTab(r.url, r.group);
+        }
+        {   // each page asked, every second, whether it is playing a video or sound; the tablet told whether any is
+            static double askedAt = 0;
+            const double now = nowS();
+            if (now - askedAt > 1.0) {
+                askedAt = now;
+                bool any = false;
+                for (Tab& t : g_tabs) { askPlaying(t); any = any || t.playing; }
+                g_shm->mediaPlaying = any ? 1 : 0;
+            }
         }
         {   // the pages due to be measured for their fit
             const double now = nowS();
