@@ -11,7 +11,7 @@ namespace xptb {
 constexpr const char* kStartPage = "https://duckduckgo.com/";   // a new tab, and the one left when the last is closed
 
 constexpr uint32_t kMagic = 0x58505442;   // "XPTB"
-constexpr uint32_t kVersion = 8;         // 2: tabs; 3: tab groups (the Browser's, and each web app's), zoom; 4: zoom to fit, wheel across; 5: media volume, the Browser may have no tabs; 6: media playing; 7: copy and paste; 8: touch
+constexpr uint32_t kVersion = 9;         // 2: tabs; 3: tab groups (the Browser's, and each web app's), zoom; 4: zoom to fit, wheel across; 5: media volume, the Browser may have no tabs; 6: media playing; 7: copy and paste; 8: touch; 9: find
 constexpr int kMaxW = 2048, kMaxH = 1536;  // the largest page picture, pixels
 constexpr int kCmds = 64;                  // commands the ring holds
 constexpr int kTextLen = 2048;             // a URL, or a few typed characters
@@ -34,7 +34,8 @@ enum CmdType : int32_t {
     CMD_EXIT_FULLSCREEN,  // the shown page leaves full screen (a video's)
     CMD_MEDIA_VOLUME,     // a: 0..100, the volume of the tablet's videos and sounds (every tab: the Browser's and the web apps')
     CMD_EDIT,             // a: 1 copy, 2 cut, 3 paste, 4 select all (in the shown page's focused frame, with the computer's clipboard)
-    CMD_TOUCH             // a, b: where; c: 0 pressed, 1 moved, 2 released, 3 cancelled (a finger: the page scrolls and pans itself, with its fling)
+    CMD_TOUCH,            // a, b: where; c: 0 pressed, 1 moved, 2 released, 3 cancelled (a finger: the page scrolls and pans itself, with its fling)
+    CMD_FIND              // text: found in the shown page (a PDF too) and scrolled to, highlighted; empty: the highlight cleared
 };
 // Navigation, pointer and keys always go to the tab shown.
 

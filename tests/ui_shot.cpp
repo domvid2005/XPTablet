@@ -759,13 +759,11 @@ int main(int argc, char** argv) {
                 if (got.empty()) { std::printf("FAIL: an airport's dot on the map cannot be tapped\n"); ++failures; }
                 else {
                     shot(em, APP_MAP, "map_airport_dot_card");
-                    // by finger: one tap on the dot opens nothing, a double tap opens its card
+                    // by finger too: one tap opens its card
                     mapSelect(0, ""); setTouchInput(true); got.clear();
                     for (int k = 0; k < 10; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.1f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, em, 800, kLogicalH, act); ImGui::Render(); }   // (no double tap left over)
                     got.clear(); tapAt(fx, fy);
-                    if (!got.empty()) { std::printf("FAIL: one finger tap on the map opened a card\n"); ++failures; }
-                    tapAt(fx, fy);
-                    if (got.empty()) { std::printf("FAIL: a finger double tap on the map opened no card\n"); ++failures; }
+                    if (got.empty()) { std::printf("FAIL: one finger tap on the map opened no card\n"); ++failures; }
                     setTouchInput(false);
                 }
                 {   // its VATSIM ATC badge: tapped, the card (with the controllers)
@@ -971,9 +969,17 @@ int main(int argc, char** argv) {
                 auto click = [&](float cx, float cy) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(cx, cy); io.AddMouseButtonEvent(0, k == 1 || k == 2);
                     ImGui::NewFrame(); Actions act; build(fonts, dp, 800, kLogicalH, act); ImGui::Render(); } };
                 openDispatchFromPlan(); click(-100, -100);
-                const char* names[6] = {"dispatch_summary", "dispatch_navlog", "dispatch_weather", "dispatch_notams", "dispatch_atc", "dispatch_ofp"};
-                const float xs[6] = {125, 196, 268, 350, 450, 560};   // (the tabs, left to right)
-                for (int i = 0; i < 6; ++i) { click(xs[i], 28 + 46 + 8 + 38 + 14); shot(dp, APP_DISPATCH, names[i]); }
+                const char* names[5] = {"dispatch_summary", "dispatch_navlog", "dispatch_weather", "dispatch_notams", "dispatch_atc"};
+                const float xs[5] = {125, 196, 268, 350, 450};   // (the tabs, left to right)
+                for (int i = 0; i < 5; ++i) { click(xs[i], 28 + 46 + 8 + 38 + 14); shot(dp, APP_DISPATCH, names[i]); }
+                {   // a part pressed (the weather tab: KSBN's METAR): the PDF shown, and the part found in it
+                    click(268, 28 + 46 + 8 + 38 + 14);
+                    click(300, 28 + 46 + 8 + 74 + 44);
+                    std::string found;
+                    for (int k = 0; k < 40 && found.empty(); ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.05f; io.AddMousePosEvent(-100, -100);
+                        ImGui::NewFrame(); Actions act; SimState dq = dp; dq.browser.status = 1; dq.browser.tabs = {{9, "", dp.plan.pdfUrl, false, 301}}; dq.browser.activeTab = 9; build(fonts, dq, 800, kLogicalH, act); ImGui::Render(); if (!act.webFind.empty()) found = act.webFind; }
+                    if (found != "KSBN 222351Z") { std::printf("FAIL: a part of the briefing pressed is found in its PDF (%s)\n", found.c_str()); ++failures; }
+                }
                 click(40, 28 + 46 + 8 + 38 + 14);   // back to the PDF
             }
             { SimState np = t; shot(np, APP_DISPATCH, "dispatch_empty"); }

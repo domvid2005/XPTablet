@@ -663,6 +663,7 @@ void browserStep(const xpt::Actions& act) {
         else br::push(e.type, (int)e.x, (int)e.y, e.code, e.code2, e.ctrl ? 1.0f : 0.0f);
     }
     if (!act.webNavigate.empty()) br::push(xptb::CMD_NAVIGATE, 0, 0, 0, 0, 0, act.webNavigate);
+    if (!act.webFind.empty()) br::push(xptb::CMD_FIND, 0, 0, 0, 0, 0, act.webFind);
     switch (act.webNav) {
     case 1: br::push(xptb::CMD_BACK); break;
     case 2: br::push(xptb::CMD_FORWARD); break;
@@ -918,8 +919,11 @@ void acarsStep(const xpt::Actions& act) {
 }
 // xPilot's own commands (its message window, nearby ATC...): looked for now and then (it may load after us), pressed for the tablet
 void xpilotStep(const xpt::Actions& act) {
-    static const char* const names[] = {"xpilot/toggle_text_message_console", "xpilot/toggle_nearby_atc", "xpilot/toggle_notification_panel",
-                                        "xpilot/toggle_aircraft_labels"};
+    // (its message window: xPilot 3 names it toggle_text_message_console; xPilot 4's name is not published, so the likely ones
+    // are looked for too, and whichever is found is logged)
+    static const char* const names[] = {"xpilot/toggle_text_message_console", "xpilot/toggle_messages", "xpilot/toggle_messages_window",
+                                        "xpilot/toggle_message_window", "xpilot/toggle_text_messages", "xpilot/toggle_message_console",
+                                        "xpilot/toggle_chat", "xpilot/toggle_nearby_atc", "xpilot/toggle_notification_panel", "xpilot/toggle_aircraft_labels"};
     // (by the clock, not by an exact frame number: the tablet is not drawn every frame, and a check on one frame number in 256
     // could fall on frames it never draws, so xPilot was never found, 2026-11-22)
     static float lookedAt = -100, readAt = -100;
@@ -954,6 +958,29 @@ void xpilotStep(const xpt::Actions& act) {
         }
     }
     if (!act.xpilotCmd.empty()) if (XPLMCommandRef c = XPLMFindCommand(act.xpilotCmd.c_str())) XPLMCommandOnce(c);
+    {   // its aircraft labels on or off: as xPilot saves them (its Config.json, written when they are switched, from its menu too)
+        static float cfgAt = -100;
+        static std::string cfgPath;
+        if (g_sim.xpilotLoaded && (now - cfgAt > 2.0f || !act.xpilotCmd.empty())) {
+            cfgAt = !act.xpilotCmd.empty() ? now - 1.5f : now;   // (pressed here: read again in half a second, once xPilot has saved it)
+            if (cfgPath.empty()) {
+                char path[2048] = "";
+                XPLMGetPluginInfo(XPLMFindPluginBySignature("org.vatsim.xpilot"), nullptr, path, nullptr, nullptr);
+                std::string p = path;   // .../plugins/xPilot/win_x64/xPilot.xpl -> .../plugins/xPilot/Resources/Config.json
+                for (int up = 0; up < 2; ++up) { const size_t s = p.find_last_of("/\\"); if (s != std::string::npos) p.resize(s); }
+                cfgPath = p.empty() ? std::string("-") : p + "/Resources/Config.json";
+            }
+            int labels = -1;
+            if (std::FILE* f = std::fopen(cfgPath.c_str(), "rb")) {
+                std::string body; char buf[4096]; size_t n;
+                while ((n = std::fread(buf, 1, sizeof buf, f)) > 0 && body.size() < (1u << 20)) body.append(buf, n);
+                std::fclose(f);
+                const size_t k = body.find("\"ShowAircraftLabels\"");
+                if (k != std::string::npos) { size_t v = body.find(':', k); if (v != std::string::npos) { while (++v < body.size() && (body[v] == ' ' || body[v] == '\t')) {} labels = body.compare(v, 4, "true") == 0 ? 1 : body.compare(v, 5, "false") == 0 ? 0 : -1; } }
+            }
+            g_sim.xpilotLabels = labels;
+        }
+    }
     if (now - readAt > 0.5f) {   // its connection, callsign, tuned stations and aircraft count (xPilot's own datarefs)
         readAt = now;
         static XPLMDataRef st = nullptr, cs = nullptr, c1 = nullptr, c2 = nullptr, na = nullptr;
@@ -1142,6 +1169,19 @@ std::vector<xpt::MapState::RoutePoint> resolveRoute(const xpt::VatsimPilot& v) {
     xpt::MapState::RoutePoint rp;
     float la = (float)v.lat, lo = (float)v.lon;
     if (!v.departure.empty() && find(v.departure, xplm_Nav_Airport, la, lo, false, rp)) { out.push_back(rp); la = (float)rp.lat; lo = (float)rp.lon; }
+    {   // from X-Plane's nav data as the map reads it: each name the one nearest the fix before it (X-Plane's own search takes the
+        // nearest partial match, so a fix was dropped when another name holding it was closer), and the airways followed fix by fix
+        std::vector<std::string> words;
+        std::istringstream in(v.route);
+        for (std::string w; in >> w;) { if (w == v.departure) continue; if (w == v.arrival) break; words.push_back(w); }
+        std::vector<xpt::MapState::RoutePoint> mid;
+        if (xpt::navdata::resolveRoute(la, lo, words, mid)) {
+            out.insert(out.end(), mid.begin(), mid.end());
+            if (!out.empty()) { la = (float)out.back().lat; lo = (float)out.back().lon; }
+            if (!v.arrival.empty() && find(v.arrival, xplm_Nav_Airport, la, lo, false, rp)) out.push_back(rp);
+            return out;
+        }
+    }
     std::string tok;
     std::istringstream in(v.route);
     while (in >> tok && out.size() < 200) {
@@ -1207,7 +1247,8 @@ void readMapState() {
             t.lat = la[i]; t.lon = lo[i]; t.altFt = el[i] * 3.28084f; t.hdg = ps[i]; t.vsFpm = vs[i]; t.gsKt = v[i] * 1.943844f; t.onGround = wow[i] != 0;
             t.callsign.assign(ids + i * 8, strnlen(ids + i * 8, 8));
             t.type.assign(types + i * 8, strnlen(types + i * 8, 8));
-            if (t.callsign.empty()) t.callsign = t.type.empty() ? "TFC" : t.type;
+            // no call sign (X-Plane's AI): its type and its slot, so two of a type are not one aircraft (their trails were joined)
+            if (t.callsign.empty()) t.callsign = (t.type.empty() ? std::string("TFC") : t.type) + " " + std::to_string(i);
             m.traffic.push_back(t);
         }
     }
@@ -1911,7 +1952,12 @@ void ensureFrame() {
             static std::string routeKey;
             const xpt::VatsimPilot& v = g_sim.map.vatsim;
             const std::string key = v.found && v.hasPlan && xpt::settings().mapTrafficRoute ? v.callsign + "|" + v.departure + "|" + v.route + "|" + v.arrival : std::string();
-            if (key != routeKey) { routeKey = key; g_sim.map.trafficRoute = key.empty() ? std::vector<xpt::MapState::RoutePoint>() : resolveRoute(v); }
+            static bool routeFull = false;   // (resolved with the map's nav data: else asked again once it has been read)
+            if (key != routeKey || (!key.empty() && !routeFull)) {
+                routeKey = key;
+                routeFull = key.empty() || xpt::navdata::ready();
+                g_sim.map.trafficRoute = key.empty() ? std::vector<xpt::MapState::RoutePoint>() : resolveRoute(v);
+            }
         } else g_sim.map.trafficRoute.clear();
         static double lastWorld = -100;
         if (!world) g_vatsimTraffic.clear();

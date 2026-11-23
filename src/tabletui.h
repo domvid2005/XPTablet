@@ -383,6 +383,7 @@ struct SimState {
     int batteryPct = 100;         // the tablet's own battery
     LocalConnectState local;      // Local Connect (Settings)
     AcarsState acars;             // Hoppie's ACARS (the ACARS app)
+    int xpilotLabels = -1;        // xPilot's aircraft labels: 1 on, 0 off, -1 not known (from its saved settings)
     bool xpilotLoaded = false;    // xPilot's plugin is running (by its signature, whatever its version's commands)
     int xpilotLogin = -1;         // xPilot's connection (its xpilot/login/status): 0 not connected, 1 a pilot, 2 an observer; -1 not known
     bool clipboardHas = false;    // the computer's clipboard holds text (looked at while typing): the keyboard offers Paste
@@ -450,6 +451,7 @@ struct Actions {
     float webX = 0, webY = 0, webW = 0, webH = 0;
     std::vector<WebEvent> web;
     std::string webNavigate;
+    std::string webFind;             // text to find in the shown page (the Dispatch app: in the briefing PDF)
     int webNav = 0;               // 1 back, 2 forward, 3 reload, 4 stop
     bool webTabNew = false;       // open a tab (at webTabUrl, or blank) in group webTabGroup, and show it
     int webTabGroup = 0;

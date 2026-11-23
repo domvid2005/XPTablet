@@ -709,6 +709,14 @@ void runCommand(const xptb::Cmd& c) {
         g_buttonDown = false;
         withHost([](cef_browser_host_t* h, const xptb::Cmd& c) { cef_mouse_event_t m = mouseAt(c); h->send_mouse_click_event(h, &m, MBT_LEFT, 1, 1); }, c);
         break;
+    case xptb::CMD_FIND:   // the Dispatch app: a part of the briefing pressed, found in its PDF
+        withHost([](cef_browser_host_t* h, const xptb::Cmd& c) {
+            if (!c.text[0]) { h->stop_finding(h, 1); return; }
+            cef_string_t s = {}; setStr(&s, c.text);
+            h->find(h, &s, 1, 0, 0);
+            cef.utf16_clear(&s);
+        }, c);
+        break;
     case xptb::CMD_TOUCH:   // a finger on the page: Chromium's own touch handling (scrolling with momentum, panning maps, taps as clicks)
         withHost([](cef_browser_host_t* h, const xptb::Cmd& c) {
             cef_touch_event_t t;

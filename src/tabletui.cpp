@@ -57,7 +57,7 @@ void acarsStep(const SimState& s, Actions& act);   // ACARS: what came up, into 
 void logStep(const SimState& s);   // the logbook's watch on the flight (below)
 // a finger's drag up or down over a list scrolls it, even begun on one of its rows (whose tap is then let go); the mouse's too
 bool g_touchScrolling = false;
-bool g_touchInput = false;   // the last press came from a finger (a phone or tablet browser): the map opens its cards on a double tap
+bool g_touchInput = false;   // the last press came from a finger (a phone or tablet browser): a tap on the map may move a little more
 // the scroll bars drawn (this frame and the last): a press begun on one drags the bar, not the list (the list dragged the other
 // way at once, fighting the bar, and took its press away, 2026-11-22)
 std::vector<ImRect> g_barRects[2];
@@ -1319,6 +1319,8 @@ bool insideRings(const AirspaceArea& a, double lat, double lon) {   // even-odd 
     return in;
 }
 double g_airspaceTapLat = 0, g_airspaceTapLon = 0;   // where the airspace card's area was tapped
+struct AirspaceLabel { ImVec2 a, b; std::string id; double lat, lon; };
+std::vector<AirspaceLabel> g_airspaceLabels;   // the online airspaces' labels drawn on the map this frame (a tap on one opens its card)
 
 // The home screen's places: pages of cols x rows; a widget takes a block of them from its corner (its place in the list).
 int g_gridCols = 7, g_gridRows = 3;
@@ -1726,6 +1728,16 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
     // the page dots, over the bar
     if (pages > 1) {
         const float dy = (hasDock ? dockTop : h) - 12, dw0 = pages * 14.0f;
+        if (!g_editMode && drag < 0) {   // pressed: the page of the dot under the finger (slid along them, the pages follow)
+            const float sx0 = std::floor(w * 0.5f - dw0 * 0.5f) - 10;
+            ImGui::SetCursorScreenPos(ImVec2(sx0, dy - 11));
+            ImGui::InvisibleButton("##homedots", ImVec2(dw0 + 20, 22));
+            if (ImGui::IsItemActive()) {
+                const int to = std::max(0, std::min(pages - 1, (int)std::floor((ImGui::GetIO().MousePos.x - sx0 - 10) / 14.0f)));
+                if (to != g_homePage) g_homePage = to;
+            }
+            if (ImGui::IsItemHovered() || ImGui::IsItemActive()) dl->AddRectFilled(ImVec2(sx0, dy - 9), ImVec2(sx0 + dw0 + 20, dy + 9), IM_COL32(255, 255, 255, ImGui::IsItemActive() ? 40 : 22), 9.0f);
+        }
         for (int p = 0; p < pages; ++p) {
             const float nearK = std::max(0.0f, 1.0f - std::fabs(p - g_homeScroll));
             dl->AddCircleFilled(ImVec2(std::floor(w * 0.5f - dw0 * 0.5f + 7 + p * 14), dy), 3.2f + nearK * 0.8f, IM_COL32(255, 255, 255, (int)(90 + 165 * nearK)), 0);
@@ -4201,6 +4213,11 @@ void trackTraffic(const MapState& m) {
         tr.seen = now;
         if (now - tr.added >= 5.0) {
             tr.added = now;
+            // a jump no aircraft makes (its call sign now on another aircraft, or it was moved): the trail starts again there
+            if (!tr.pts.empty()) {
+                const double dla = (t.lat - tr.pts.back().first) * 60.0, dlo = (t.lon - tr.pts.back().second) * 60.0 * std::cos(t.lat * kPi / 180.0);
+                if (std::sqrt(dla * dla + dlo * dlo) > 25.0) tr.pts.clear();
+            }
             tr.pts.push_back({t.lat, t.lon});
             if (tr.pts.size() > 120) tr.pts.erase(tr.pts.begin());
         }
@@ -4209,6 +4226,7 @@ void trackTraffic(const MapState& m) {
 }
 
 void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    g_airspaceLabels.clear();
     const MapState& m = s.map;
     const float top = kStatusH + kHeaderH;
     const ImVec2 r0(0, top), r1(w, h);
@@ -4298,16 +4316,8 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
     const ImGuiIO& io = ImGui::GetIO();
     if (ImGui::IsItemActivated()) g_mapPressPos = io.MousePos;
     const bool mapTap = ImGui::IsItemDeactivated() && std::fabs(io.MousePos.x - g_mapPressPos.x) + std::fabs(io.MousePos.y - g_mapPressPos.y) < (g_touchInput ? 14 : 8);
-    // by finger, a single tap is often the start of a drag or a pinch: a card opens (or closes) on a double tap there; one tap
-    // still closes an open menu. With a mouse one click does it all.
+    // one tap (or click) opens a card: a press that moved is a drag, not a tap (a finger is given a little more room)
     bool mapClick = mapTap;
-    if (mapTap && g_touchInput && !g_mapMenu) {
-        static double lastTapT = -10; static ImVec2 lastTapP(-1000, -1000);
-        const double now = ImGui::GetTime();
-        const bool second = now - lastTapT < 0.50 && std::fabs(io.MousePos.x - lastTapP.x) + std::fabs(io.MousePos.y - lastTapP.y) < 40;
-        mapClick = second;
-        lastTapT = second ? -10 : now; lastTapP = io.MousePos;
-    }
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0) && g_settings.mapRoute && m.route.size() >= 2) {   // the route, tapped twice: its Flight Plan
         const ImVec2 p = io.MousePos;
         float best = 1e9f;
@@ -4823,9 +4833,10 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     }
                     if (pts.size() > 1) dl->AddPolyline(pts.data(), (int)pts.size(), col, 0, th);
                 }
-                if ((on || picked) && g_mapZoom >= 3.0) {   // its code, on a small dark label
+                if ((on || picked) && g_mapZoom >= 3.0) {   // its code, on a small dark label (tappable: it opens the airspace's card)
                     const ImVec2 lp = toS(mercOf(ar.labelLat, ar.labelLon));
                     const ImVec2 ts = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, ar.id.c_str());
+                    g_airspaceLabels.push_back({ImVec2(lp.x - ts.x * 0.5f - 5, lp.y - ts.y * 0.5f - 2), ImVec2(lp.x + ts.x * 0.5f + 5, lp.y + ts.y * 0.5f + 2), ar.id, ar.labelLat, ar.labelLon});
                     dl->AddRectFilled(ImVec2(lp.x - ts.x * 0.5f - 5, lp.y - ts.y * 0.5f - 2), ImVec2(lp.x + ts.x * 0.5f + 5, lp.y + ts.y * 0.5f + 2), IM_COL32(10, 30, 20, 210), 4.0f);
                     textAt(dl, f.small, std::floor(lp.x - ts.x * 0.5f), std::floor(lp.y - ts.y * 0.5f), picked ? accentLite(255) : IM_COL32(120, 235, 150, 255), ar.id.c_str());
                 }
@@ -5131,7 +5142,7 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
         // airports come before navaids, ILS courses, fixes and route points (only traffic is ahead of them): their dot, or close in
         // anywhere on their layout; and on a layout, a stand (its dot) before the airport
         if (g_settings.mapAirports) {   // (with traffic tapped: a stand closer to the tap than the aircraft still wins, below)
-            float aBest = 16.0f;
+            float aBest = 26.0f;   // (a finger's reach: the dot is small)
             std::string aKey;
             if (g_mapZoom >= 7.0 && kind != 1)
                 for (const AptPoint& a : m.airportPoints) {
@@ -5174,6 +5185,9 @@ void mapPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h
                     if (p.x >= std::min(b0.x, b1.x) - 8 && p.x <= std::max(b0.x, b1.x) + 8 && p.y >= std::min(b0.y, b1.y) - 8 && p.y <= std::max(b0.y, b1.y) + 8) { kind = 4; key = ap->icao; break; }
                 }
         }
+        if (kind != 1 && kind != 6 && g_settings.mapAirspaces)   // an online airspace's label (its code): its card, before an airport or fix under it
+            for (const AirspaceLabel& L : g_airspaceLabels)
+                if (p.x >= L.a.x - 8 && p.x <= L.b.x + 8 && p.y >= L.a.y - 8 && p.y <= L.b.y + 8) { kind = 7; key = L.id; g_airspaceTapLat = L.lat; g_airspaceTapLon = L.lon; break; }
         if (kind == 0 && g_settings.mapAirspaces && m.airspaces) {   // nothing else there: the airspace it is in
             double la, lo;
             latLonOf(fromS(p), la, lo);
@@ -6419,9 +6433,20 @@ void dispatchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     if (!p.weather.empty()) tabs.push_back({T_WEATHER, "Weather"});
     if (!p.notams.empty()) tabs.push_back({T_NOTAMS, "NOTAMs"});
     if (!p.atcPlan.empty()) tabs.push_back({T_ATC, "ATC Flight Plan"});
-    if (!p.ofpText.empty()) tabs.push_back({T_OFP, "Full OFP"});
     static int tab = T_PDF;
     static float scroll[8] = {};
+    // a part pressed in a tab: the PDF shown, and the part found in it (asked again a moment later, for a PDF still loading)
+    static std::string findText; static double findAt[2] = {-1, -1};
+    if (tab == T_PDF && !findText.empty() && s.browser.status == 1 && !g_webHold)
+        for (double& t : findAt) if (t > 0 && ImGui::GetTime() >= t) { act.webFind = findText; t = -1; }
+    auto findIn = [&](const std::string& t) {
+        std::string q = t;
+        for (char& c : q) if (c == '\n' || c == '\t') c = ' ';
+        if (q.size() > 40) { q.resize(40); const size_t sp = q.rfind(' '); if (sp != std::string::npos && sp > 8) q.resize(sp); }
+        while (!q.empty() && q.back() == ' ') q.pop_back();
+        if (q.empty()) return;
+        findText = q; tab = T_PDF; findAt[0] = ImGui::GetTime() + 0.4; findAt[1] = ImGui::GetTime() + 2.5;
+    };
     bool known = false;
     for (const DTab& t : tabs) known = known || t.id == tab;
     if (!known) tab = T_PDF;
@@ -6459,15 +6484,28 @@ void dispatchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     const float lx = ca.x + 18, rx = cb.x - 26, wrapW = rx - lx;
     float y = ca.y + 14 - sc;
     dl->PushClipRect(ImVec2(ca.x, ca.y + 4), ImVec2(cb.x, cb.y - 4), true);
+    // each part pressable: it is found in the briefing PDF (and that tab shown)
+    int partNo = 0;
+    auto tappable = [&](float y0p, float y1p, const std::string& what) {
+        if (y1p < ca.y || y0p > cb.y || what.empty()) return;
+        const float t0 = std::max(y0p - 2, ca.y + 4), t1 = std::min(y1p + 2, cb.y - 4);
+        if (t1 <= t0) return;
+        char id[24]; std::snprintf(id, sizeof id, "##dpart%d", partNo++);
+        ImGui::SetCursorScreenPos(ImVec2(ca.x + 6, t0));
+        if (ImGui::InvisibleButton(id, ImVec2(cb.x - ca.x - 24, t1 - t0))) findIn(what);
+        if (ImGui::IsItemHovered() || ImGui::IsItemActive()) dl->AddRectFilled(ImVec2(ca.x + 8, t0), ImVec2(cb.x - 20, t1), IM_COL32(255, 255, 255, ImGui::IsItemActive() ? 26 : 12), 8.0f);
+    };
     auto head = [&](const std::string& t) { textAt(dl, f.bold, lx, y, accentLite(255), t.c_str()); y += 24; };
-    auto para = [&](ImFont* fnt, const std::string& t, ImU32 col) {   // wrapped (or, in the monospaced font, as laid out)
+    auto para = [&](ImFont* fnt, const std::string& t, ImU32 col, const std::string& find = std::string()) {   // wrapped (or, in the monospaced font, as laid out)
         const float px = fontPx(fnt);
         const ImVec2 sz = fnt->CalcTextSizeA(px, FLT_MAX, wrapW, t.c_str());
+        tappable(y, y + sz.y, find.empty() ? t : find);
         if (y + sz.y > ca.y - 40 && y < cb.y + 40) dl->AddText(fnt, px, ImVec2(lx, y), col, t.c_str(), nullptr, wrapW);
         y += sz.y + 12;
     };
     auto row = [&](const char* label, const std::string& v) {
         if (v.empty()) return;
+        tappable(y - 2, y + 20, v);
         textAt(dl, f.small, lx, y + 2, kMuted, label);
         textAt(dl, f.bold, lx + 200, y, kInk, v.c_str());
         y += 24;
@@ -6497,6 +6535,7 @@ void dispatchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         for (int c = 0; c < 5; ++c) textAt(dl, f.small, lx + cx[c], y, kMuted, cols[c]);
         y += 22;
         for (const FlightPlan::Leg& l : p.legs) {
+            tappable(y - 2, y + 20, l.ident);
             if (y > ca.y - 30 && y < cb.y + 10) {
                 textAt(dl, f.bold, lx + cx[0], y, kInk, l.ident.c_str()); textAt(dl, f.small, lx + cx[1], y + 2, kInk, l.airway.c_str());
                 textAt(dl, f.small, lx + cx[2], y + 2, kInk, l.alt.c_str()); textAt(dl, f.small, lx + cx[3], y + 2, kInk, l.legNm.c_str());
@@ -6505,15 +6544,19 @@ void dispatchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             y += 24;
         }
     } else if (tab == T_WEATHER || tab == T_NOTAMS) {
-        for (const FlightPlan::Brief& br : tab == T_WEATHER ? p.weather : p.notams) { head(br.head); para(f.mono, br.text, kInk); }
+        for (const FlightPlan::Brief& br : tab == T_WEATHER ? p.weather : p.notams) {
+            head(br.head);
+            std::string q = br.text;   // (a report: its station and time; a NOTAM: its number, else its first words)
+            if (tab == T_WEATHER) { size_t sp = q.find(' '); if (sp != std::string::npos) sp = q.find(' ', sp + 1); if (sp != std::string::npos) q.resize(sp); }
+            else { const size_t two = br.head.find("  "); if (two != std::string::npos) q = br.head.substr(two + 2); }
+            para(f.mono, br.text, kInk, q);
+        }
     } else if (tab == T_ATC) {
-        para(f.mono, p.atcPlan, kInk);
-    } else if (tab == T_OFP) {
-        std::string t = p.ofpText;
-        for (char& c : t) if (c == '\f') c = '\n';
-        para(f.mono, t, kInk);
+        para(f.mono, p.atcPlan, kInk, p.atcPlan.substr(0, p.atcPlan.find_first_of("\n-", 5)));
     }
     dl->PopClipRect();
+    textAt(dl, f.small, lx, y, kMuted, "Tap a part to find it in the briefing PDF.");
+    y += 24;
     const float content = y + sc - (ca.y + 14), shown = cb.y - ca.y - 20;
     sc = std::max(0.0f, std::min(sc, std::max(0.0f, content - shown)));
     sc = scrollBar(dl, "##dspbar", cb.x - 12, ca.y + 10, cb.y - 10, sc, content, shown);
@@ -7533,7 +7576,7 @@ std::string agoText(double t) {
     return b;
 }
 // the pull-down's boxes, sized so the left column (Media, Brightness, Flight) ends clear of the bar at the bottom, as the list does
-constexpr float kCcMediaBase = 204, kCcBrightH = 88, kCcGap = 10, kCcBottomGap = 36;
+constexpr float kCcMediaBase = 178, kCcBrightH = 76, kCcGap = 8, kCcBottomGap = 36, kCcRow = 30;   // (compact: it all fits, nothing scrolls)
 float g_ccMediaH = kCcMediaBase;   // the media card's height: a row more when the computer's volume is there under the media's
 // a thin scroll bar at x, from y0 to y1, for content taller than what shows (nothing when it all fits)
 // It can be dragged (the thumb, or a press on the track moves it there) and returns the scroll, changed or not; it widens on hover.
@@ -7820,7 +7863,7 @@ void musicPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float
         dl->AddText(f.body, fontPx(f.body), ImVec2(x, y + 36), kMuted, "Play something in Spotify, Apple Music, a browser or any player: it shows here and in the pull-down from the logo.", nullptr, x1 - x);
         y += 110;
     } else {
-        textAt(dl, f.small, x, y, IM_COL32(255, 120, 150, 255), fitText(f.small, m.app.empty() ? std::string("Now Playing") : m.app, x1 - x).c_str());
+        textAt(dl, f.small, x, y, accentLite(255), fitText(f.small, m.app.empty() ? std::string("Now Playing") : m.app, x1 - x).c_str());
         y += 24;
         const double since = trackSince(m);
         marquee(dl, f.title, x, y, x1 - x, kInk, m.title.empty() ? std::string("Unknown Title") : m.title, since);
@@ -7985,35 +8028,36 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
     if (music) {
         const MediaState& md = s.media;
         textAt(dl, f.title, m + 4, top + 2, kInk, "Media");   // as Notifications beside it; the box level with Clear All
-        g_ccMediaH = kCcMediaBase + (md.masterVolume >= 0 ? 34.0f : 0.0f);
+        g_ccMediaH = kCcMediaBase + (md.masterVolume >= 0 ? kCcRow : 0.0f);
         const float kCcMediaH = g_ccMediaH;
         const ImVec2 a(m, top + 34), b(m + colL, top + 34 + kCcMediaH);
         glass(dl, a, b, 24.0f);
         ImGui::SetCursorScreenPos(a);   // the card (where nothing else is): the Media page
         ImGui::SetNextItemAllowOverlap();
         if (ImGui::InvisibleButton("##ccmediacard", ImVec2(b.x - a.x, b.y - a.y))) { g_ccTarget = 0; openApp(APP_MUSIC); }
-        const float art = 74;
+        const float art = 62;
         for (int k = 3; k >= 1; --k) {   // a soft shadow, centred under the cover
             const float g = 2.0f * k;
-            dl->AddRectFilled(ImVec2(a.x + 16 - g, a.y + 19 - g), ImVec2(a.x + 16 + art + g, a.y + 19 + art + g), IM_COL32(0, 0, 0, 18), 12.0f + g);
+            dl->AddRectFilled(ImVec2(a.x + 16 - g, a.y + 17 - g), ImVec2(a.x + 16 + art + g, a.y + 17 + art + g), IM_COL32(0, 0, 0, 18), 12.0f + g);
         }
-        cover(dl, md, ImVec2(a.x + 16, a.y + 16), art, 12.0f);
+        cover(dl, md, ImVec2(a.x + 16, a.y + 14), art, 12.0f);
         const float tx = a.x + 16 + art + 12, tw = b.x - tx - 14;
         if (!md.supported) dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 20), kMuted, "Media controls are not available on this computer.", nullptr, tw);
         else if (!md.active) { textAt(dl, f.bold, tx, a.y + 22, kInk, "Not Playing"); dl->AddText(f.small, fontPx(f.small), ImVec2(tx, a.y + 44), kMuted, "Play something in any player.", nullptr, tw); }
         else {
-            textAt(dl, f.small, tx, a.y + 18, IM_COL32(255, 140, 165, 255), fitText(f.small, md.app.empty() ? std::string("Now Playing") : md.app, tw).c_str());
+            textAt(dl, f.small, tx, a.y + 16, accentLite(255), fitText(f.small, md.app.empty() ? std::string("Now Playing") : md.app, tw).c_str());
             const double since = trackSince(md);
-            marquee(dl, f.bold, tx, a.y + 36, tw, kInk, md.title, since);
-            marquee(dl, f.small, tx, a.y + 58, tw, kMuted, md.artist, since);
+            marquee(dl, f.bold, tx, a.y + 33, tw, kInk, md.title, since);
+            marquee(dl, f.small, tx, a.y + 54, tw, kMuted, md.artist, since);
         }
-        if (md.active) progressBar(dl, f, md, ImVec2(a.x + 16, a.y + 104), b.x - 16, "##ccprog", true, act);
-        playerButtons(dl, md, ImVec2(std::floor((a.x + b.x) * 0.5f), a.y + 140), 18.0f, "##ccmp", act);
-        const float volY = a.y + kCcMediaBase - 38;   // the media's volume (or, when the player keeps it to itself, the radio's line), then the computer's
+        // the bar, then the buttons well under it (its dot clear of the play button)
+        if (md.active) progressBar(dl, f, md, ImVec2(a.x + 16, a.y + 84), b.x - 16, "##ccprog", true, act);
+        playerButtons(dl, md, ImVec2(std::floor((a.x + b.x) * 0.5f), a.y + 120), 15.0f, "##ccmp", act);
+        const float volY = a.y + kCcMediaBase - 36;   // the media's volume (or, when the player keeps it to itself, the radio's line), then the computer's
         if (s.browser.mediaPlaying) tabletVolumeRow(dl, f, "##cctab", ImVec2(a.x + 10, volY), b.x - 12, act);
         else if (md.active && md.playerVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##ccvol", ImVec2(a.x + 10, volY), b.x - 12, md.playerVolume, v, false, !md.ducked, md.playerMuted, &mu); if (v >= 0) act.mediaPlayerVol = v; if (mu >= 0) act.mediaPlayerMute = mu; }
         else textCentered(dl, f.small, (a.x + b.x) * 0.5f, volY + 14, md.radioRx || md.radioTx ? kWarn : kMuted, fitText(f.small, radioLine(md), colL - 24).c_str());
-        if (md.masterVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##ccmaster", ImVec2(a.x + 10, volY + 34), b.x - 12, md.masterVolume, v, true, true, md.masterMuted, &mu); if (v >= 0) act.mediaMasterVol = v; if (mu >= 0) act.mediaMasterMute = mu; }
+        if (md.masterVolume >= 0) { float v = -1; int mu = -1; volumeSlider(dl, f, "##ccmaster", ImVec2(a.x + 10, volY + kCcRow), b.x - 12, md.masterVolume, v, true, true, md.masterMuted, &mu); if (v >= 0) act.mediaMasterVol = v; if (mu >= 0) act.mediaMasterMute = mu; }
         // the Music app
         ImGui::SetCursorScreenPos(ImVec2(a.x + 16, a.y + 16));
         if (ImGui::InvisibleButton("##ccart", ImVec2(art, art))) { g_ccTarget = 0; openApp(APP_MUSIC); }
@@ -8025,28 +8069,28 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         ImGui::SetCursorScreenPos(a);   // the card: Settings, Display
         ImGui::SetNextItemAllowOverlap();
         if (ImGui::InvisibleButton("##ccbrightcard", ImVec2(b.x - a.x, b.y - a.y))) { g_ccTarget = 0; g_settingsTab = 1; openApp(APP_SETTINGS); }
-        textAt(dl, f.bold, a.x + 16, a.y + 12, kInk, "Brightness");
+        textAt(dl, f.bold, a.x + 16, a.y + 10, kInk, "Brightness");
         float br = g_settings.autoDim ? s.autoDimLevel : std::max(0.1f, std::min(1.0f, g_settings.brightness));
         char txt[16];
         std::snprintf(txt, sizeof txt, "%d%%", (int)std::lround(br * 100));
-        if (smoothSlider(dl, f, "##ccbright", ImVec2(a.x + 4, a.y + 44), ImVec2(b.x - 12 - 96 - 8, a.y + 76), br, 0.1f, 1.0f, 0, !g_settings.autoDim, txt) && !g_settings.autoDim) {
+        if (smoothSlider(dl, f, "##ccbright", ImVec2(a.x + 4, a.y + 36), ImVec2(b.x - 12 - 96 - 8, a.y + 66), br, 0.1f, 1.0f, 0, !g_settings.autoDim, txt) && !g_settings.autoDim) {
             g_settings.brightness = br; g_settingsChanged = true;
         }
         // auto dim, right of the slider as in Settings, Display
-        if (pill(dl, f, "##ccautodim", "Auto Dim", ImVec2(b.x - 12 - 96, a.y + 45), ImVec2(b.x - 12, a.y + 75), g_settings.autoDim, true)) { g_settings.autoDim = !g_settings.autoDim; g_settingsChanged = true; }
+        if (pill(dl, f, "##ccautodim", "Auto Dim", ImVec2(b.x - 12 - 96, a.y + 36), ImVec2(b.x - 12, a.y + 66), g_settings.autoDim, true)) { g_settings.autoDim = !g_settings.autoDim; g_settingsChanged = true; }
     }
     {   // the flight's progress, under the brightness (only with a flight plan)
         const Progress pr = flightProgress(s);
         if (pr.ok) {
             const float py = (music ? top + 34 + g_ccMediaH + kCcGap : top + 34) + kCcBrightH + kCcGap;
-            const ImVec2 a(m, py), b(m + colL, py + 70);
+            const ImVec2 a(m, py), b(m + colL, py + 62);
             glass(dl, a, b, 24.0f);
             ImGui::SetCursorScreenPos(a);   // the card: the Flight Plan
             ImGui::SetNextItemAllowOverlap();
             if (ImGui::InvisibleButton("##ccflightcard", ImVec2(b.x - a.x, b.y - a.y))) { g_ccTarget = 0; openApp(APP_ROUTES); }
             const std::string welcome = welcomeAirport(s, pr);
-            textAt(dl, f.bold, a.x + 16, a.y + 10, welcome.empty() ? kInk : accentLite(255), welcome.empty() ? "Flight" : ("Welcome to " + welcome).c_str());
-            progressStrip(dl, f, s, pr, ImVec2(a.x + 16, a.y + 32), ImVec2(b.x - 16, b.y - 4), true);
+            textAt(dl, f.bold, a.x + 16, a.y + 8, welcome.empty() ? kInk : accentLite(255), welcome.empty() ? "Flight" : ("Welcome to " + welcome).c_str());
+            progressStrip(dl, f, s, pr, ImVec2(a.x + 16, a.y + 28), ImVec2(b.x - 16, b.y - 4), true);
         }
     }
     // the notifications
@@ -9671,13 +9715,20 @@ void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     const float top = kStatusH + kHeaderH + 10;
     std::vector<const XpCmd*> xp;
     for (const XpCmd& c : kXpCmds) for (const std::string& n : s.xpilotCmds) if (n == c.cmd) xp.push_back(&c);
-    {   // no text window in this xPilot (some versions): Messages opens its message panel (the latest messages) instead, in its place
-        static const XpCmd viaPanel = {"xpilot/toggle_notification_panel", "Messages", "Its message panel: the latest ATC, private and frequency messages"};
-        auto has = [&](const char* c) { for (const std::string& n : s.xpilotCmds) if (n == c) return true; return false; };
-        if (!has("xpilot/toggle_text_message_console") && has("xpilot/toggle_notification_panel")) {
-            xp.erase(std::remove_if(xp.begin(), xp.end(), [](const XpCmd* c) { return std::strcmp(c->cmd, "xpilot/toggle_notification_panel") == 0; }), xp.end());
-            xp.insert(xp.begin(), &viaPanel);
-        }
+    // its message window, by whichever name this xPilot gives it (xPilot 4's is not published): Messages first; none: Messages shown
+    // greyed, saying so (its notification panel stays a button of its own)
+    static const XpCmd msgAlt[] = {{"xpilot/toggle_messages", "Messages", "Its text window: ATC, private and frequency messages"},
+        {"xpilot/toggle_messages_window", "Messages", "Its text window: ATC, private and frequency messages"},
+        {"xpilot/toggle_message_window", "Messages", "Its text window: ATC, private and frequency messages"},
+        {"xpilot/toggle_text_messages", "Messages", "Its text window: ATC, private and frequency messages"},
+        {"xpilot/toggle_message_console", "Messages", "Its text window: ATC, private and frequency messages"},
+        {"xpilot/toggle_chat", "Messages", "Its text window: ATC, private and frequency messages"}};
+    static const XpCmd noMsg = {"", "Messages", "This xPilot gives the tablet no message window: its messages are in the xPilot app and its notification panel"};
+    {
+        bool haveMsg = false;
+        for (const XpCmd* c : xp) haveMsg = haveMsg || std::strcmp(c->label, "Messages") == 0;
+        if (!haveMsg) for (const XpCmd& c : msgAlt) { for (const std::string& n : s.xpilotCmds) if (n == c.cmd) { xp.insert(xp.begin(), &c); haveMsg = true; break; } if (haveMsg) break; }
+        if (!haveMsg && (s.xpilotLoaded || !s.xpilotCmds.empty())) xp.insert(xp.begin(), &noMsg);
     }
     card(dl, ImVec2(12, top), ImVec2(w - 12, top + 76), f, "XPILOT");
     const bool loaded = s.xpilotLoaded || !s.xpilotCmds.empty();
@@ -9705,15 +9756,20 @@ void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         const ImVec2 a(12 + (i % 3) * (tw + gap), y0 + (i / 3) * (th + gap)), b(a.x + tw, a.y + th);
         char id[64]; std::snprintf(id, sizeof id, "##xp_%s", xp[i]->cmd);
         ImGui::SetCursorScreenPos(a);
-        const bool hit = ImGui::InvisibleButton(id, ImVec2(tw, th));
-        const Ease e = eased(id, false, ImGui::IsItemHovered(), ImGui::IsItemActive());
+        const bool can = xp[i]->cmd[0] != 0;   // (no message window in this xPilot: greyed, it says why)
+        ImGui::BeginDisabled(!can);
+        const bool hit = ImGui::InvisibleButton(id, ImVec2(tw, th)) && can;
+        ImGui::EndDisabled();
+        const Ease e = eased(id, false, can && ImGui::IsItemHovered(), can && ImGui::IsItemActive());
         const float in = e.down * 3;
         const ImVec2 a2(a.x + in, a.y + in), b2(b.x - in, b.y - in);
-        const bool lit = g_xpOn[xp[i]->cmd];   // on or open: lit green
+        // on or open: lit green (the labels as xPilot saved them; its windows as pressed here: xPilot does not say)
+        const bool labels = std::strcmp(xp[i]->cmd, "xpilot/toggle_aircraft_labels") == 0;
+        const bool lit = labels && s.xpilotLabels >= 0 ? s.xpilotLabels == 1 : g_xpOn[xp[i]->cmd];
         const float l = openness(id, lit);
         dl->AddRectFilled(a2, b2, mixCol(IM_COL32(255, 255, 255, (int)(14 + 16 * e.hot)), IM_COL32(40, 170, 90, 120), l), 22.0f);
         dl->AddRect(a2, b2, mixCol(IM_COL32(255, 255, 255, (int)(30 + 50 * e.hot)), IM_COL32(90, 230, 140, 230), l), 22.0f, 0, 1.2f + 0.6f * l);
-        dl->AddText(f.title, fontPx(f.title), ImVec2(a2.x + 18, a2.y + 18), kInk, xp[i]->label);
+        dl->AddText(f.title, fontPx(f.title), ImVec2(a2.x + 18, a2.y + 18), can ? kInk : kMuted, xp[i]->label);
         dl->AddText(f.small, fontPx(f.small), ImVec2(a2.x + 18, a2.y + 54), lit ? IM_COL32(200, 245, 215, 255) : kMuted, xp[i]->what, nullptr, tw - 36);
         if (lit) textAt(dl, f.small, b2.x - 46, a2.y + 20, IM_COL32(120, 240, 160, 255), "On");
         if (hit) { act.xpilotCmd = xp[i]->cmd; g_xpOn[xp[i]->cmd] = !lit; }
