@@ -498,7 +498,7 @@ cef_load_handler_t* CEF_CALLBACK getLoad(cef_client_t*) { return &g_load; }
 // first-run or background chatter.
 void CEF_CALLBACK onBeforeCommandLine(cef_app_t*, const cef_string_t* processType, cef_command_line_t* cl) {
     if (processType && processType->length) return;   // set once, for the browser process; the others inherit them
-    for (const char* sw : {"disable-gpu", "disable-gpu-compositing", "no-first-run", "disable-background-networking"}) {
+    for (const char* sw : {"disable-gpu", "disable-gpu-compositing", "no-first-run", "disable-background-networking", "touch-events"}) {   // (touch-events: pages see the tablet's fingers as touches)
         cef_string_t s = {};
         setStr(&s, sw);
         cl->append_switch(cl, &s);
@@ -708,6 +708,17 @@ void runCommand(const xptb::Cmd& c) {
     case xptb::CMD_MOUSE_UP:
         g_buttonDown = false;
         withHost([](cef_browser_host_t* h, const xptb::Cmd& c) { cef_mouse_event_t m = mouseAt(c); h->send_mouse_click_event(h, &m, MBT_LEFT, 1, 1); }, c);
+        break;
+    case xptb::CMD_TOUCH:   // a finger on the page: Chromium's own touch handling (scrolling with momentum, panning maps, taps as clicks)
+        withHost([](cef_browser_host_t* h, const xptb::Cmd& c) {
+            cef_touch_event_t t;
+            std::memset(&t, 0, sizeof t);
+            t.id = 1; t.x = (float)c.a; t.y = (float)c.b; t.radius_x = t.radius_y = 6.0f; t.pressure = c.c == 2 || c.c == 3 ? 0.0f : 1.0f;
+            t.type = c.c == 0 ? CEF_TET_PRESSED : c.c == 1 ? CEF_TET_MOVED : c.c == 2 ? CEF_TET_RELEASED : CEF_TET_CANCELLED;
+            t.pointer_type = CEF_POINTER_TYPE_TOUCH;
+            if (c.c == 0) h->set_focus(h, 1);
+            h->send_touch_event(h, &t);
+        }, c);
         break;
     case xptb::CMD_WHEEL: withHost([](cef_browser_host_t* h, const xptb::Cmd& c) { cef_mouse_event_t m = mouseAt(c); if (c.f > 0.5f) m.modifiers |= EVENTFLAG_CONTROL_DOWN; h->send_mouse_wheel_event(h, &m, c.d, c.c); }, c); break;
     case xptb::CMD_CHAR:

@@ -18,7 +18,7 @@ void stop();
 // A device is connected, the worker is free, and it is time for the next picture (15 a second at most; 24 when fast is asked
 // for: a game on screen).
 bool wantsFrame(double now, bool fast = false);
-void setRate(int perSecond);   // pictures a second (5 to 30; a game on screen: at least 24)
+void setRate(int perSecond);   // pictures a second (15 to 60; a game on screen: at least 24)
 // The tablet's picture: w x h pixels, 4 bytes each (red, green, blue, unused), rows top to bottom (or bottom to top, as OpenGL reads).
 void submit(std::vector<unsigned char>&& rgbx, int w, int h, bool bottomUp);
 

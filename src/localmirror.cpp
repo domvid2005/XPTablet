@@ -117,7 +117,7 @@ void stop() {
     g_busy.store(false);
 }
 
-void setRate(int perSecond) { kMinGap = 1.0 / std::max(5, std::min(30, perSecond)); }
+void setRate(int perSecond) { kMinGap = 1.0 / std::max(15, std::min(60, perSecond)); }
 bool wantsFrame(double now, bool fast) {
     if (g_busy.load() || now - g_lastAsk < (fast ? std::min(kMinGap, kMinGapFast) : kMinGap)) return false;
     if (localserver::clients() <= 0) return false;

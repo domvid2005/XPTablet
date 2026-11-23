@@ -65,7 +65,7 @@ struct Settings {
     bool localBattery = true;     // with a device connected that tells its battery: the tablet's battery is that device's
     int arcadeBest[6] = {0, 0, 0, 0, 0, 0};   // the best scores of Contrail, Taxi Rush, Sky Patrol, Hangar Climb, Cockpit 21 (most miles), Cargo Load
     bool physicalKeys = false;    // typing: the computer's own keyboard (a thin bar instead of the on-screen keys)
-    int localRate = 15;               // Local Connect: pictures a second sent to the devices (5 to 30)
+    int localRate = 15;               // Local Connect: pictures a second sent to the devices (15 to 60, in fives)
     bool localPhysicalKeys = false;   // typing from a Local Connect device: the device's own keyboard (the bar) instead of the tablet's keys
     bool mapRings = true;         // range rings round the aircraft (a quarter, half and all of the range), as on WXPlane's map
     bool mapIls = true;           // ILS and localizer courses (a layer of their own)

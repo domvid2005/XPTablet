@@ -2577,10 +2577,15 @@ void webView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float 
         if (active && dragging && (io.MouseDelta.x != 0 || io.MouseDelta.y != 0))
             act.web.push_back({11 /*WHEEL*/, p.x, p.y, (int)std::lround(io.MouseDelta.y), (int)std::lround(io.MouseDelta.x)});
     }
-    if ((hovered || active) && !(dragScrolls && dragging) && (p.x != g_webLast.x || p.y != g_webLast.y)) { act.web.push_back({7 /*MOUSE_MOVE*/, p.x, p.y, 0}); g_webLast = p; }
-    if (!dragScrolls) {
-        if (ImGui::IsItemActivated()) act.web.push_back({8 /*MOUSE_DOWN*/, p.x, p.y, 0});
-        if (ImGui::IsItemDeactivated()) act.web.push_back({9 /*MOUSE_UP*/, p.x, p.y, 0});
+    // a web page: a press is a finger (the page scrolls, flings and pans by itself, as on a phone; a tap is a click); the pointer
+    // moving without a press stays a mouse (menus that open on hover)
+    const bool finger = !dragScrolls;
+    if ((hovered || active) && !(dragScrolls && dragging) && !(finger && active) && (p.x != g_webLast.x || p.y != g_webLast.y)) { act.web.push_back({7 /*MOUSE_MOVE*/, p.x, p.y, 0}); g_webLast = p; }
+    if (finger) {
+        static ImVec2 lastTouch(-1, -1);
+        if (ImGui::IsItemActivated()) { act.web.push_back({23 /*TOUCH*/, p.x, p.y, 0}); lastTouch = p; }
+        else if (active && (p.x != lastTouch.x || p.y != lastTouch.y)) { act.web.push_back({23 /*TOUCH*/, p.x, p.y, 1}); lastTouch = p; }
+        if (ImGui::IsItemDeactivated()) { act.web.push_back({23 /*TOUCH*/, p.x, p.y, 2}); g_webLast = p; }
     } else if (ImGui::IsItemDeactivated() && !dragging) {   // a tap: a click where it was
         act.web.push_back({8 /*MOUSE_DOWN*/, p.x, p.y, 0});
         act.web.push_back({9 /*MOUSE_UP*/, p.x, p.y, 0});
@@ -8519,10 +8524,10 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         {   // how often the devices get a new picture: smoother, or lighter on the computer and the network
             textAt(dl, f.bold, rx, ry, kInk, "Refresh Rate");   // (the choice above leaves ry under its buttons)
             ry += 20;
-            float v = (float)std::max(5, std::min(30, g_settings.localRate));
-            char txt[16]; std::snprintf(txt, sizeof txt, "%d / s", (int)std::lround(v));
-            if (smoothSlider(dl, f, "##lcrate", ImVec2(rx - 12, ry), ImVec2(rx + colW, ry + 30), v, 5.0f, 30.0f, 25, true, txt)) {
-                const int nv = (int)std::lround(v);
+            float v = (float)std::max(15, std::min(60, g_settings.localRate));
+            char txt[16]; std::snprintf(txt, sizeof txt, "%d / s", (int)std::lround(v / 5.0f) * 5);
+            if (smoothSlider(dl, f, "##lcrate", ImVec2(rx - 12, ry), ImVec2(rx + colW, ry + 30), v, 15.0f, 60.0f, 9, true, txt)) {
+                const int nv = (int)std::lround(v / 5.0f) * 5;
                 if (nv != g_settings.localRate) { g_settings.localRate = nv; g_settingsChanged = true; }
             }
         }
@@ -10301,7 +10306,7 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
 
 int currentApp() { return g_app; }
 bool browserBarsHidden() { return g_barsHidden; }
-int localRefreshRate() { return std::max(5, std::min(30, g_settings.localRate)); }
+int localRefreshRate() { return std::max(15, std::min(60, g_settings.localRate)); }
 std::string localThemeJson() {   // the theme's colours, for Local Connect's page (its connecting and pairing screens)
     const Backdrop bd = themeBackdrop(g_settings.wallpaper);
     auto hex = [](ImU32 c) { char b[8]; std::snprintf(b, sizeof b, "#%02x%02x%02x", (unsigned)((c >> IM_COL32_R_SHIFT) & 255), (unsigned)((c >> IM_COL32_G_SHIFT) & 255), (unsigned)((c >> IM_COL32_B_SHIFT) & 255)); return std::string(b); };
@@ -10830,7 +10835,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_traffic_alt") g_settings.mapTrafficAltFt = std::max(0.0f, std::min(60000.0f, (float)std::atof(val.c_str())));
         else if (key == "physical_keys") g_settings.physicalKeys = v != 0;
         else if (key == "local_physical_keys") g_settings.localPhysicalKeys = v != 0;
-        else if (key == "local_rate") g_settings.localRate = std::max(5, std::min(30, v));
+        else if (key == "local_rate") g_settings.localRate = std::max(15, std::min(60, v / 5 * 5));
         else if (key == "custom_bg") g_settings.customs[0].bg = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;   // (one Custom, before)
         else if (key == "custom_accent") g_settings.customs[0].accent = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;
         else if (key.size() > 8 && key.compare(0, 6, "custom") == 0 && key[6] >= '0' && key[6] <= '2' && key[7] == '_') {
