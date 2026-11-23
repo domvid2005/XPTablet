@@ -130,7 +130,6 @@ bool installed(int app) {
 }
 bool g_settingsChanged = false;
 bool g_deviceInput = false;   // a Local Connect device is working the tablet (set by the plugin)
-void setDeviceInput(bool on) { g_deviceInput = on; }
 // the keys in use: the computer's (or the device's) own keyboard, with a thin bar, or the tablet's on-screen keys; a device has its own choice
 bool physicalNow() { return g_deviceInput ? g_settings.localPhysicalKeys : g_settings.physicalKeys; }
 std::string g_url = "https://chartfox.org", g_site = "Browser";   // what the web page shows
@@ -2268,7 +2267,6 @@ bool g_kbdShift = false, g_kbdSymbols = false;
 bool g_kbdCaps = false;      // shift locked (a quick double tap on Shift): capitals until Shift is tapped again
 double g_kbdShiftT = -10;    // when Shift was last tapped
 bool g_kbdKeysShown = false; // with the physical keyboard set: the on-screen keys asked for anyway
-bool deviceKeysWanted() { return g_deviceInput && g_settings.localPhysicalKeys && g_kbd && !g_kbdKeysShown; }
 bool g_wantedKbd = false;            // the page's own wish for a keyboard, last frame
 std::string g_addrEdit;
 bool g_webHover = false;
@@ -8681,6 +8679,8 @@ bool trafficInRA(const MapState& m, const MapState::Traffic& t) { return tcasRA(
 int trafficThreat(const MapState& m, const MapState::Traffic& t) { return runwayConflict(m, t) ? 3 : tcasLevel(m, t); }
 void mapSelect(int kind, const std::string& key) { g_selKind = kind; g_selKey = key; }
 void openDispatchFromPlan() { openDispatch(true); }
+void setDeviceInput(bool on) { g_deviceInput = on; }   // (outside the file's own namespace: the plugin calls them)
+bool deviceKeysWanted() { return g_deviceInput && g_settings.localPhysicalKeys && g_kbd && !g_kbdKeysShown; }
 bool tabletPoweredOn() { return g_power == POWER_ON && !(g_batt <= 0.0f && !g_charger); }
 int powerState() { return g_power; }   // 0 on, 1 fading off, 2 off, 3 starting, 4 waking
 
