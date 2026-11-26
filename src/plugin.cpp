@@ -562,13 +562,10 @@ void buildFonts(float scale) {
 
 // The floating window's geometry and how the layout sits in it. With a cockpit tablet active the window shows the same picture, so
 // it keeps the tablet's shape (bars at the sides if the window is another shape); alone, the layout fills the window.
-// The floating window draws its own housing (X-Plane's grey frame, round its edge, showed a seam on some aircraft, 2026-11-26):
-// a dark body without an edge, the screen inside it with a border of kHousing all round. The tablet's own layout is as before.
-constexpr int kHousing = 18;
 void windowLayout(float& ww, float& wh) {
     int l = 0, t = 0, r = 0, b = 0;
     XPLMGetWindowGeometry(g_win, &l, &t, &r, &b);
-    ww = (float)std::max(1, r - l - 2 * kHousing); wh = (float)std::max(1, t - b - 2 * kHousing);
+    ww = (float)std::max(1, r - l); wh = (float)std::max(1, t - b);
 }
 
 // ---- the web browser ---------------------------------------------------------------------------------------------------------
@@ -1831,8 +1828,8 @@ void ensureFrame() {
     g_logW = xpt::kLogicalH * std::max(0.6f, std::min(2.6f, aspect));
     if (winShown) {
         g_winScale = std::min(ww / g_logW, wh / xpt::kLogicalH);
-        g_winOx = kHousing + (ww - g_logW * g_winScale) * 0.5f;
-        g_winOy = kHousing + (wh - xpt::kLogicalH * g_winScale) * 0.5f;
+        g_winOx = (ww - g_logW * g_winScale) * 0.5f;
+        g_winOy = (wh - xpt::kLogicalH * g_winScale) * 0.5f;
     }
     // pixels per layout unit, for crisp text: the larger of the two surfaces
     float need = 1.0f;
@@ -2061,43 +2058,6 @@ void fillRect(float l, float b, float r, float t, float red, float green, float 
     gl.Color4f(1, 1, 1, 1);
 }
 
-// a rounded rectangle, its edge softened over a pixel (so no hard line shows against the sim)
-void fillRoundRect(float l, float b, float r, float t, float rad, float red, float green, float blue, float alpha) {
-    XPLMSetGraphicsState(0, 0, 0, 0, 1, 0, 0);
-    rad = std::max(0.0f, std::min(rad, std::min(r - l, t - b) * 0.5f));
-    const int seg = 10;
-    std::vector<float> ring;   // the outline, round the corners
-    const float cx[4] = {r - rad, l + rad, l + rad, r - rad}, cy[4] = {t - rad, t - rad, b + rad, b + rad};
-    for (int c = 0; c < 4; ++c)
-        for (int i = 0; i <= seg; ++i) {
-            const float ang = (float)(c * 1.5707963 + i * 1.5707963 / seg);
-            ring.push_back(cx[c] + rad * std::cos(ang)); ring.push_back(cy[c] + rad * std::sin(ang));
-        }
-    const int n = (int)ring.size() / 2;
-    std::vector<float> v, col;
-    const float mx = (l + r) * 0.5f, my = (b + t) * 0.5f;
-    auto put = [&](float x, float y, float a) { v.push_back(x); v.push_back(y); col.push_back(red); col.push_back(green); col.push_back(blue); col.push_back(a); };
-    for (int i = 0; i < n; ++i) {   // the body, as a fan
-        const int j = (i + 1) % n;
-        put(mx, my, alpha); put(ring[2 * i], ring[2 * i + 1], alpha); put(ring[2 * j], ring[2 * j + 1], alpha);
-    }
-    for (int i = 0; i < n; ++i) {   // a pixel of feather outside it
-        const int j = (i + 1) % n;
-        auto out = [&](int k, float& x, float& y) { const float dx = ring[2 * k] - mx, dy = ring[2 * k + 1] - my; const float len = std::max(1e-3f, std::sqrt(dx * dx + dy * dy)); const float ox = dx / len, oy = dy / len; x = ring[2 * k] + ox; y = ring[2 * k + 1] + oy; };
-        float xi, yi, xj, yj; out(i, xi, yi); out(j, xj, yj);
-        put(ring[2 * i], ring[2 * i + 1], alpha); put(xi, yi, 0); put(xj, yj, 0);
-        put(ring[2 * i], ring[2 * i + 1], alpha); put(xj, yj, 0); put(ring[2 * j], ring[2 * j + 1], alpha);
-    }
-    gl.PushClientAttrib(GL_CLIENT_VERTEX_ARRAY_BIT);
-    gl.EnableClientState(GL_VERTEX_ARRAY);
-    gl.EnableClientState(GL_COLOR_ARRAY);
-    gl.VertexPointer(2, GL_FLOAT, 0, v.data());
-    gl.ColorPointer(4, GL_FLOAT, 0, col.data());
-    gl.DrawArrays(GL_TRIANGLES, 0, (int)v.size() / 2);
-    gl.PopClientAttrib();
-    gl.Color4f(1, 1, 1, 1);
-}
-
 // The Settings brightness, or with auto dim WXPlane's curve: full with the sun up, down to 45% once it is 8 degrees below the horizon
 float autoDimLevel() {
     static XPLMDataRef sun = XPLMFindDataRef("sim/graphics/scenery/sun_pitch_degrees");
@@ -2321,12 +2281,7 @@ void winDraw(XPLMWindowID w, void*) {
     ensureFrame();
     int l = 0, t = 0, r = 0, b = 0;
     XPLMGetWindowGeometry(w, &l, &t, &r, &b);
-    // the housing: one dark body, no frame line; the screen black inside it, its corners a little rounded
-    fillRoundRect((float)l, (float)b, (float)r, (float)t, 30.0f, 0.075f, 0.08f, 0.09f, 1.0f);
-    {
-        const float sl = (float)l + g_winOx, st = (float)t - g_winOy, sr = sl + g_logW * g_winScale, sb = st - xpt::kLogicalH * g_winScale;
-        fillRoundRect(sl, sb, sr, st, 10.0f, 0, 0, 0, 1.0f);
-    }
+    fillRect((float)l, (float)b, (float)r, (float)t, 0, 0, 0);
     const float bright = userBrightness();   // the window has no aircraft knob: the Settings slider alone
     if (bright < 0.999f) {
         std::vector<xpt::Batch> dim = g_batches;
@@ -2343,23 +2298,6 @@ int winClick(XPLMWindowID, int x, int y, XPLMMouseStatus status, void*) {
     ImGui::SetCurrentContext(g_ctx);
     float lx, ly;
     winToLayout(x, y, lx, ly);
-    {   // a press on the housing (outside the screen) moves the window (it has no title bar of X-Plane's now)
-        static bool moving = false;
-        static int grabX = 0, grabY = 0;
-        const bool onHousing = lx < 0 || ly < 0 || lx > g_logW || ly > xpt::kLogicalH;
-        if (status == xplm_MouseDown && onHousing) { moving = true; grabX = x; grabY = y; return 1; }
-        if (moving) {
-            if (status != xplm_MouseUp || x != grabX || y != grabY) {
-                int l = 0, t = 0, r = 0, b = 0;
-                XPLMGetWindowGeometry(g_win, &l, &t, &r, &b);
-                const int dx = x - grabX, dy = y - grabY;
-                XPLMSetWindowGeometry(g_win, l + dx, t + dy, r + dx, b + dy);
-                grabX = x; grabY = y;
-            }
-            if (status == xplm_MouseUp) moving = false;
-            return 1;
-        }
-    }
     if (status == xplm_MouseDown) g_lastSimDown = XPLMGetElapsedTime();
     // queued (see pumpPointer): a press that comes with its position, the sim not having reported the pointer there the frame
     // before, moves the pointer first and lands on the next frame. Given straight to Dear ImGui such presses were lost on the
@@ -2404,7 +2342,7 @@ void toggleWindow() {
         XPLMCreateWindow_t p;
         std::memset(&p, 0, sizeof p);
         p.structSize = sizeof p;
-        p.left = sl + 80; p.bottom = sb + 120; p.right = p.left + 800 + 2 * kHousing; p.top = p.bottom + 480 + 2 * kHousing;
+        p.left = sl + 80; p.bottom = sb + 120; p.right = p.left + 800; p.top = p.bottom + 480;
         p.visible = 1;
         p.drawWindowFunc = winDraw;
         p.handleMouseClickFunc = winClick;
@@ -2412,11 +2350,11 @@ void toggleWindow() {
         p.handleMouseWheelFunc = winWheel;
         p.handleKeyFunc = winKey;
         p.handleCursorFunc = winCursor;
-        p.decorateAsFloatingWindow = xplm_WindowDecorationSelfDecoratedResizable;   // (its own housing, drawn in winDraw; X-Plane resizes it at its edges)
+        p.decorateAsFloatingWindow = xplm_WindowDecorationRoundRectangle;
         p.layer = xplm_WindowLayerFloatingWindows;
         g_win = XPLMCreateWindowEx(&p);
         XPLMSetWindowTitle(g_win, "XPTablet");
-        XPLMSetWindowResizingLimits(g_win, 400 + 2 * kHousing, 240 + 2 * kHousing, 3200 + 2 * kHousing, 1920 + 2 * kHousing);
+        XPLMSetWindowResizingLimits(g_win, 400, 240, 3200, 1920);
         placeWindowForVr();
         return;
     }
