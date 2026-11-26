@@ -240,12 +240,17 @@ bool panelActive() { return g_ownsAviTab && g_panelEnabled != 0 && g_panelWidth 
 // that shape, and aircraft are drawn around exactly that (the ToLiss A320 reserves 1024 x 640 and AviTab fills 1024 x 614 of it; its
 // own menu strip meets that picture's top edge). Filling the whole rectangle put our top rows under the aircraft's own artwork.
 constexpr float kPanelAspect = 800.0f / 480.0f;
+// Its top edge stays where AviTab's is (under the aircraft's own strip); below and at the sides it runs on to the rectangle's edges:
+// AviTab's centred picture left a band of the rectangle bare under it (the ToLiss: 13 pixels of whatever the texture held there, a
+// grey edge that did not fit the screen, 2026-11-26). The layout takes the picture's shape, a little taller than AviTab's.
 void panelPicture(float& l, float& b, float& w, float& h) {
     const float rw = (float)g_panelWidth, rh = (float)g_panelHeight;
-    if (rw / rh > kPanelAspect) { h = rh; w = std::floor(rh * kPanelAspect); }
-    else { w = rw; h = std::floor(rw / kPanelAspect); }
-    l = (float)g_panelLeft + std::floor((rw - w) * 0.5f);
-    b = (float)g_panelBottom + std::floor((rh - h) * 0.5f);
+    float aw, ah;   // AviTab's picture, centred
+    if (rw / rh > kPanelAspect) { ah = rh; aw = std::floor(rh * kPanelAspect); }
+    else { aw = rw; ah = std::floor(rw / kPanelAspect); }
+    const float top = (float)g_panelBottom + std::floor((rh - ah) * 0.5f) + ah;
+    l = (float)g_panelLeft; w = rw;
+    b = (float)g_panelBottom; h = top - b;
 }
 
 // ---- the cockpit tablet's place: AviTab.json in the aircraft folder ------------------------------------------------------------------
@@ -1823,7 +1828,7 @@ void ensureFrame() {
     float ww = 800, wh = 480;
     if (winShown) windowLayout(ww, wh);
     float aspect;
-    if (panelActive()) aspect = kPanelAspect;   // AviTab's shape, whatever the rectangle's
+    if (panelActive()) { float pl, pb, pw, ph; panelPicture(pl, pb, pw, ph); aspect = pw / std::max(1.0f, ph); }   // the picture's shape (to the rectangle's edges)
     else aspect = ww / wh;
     g_logW = xpt::kLogicalH * std::max(0.6f, std::min(2.6f, aspect));
     if (winShown) {
