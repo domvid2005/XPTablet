@@ -2374,9 +2374,9 @@ void setInt(void* r, int v) {
     int* p = (int*)r;
     // an aircraft switching its tablet on or off (its own pages in turn with the tablet's): the first of them in the log, which
     // shows how that aircraft works its tabs, or that it never does
-    if ((p == &g_panelEnabled || p == &g_panelPowered) && *p != v && g_panelWritesLogged < 30) {
+    if ((p == &g_panelEnabled || p == &g_panelPowered) && g_panelWritesLogged < 30) {   // (every write, the same value too)
         ++g_panelWritesLogged;
-        logMsg("the aircraft set the cockpit tablet %s to %d", p == &g_panelEnabled ? "enabled" : "powered", v);
+        logMsg("the aircraft set the cockpit tablet %s to %d (was %d)", p == &g_panelEnabled ? "enabled" : "powered", v, *p);
     }
     *p = v;
 }
@@ -2425,9 +2425,15 @@ void registerDatarefs(const std::string& prefix) {
 
 enum { CMD_TOGGLE, CMD_HOME, CMD_CLICK, CMD_WHEEL_UP, CMD_WHEEL_DOWN, CMD_NOP, CMD_PLANE_DOCS, CMD_MAP0 = 50, CMD_APP0 = 100 };
 
-int onCommand(XPLMCommandRef, XPLMCommandPhase phase, void* ref) {
+int onCommand(XPLMCommandRef cmd, XPLMCommandPhase phase, void* ref) {
     xpt::crashlog::In crashIn_("a command of XPTablet");
     const int id = (int)(intptr_t)ref;
+    {   // the first of them in the log (how an aircraft works its tablet: its own pages in turn with this one)
+        static int logged = 0;
+        if (phase == xplm_CommandBegin && logged < 40) {
+            for (const Cmd& c : g_cmds) if (c.ref == cmd) { ++logged; logMsg("command %d sent to the tablet (id %d)", logged, id); break; }
+        }
+    }
     if (id == CMD_CLICK) {   // the aircraft's own tablet hotspot: a press while held, at the place the mouse points on the panel
         if (phase == xplm_CommandBegin) panelClick(xplm_MouseDown);
         else if (phase == xplm_CommandContinue) panelClick(xplm_MouseDrag);
@@ -2556,6 +2562,56 @@ bool trigger(const char* name) {
     return false;
 }
 bool offered(const char* name) { return XPLMFindCommand(name) != nullptr || XPLMFindDataRef(name) != nullptr; }
+
+// An aircraft with a cockpit tablet (AviTab.json): its own datarefs about its tablet (named tablet, efb, ipad, pad or avitab, not
+// ours), watched for a while after it loads and their changes put in the log: how it switches its own pages in turn with this one
+// (the DA42 never touches avitab/panel_enabled, 2026-11-26: its pages could not be reached over this one).
+void tabletPagesWatchStep() {
+    struct W { XPLMDataRef d; std::string name; bool isInt; float last; };
+    static std::vector<W> watched;
+    static double loadedAt = -1, lastLook = 0;
+    static int logged = 0;
+    static std::string forAircraft;
+    const double now = XPLMGetElapsedTime();
+    char file[512] = "", path[2048] = "";
+    XPLMGetNthAircraftModel(0, file, path);
+    if (forAircraft != path) { forAircraft = path; watched.clear(); loadedAt = now; logged = 0; }
+    if (g_panelWidth <= 0 || loadedAt < 0) return;
+    if (now - loadedAt < 15) return;
+    if (now - loadedAt > 1800) return;   // (half an hour of it)
+    if (loadedAt > 0 && watched.empty()) {
+        loadedAt = -loadedAt;   // (looked once)
+        const int n = XPLMCountDataRefs();
+        std::vector<XPLMDataRef> all((size_t)std::max(0, n));
+        if (n > 0) XPLMGetDataRefsByIndex(0, n, all.data());
+        const XPLMPluginID me = XPLMGetMyID();
+        for (XPLMDataRef d : all) {
+            if (!d) continue;
+            XPLMDataRefInfo_t info; std::memset(&info, 0, sizeof info); info.structSize = sizeof info;
+            XPLMGetDataRefInfo(d, &info);
+            if (!info.name || info.owner == me) continue;
+            std::string lo; for (const char* c = info.name; *c; ++c) lo += (char)std::tolower((unsigned char)*c);
+            if (lo.compare(0, 4, "sim/") == 0) continue;
+            if (lo.find("tablet") == std::string::npos && lo.find("efb") == std::string::npos && lo.find("ipad") == std::string::npos && lo.find("avitab") == std::string::npos && lo.find("/pad") == std::string::npos) continue;
+            const int t = info.type;
+            if (!(t & (xplmType_Int | xplmType_Float))) continue;
+            W w{d, info.name, (t & xplmType_Int) != 0, 0};
+            w.last = w.isInt ? (float)XPLMGetDatai(d) : XPLMGetDataf(d);
+            watched.push_back(w);
+            logMsg("tablet pages: watching %s (%s) = %g", info.name, w.isInt ? "int" : "float", w.last);
+            if (watched.size() >= 40) break;
+        }
+        if (watched.empty()) logMsg("tablet pages: the aircraft has no datarefs about its tablet");
+        lastLook = now;
+        return;
+    }
+    if (now - lastLook < 0.5 || logged >= 300) return;
+    lastLook = now;
+    for (W& w : watched) {
+        const float v = w.isInt ? (float)XPLMGetDatai(w.d) : XPLMGetDataf(w.d);
+        if (v != w.last && std::fabs(v - w.last) > 1e-4f) { logMsg("tablet pages: %s %g -> %g", w.name.c_str(), w.last, v); w.last = v; if (++logged >= 300) break; }
+    }
+}
 
 // Once per ToLiss aircraft: what its plugin offers for the Ground page, in Log.txt, so a wrong guess shows up there.
 void probeToLiss() {
@@ -3262,6 +3318,8 @@ float flightLoop(float dt, float, int, void*) {
     backspaceStep();   // (Backspace held: deleting on)
     xpt::crashlog::here("the flight loop: jetwayWatchStep");
     jetwayWatchStep();   // (openSAM's beacon-off press undoing the tablet's docking)
+    xpt::crashlog::here("the flight loop: tabletPagesWatchStep");
+    tabletPagesWatchStep();   // (an aircraft's own tablet pages: how it switches them, in the log)
     {   // a thread stopped on an exception (caught): told in the log, from here (the main thread)
         const std::string f = xpt::crashlog::takeFailures();
         size_t s = 0;
