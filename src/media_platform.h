@@ -2,6 +2,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace xpt {
 namespace media {
@@ -26,6 +27,10 @@ bool masterVol(float& v);                       // the computer's own volume (Wi
 bool setMasterVol(float v);
 bool playerMute(bool& m);                       // muted (the player's sound, as Windows' Volume Mixer shows it); false: not known
 bool setPlayerMute(bool m);
+// the computer's sound outputs (Windows: speakers, headsets, Voicemeeter's inputs...), and which one the computer volume controls
+struct Output { std::string id, name; };
+bool outputs(std::vector<Output>& list);        // false: not here
+void setOutput(const std::string& id);          // "" Windows' default (an output no longer there: the default too)
 bool masterMute(bool& m);                       // the computer's sound muted (Windows: the speakers', as the taskbar shows it)
 bool setMasterMute(bool m);
 

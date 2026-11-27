@@ -96,6 +96,8 @@ struct Settings {
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
     bool mediaEnabled = true;     // the Music app and the music controls in the pull-down (not on macOS)
     int mediaDuck = 0;            // while the radios receive: 0 leave the music alone, 1 lower it (duckRx / duckTx), 2 pause it (and play it again after)
+    bool docsListHidden = false;  // Documents: the file list folded away (the document across the page)
+    std::string mediaOutput;      // Windows: the sound output the computer volume (the PC slider) controls; "" Windows' default
     float duckRx = 0.5f;          // lowered: the media's volume while receiving, 0..1
     float duckTx = 0.3f;          // and while transmitting
     float notifyVolume = 0.7f;    // the notification chime, 0 (silent) .. 1
@@ -204,6 +206,10 @@ struct BrowserState {
 
 // A pilot on VATSIM (the Map's traffic card): who, where, and the filed flight plan.
 // What is playing on the computer (Windows: the system's media controls; Linux: MPRIS players), from the host
+// the Documents page's folders, as the plugin labels its files and the page's filters look for them (one spelling for both)
+inline constexpr const char* kDocsFolderXPTablet = "XPTablet Docs";
+inline constexpr const char* kDocsFolderAviTab = "AviTab Charts";
+
 struct MediaState {
     bool supported = false;       // this computer's media controls can be used (Windows, Linux)
     bool active = false;          // a player is there
@@ -224,6 +230,7 @@ struct MediaState {
     float playerVolume = -1;      // the player's own volume, 0..1 (-1: it keeps it to itself)
     float masterVolume = -1;      // the computer's (Windows), 0..1 (-1: not here)
     bool playerMuted = false, masterMuted = false;   // muted, as Windows has them (the player's sound; the computer's)
+    std::vector<std::pair<std::string, std::string>> outputs;   // Windows: the sound outputs (id, name) the computer volume can control
 };
 
 struct VatsimPilot {

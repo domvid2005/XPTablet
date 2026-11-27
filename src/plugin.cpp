@@ -1530,8 +1530,8 @@ void listDocuments() {
     // longer looked in (its manuals filled the list)
     const std::string docs = pluginFolder() + "/docs";
     makeDirs(docs + "/");
-    std::vector<Where> where = {{docs, "XPTablet docs", 4}, {mine, "XPTablet docs", 4}};
-    if (fs::exists(fs::u8path(root + "Resources/plugins/AviTab/charts"))) where.push_back({root + "Resources/plugins/AviTab/charts", "AviTab charts", 4});
+    std::vector<Where> where = {{docs, xpt::kDocsFolderXPTablet, 4}, {mine, xpt::kDocsFolderXPTablet, 4}};   // (the page's filters' own spelling: 2026-11-27, "docs" showed nothing)
+    if (fs::exists(fs::u8path(root + "Resources/plugins/AviTab/charts"))) where.push_back({root + "Resources/plugins/AviTab/charts", xpt::kDocsFolderAviTab, 4});
     for (const Where& w : where) {
         d.folders.push_back(w.path);
         std::error_code ec;
@@ -1823,6 +1823,7 @@ void mediaStep(const xpt::Actions& act) {
     const bool rx = pilotRx || xpRx, tx = pilotTx || xpTx;
     const char* who = pilotRx || pilotTx ? "xPilot" : "X-Plane ATC";
     // (a tablet that is off or flat leaves the media alone)
+    xpt::media::setOutput(st.mediaOutput);
     xpt::media::setDuck(xpt::tabletPoweredOn() ? st.mediaDuck : 0, rx || tx, rx || tx ? who : "", tx ? st.duckTx : st.duckRx);   // transmitting: its own level
     const xpt::media::Now n = xpt::media::now();
     xpt::MediaState& m = g_sim.media;
@@ -1834,6 +1835,7 @@ void mediaStep(const xpt::Actions& act) {
     m.radioSource = rx ? who : n.radioApp ? n.radioAppName : "";
     m.ducked = n.ducked;
     m.playerVolume = n.playerVolume; m.masterVolume = n.masterVolume; m.playerMuted = n.playerMuted; m.masterMuted = n.masterMuted;
+    m.outputs.clear(); for (const auto& o : n.outputs) m.outputs.push_back({o.id, o.name});
     // the cover, into a texture of its own (mipmapped: it is shown small and large)
     static int version = 0;
     std::vector<uint8_t> px;

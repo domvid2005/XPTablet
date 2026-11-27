@@ -29,6 +29,7 @@ std::vector<int> g_cmds;
 double g_seekTo = -1;   // a seek waiting (seconds)
 float g_setPlayer = -1, g_setMaster = -1;   // volumes waiting to be set
 int g_setPMute = -1, g_setMMute = -1;       // mutes waiting to be set (1 muted, 0 not)
+std::string g_output;                       // the output the computer volume controls (Settings, Media); "" Windows' default
 std::chrono::steady_clock::time_point g_posAt;   // when g_now.posSec was read
 int g_duckMode = 0;
 float g_duckLevel = 0.5f;   // lowered: to this volume
@@ -112,7 +113,11 @@ void run() {
     // the volumes as they were before the tablet changed any: put back when X-Plane closes (or the Media controls are switched off).
     // The computer's, read now; each player's, read the first time it plays. Only what the tablet itself changed is put back.
     float startMaster = -1; bool startMMute = false;
+    std::string output;   // the output the computer volume is on now
+    { std::lock_guard<std::mutex> lk(g_mx); output = g_output; }
+    platform::setOutput(output);
     { float v; if (platform::masterVol(v)) startMaster = v; bool m; if (platform::masterMute(m)) startMMute = m; }
+    int outputsTick = 0;
     std::map<std::string, std::pair<float, bool>> startPlayer;   // by app
     std::string playerApp;
     bool touchedMaster = false, touchedPlayer = false;
@@ -142,6 +147,24 @@ void run() {
         if (active && !info.app.empty() && !startPlayer.count(info.app)) {   // a player seen for the first time: its volume as it was
             float v; bool m = false;
             if (platform::playerVol(v)) { platform::playerMute(m); startPlayer[info.app] = {v, m}; }
+        }
+        {   // another output chosen: the one before gets back what it had (if the tablet changed it), the new one is remembered as it is
+            std::string want;
+            { std::lock_guard<std::mutex> lk(g_mx); want = g_output; }
+            if (want != output) {
+                if (touchedMaster && startMaster >= 0) { platform::setMasterVol(startMaster); platform::setMasterMute(startMMute); }
+                output = want; platform::setOutput(output);
+                touchedMaster = false; startMaster = -1; startMMute = false;
+                { float v; if (platform::masterVol(v)) startMaster = v; bool m; if (platform::masterMute(m)) startMMute = m; }
+            }
+            if (outputsTick-- <= 0) {   // the outputs (one plugged in or out): every 2 seconds
+                outputsTick = 8;
+                std::vector<platform::Output> list;
+                std::vector<Now::Output> got;
+                if (platform::outputs(list)) for (const auto& o : list) got.push_back({o.id, o.name});
+                std::lock_guard<std::mutex> lk(g_mx);
+                g_now.outputs.swap(got);
+            }
         }
         if (active) playerApp = info.app;
         if (setPlayer >= 0 || setPMute >= 0) touchedPlayer = true;
@@ -249,6 +272,7 @@ void setMuted(bool computer, bool muted) {
     (computer ? g_setMMute : g_setPMute) = muted ? 1 : 0;
     (computer ? g_now.masterMuted : g_now.playerMuted) = muted;
 }
+void setOutput(const std::string& id) { std::lock_guard<std::mutex> lk(g_mx); g_output = id; }
 void setMasterVolume(float v) { std::lock_guard<std::mutex> lk(g_mx); g_setMaster = std::max(0.0f, std::min(1.0f, v)); g_now.masterVolume = g_setMaster; }
 bool takeArt(int& version, std::vector<uint8_t>& rgba, int& w, int& h) {
     std::lock_guard<std::mutex> lk(g_mx);

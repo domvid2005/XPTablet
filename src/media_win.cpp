@@ -8,6 +8,10 @@
 #include <audiopolicy.h>
 #include <endpointvolume.h>
 #include <mmdeviceapi.h>
+#include <propidl.h>   // (PropVariantClear: the outputs' names)
+#ifndef STGM_READ
+#define STGM_READ 0x00000000L
+#endif
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Media.Control.h>
@@ -53,14 +57,56 @@ GlobalSystemMediaTransportControlsSession current() {
     try { return g_mgr.GetCurrentSession(); } catch (...) { return nullptr; }
 }
 
-// the processes with audio sessions on the default speakers: their exe name, volume control and level meter
+// the output the computer volume controls: chosen in Settings, Media (its endpoint ID), else Windows' default
+std::wstring g_outputId;
+std::wstring wideOf(const std::string& s) {
+    if (s.empty()) return std::wstring();
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+    std::wstring w((size_t)std::max(0, n), L'\0');
+    if (n > 0) MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), &w[0], n);
+    return w;
+}
+std::string utf8Of(const wchar_t* w) {
+    if (!w || !*w) return std::string();
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
+    std::string s((size_t)std::max(0, n - 1), '\0');
+    if (n > 1) WideCharToMultiByte(CP_UTF8, 0, w, -1, &s[0], n, nullptr, nullptr);
+    return s;
+}
+IMMDevice* outputDevice(IMMDeviceEnumerator* en) {   // (released by the caller)
+    IMMDevice* dev = nullptr;
+    if (!g_outputId.empty() && SUCCEEDED(en->GetDevice(g_outputId.c_str(), &dev)) && dev) {
+        DWORD state = 0;
+        if (SUCCEEDED(dev->GetState(&state)) && state == DEVICE_STATE_ACTIVE) return dev;
+        dev->Release(); dev = nullptr;   // (unplugged or switched off: the default instead)
+    }
+    if (FAILED(en->GetDefaultAudioEndpoint(eRender, eMultimedia, &dev))) dev = nullptr;
+    return dev;
+}
+
+// the processes with audio sessions on any of the computer's outputs (a player or a radio app may be sent to a headset, or to one
+// of Voicemeeter's inputs, rather than to Windows' default; 2026-11-27): their exe name, volume control and level meter
 struct Session { DWORD pid = 0; std::wstring exe; ISimpleAudioVolume* vol = nullptr; IAudioMeterInformation* meter = nullptr; };
+void sessionsOf(IMMDevice* dev, std::vector<Session>& out);
 std::vector<Session> sessions() {
     std::vector<Session> out;
     IMMDeviceEnumerator* en = nullptr;
     if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&en)) || !en) return out;
-    IMMDevice* dev = nullptr;
-    if (SUCCEEDED(en->GetDefaultAudioEndpoint(eRender, eMultimedia, &dev)) && dev) {
+    IMMDeviceCollection* all = nullptr;
+    if (SUCCEEDED(en->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &all)) && all) {
+        UINT n = 0;
+        all->GetCount(&n);
+        for (UINT i = 0; i < n && i < 32; ++i) {
+            IMMDevice* dev = nullptr;
+            if (SUCCEEDED(all->Item(i, &dev)) && dev) { sessionsOf(dev, out); dev->Release(); }
+        }
+        all->Release();
+    }
+    en->Release();
+    return out;
+}
+void sessionsOf(IMMDevice* dev, std::vector<Session>& out) {
+    {
         IAudioSessionManager2* mgr = nullptr;
         if (SUCCEEDED(dev->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, (void**)&mgr)) && mgr) {
             IAudioSessionEnumerator* list = nullptr;
@@ -99,10 +145,7 @@ std::vector<Session> sessions() {
             }
             mgr->Release();
         }
-        dev->Release();
     }
-    en->Release();
-    return out;
 }
 void release(std::vector<Session>& v) {
     for (Session& s : v) { if (s.vol) s.vol->Release(); if (s.meter) s.meter->Release(); }
@@ -223,8 +266,7 @@ bool setVolume(float factor) {
         if (factor >= 0.999f) {   // back to what each was
             auto it = g_baseVol.find(s.pid);
             if (it == g_baseVol.end()) continue;
-            s.vol->SetMasterVolume(it->second, nullptr);
-            g_baseVol.erase(it);
+            s.vol->SetMasterVolume(it->second, nullptr);   // (kept until all are back: the same app may have a session on two outputs)
             any = true;
         } else if (isPlayer(s)) {
             float v = 1.0f;
@@ -269,13 +311,12 @@ bool setPlayerVol(float v) {
     release(list);
     return any;
 }
-// the speakers' own volume (the one in Windows' taskbar)
+// the chosen output's own volume (Windows' default: the one in the taskbar)
 IAudioEndpointVolume* endpointVolume() {
     IMMDeviceEnumerator* en = nullptr;
     if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&en)) || !en) return nullptr;
     IAudioEndpointVolume* ev = nullptr;
-    IMMDevice* dev = nullptr;
-    if (SUCCEEDED(en->GetDefaultAudioEndpoint(eRender, eMultimedia, &dev)) && dev) {
+    if (IMMDevice* dev = outputDevice(en)) {
         dev->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr, (void**)&ev);
         dev->Release();
     }
@@ -296,6 +337,39 @@ bool setMasterVol(float v) {
     ev->Release();
     return ok;
 }
+
+bool outputs(std::vector<Output>& list) {
+    list.clear();
+    IMMDeviceEnumerator* en = nullptr;
+    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&en)) || !en) return false;
+    // PKEY_Device_FriendlyName ("Speakers (Realtek(R) Audio)"), spelled out here rather than defined through initguid.h
+    static const PROPERTYKEY kFriendlyName = {{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 14};
+    IMMDeviceCollection* all = nullptr;
+    if (SUCCEEDED(en->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &all)) && all) {
+        UINT n = 0;
+        all->GetCount(&n);
+        for (UINT i = 0; i < n && i < 32; ++i) {
+            IMMDevice* dev = nullptr;
+            if (FAILED(all->Item(i, &dev)) || !dev) continue;
+            Output o;
+            LPWSTR id = nullptr;
+            if (SUCCEEDED(dev->GetId(&id)) && id) { o.id = utf8Of(id); CoTaskMemFree(id); }
+            IPropertyStore* ps = nullptr;
+            if (SUCCEEDED(dev->OpenPropertyStore(STGM_READ, &ps)) && ps) {
+                PROPVARIANT v; PropVariantInit(&v);
+                if (SUCCEEDED(ps->GetValue(kFriendlyName, &v)) && v.vt == VT_LPWSTR) o.name = utf8Of(v.pwszVal);
+                PropVariantClear(&v);
+                ps->Release();
+            }
+            if (!o.id.empty()) list.push_back(o.name.empty() ? Output{o.id, "Output " + std::to_string(i + 1)} : o);
+            dev->Release();
+        }
+        all->Release();
+    }
+    en->Release();
+    return true;
+}
+void setOutput(const std::string& id) { g_outputId = wideOf(id); }
 
 bool masterMute(bool& m) {
     IAudioEndpointVolume* ev = endpointVolume();

@@ -6311,14 +6311,23 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     const DocsState& d = s.docs;
     if (!d.listed) act.docsList = true;
     const float top = kStatusH + kHeaderH + 8, lw = 290;
+    // the list folds away (the document across the page) and comes back: its button at the list's top right, or at the page's left
+    const bool hideList = g_settings.docsListHidden;
+    {
+        const ImVec2 ta = hideList ? ImVec2(12, top) : ImVec2(12 + lw - 36, top), tb(ta.x + 36, top + 30);
+        if (iconButton("##doclisttoggle", ta, tb, true)) { g_settings.docsListHidden = !hideList; g_settingsChanged = true; }
+        arrow(dl, ImVec2(ta.x + 18 + (hideList ? 1.0f : -1.0f), top + 15), !hideList, kInk);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", hideList ? "Show The List" : "Hide The List");
+    }
+    if (!hideList) {
     if (iconButton("##docref", ImVec2(12, top), ImVec2(48, top + 30), true)) act.docsList = true;   // look again
     reloadIcon(dl, ImVec2(30, top + 15), kInk);
     {   // which folders: all of them, XPTablet's docs folder, or AviTab's charts
         struct Flt { const char* id; const char* name; const char* folder; float x0, x1; };
-        const Flt flts[] = {{"##docall", "All", "", 54, 104}, {"##docxpt", "XPTablet", "XPTablet Docs", 108, 198}, {"##docavi", "AviTab", "AviTab Charts", 202, 302}};
+        const Flt flts[] = {{"##docall", "All", "", 54, 98}, {"##docxpt", "XPTablet", kDocsFolderXPTablet, 102, 182}, {"##docavi", "AviTab", kDocsFolderAviTab, 186, 258}};
         for (const Flt& fl : flts)
             if (pill(dl, f, fl.id, fl.name, ImVec2(fl.x0, top), ImVec2(fl.x1, top + 30), g_docFilter == fl.folder, true) && g_docFilter != fl.folder) { g_docFilter = fl.folder; g_docListScroll = 0; }
-        if (!g_docFilter.empty() && g_docFilter != "XPTablet Docs" && g_docFilter != "AviTab Charts") g_docFilter.clear();
+        if (!g_docFilter.empty() && g_docFilter != kDocsFolderXPTablet && g_docFilter != kDocsFolderAviTab) g_docFilter.clear();
     }
     const ImVec2 la(12, top + 40), lb(12 + lw, h - 12);
     card(dl, la, lb, f, nullptr);
@@ -6345,7 +6354,7 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
             contentH += 36; ++n;
         }
         contentH += 12;
-        if (n == 0 && !d.files.empty()) textAt(dl, f.small, la.x + 14, la.y + 14, kMuted, g_docFilter == "AviTab Charts" ? "No charts in AviTab's charts folder." : "No documents in XPTablet's docs folder.");
+        if (n == 0 && !d.files.empty()) textAt(dl, f.small, la.x + 14, la.y + 14, kMuted, g_docFilter == kDocsFolderAviTab ? "No charts in AviTab's charts folder." : "No documents in XPTablet's docs folder.");
     }
     const float shownH = lb.y - la.y;
     const bool scrolls = contentH > shownH + 1;
@@ -6379,8 +6388,9 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     }
     dl->PopClipRect();
     if (scrolls) g_docListScroll = scrollBar(dl, "##docbar", lb.x - 8, la.y + 8, lb.y - 8, g_docListScroll, contentH, shownH);
+    }
     // the picture: fitted, then the wheel or + / - to zoom and a drag to move
-    const ImVec2 va(24 + lw, top), vb(w - 12, h - 12);
+    const ImVec2 va(hideList ? 56.0f : 24 + lw, top), vb(w - 12, h - 12);
     if (!g_docPdf.empty()) {   // a PDF: its name and the zoom along the top, the pages under them
         dl->AddRectFilled(va, vb, themeTone(8, 14, 26, 240), 10.0f);
         std::string nm = g_docPdf.substr(g_docPdf.find_last_of("/\\") + 1);
@@ -8814,6 +8824,25 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         }
         ry += 16;
         dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "Paused media plays again when the radio is quiet. Receiving: X-Plane's own ATC and ATIS, xPilot's COM1 and COM2, and on Windows VATSIM voice apps (TrackAudio, swift...). Transmitting: X-Plane's and xPilot's push-to-talk.", nullptr, w - 18 - rx);
+        if (md.supported && !md.outputs.empty()) {   // Windows: the output the computer volume (the PC slider) controls
+            ry += 58;
+            textAt(dl, f.bold, rx, ry, kInk, "Computer Volume Output");
+            ry += 24;
+            int at = -1;   // -1 Windows' default; else the place in the list
+            for (size_t i = 0; i < md.outputs.size(); ++i) if (md.outputs[i].first == g_settings.mediaOutput) at = (int)i;
+            const bool missing = !g_settings.mediaOutput.empty() && at < 0;   // chosen, and unplugged now
+            const std::string name = missing ? std::string("Not Connected (Windows Default)") : at < 0 ? std::string("Windows Default") : md.outputs[(size_t)at].second;
+            const float bw = 30, x0 = rx, x1 = w - 18;
+            const int n = (int)md.outputs.size();
+            if (iconButton("##mout-", ImVec2(x0, ry), ImVec2(x0 + bw, ry + 30), at >= 0 || missing)) { const int k = missing ? -1 : at - 1; g_settings.mediaOutput = k < 0 ? std::string() : md.outputs[(size_t)k].first; g_settingsChanged = true; }
+            arrow(dl, ImVec2(x0 + bw * 0.5f + 1, ry + 15), true, at >= 0 || missing ? kInk : kMuted);
+            if (iconButton("##mout+", ImVec2(x1 - bw, ry), ImVec2(x1, ry + 30), at < n - 1)) { g_settings.mediaOutput = md.outputs[(size_t)(at + 1)].first; g_settingsChanged = true; }
+            arrow(dl, ImVec2(x1 - bw * 0.5f - 1, ry + 15), false, at < n - 1 ? kInk : kMuted);
+            dl->AddRectFilled(ImVec2(x0 + bw + 6, ry), ImVec2(x1 - bw - 6, ry + 30), IM_COL32(255, 255, 255, 18), 8.0f);
+            textCentered(dl, f.small, (x0 + x1) * 0.5f, std::floor(ry + (30 - fontPx(f.small)) * 0.5f), missing ? kWarn : accentLite(255), fitText(f.small, name, x1 - x0 - 2 * bw - 24).c_str());
+            ry += 38;
+            dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "What the PC slider in Media changes. With Voicemeeter or another mixer, choose the speakers or headset your sound comes out of.", nullptr, rw);
+        }
         return;
     }
     if (g_settingsTab == 1) {   // ---- Display: brightness (or auto dim), the favorites bar, the clock (the map's options are on the map)
@@ -10963,6 +10992,8 @@ std::string settingsToText() {
         out += "simbrief_user=" + u + "\n";
         out += "wallpaper_base=" + std::to_string(g_settings.wallpaperBase) + "\nseasonal_told=" + g_settings.seasonalTold + "\n";
         { std::string v = g_settings.hoppieCode; for (char& c : v) if (c == '\n' || c == '\r') c = ' '; out += "hoppie_code=" + v + "\n"; }
+        out += std::string("docs_list_hidden=") + (g_settings.docsListHidden ? "1" : "0") + "\n";
+        { std::string v = g_settings.mediaOutput; for (char& c : v) if (c == '\n' || c == '\r') c = ' '; out += "media_output=" + v + "\n"; }
     }
     out += std::string("map_airspaces=") + (g_settings.mapAirspaces ? "1" : "0") + "\n";
     out += std::string("map_dark_auto=") + (g_settings.mapDarkAuto ? "1" : "0") + "\n";
@@ -11116,6 +11147,8 @@ void settingsFromText(const std::string& text) {
         else if (key == "charger") g_charger = v != 0;
         else if (key == "media_enabled") g_settings.mediaEnabled = v != 0;
         else if (key == "media_duck") g_settings.mediaDuck = std::max(0, std::min(2, v));
+        else if (key == "media_output") g_settings.mediaOutput = val;
+        else if (key == "docs_list_hidden") g_settings.docsListHidden = v != 0;
         else if (key == "duck_rx") g_settings.duckRx = std::max(0.0f, std::min(1.0f, (float)std::atof(val.c_str())));
         else if (key == "duck_tx") g_settings.duckTx = std::max(0.0f, std::min(1.0f, (float)std::atof(val.c_str())));
         else if (key == "notify_volume") g_settings.notifyVolume = std::max(0.0f, std::min(1.0f, (float)std::atof(val.c_str())));

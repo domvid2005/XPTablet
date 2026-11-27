@@ -1337,6 +1337,31 @@ int main(int argc, char** argv) {
             settings().simbriefUser.clear();
             tap(st, 80, 238);   // Media
             settings().mediaDuck = 1; settings().duckRx = 0.35f; settings().duckTx = 0.15f;
+            {   // the output the computer volume controls (Windows): Windows' default, then each output in turn, and back
+                SimState mo = st; mo.media.supported = true; mo.media.masterVolume = 0.6f;
+                mo.media.outputs = {{"{0.0.0.00000000}.{aaa}", "Speakers (Realtek(R) Audio)"}, {"{0.0.0.00000000}.{bbb}", "VoiceMeeter Input (VB-Audio VoiceMeeter VAIO)"}};
+                settings().mediaOutput.clear();
+                auto mtap = [&](float x, float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
+                    ImGui::NewFrame(); Actions act; build(fonts, mo, 800, kLogicalH, act); ImGui::Render(); } };
+                shot(mo, APP_SETTINGS, "settings_media_outputs");
+                // where its arrows are: found by trying down the right column (its place follows the text above it)
+                float yArrow = -1;
+                for (float yy = 200; yy < kLogicalH - 10 && yArrow < 0; yy += 4) { mtap(800 - 18 - 15, yy); if (!settings().mediaOutput.empty()) yArrow = yy; }
+                if (settings().mediaOutput != "{0.0.0.00000000}.{aaa}") { std::printf("FAIL: the computer volume's output, next (%s)\n", settings().mediaOutput.c_str()); ++failures; }
+                else {
+                    mtap(800 - 18 - 15, yArrow);
+                    if (settings().mediaOutput != "{0.0.0.00000000}.{bbb}") { std::printf("FAIL: the computer volume's output, the second (%s)\n", settings().mediaOutput.c_str()); ++failures; }
+                    shot(mo, APP_SETTINGS, "settings_media_output_chosen");
+                    float xl = -1;   // the left arrow: at the column's left
+                    for (float xx = 400; xx < 560 && xl < 0; xx += 6) { mtap(xx, yArrow); if (settings().mediaOutput == "{0.0.0.00000000}.{aaa}") xl = xx; }
+                    if (xl < 0) { std::printf("FAIL: the computer volume's output, back\n"); ++failures; }
+                    else { mtap(xl, yArrow); if (!settings().mediaOutput.empty()) { std::printf("FAIL: the computer volume's output, back to Windows' default (%s)\n", settings().mediaOutput.c_str()); ++failures; } }
+                    settings().mediaOutput = "{gone}";   // chosen, then unplugged
+                    shot(mo, APP_SETTINGS, "settings_media_output_missing");
+                }
+                settings().mediaOutput.clear();
+                openApp(APP_SETTINGS); tap(st, 80, 238);
+            }
             shot(st, APP_SETTINGS, "settings_media");
             if (settingsTabShown() != 5) { std::printf("FAIL: the Media tab of Settings was not opened (%d)\n", settingsTabShown()); ++failures; }
             settings().mediaDuck = 0;
@@ -1555,9 +1580,29 @@ int main(int argc, char** argv) {
             SimState d = t;
             d.docs.listed = true;
             d.docs.folders = {"E:/X-Plane 12/Output/XPTablet/Documents"};
-            d.docs.files = {{"A320 FCOM.pdf", "/x/A320 FCOM.pdf", "XPTablet docs", true, 31457280}, {"Normal checklist.pdf", "/x/n.pdf", "XPTablet docs", true, 204800},
-                            {"KSBN airport diagram.png", "/x/ksbn.png", "XPTablet docs", false, 880000}, {"KORD 10-9.jpg", "/x/kord.jpg", "AviTab charts", false, 1200000}};
+            d.docs.files = {{"A320 FCOM.pdf", "/x/A320 FCOM.pdf", kDocsFolderXPTablet, true, 31457280}, {"Normal checklist.pdf", "/x/n.pdf", kDocsFolderXPTablet, true, 204800},
+                            {"KSBN airport diagram.png", "/x/ksbn.png", kDocsFolderXPTablet, false, 880000}, {"KORD 10-9.jpg", "/x/kord.jpg", kDocsFolderAviTab, false, 1200000}};
             shot(d, APP_DOCUMENTS, "documents");
+            {   // the folder filters show their files (2026-11-27: "XPTablet" and "AviTab" showed none, their spelling differed), and the
+                // list folds away and comes back
+                const float dtop = 28 + 46 + 8;
+                auto dtap = [&](float x, float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
+                    ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); } };
+                auto rowAt = [&](float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(150, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
+                    ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); if (!act.docOpen.empty()) return act.docOpen; } return std::string(); };
+                dtap(142, dtop + 15);   // XPTablet
+                // its first file is a PDF (no docOpen: shown here); the third, a picture, opens: the list is there
+                if (rowAt(dtop + 40 + 8 + 24 + 2 * 36 + 17) != "/x/ksbn.png") { std::printf("FAIL: the Documents XPTablet filter shows its files\n"); ++failures; }
+                shot(d, APP_DOCUMENTS, "documents_filter_xptablet");
+                dtap(222, dtop + 15);   // AviTab
+                if (rowAt(dtop + 40 + 8 + 24 + 17) != "/x/kord.jpg") { std::printf("FAIL: the Documents AviTab filter shows its charts\n"); ++failures; }
+                dtap(76, dtop + 15);    // All again
+                dtap(12 + 290 - 18, dtop + 15);   // the list folded away
+                if (!settings().docsListHidden) { std::printf("FAIL: the Documents list does not fold away\n"); ++failures; }
+                shot(d, APP_DOCUMENTS, "documents_list_hidden");
+                dtap(30, dtop + 15);   // and back
+                if (settings().docsListHidden) { std::printf("FAIL: the Documents list does not come back\n"); ++failures; }
+            }
             // a PDF opens in the page itself (its own browser tab, in the Documents' group), not in the Browser
             d.browser.status = 1;
             { Actions a2; for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(100, 170); io.AddMouseButtonEvent(0, k == 1); ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); if (act.webTabNew) a2 = act; }

@@ -19,6 +19,9 @@ bool playerMute(bool&) { return false; }
 bool setPlayerMute(bool) { return false; }
 bool masterMute(bool&) { return false; }
 bool setMasterMute(bool) { return false; }
+bool outputs(std::vector<Output>&) { return false; }
+void setOutput(const std::string&) {}
+
 } // namespace platform
 } // namespace media
 } // namespace xpt
