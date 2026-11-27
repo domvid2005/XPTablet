@@ -16,3 +16,8 @@ Inputs: `version` (empty: the one in src/version.h), `commit` (empty: the newest
 a version already on SkunkCrafts). The same workflow runs from GitHub: Actions > SkunkCrafts release > Run workflow.
 
 A version can be released once: the workflow stops if the release branch already has it. The release branch only gets new commits.
+
+Release from the newest commit on main (leave `commit` empty). The workflow pushes the `v<version>` tag with GitHub Actions' own
+token, and GitHub refuses that token a tag on an older commit whose workflow files differ from main's ("refusing to allow a GitHub
+App to create or update workflow ... without `workflows` permission"). Claude Code sessions cannot push tags or make releases
+themselves; the workflow does both.
