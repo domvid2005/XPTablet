@@ -1008,6 +1008,23 @@ int main(int argc, char** argv) {
             tap(st, 80, 154);   // Display
             settings().autoDim = true;
             shot(st, APP_SETTINGS, "settings_display");
+            {   // a tab chosen: the sidebar stays as it is through the switch (only the tab's content fades in; faded with it,
+                // the sidebar's icons flickered, 2026-11-26)
+                auto fr = [&](float x, float y, bool d, Canvas* cv) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, d);
+                    ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); std::vector<Batch> b; clipDrawData(ImGui::GetDrawData(), b);
+                    if (cv) raster(*cv, b, tex, tw, th, scale); };
+                auto iconAt = [&](const Canvas& cv) {   // the Credits icon's tile (orange), in the sidebar's bottom row
+                    const int px = (int)(38 * scale), py = (int)((kLogicalH - 12 - 50 + 12) * scale);
+                    return cv.rgb[((size_t)py * cv.w + px) * 3];
+                };
+                Canvas before((int)(800 * scale), (int)(kLogicalH * scale)), during((int)(800 * scale), (int)(kLogicalH * scale));
+                fr(80, 238, false, &before);            // (settled on Display)
+                fr(80, 238, true, nullptr); fr(80, 238, false, nullptr);   // Media chosen
+                fr(80, 238, false, &during);            // the first frames of its fade
+                if (std::fabs(iconAt(before) - iconAt(during)) > 0.02f) { std::printf("FAIL: the Settings sidebar fades when a tab is chosen (%.3f, %.3f)\n", iconAt(before), iconAt(during)); ++failures; }
+                tap(st, 80, 154);   // back to Display
+                for (int k = 0; k < 12; ++k) fr(-100, -100, false, nullptr);
+            }
             {   // Theme-Colored Apps: the home screen's own apps in the theme's colours (brand logos as they are)
                 settings().themedIcons = true;
                 shot(st, APP_HOME, "home_themed_icons");

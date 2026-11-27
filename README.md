@@ -11,9 +11,13 @@ in its window only; remove AviTab from `Resources/plugins` to let XPTablet take 
 
 ## Status
 
-Version 0.4.1 is a test build: the tablet in the AviTab slot with touch input, the home screen with rearrangeable icons and a
-favorites bar, Settings, and the pages web apps will load into. The browser engine and the other apps are not in yet. See
-`docs/PLAN.md` for what is planned.
+Version 0.9.1, a pre-release build. In it: the tablet in AviTab's place on aircraft built for AviTab (and in a floating window
+on the others), the home screen and App Store, the moving map with VATSIM traffic and airspaces, airports, charts and documents,
+SimBrief flight plans and the Dispatch briefing, weather (WXPlane's own page when it is installed), checklists, notes, a logbook,
+ground services and pushback, the browser and web apps, media controls, and Local Connect.
+
+With AviTab not installed, XPTablet answers to AviTab's plugin signature as well, so aircraft that look for AviTab by it (the
+Aerobask DA42) switch between their own tablet pages and this one.
 
 ## Install
 

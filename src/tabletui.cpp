@@ -8402,13 +8402,15 @@ bool hiddenField(ImDrawList* dl, const Fonts& f, const char* id, std::string& v,
     return typing;
 }
 
+int g_setContentV0 = -1;   // where the chosen tab's content starts in the draw list (after the sidebar)
 void settingsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     static int shownTab = -1; static double tabT0 = -10;
     if (g_settingsTab != shownTab) { shownTab = g_settingsTab; tabT0 = ImGui::GetTime(); }
-    if (g_customEdit < 0) {   // (a tab chosen: its content fades in)
-        const int v0 = dl->VtxBuffer.Size;
+    if (g_customEdit < 0) {   // (a tab chosen: its content fades in; the sidebar stays as it is: faded with it, its icons flickered)
+        g_setContentV0 = -1;
         settingsBody(dl, f, s, w, h, act);
-        fadeSince(dl, v0, std::min(1.0f, (float)(ImGui::GetTime() - tabT0) / 0.18f) * 0.65f + 0.35f);
+        if (g_settingsTab != shownTab) { shownTab = g_settingsTab; tabT0 = ImGui::GetTime(); }   // (chosen this frame: from its first frame)
+        if (g_setContentV0 >= 0) fadeSince(dl, g_setContentV0, std::min(1.0f, (float)(ImGui::GetTime() - tabT0) / 0.18f) * 0.65f + 0.35f);
         return;
     }
     dl->ChannelsSplit(2);
@@ -8462,6 +8464,7 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         }
         dl->AddLine(ImVec2(24, sBot - 58), ImVec2(sW, sBot - 58), IM_COL32(255, 255, 255, 24));
     }
+    g_setContentV0 = dl->VtxBuffer.Size;
     const float x0 = 12 + 168 + 14;
     if (g_settingsTab == 3) { creditsPage(dl, f, x0, w, h); return; }
     const float top = kStatusH + kHeaderH + 16;

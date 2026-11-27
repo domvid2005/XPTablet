@@ -1821,6 +1821,10 @@ void mediaStep(const xpt::Actions& act) {
 }
 
 void ensureFrame() {
+    // OpenGL's functions are looked up before anything here uses them. Local Connect's picture came here first when the tablet had
+    // never been drawn in the sim (no cockpit tablet in the aircraft, its window never opened) and a device connected: the fonts'
+    // texture was then made through pointers still empty, a call to address 0 (X-Plane closed: 2026-11-22, the A330 at KMDW).
+    if (!g_ctx || !loadGl()) return;
     const int cycle = XPLMGetCycleNumber();
     if (cycle == g_frameCycle) return;
     g_frameCycle = cycle;
@@ -2385,6 +2389,10 @@ float getFloat(void* r) { return *(float*)r; }
 void setBrightness(void*, float v) { g_brightness = std::max(0.0f, std::min(1.0f, v)); }
 int getOwnsAviTab(void*) { return g_ownsAviTab ? 1 : 0; }
 int getInMenu(void*) { return xpt::currentApp() == xpt::APP_HOME ? 1 : 0; }
+// avitab/is_in_menu while XPTablet answers to AviTab's signature: never "in its menu". Add-ons that draw their own icon on AviTab's
+// home screen take XPTablet for AviTab then (WXPlane up to 5.1.9 drew its WX icon over the home screen, 2026-11-26); they draw
+// only when this says the menu shows. xptablet/is_in_menu says how it is.
+int getInMenuAsAviTab(void*) { return g_tookAviTabSig ? 0 : getInMenu(nullptr); }
 // AviTab's map datarefs: where the Map page looks
 float getMapLat(void*) { double la, lo; int z; float r; xpt::mapView(la, lo, z, r); return (float)la; }
 float getMapLon(void*) { double la, lo; int z; float r; xpt::mapView(la, lo, z, r); return (float)lo; }
@@ -2413,7 +2421,7 @@ void registerDatarefs(const std::string& prefix) {
     regInt(prefix + "/panel_enabled", &g_panelEnabled, true);
     regInt(prefix + "/panel_powered", &g_panelPowered, true);
     regFloat(prefix + "/brightness", getFloat, setBrightness, &g_brightness);
-    regIntFn(prefix + "/is_in_menu", getInMenu);
+    regIntFn(prefix + "/is_in_menu", prefix == "avitab" ? getInMenuAsAviTab : getInMenu);
     // 1 when XPTablet provides AviTab's interface (AviTab is not installed). WXPlane reads it: it then leaves the tablet's screen
     // alone and shows on the Weather page, instead of drawing over the screen as it does on AviTab.
     if (prefix == "xptablet") regIntFn(prefix + "/owns_avitab", getOwnsAviTab);
@@ -3178,6 +3186,7 @@ int mirrorDraw(XPLMDrawingPhase, int, void*) {
     g_mirrorScale = watched ? 1.5f : 0.0f;
     const double now = XPLMGetElapsedTime();
     if (!watched || !xpt::mirror::wantsFrame(now, xpt::arcadeOnScreen())) return 1;   // (a game on screen: more pictures a second)
+    if (!g_ctx || !loadGl()) return 1;
     ensureFrame();   // (made now if the tablet was not drawn this frame: its window closed, no cockpit tablet in view)
     // the picture is taken only when the tablet's frame is another one (what it draws, or a picture it draws with), when a device
     // waits for a whole picture, and twice a second regardless (WXPlane's page and the like change without telling)
