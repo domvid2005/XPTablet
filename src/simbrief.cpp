@@ -156,7 +156,12 @@ FlightPlan parseSimbrief(const std::string& body) {
             l.legNm = str(&f, "distance");
             l.totalTime = clockOfSec(num(&f, "time_total"));
             l.lat = num(&f, "pos_lat"); l.lon = num(&f, "pos_long");
-            if (str(&f, "is_sid_star") == "1") { if (p.legs.empty() || p.sid.empty()) { if (p.star.empty() && p.legs.size() < 8) p.sid = l.airway; else p.star = l.airway; } }
+            // the SID's and the STAR's legs carry their names as the airway: the first one near the start is the SID, any other the
+            // STAR (2026-11-27: with a SID, the STAR was never read, so it was missing on the map and in the crossing restrictions)
+            if (str(&f, "is_sid_star") == "1" && !l.airway.empty()) {
+                if (p.sid.empty() && p.star.empty() && p.legs.size() < 8) p.sid = l.airway;
+                else if (l.airway != p.sid) p.star = l.airway;
+            }
             if (l.ident == "TOC" || l.ident == "TOD") return;
             p.legs.push_back(l);
         };

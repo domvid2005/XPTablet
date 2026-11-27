@@ -2400,9 +2400,12 @@ void popUtf8(std::string& s) {   // the last character, whole
     while (!s.empty() && ((unsigned char)s.back() & 0xC0) == 0x80) s.pop_back();
     if (!s.empty()) s.pop_back();
 }
+// the SimBrief pilot ID: a number, typed on a keypad (the keyboard's letters, pasted text and the computer's keys: its digits only)
+bool digitsField() { return g_kbdTarget == 2 && g_typeInto && g_typeInto == &g_settings.simbriefUser; }
 void typeKey(Actions& act, int code, bool isChar) {
     if (g_kbdTarget == 2) {
         if (!g_typeInto) { g_kbd = false; g_kbdTarget = 0; return; }
+        if (digitsField() && isChar && (code < '0' || code > '9' || g_typeInto->size() >= 10)) return;
         if (!isChar && code == 8) popUtf8(*g_typeInto);
         else if (!isChar && code == 13) {
             if (g_typeMultiline) *g_typeInto += '\n';
@@ -2430,6 +2433,7 @@ void typeKey(Actions& act, int code, bool isChar) {
 bool webTypingAddress() { return g_kbd && g_kbdTarget == 1; }
 void webAddressKey(int code, bool isChar) { Actions none; typeKey(none, code, isChar); }
 bool tabletTyping() { return g_kbd && (g_kbdTarget == 1 || (g_kbdTarget == 2 && g_typeInto)); }
+bool simbriefIdTyping() { return g_kbd && digitsField(); }
 void tabletKey(int code, bool isChar) { Actions none; typeKey(none, code, isChar); }
 // the clipboard's text, typed in (line ends: a new line in a note, else a space; other characters the keys have not, left out)
 void pasteText(const std::string& text) {
@@ -2450,7 +2454,9 @@ namespace {
 // The on-screen keyboard across the bottom of the page, top at y. Returns its height.
 float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y);
 bool g_clipHas = false;   // the computer's clipboard has text (from SimState): Paste is offered over the keys
+float keypad(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act);
 float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
+    if (digitsField()) return keypad(dl, f, w, y, act);   // (a number: the keypad, with the on-screen or the computer's keys alike)
     if (physicalNow() && !g_kbdKeysShown) return keyboardBar(dl, f, w, y);
     if (g_clipHas) {   // Paste, a bubble over the keys' top right corner: the clipboard's text into the box (or the page's field)
         const ImVec2 pa(w - 96, y - 38), pe(w - 10, y - 8);
@@ -2549,6 +2555,43 @@ float keyboard(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
     if (key("##kenter", g_kbdTarget == 1 ? "Go" : (g_kbdTarget == 2 && !g_typeMultiline) ? "Done" : "Enter", x, yy, w15, true)) typeKey(act, 13, false);
     return H;
 }
+// A number's keypad in the keyboard's place: 1 to 9 and 0, Delete (held, it goes on), Clear, Done; Paste when there is text to paste
+float keypad(ImDrawList* dl, const Fonts& f, float w, float y, Actions& act) {
+    const float H = 5 * 34 + 4 * 5 + 16, pad = 14, gap = 8, rgap = 6, kh = 40, kw = 120;
+    dl->AddRectFilled(ImVec2(0, y), ImVec2(w, y + H), themeTone(20, 26, 38, 250));
+    dl->AddLine(ImVec2(0, y), ImVec2(w, y), IM_COL32(255, 255, 255, 40));
+    const float x0 = std::floor((w - (4 * kw + 3 * gap)) * 0.5f), y0 = y + pad;
+    auto key = [&](const char* id, const char* label, int col, int row, int rows, bool lit) {
+        const float x = x0 + col * (kw + gap), yy = y0 + row * (kh + rgap), hh = rows * kh + (rows - 1) * rgap;
+        ImGui::SetCursorScreenPos(ImVec2(x, yy));
+        const bool hit = ImGui::InvisibleButton(id, ImVec2(kw, hh));
+        const bool down = ImGui::IsItemActive(), hot = ImGui::IsItemHovered();
+        dl->AddRectFilled(ImVec2(x, yy), ImVec2(x + kw, yy + hh), lit ? accentCol(down ? 255 : hot ? 245 : 230) : IM_COL32(255, 255, 255, down ? 80 : hot ? 46 : 30), 8.0f);
+        ImFont* fn = std::strlen(label) > 1 ? f.body : f.title;
+        textCentered(dl, fn, x + kw * 0.5f, std::floor(yy + (hh - fontPx(fn)) * 0.5f), lit ? onAccent() : kInk, label);
+        return hit;
+    };
+    static const char* digits[10] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"};
+    for (int i = 0; i < 9; ++i) {
+        char id[16]; std::snprintf(id, sizeof id, "##kp%d", i + 1);
+        if (key(id, digits[i], i % 3, i / 3, 1, false)) typeKey(act, '1' + i, true);
+    }
+    if (key("##kp0", "0", 1, 3, 1, false)) typeKey(act, '0', true);
+    {   // Delete: held, it goes on deleting (after half a second, 16 a second)
+        static double heldAt = -1, lastRep = 0;
+        key("##kpdel", "Delete", 3, 0, 1, false);
+        const double now = ImGui::GetTime();
+        if (ImGui::IsItemActivated()) typeKey(act, 8, false);
+        if (ImGui::IsItemActive()) {
+            if (heldAt < 0) heldAt = now;
+            else if (now - heldAt > 0.45 && now - lastRep > 0.06) { typeKey(act, 8, false); lastRep = now; }
+        } else heldAt = -1;
+    }
+    if (key("##kpclear", "Clear", 3, 1, 1, false) && g_typeInto) { g_typeInto->clear(); g_typeChanged = true; }
+    if (key("##kpdone", "Done", 3, 2, 2, true)) typeKey(act, 13, false);
+    if (g_clipHas && key("##kppaste", "Paste", 0, 3, 1, false)) act.paste = true;   // (its digits only)
+    return H;
+}
 // With the physical keyboard set: a thin bar in the keyboard's place (type on the computer's keys), and the on-screen keys if wanted
 constexpr float kKbdBarH = 40;
 float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y) {
@@ -2565,7 +2608,7 @@ float keyboardBar(ImDrawList* dl, const Fonts& f, float w, float y) {
     return kKbdBarH;
 }
 // how tall the keyboard is now (the full keys, or the physical keyboard's bar)
-float keyboardHeight() { return physicalNow() && !g_kbdKeysShown ? kKbdBarH : 5 * 34 + 4 * 5 + 16; }
+float keyboardHeight() { return physicalNow() && !g_kbdKeysShown && !digitsField() ? kKbdBarH : 5 * 34 + 4 * 5 + 16; }
 
 // The page: the browser's picture in the rectangle, with the pointer and the wheel going to it.
 // dragScrolls (a document): a drag moves the page as a finger would (sent as the wheel), a tap clicks; else the pointer as a mouse
@@ -6739,7 +6782,7 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     }
     if (!p.loaded) {
         textAt(dl, f.title, 16, top + 2, kInk, "No flight plan");
-        const char* why = !haveId ? "Enter your SimBrief ID in Settings, Accounts, then Import." : p.status.empty() ? "Import your latest SimBrief flight plan." : p.status.c_str();
+        const char* why = !haveId ? "Enter your SimBrief Pilot ID in Settings, Accounts, then Import." : p.status.empty() ? "Import your latest SimBrief flight plan." : p.status.c_str();
         dl->AddText(f.body, fontPx(f.body), ImVec2(16, top + 50), kMuted, why, nullptr, w - 32);
         return;
     }
@@ -8552,9 +8595,9 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         y += 30;
         toggle("##ntfsb", lx, y, colW, "New SimBrief Flight Plan", g_settings.notifySimbrief, g_settings.notifyEnabled);
         y += 36;
-        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "SimBrief is checked every 2 minutes with your SimBrief ID; a new plan is loaded. Opens the Flight Plan.", nullptr, colW);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "SimBrief is checked every 2 minutes with your Pilot ID; a new plan is loaded. Opens the Flight Plan.", nullptr, colW);
         y += 34;
-        if (g_settings.simbriefUser.empty()) textAt(dl, f.small, lx, y, kWarn, "Enter your SimBrief ID under Accounts first.");
+        if (g_settings.simbriefUser.empty()) textAt(dl, f.small, lx, y, kWarn, "Enter your SimBrief Pilot ID under Accounts first.");
         y += 26;
         toggle("##ntfatc", lx, y, colW, "VATSIM ATC Online", g_settings.vatsimAtcNotes, g_settings.notifyEnabled);
         y += 36;
@@ -8597,11 +8640,11 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         };
         const bool sbTyping = g_kbd && g_kbdTarget == 2 && g_typeInto == &g_settings.simbriefUser;
         {   // SimBrief: the ID the Flight Plan page imports with (hidden as dots unless typed or its eye is on), and an import now
-        textAt(dl, f.bold, lx, y, kInk, "SimBrief ID");
+        textAt(dl, f.bold, lx, y, kInk, "SimBrief Pilot ID");
         y += 22;
-        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Your SimBrief user name or pilot ID (Account settings on simbrief.com). The Flight Plan page imports your latest plan with it.", nullptr, w - 12 - lx);
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, "Your SimBrief Pilot ID: the number under Account Settings on simbrief.com. The Flight Plan page imports your latest plan with it.", nullptr, w - 12 - lx);
         y += 36;
-        hiddenField(dl, f, "##sbuser", g_settings.simbriefUser, ImVec2(lx, y), ImVec2(w - 12 - 200, y + 36), "Tap to enter your SimBrief ID", 0);
+        hiddenField(dl, f, "##sbuser", g_settings.simbriefUser, ImVec2(lx, y), ImVec2(w - 12 - 200, y + 36), "Tap to enter your Pilot ID", 0);
         if (g_typeChanged) { g_typeChanged = false; g_settingsChanged = true; }
         if (pill(dl, f, "##sbimport", s.plan.busy ? "Importing..." : "Import Flight Plan", ImVec2(w - 12 - 192, y + 2), ImVec2(w - 12, y + 34), true, !g_settings.simbriefUser.empty() && !s.plan.busy)) {
             act.planImport = true; g_kbd = false; g_typeInto = nullptr;
@@ -11161,6 +11204,18 @@ void pumpPointer() {
         break;
     }
     if (i > 0) g_mouseQ.erase(g_mouseQ.begin(), g_mouseQ.begin() + i);
+}
+
+// A C++ error caught while the page was built (plugin.cpp): the page closed, home again, the keys put away; said once a minute
+void recoverAfterError() {
+    static double lastNote = -1e9;
+    g_app = APP_HOME; g_openFolder = -1; g_customEdit = -1;
+    g_kbd = false; g_kbdTarget = 0; g_typeInto = nullptr;
+    const double now = ImGui::GetCurrentContext() ? ImGui::GetTime() : 0.0;
+    if (now - lastNote > 60) {
+        lastNote = now;
+        postNote("Page Closed", "That page had an error and was closed. Details in X-Plane's Log.txt.", APP_HOME);
+    }
 }
 
 } // namespace xpt

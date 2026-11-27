@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -1007,6 +1008,88 @@ int main(int argc, char** argv) {
             shot(empty, APP_ROUTES, "flightplan_empty");
             settings().simbriefUser.clear();
         }
+        {   // SimBrief's answers, read and shown: answers made the way SimBrief's JSON fetcher writes them (its fields and their shapes:
+            // a list, or one object when there is only one; numbers as strings), and the odd ones (an error, cut short, the wrong
+            // types, very long, very deep). Each is read, its crossings and procedures found, imported and drawn on every page it reaches.
+            auto fixJ = [](const char* id, double la, double lo, const char* awy, const char* alt, int sec, bool proc) {
+                char b[400]; std::snprintf(b, sizeof b, "{\"ident\":\"%s\",\"name\":\"%s\",\"type\":\"wpt\",\"via_airway\":\"%s\",\"altitude_feet\":\"%s\",\"distance\":\"12\",\"time_total\":\"%d\",\"pos_lat\":\"%.6f\",\"pos_long\":\"%.6f\",\"is_sid_star\":\"%d\"}",
+                              id, id, awy, alt, sec, la, lo, proc ? 1 : 0);
+                return std::string(b);
+            };
+            std::string fixes;
+            {
+                const char* ids[] = {"KORD", "PMPKN", "TOC", "ELX", "DORET", "TOD", "KKISS", "KDTW"};
+                for (int i = 0; i < 8; ++i) fixes += (i ? "," : "") + fixJ(ids[i], 41.98 + i * 0.05, -87.90 + i * 0.6, i == 1 ? "PMPKN5" : i == 6 ? "KKISS4" : "DCT", i == 0 || i == 7 ? "668" : "32000", i * 300, i == 1 || i == 6);
+            }
+            const std::string head = R"({"fetch":{"userid":"123456","static_id":{},"status":"Success","time":"0.02"},"params":{"request_id":"987654","user_id":"123456","time_generated":"1795200000","units":"lbs","airac":"2511"},)";
+            const std::string general = R"("general":{"icao_airline":"AAL","flight_number":"1234","route":"PMPKN5 ELX DORET KKISS4","initial_altitude":"32000","route_distance":"235","avg_wind_comp":"-22","costindex":"30"},)";
+            const std::string apts = R"("origin":{"icao_code":"KORD","name":"CHICAGO O'HARE INTL","plan_rwy":"27L","notam":[{"notam_id":"A1234/26","notam_text":"RWY 09R/27L CLSD 0400-1000"},{"notam_id":"A1235/26","notam_text":"TWY B CLSD"}]},"destination":{"icao_code":"KDTW","name":"DETROIT METRO WAYNE CO","plan_rwy":"22R","notam":{"notam_id":"A0567/26","notam_text":"ILS RWY 22R GP U/S"}},)";
+            const std::string rest = R"J("atc":{"callsign":"AAL1234","flightplan_text":"(FPL-AAL1234-IS\n-A321/M-SDE2E3FGHIJ1RWXY/LB1\n-KORD2310\n-N0450F320 PMPKN5 ELX DORET KKISS4\n-KDTW0052 KCLE)"},"aircraft":{"icaocode":"A321","reg":"N123AA"},"fuel":{"plan_ramp":"14800","enroute_burn":"7200","reserve":"2900","alternate_burn":"1600","taxi":"600","extra":"500"},"times":{"est_time_enroute":"3120"},"weights":{"oew":"108000","pax_count":"180","pax_weight":"190","bag_count":"170","bag_weight":"40","freight_added":"2000","payload":"43000","est_zfw":"151000","est_tow":"165200","est_ldw":"158000","max_zfw":"166400","max_tow":"206100","max_ldw":"171500"},"weather":{"orig_metar":"KORD 222351Z 27015G24KT 10SM BKN035 06\/M02 A2998","orig_taf":"KORD 222320Z 2300\/2406 27015G25KT P6SM BKN035\n","dest_metar":["KDTW 222353Z 24010KT 10SM FEW250 08\/M01 A3002"],"altn_metar":["KCLE 222351Z 23008KT 10SM CLR 09\/00 A3001","KTOL 222352Z 24009KT 10SM CLR 08\/M01 A3002"],"altn_taf":""},"text":{"plan_html":"<div><pre>AAL1234 &amp; KORD-KDTW &lt;A321&gt; &#160;&#39; &bogus; &\n<br>line two<h2 class=\"page-break\">PAGE</h2>é😀 tail <b"},"files":{"directory":"https:\/\/www.simbrief.com\/ofp\/flightplans\/","pdf":{"name":"KORDKDTW_PDF.pdf","link":"KORDKDTW_PDF_1795200000.pdf"}}})J";
+            const std::string altObj = R"("alternate":{"icao_code":"KCLE","name":"CLEVELAND HOPKINS INTL","plan_rwy":"24R"},)";
+            const std::string altArr = R"("alternate":[{"icao_code":"KCLE","name":"CLEVELAND HOPKINS INTL","plan_rwy":"24R"},{"icao_code":"KTOL","name":"TOLEDO EXPRESS","plan_rwy":"25"}],)";
+            const std::string nav = "\"navlog\":{\"fix\":[" + fixes + "]},";
+            const std::string full = head + general + apts + altObj + nav + rest;
+            std::string many;   // 3000 fixes
+            for (int i = 0; i < 3000; ++i) many += (i ? "," : "") + fixJ(("WP" + std::to_string(i)).c_str(), 30 + i * 0.01, -120 + i * 0.02, "J94", "35000", i * 10, false);
+            std::string deep(300, '['); deep += std::string(300, ']');
+            std::string nul = full; nul.insert(nul.find("CHICAGO") + 3, std::string(1, '\0'));
+            struct Case { const char* name; std::string body; bool loaded; };
+            const std::vector<Case> cases = {
+                {"a whole plan", full, true},
+                {"one fix (an object, not a list)", head + general + apts + altObj + "\"navlog\":{\"fix\":" + fixJ("KORD", 41.98, -87.90, "DCT", "668", 0, false) + "}," + rest, true},
+                {"two alternates (a list)", head + general + apts + altArr + nav + rest, true},
+                {"no alternate, navlog, weather, text or files", head + general + apts + R"("atc":{"callsign":"AAL1"}})", true},
+                {"SimBrief's error (an unknown pilot ID)", R"({"fetch":{"userid":"1","static_id":{},"status":"Error: Unknown UserID"}})", false},
+                {"the wrong types everywhere", head + R"("general":[],"origin":{"icao_code":"KORD","plan_rwy":27,"notam":null},"destination":{"icao_code":"KDTW","plan_rwy":"","notam":"just text"},"alternate":[],"navlog":{"fix":[{"ident":5,"pos_lat":"abc","pos_long":null,"altitude_feet":true},"a string",[1,2],{}]},"weather":{"orig_metar":12,"dest_metar":[null,7,{"x":1}]},"text":{"plan_html":""},"files":{"pdf":"not an object"},"times":"x","weights":[1],"fuel":null})", true},
+                {"origin and destination as strings", head + R"("origin":"KORD","destination":"KDTW","navlog":"none"})", false},
+                {"empty runways and procedures", head + general + R"("origin":{"icao_code":"KORD","plan_rwy":""},"destination":{"icao_code":"KDTW","plan_rwy":"L"},)" + nav + rest, true},
+                {"3000 fixes", head + general + apts + "\"navlog\":{\"fix\":[" + many + "]}," + rest, true},
+                {"cut short", full.substr(0, full.size() / 2), false},
+                {"empty", std::string(), false},
+                {"not JSON (a web page)", "<html><body>Service Unavailable</body></html>", false},
+                {"nested 300 deep", deep, false},
+                {"a NUL in a name", nul, true},
+            };
+            const std::string cifp =   // a CIFP file's lines: whole ones, short ones, odd ones
+                "SID:010,5,PMPKN5,RW27L,PMPKN,K2,P,C,E   , ,   ,CF, ,ELX,K2,D, ,0150,0380,0080,0060,D,+,05000,     ,18000,-,250, , ,\n"
+                "SID:020,5,PMPKN5,,ELX,K2,D,\n"
+                "SID:\n,,,,,\n"
+                "STAR:010,2,KKISS4,ALL,KKISS,K3,E,A,E   , ,   ,IF, , , , , , , , , ,B,FL240,FL200, ,280, , ,\n"
+                "APPCH:010,A,I22R,,KKISS,K3,E,A,,,,IF\nAPPCH:020,F,I22R,,RW22R,K3,G,\nAPPCH:030,F,I,,X\n"
+                "RWY:RW22R,     ,      ,00000,00000,    ,N42123456,W083123456,     ;\nRWY:RW27L,N4,W08\nRWY:,\n";
+            auto resolve = [](const std::string& id, double, double, double& la, double& lo) { if (id.empty() || id == "X") return false; la = 42.0 + (double)(id[0] % 7) * 0.1; lo = -84.0 - (double)(id.back() % 5) * 0.1; return true; };
+            auto frames = [&](const SimState& t, int app, int n) {
+                openApp(app);
+                for (int i = 0; i < n; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.1f; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
+                    ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); }
+            };
+            for (const Case& c : cases) {
+                FlightPlan p = parseSimbrief(c.body);
+                if (p.loaded != c.loaded) { std::printf("FAIL: SimBrief's answer, %s: %s (%s)\n", c.name, p.loaded ? "read as a plan" : "not read", p.status.c_str()); ++failures; }
+                if (!p.loaded && p.status.empty()) { std::printf("FAIL: SimBrief's answer, %s: not read, and nothing says why\n", c.name); ++failures; }
+                addCrossings(p, [&](const std::string&) { return cifp; });
+                SimState u = t;
+                u.map.havePos = true; u.map.lat = 42.1; u.map.lon = -86.0; u.map.altFt = 32000; u.map.gsKt = 450;
+                planFetched(u, p, false);
+                Actions take; take.planAccept = true; planDecide(u, take);
+                u.map.procedures = buildProcedures(u.plan, [&](const std::string&) { return cifp; }, resolve);
+                frames(u, APP_ROUTES, 3);
+                SimState pv = t; planFetched(pv, p, false); frames(pv, APP_ROUTES, 3);   // (its window, before Import)
+                frames(u, APP_MAP, 2); frames(u, APP_HOME, 2); frames(u, APP_TIMERS, 2);
+                openDispatchFromPlan(); frames(u, APP_DISPATCH, 2);
+                for (int k = 0; k < 6; ++k) {   // each of the Dispatch tabs
+                    const float xs[6] = {40, 125, 196, 268, 350, 450};
+                    for (int q = 0; q < 4; ++q) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(xs[k], 28 + 46 + 8 + 38 + 14); io.AddMouseButtonEvent(0, q == 1 || q == 2);
+                        ImGui::NewFrame(); Actions act; build(fonts, u, 800, kLogicalH, act); ImGui::Render(); }
+                }
+                if (std::string(c.name) == "a whole plan") {
+                    if (p.origin != "KORD" || p.dest != "KDTW" || p.alternate != "KCLE" || p.legs.size() != 6 || p.weather.size() != 5 || p.notams.size() != 3 || p.sid != "PMPKN5" || p.star != "KKISS4" || p.pdfUrl.find("KORDKDTW_PDF") == std::string::npos)
+                        { std::printf("FAIL: a whole SimBrief plan read wrongly (%s-%s alt %s, %zu legs, %zu weather, %zu NOTAMs, SID %s, STAR %s)\n", p.origin.c_str(), p.dest.c_str(), p.alternate.c_str(), p.legs.size(), p.weather.size(), p.notams.size(), p.sid.c_str(), p.star.c_str()); ++failures; }
+                    shot(u, APP_ROUTES, "flightplan_simbrief_json");
+                }
+                if (std::string(c.name) == "SimBrief's error (an unknown pilot ID)" && p.status.find("Unknown UserID") == std::string::npos) { std::printf("FAIL: SimBrief's error is not passed on (%s)\n", p.status.c_str()); ++failures; }
+            }
+        }
         {   // Settings: Display and Data
             auto tap = [&](const SimState& st, float x, float y) {
                 const bool downs[4] = {false, true, false, false};
@@ -1262,6 +1345,62 @@ int main(int argc, char** argv) {
             if (settingsTabShown() != 4) { std::printf("FAIL: the Notifications tab of Settings was not opened (%d)\n", settingsTabShown()); ++failures; }
             tap(st, 80, 322);   // Accounts
             shot(st, APP_SETTINGS, "settings_accounts");
+            {   // the SimBrief Pilot ID: a number, on a keypad; letters (typed, pasted, from the computer's keys) left out
+                settings().simbriefUser.clear();
+                const float ky = kLogicalH - (5 * 34 + 4 * 5 + 16) + 14, kx = std::floor((800 - (4 * 120 + 3 * 8)) * 0.5f);
+                auto pad = [&](int col, int row) { tap(st, kx + col * 128 + 60, ky + row * 46 + 20); };
+                auto still = [&](const char* name) {   // (as shot, without opening the page again: that would put the keys away)
+                    std::vector<Batch> b;
+                    for (int i = 0; i < 6; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.25f; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
+                        ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); b.clear(); clipDrawData(ImGui::GetDrawData(), b); }
+                    io.DeltaTime = 1.0f / 60.0f;
+                    Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_" + name + ".png");
+                };
+                tap(st, 360, 166);
+                if (!simbriefIdTyping()) { std::printf("FAIL: the SimBrief Pilot ID field does not open for typing\n"); ++failures; }
+                still("settings_accounts_keypad");
+                for (char c : std::string("a1b2")) tabletKey(c, true);
+                pasteText("ID: 34 56\n");
+                if (settings().simbriefUser != "123456") { std::printf("FAIL: the Pilot ID takes digits only (%s)\n", settings().simbriefUser.c_str()); ++failures; }
+                tabletKey(8, false); pad(0, 2);   // Delete on the computer's keys, then 7 on the keypad
+                if (settings().simbriefUser != "123457") { std::printf("FAIL: the keypad's 7 after a delete (%s)\n", settings().simbriefUser.c_str()); ++failures; }
+                pad(3, 0); pad(1, 3);   // Delete, 0
+                if (settings().simbriefUser != "123450") { std::printf("FAIL: the keypad's Delete and 0 (%s)\n", settings().simbriefUser.c_str()); ++failures; }
+                pad(3, 1); pad(2, 2);   // Clear, 9
+                if (settings().simbriefUser != "9") { std::printf("FAIL: the keypad's Clear (%s)\n", settings().simbriefUser.c_str()); ++failures; }
+                for (char c : std::string("123456789012")) tabletKey(c, true);
+                if (settings().simbriefUser.size() != 10) { std::printf("FAIL: the Pilot ID is kept to 10 digits (%zu)\n", settings().simbriefUser.size()); ++failures; }
+                pad(3, 2);   // Done
+                if (simbriefIdTyping() || tabletTyping()) { std::printf("FAIL: the keypad's Done puts it away\n"); ++failures; }
+                settings().physicalKeys = true;   // the computer's keys set: still the keypad for a number
+                tap(st, 360, 166); still("settings_accounts_keypad_physical");
+                if (!simbriefIdTyping()) { std::printf("FAIL: with the computer's keys set, the Pilot ID still opens\n"); ++failures; }
+                tabletKey(13, false); settings().physicalKeys = false;
+                settings().simbriefUser.clear();
+            }
+            {   // a C++ error caught while a page was built (plugin.cpp): ImGui put back, the page closed, the keys away, one note
+                ImGuiIO& eio = ImGui::GetIO(); eio.ConfigErrorRecoveryEnableAssert = false; eio.ConfigErrorRecoveryEnableTooltip = false;
+                ImGuiContext& eg = *ImGui::GetCurrentContext(); const int logKept = eg.DebugLogBuf.size();   // (the errors this test makes on purpose: left out of the check)
+                tap(st, 360, 166);   // (typing in a field)
+                io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f;
+                ImGui::NewFrame();
+                ImGuiErrorRecoveryState rs; ImGui::ErrorRecoveryStoreState(&rs);
+                try {
+                    ImGui::Begin("##thrown"); ImGui::PushID(7); ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f); ImGui::GetWindowDrawList()->ChannelsSplit(2);
+                    ImGui::BeginChild("##inner", ImVec2(100, 100));
+                    throw std::runtime_error("a test's error");
+                } catch (const std::exception&) {
+                    ImGui::ErrorRecoveryTryToRecoverState(&rs);
+                    for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) if (w->DrawList->_Splitter._Count > 1) w->DrawList->ChannelsMerge();
+                    recoverAfterError();
+                }
+                ImGui::Render();
+                if (logKept > 0) { eg.DebugLogBuf.Buf.shrink(logKept + 1); eg.DebugLogBuf.Buf[logKept] = 0; } else eg.DebugLogBuf.clear();
+                if (currentApp() != APP_HOME || tabletTyping()) { std::printf("FAIL: after a caught error the page is closed and the keys put away\n"); ++failures; }
+                shot(st, APP_HOME, "after_caught_error");   // (frames after it: ImGui carries on as usual)
+                eio.ConfigErrorRecoveryEnableAssert = true;
+                openApp(APP_SETTINGS); tap(st, 80, 322);
+            }
             if (settingsTabShown() != 7) { std::printf("FAIL: the Accounts tab of Settings was not opened (%d)\n", settingsTabShown()); ++failures; }
             {   // where the host cannot serve Local Connect yet (the plugin today), Settings has no page for it: Accounts takes its place
                 SimState nl = st; nl.local.status = -2;

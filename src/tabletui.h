@@ -535,6 +535,9 @@ bool webTyping();
 int chimeSeq();               // counted up for each notification chime: the host plays it (at settings().notifyVolume) when it changes            // a web page's text field has the keyboard (its keys go to the page)
 // Something on the tablet is taking typed keys (the address bar, a note, a search): the floating window's keyboard goes there.
 bool tabletTyping();
+bool simbriefIdTyping();   // the SimBrief pilot ID is being typed (no check of SimBrief meanwhile)
+// A C++ error was caught while the tablet's page was built: the page is closed (home again, the keys put away), told once a minute.
+void recoverAfterError();
 bool gameWantsKeys();                    // 2048's board was pressed: W A S D and the arrows play it
 void gameKey(int dir);                   // a move for it: 0 left, 1 right, 2 up, 3 down
 bool arcadeOnScreen();                  // an arcade game is showing (its picture changes every frame)

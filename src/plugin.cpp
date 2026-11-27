@@ -65,6 +65,7 @@
 #include "tiles.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"   // (ErrorRecoveryStoreState: the page put back after a caught error)
 #include "json_mini.h"
 #include "http.h"
 #include "metarfetch.h"
@@ -92,6 +93,25 @@ void logMsg(const char* fmt, ...) {
     va_end(ap);
     XPLMDebugString((std::string("[XPTablet] ") + buf + "\n").c_str());
 }
+
+// ---- C++ errors in X-Plane's callbacks: caught and logged, and the tablet carries on. Uncaught, one would end X-Plane on the spot
+// (std::terminate; the crash recorder notes it, but the flight is gone). Each callback is registered as Safe<itself, fallback>::call,
+// which returns the fallback when its callback threw (a flight loop: -1, called again next frame; a key: 1, X-Plane's own).
+void callbackFailed(const char* what) {
+    const char* where = xpt::crashlog::here("");
+    xpt::crashlog::here(where);
+    static int told = 0;
+    if (told < 20) { ++told; logMsg("an error, caught: %s (in %s); the tablet carries on", what, where && *where ? where : "a callback"); }
+}
+template <auto F, auto Fallback> struct Safe;
+template <typename R, typename... A, R (*F)(A...), auto Fallback> struct Safe<F, Fallback> {
+    static R call(A... a) {
+        try { return F(a...); }
+        catch (const std::exception& e) { callbackFailed(e.what()); }
+        catch (...) { callbackFailed("(not a std::exception)"); }
+        if constexpr (!std::is_void_v<R>) return (R)Fallback;
+    }
+};
 
 // ---- OpenGL 1.x, looked up at run time from the library X-Plane has loaded (no GL headers or libraries needed to build) --------------
 typedef unsigned int GLenum;
@@ -849,28 +869,48 @@ void mapStep(const xpt::Actions& act) {
 }
 
 // ---- the SimBrief flight plan (the Flight Plan page, and the route on the map) ---------------------------------------------------
-// The user's latest plan, from SimBrief's public fetcher with the saved user name or pilot ID, on a thread, when Import is pressed.
+// The user's latest plan, from SimBrief's public fetcher with the saved pilot ID, on a thread, when Import is pressed (and every two
+// minutes, quietly). X-Plane never waits on it: a fetch asked for while one is on its way waits its turn (g_sbPending) and starts when
+// that one has finished, instead of the main thread joining a thread still downloading (up to 25 s of a frozen sim, 2026-11-27).
 std::mutex g_sbMx;
-bool g_sbDone = false;
+bool g_sbDone = false;            // (under g_sbMx) a fetch has finished: its plan, the ID it asked with and whether it was quiet
 xpt::FlightPlan g_sbPlan;
+std::string g_sbPlanUser;
+bool g_sbPlanQuiet = false;
+std::atomic<bool> g_sbRunning{false};   // a fetch is on its way (cleared, under g_sbMx, as it finishes)
+struct SbPending { bool want = false; std::string user; bool quiet = true; } g_sbPending;   // the next fetch, waiting its turn
 
-bool g_sbQuiet = false;   // the 2-minute check (not Import): nothing is shown unless the plan is new
+// quiet: the 2-minute check (not Import): nothing is shown unless the plan is new
 void simbriefFetch(const std::string& user, bool quiet = false) {
-    if (g_sbThread.joinable()) g_sbThread.join();
-    g_sbQuiet = quiet;
     if (!quiet) { g_sim.plan.busy = true; g_sim.plan.status = "Asking SimBrief..."; }
-    g_sbThread = std::thread(xpt::guarded("SimBrief", [user] {
-        const std::string url = xpt::simbriefUrl(user);
-        std::string body, err;
-        long code = 0;
+    if (g_sbRunning) {   // one is on its way: this one after it (an Import waiting is not turned into a quiet check)
+        const bool importWaiting = g_sbPending.want && !g_sbPending.quiet;
+        g_sbPending.want = true; g_sbPending.user = user; g_sbPending.quiet = quiet && !importWaiting;
+        return;
+    }
+    if (g_sbThread.joinable()) g_sbThread.join();   // (finished: it cleared g_sbRunning as its last step, so this does not wait)
+    g_sbRunning = true;
+    g_sbThread = std::thread(xpt::guarded("SimBrief", [user, quiet] {
         xpt::FlightPlan p;
-        if (!wx::httpGet(url, body, code, err, 25, 32u << 20)) {
-            p.status = code == 400 ? "SimBrief has no plan for that ID" : "SimBrief could not be reached";
-        } else {
-            p = xpt::parseSimbrief(body);
+        try {
+            const std::string url = xpt::simbriefUrl(user);
+            std::string body, err;
+            long code = 0;
+            if (!wx::httpGet(url, body, code, err, 25, 32u << 20)) {
+                p.status = code == 400 ? "SimBrief has no plan for that ID" : "SimBrief could not be reached";
+            } else {
+                p = xpt::parseSimbrief(body);
+            }
+        } catch (const std::exception& e) {   // (caught here, not only by guarded: the page must hear that the fetch has ended)
+            p = xpt::FlightPlan(); p.status = "SimBrief's answer could not be read";
+            xpt::crashlog::threadFailed("SimBrief", e.what());
+        } catch (...) {
+            p = xpt::FlightPlan(); p.status = "SimBrief's answer could not be read";
+            xpt::crashlog::threadFailed("SimBrief", "(not a std::exception)");
         }
         std::lock_guard<std::mutex> lk(g_sbMx);
-        g_sbPlan = p; g_sbDone = true;
+        g_sbPlan = std::move(p); g_sbPlanUser = user; g_sbPlanQuiet = quiet; g_sbDone = true;
+        g_sbRunning = false;
     }));
 }
 
@@ -1045,12 +1085,17 @@ void planStep(const xpt::Actions& act) {
         g_sim.plan.status = "Diversion undone";
         planToRoute();
     }
-    {   // every 2 minutes with the SimBrief ID: a new plan is loaded and announced
+    {   // every 2 minutes with the SimBrief ID: a new plan is loaded and announced. Never with an ID still being typed (on its first
+        // digit it would ask SimBrief for pilot "1", 2026-11-27): the first check comes 5 s after the ID was last changed and finished.
         static double next = 30;
+        static std::string lastId;
         const double now = XPLMGetElapsedTime();
         const xpt::Settings& st = xpt::settings();
+        if (st.simbriefUser != lastId) { lastId = st.simbriefUser; next = std::max(now + 5.0, 30.0); }
+        if (xpt::simbriefIdTyping()) next = std::max(next, now + 5.0);
         bool idle;
         { std::lock_guard<std::mutex> lk(g_sbMx); idle = !g_sbDone; }
+        idle = idle && !g_sbRunning && !g_sbPending.want;
         if (st.notifySimbrief && !st.simbriefUser.empty() && !g_sim.plan.busy && idle && now >= next) {
             next = now + 120;
             simbriefFetch(st.simbriefUser, true);
@@ -1086,32 +1131,48 @@ void planStep(const xpt::Actions& act) {
         if (took && !before.divertKey.empty() == false && !divertPending && g_sim.plan.divertKey.empty()) g_sim.planOriginal = xpt::FlightPlan();   // (a new flight: no diversion to undo)
         if (took) planToRoute();
     }
-    if (act.planClear) {
-        if (g_sbThread.joinable()) g_sbThread.join();
+    if (act.planClear) {   // (a fetch on its way is left to finish: X-Plane does not wait for it)
+        g_sbPending = SbPending();
         g_sim.planOriginal = xpt::FlightPlan();
         g_sim.plan = xpt::FlightPlan();
         g_sim.plan.status = "Cleared";
         planToRoute();
     }
-    std::lock_guard<std::mutex> lk(g_sbMx);
-    if (g_sbDone) {
-        g_sbDone = false;
-        if (g_sbThread.joinable()) g_sbThread.join();
+    xpt::FlightPlan fetched; std::string fetchedUser; bool fetchedQuiet = false, got = false;
+    {
+        std::lock_guard<std::mutex> lk(g_sbMx);
+        if (g_sbDone) { g_sbDone = false; got = true; fetched = std::move(g_sbPlan); g_sbPlan = xpt::FlightPlan(); fetchedUser = g_sbPlanUser; fetchedQuiet = g_sbPlanQuiet; }
+    }
+    if (!g_sbRunning && g_sbThread.joinable() && got) g_sbThread.join();   // (it has finished: no wait)
+    const bool importWaiting = g_sbPending.want && !g_sbPending.quiet;
+    if (got && (fetchedUser != xpt::settings().simbriefUser || (fetchedQuiet && importWaiting))) {
+        // asked with an ID since changed, or a quiet check overtaken by an Import waiting its turn: not shown
+        if (!fetchedQuiet && !importWaiting) { g_sim.plan.busy = false; g_sim.plan.status = std::string(); }
+        logMsg("SimBrief: an answer for an earlier %s set aside", fetchedUser != xpt::settings().simbriefUser ? "pilot ID" : "check");
+        got = false;
+    }
+    if (got) {
         const int seq = g_sim.newPlanSeq;
-        if (g_sbPlan.loaded) {   // the SID's and STAR's crossing restrictions, from X-Plane's procedure files (your AIRAC's first)
+        if (fetched.loaded) {   // the SID's and STAR's crossing restrictions, from X-Plane's procedure files (your AIRAC's first)
             char sys[2048] = "";
             XPLMGetSystemPath(sys);
             const std::string root = sys;
-            const int n = xpt::addCrossings(g_sbPlan, [&](const std::string& icao) {
+            const int n = xpt::addCrossings(fetched, [&](const std::string& icao) {
                 std::string t;
                 if (!readFile(root + "Custom Data/CIFP/" + icao + ".dat", t)) readFile(root + "Resources/default data/CIFP/" + icao + ".dat", t);
                 return t;
             });
-            logMsg("SimBrief: %d crossing restriction(s) from the %s and %s procedures", n, g_sbPlan.sid.empty() ? "-" : g_sbPlan.sid.c_str(), g_sbPlan.star.empty() ? "-" : g_sbPlan.star.c_str());
+            logMsg("SimBrief: %d crossing restriction(s) from the %s and %s procedures", n, fetched.sid.empty() ? "-" : fetched.sid.c_str(), fetched.star.empty() ? "-" : fetched.star.c_str());
         }
-        xpt::planFetched(g_sim, g_sbPlan, g_sbQuiet);   // into the preview: the flight plan stays until its Import
-        if (g_sim.newPlanSeq != seq) logMsg("SimBrief: new plan %s offered", g_sbPlan.ofpId.c_str());
-        else if (!g_sbQuiet) logMsg("SimBrief: %s", g_sbPlan.loaded ? "plan fetched for review" : g_sbPlan.status.c_str());
+        xpt::planFetched(g_sim, fetched, fetchedQuiet);   // into the preview: the flight plan stays until its Import
+        if (g_sim.newPlanSeq != seq) logMsg("SimBrief: new plan %s offered", fetched.ofpId.c_str());
+        else if (!fetchedQuiet) logMsg("SimBrief: %s", fetched.loaded ? "plan fetched for review" : fetched.status.c_str());
+    }
+    if (!g_sbRunning && g_sbPending.want) {   // the fetch that waited its turn
+        const SbPending next = g_sbPending;
+        g_sbPending = SbPending();
+        if (!next.user.empty()) simbriefFetch(next.user, next.quiet);
+        else if (!next.quiet) g_sim.plan.busy = false;
     }
 }
 
@@ -1881,7 +1942,21 @@ void ensureFrame() {
         std::snprintf(where, sizeof where, "the tablet's frame: building its page (app %d)", xpt::currentApp());
         xpt::crashlog::here(where);
     }
-    xpt::build(g_fonts, g_sim, g_logW, xpt::kLogicalH, act);
+    {   // a C++ error while the page is built: ImGui's stacks put back as they were after NewFrame, the page closed, nothing acted on
+        ImGuiErrorRecoveryState rs;
+        ImGui::ErrorRecoveryStoreState(&rs);
+        const char* failed = nullptr; std::string why;
+        try { xpt::build(g_fonts, g_sim, g_logW, xpt::kLogicalH, act); }
+        catch (const std::exception& e) { failed = "x"; why = e.what(); }
+        catch (...) { failed = "x"; why = "(not a std::exception)"; }
+        if (failed) {
+            callbackFailed(why.c_str());
+            ImGui::ErrorRecoveryTryToRecoverState(&rs);
+            for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) if (w->DrawList->_Splitter._Count > 1) w->DrawList->ChannelsMerge();
+            act = xpt::Actions();
+            xpt::recoverAfterError();
+        }
+    }
     xpt::crashlog::here("the tablet's frame: drawing it and acting on its presses");
     ImGui::Render();
     xpt::clipDrawData(ImGui::GetDrawData(), g_batches);
@@ -2257,12 +2332,12 @@ void updateCaptureWindow() {
         std::memset(&p, 0, sizeof p);
         p.structSize = sizeof p;
         p.visible = 1;
-        p.drawWindowFunc = captureDraw;
-        p.handleMouseClickFunc = captureClick;
-        p.handleRightClickFunc = capturePass;
-        p.handleMouseWheelFunc = captureWheel;
-        p.handleKeyFunc = noKey;
-        p.handleCursorFunc = captureCursor;
+        p.drawWindowFunc = Safe<captureDraw, 0>::call;
+        p.handleMouseClickFunc = Safe<captureClick, 0>::call;
+        p.handleRightClickFunc = Safe<capturePass, 0>::call;
+        p.handleMouseWheelFunc = Safe<captureWheel, 0>::call;
+        p.handleKeyFunc = Safe<noKey, 0>::call;
+        p.handleCursorFunc = Safe<captureCursor, 0>::call;
         p.decorateAsFloatingWindow = xplm_WindowDecorationNone;
         p.layer = xplm_WindowLayerFlightOverlay;
         g_capture = XPLMCreateWindowEx(&p);
@@ -2354,12 +2429,12 @@ void toggleWindow() {
         p.structSize = sizeof p;
         p.left = sl + 80; p.bottom = sb + 120; p.right = p.left + 800; p.top = p.bottom + 480;
         p.visible = 1;
-        p.drawWindowFunc = winDraw;
-        p.handleMouseClickFunc = winClick;
-        p.handleRightClickFunc = winRightClick;
-        p.handleMouseWheelFunc = winWheel;
-        p.handleKeyFunc = winKey;
-        p.handleCursorFunc = winCursor;
+        p.drawWindowFunc = Safe<winDraw, 0>::call;
+        p.handleMouseClickFunc = Safe<winClick, 1>::call;
+        p.handleRightClickFunc = Safe<winRightClick, 1>::call;
+        p.handleMouseWheelFunc = Safe<winWheel, 1>::call;
+        p.handleKeyFunc = Safe<winKey, 0>::call;
+        p.handleCursorFunc = Safe<winCursor, 0>::call;
         p.decorateAsFloatingWindow = xplm_WindowDecorationRoundRectangle;
         p.layer = xplm_WindowLayerFloatingWindows;
         g_win = XPLMCreateWindowEx(&p);
@@ -2467,7 +2542,7 @@ int onCommand(XPLMCommandRef cmd, XPLMCommandPhase phase, void* ref) {
 
 void regCmd(const std::string& name, const char* desc, int id) {
     XPLMCommandRef c = XPLMCreateCommand(name.c_str(), desc);
-    XPLMRegisterCommandHandler(c, onCommand, 1, (void*)(intptr_t)id);
+    XPLMRegisterCommandHandler(c, Safe<onCommand, 1>::call, 1, (void*)(intptr_t)id);
     g_cmds.push_back({c, id});
 }
 
@@ -2900,14 +2975,14 @@ int jetwayToggleSeen(XPLMCommandRef, XPLMCommandPhase phase, void*) {
 }
 void jetwayWatchStep() {
     static bool watching = false, beaconWas = false;
-    if (!watching) if (XPLMCommandRef c = XPLMFindCommand("sim/ground_ops/jetway")) { XPLMRegisterCommandHandler(c, jetwayToggleSeen, 1, nullptr); watching = true; }
+    if (!watching) if (XPLMCommandRef c = XPLMFindCommand("sim/ground_ops/jetway")) { XPLMRegisterCommandHandler(c, Safe<jetwayToggleSeen, 1>::call, 1, nullptr); watching = true; }
     const double now = XPLMGetElapsedTime();
     const bool beacon = g_sim.ground.beacon;
     if (beaconWas && !beacon) g_beaconOffAt = now;
     beaconWas = beacon;
     if (g_redockAt >= 0 && now >= g_redockAt) { g_redockAt = -1; if (g_sim.ground.openSam) once("openSAM/dock_jwy"); }
 }
-void jetwayWatchStop() { if (XPLMCommandRef c = XPLMFindCommand("sim/ground_ops/jetway")) XPLMUnregisterCommandHandler(c, jetwayToggleSeen, 1, nullptr); }
+void jetwayWatchStop() { if (XPLMCommandRef c = XPLMFindCommand("sim/ground_ops/jetway")) XPLMUnregisterCommandHandler(c, Safe<jetwayToggleSeen, 1>::call, 1, nullptr); }
 void toggleInt(XPLMDataRef ref) { if (ref) XPLMSetDatai(ref, XPLMGetDatai(ref) ? 0 : 1); }
 
 // What was pressed on the Ground page.
@@ -3470,6 +3545,7 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
     // look for them instead (tests/ui_shot.cpp, emulator/web/web.cpp)
     ImGui::GetIO().ConfigDebugHighlightIdConflicts = false;
     ImGui::GetIO().ConfigErrorRecoveryEnableTooltip = false;
+    ImGui::GetIO().ConfigErrorRecoveryEnableAssert = false;   // (a page closed after a caught error: its stacks are put back quietly)
     xpt::applyStyle();
     loadSettings();
     loadNotes();
@@ -3481,7 +3557,7 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
         g_menuItem = XPLMAppendMenuItemWithCommand(XPLMFindPluginsMenu(), "XPTablet", toggle);
     else {   // (no command: the submenu as before)
         g_menuItem = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "XPTablet", nullptr, 0);
-        g_menu = XPLMCreateMenu("XPTablet", XPLMFindPluginsMenu(), g_menuItem, menuHandler, nullptr);
+        g_menu = XPLMCreateMenu("XPTablet", XPLMFindPluginsMenu(), g_menuItem, Safe<menuHandler, 0>::call, nullptr);
         XPLMAppendMenuItem(g_menu, "Show / hide tablet window", nullptr, 0);
     }
     return 1;
@@ -3495,15 +3571,15 @@ PLUGIN_API int XPluginEnable(void) {
         xpt::sam::start(sys);
     }
     updateCheckStart();   // (once a session, in the background)
-    XPLMRegisterKeySniffer(keySniffer, 1, nullptr);   // (before X-Plane's windows: typed keys go to a text box first)
-    XPLMRegisterDrawCallback(drawPanel, xplm_Phase_Gauges, 0, nullptr);
+    XPLMRegisterKeySniffer(Safe<keySniffer, 1>::call, 1, nullptr);   // (before X-Plane's windows: typed keys go to a text box first)
+    XPLMRegisterDrawCallback(Safe<drawPanel, 1>::call, xplm_Phase_Gauges, 0, nullptr);
 #if defined(XPT_LOCAL_CONNECT)
-    XPLMRegisterDrawCallback(mirrorDraw, xplm_Phase_Window, 0, nullptr);   // (the tablet's picture for paired devices)
+    XPLMRegisterDrawCallback(Safe<mirrorDraw, 1>::call, xplm_Phase_Window, 0, nullptr);   // (the tablet's picture for paired devices)
 #endif
     XPLMCreateFlightLoop_t fl;
     fl.structSize = sizeof fl;
     fl.phase = xplm_FlightLoop_Phase_AfterFlightModel;
-    fl.callbackFunc = flightLoop;
+    fl.callbackFunc = Safe<flightLoop, -1>::call;
     fl.refcon = nullptr;
     g_loop = XPLMCreateFlightLoop(&fl);
     XPLMScheduleFlightLoop(g_loop, -1.0f, 1);
@@ -3522,10 +3598,10 @@ PLUGIN_API void XPluginDisable(void) {
     if (g_localRunning) { xpt::mirror::stop(); xpt::localserver::stop(); g_localRunning = false; }   // (started again by the flight loop when the setting is on)
 #endif
     if (xpt::settingsToText() != g_savedSettings) saveSettings();   // nothing changed is lost when the sim or the plugins reload
-    XPLMUnregisterKeySniffer(keySniffer, 1, nullptr);
-    XPLMUnregisterDrawCallback(drawPanel, xplm_Phase_Gauges, 0, nullptr);
+    XPLMUnregisterKeySniffer(Safe<keySniffer, 1>::call, 1, nullptr);
+    XPLMUnregisterDrawCallback(Safe<drawPanel, 1>::call, xplm_Phase_Gauges, 0, nullptr);
 #if defined(XPT_LOCAL_CONNECT)
-    XPLMUnregisterDrawCallback(mirrorDraw, xplm_Phase_Window, 0, nullptr);
+    XPLMUnregisterDrawCallback(Safe<mirrorDraw, 1>::call, xplm_Phase_Window, 0, nullptr);
 #endif
     if (g_loop) { XPLMDestroyFlightLoop(g_loop); g_loop = nullptr; }
     if (g_capture) { XPLMDestroyWindow(g_capture); g_capture = nullptr; }
@@ -3543,7 +3619,7 @@ PLUGIN_API void XPluginStop(void) {
     if (g_vcThread.joinable()) g_vcThread.join();
     xpt::crashlog::uninstall();
     if (g_win) { XPLMDestroyWindow(g_win); g_win = nullptr; }
-    for (const Cmd& c : g_cmds) XPLMUnregisterCommandHandler(c.ref, onCommand, 1, (void*)(intptr_t)c.id);
+    for (const Cmd& c : g_cmds) XPLMUnregisterCommandHandler(c.ref, Safe<onCommand, 1>::call, 1, (void*)(intptr_t)c.id);
     g_cmds.clear();
     for (XPLMDataRef r : g_ownedRefs) XPLMUnregisterDataAccessor(r);
     g_ownedRefs.clear();

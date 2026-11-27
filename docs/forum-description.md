@@ -14,7 +14,7 @@ Free. Windows, macOS and Linux. X-Plane 12.
 - **Route and procedures:** your SimBrief route on the map with its SID, STAR and approach.
 - **VATSIM:** airspaces and who is online, controller details and ATIS, a notification when ATC comes online at your departure or destination, and buttons for xPilot's windows (messages, nearby ATC, notifications, aircraft labels).
 - **Airports:** search any airport by code or name: runways, elevation, local time, radio frequencies, CTAF and live VATSIM ATC. Tap the headset beside a frequency to put it in COM1 standby.
-- **Flight Plan:** import your latest SimBrief flight with your SimBrief ID: route, fuel and weights, navlog and progress along the route. A new plan can load by itself.
+- **Flight Plan:** import your latest SimBrief flight with your SimBrief Pilot ID: route, fuel and weights, navlog and progress along the route. A new plan can load by itself.
 - **Dispatch:** the SimBrief briefing by section: Briefing, Summary, Navlog, Weather, NOTAMs and ATC Flight Plan.
 - **Weather:** X-Plane's own weather at the aircraft (wind, visibility, clouds, winds aloft) and decoded METARs for any airport. With WXPlane installed, WXPlane's page appears here.
 - **Aircraft:** connect openSAM jetways door by door, call BetterPushback or X-Plane's own tug, and on ToLiss aircraft work the cabin lights and slides. Top views for many aircraft types.
@@ -51,8 +51,8 @@ How it is kept safe: it is off until you switch it on, it answers only on your h
 ## Good to know
 
 - **macOS:** the web pages (Browser, web apps, PDFs) and the media controls are not available on macOS yet. Everything else is.
-- **Optional, and used when installed:** openSAM (jetways), BetterPushback, xPilot, WXPlane, a SimBrief ID, a Hoppie logon code, and Navigraph's AIRAC in Custom Data.
-- **Accounts:** your SimBrief ID and Hoppie code are kept only in XPTablet's settings on your computer.
+- **Optional, and used when installed:** openSAM (jetways), BetterPushback, xPilot, WXPlane, a SimBrief Pilot ID, a Hoppie logon code, and Navigraph's AIRAC in Custom Data.
+- **Accounts:** your SimBrief Pilot ID and Hoppie code are kept only in XPTablet's settings on your computer.
 - **Your files:** documents go in `Output/XPTablet/Documents`, your own checklists in `Output/XPTablet/Checklists`.
 - **Found a problem?** Please report it here with X-Plane's `Log.txt`, and `Output/XPTablet/crash-last.txt` if there is one.
 - For flight simulation only. Never for real-world navigation.
