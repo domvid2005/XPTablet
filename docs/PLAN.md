@@ -191,6 +191,14 @@ of their own and come back to it as they were left. The planning icon switches b
   aircraft that look for AviTab by its plugin signature (Aerobask DA42) switch tablet pages; WXPlane 5.1.9's own icon kept off the
   tablet; the ToLiss cockpit screen filled to its edges; openSAM jetways docked again after the beacon goes off.
 
+## 1.0.1
+- SimBrief Pilot ID typed on a number keypad (digits only, 10 at most); the 2-minute check never runs while it is typed (5 s after
+  the last change); a fetch asked for while one is on its way waits its turn (the main thread never joins a downloading thread);
+  an answer for an ID since changed is set aside; the STAR read when the plan has a SID.
+- C++ exceptions in X-Plane's callbacks caught (Safe<callback, fallback>::call) and logged; one while the page is built: ImGui's
+  stacks put back (ErrorRecoveryStoreState), the page closed, a "Page Closed" note.
+- Tests: SimBrief answers in SimBrief's own format and odd ones (error, cut short, wrong types, 3000 fixes, 300 deep).
+
 ## Emulator
 - emulator/: the real plugin built against a stand-in X-Plane (every XPLM call it makes), a simulated aircraft, traffic, time and
   weather, and a control panel; a desktop app (GLFW) for Windows/macOS/Linux and a screen-less Linux one for scripted tests and CI.
