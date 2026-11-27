@@ -1594,9 +1594,10 @@ int main(int argc, char** argv) {
                 // its first file is a PDF (no docOpen: shown here); the third, a picture, opens: the list is there
                 if (rowAt(dtop + 40 + 8 + 24 + 2 * 36 + 17) != "/x/ksbn.png") { std::printf("FAIL: the Documents XPTablet filter shows its files\n"); ++failures; }
                 shot(d, APP_DOCUMENTS, "documents_filter_xptablet");
-                dtap(222, dtop + 15);   // AviTab
-                if (rowAt(dtop + 40 + 8 + 24 + 17) != "/x/kord.jpg") { std::printf("FAIL: the Documents AviTab filter shows its charts\n"); ++failures; }
+                dtap(222, dtop + 15);   // where AviTab's button was: nothing there now (the XPTablet filter stays)
+                if (rowAt(dtop + 40 + 8 + 24 + 2 * 36 + 17) != "/x/ksbn.png") { std::printf("FAIL: Documents has no AviTab button any more\n"); ++failures; }
                 dtap(76, dtop + 15);    // All again
+                if (rowAt(dtop + 40 + 8 + 24 + 3 * 36 + 24 + 17) != "/x/kord.jpg") { std::printf("FAIL: AviTab's charts are listed under All\n"); ++failures; }
                 dtap(12 + 290 - 18, dtop + 15);   // the list folded away
                 if (!settings().docsListHidden) { std::printf("FAIL: the Documents list does not fold away\n"); ++failures; }
                 shot(d, APP_DOCUMENTS, "documents_list_hidden");

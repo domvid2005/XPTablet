@@ -1,18 +1,17 @@
-# XPTablet 1.0.1
+# XPTablet 1.0.2
 
 A fix release for XPTablet, the free cockpit tablet for X-Plane 12 by Alpine Aviation.
 
-**Install:** download `XPTablet-1.0.1.zip` below, unzip it, and copy the `XPTablet` folder into `X-Plane 12/Resources/plugins/`,
+**Install:** download `XPTablet-1.0.2.zip` below, unzip it, and copy the `XPTablet` folder into `X-Plane 12/Resources/plugins/`,
 replacing the old one. SkunkCrafts Updater users get it automatically.
 
 ## Changes
 
-- **SimBrief Pilot ID on a keypad:** Settings > Accounts now takes your SimBrief Pilot ID (the number under Account Settings on
-  simbrief.com) on a number keypad. Only digits are kept, whether typed, pasted or entered with the computer's keys. A user name
-  saved before keeps working.
-- **No freeze on Import:** pressing Import while the 2-minute SimBrief check is still downloading no longer makes X-Plane wait for it.
-- **No check while typing:** SimBrief is no longer asked about a Pilot ID that is still being typed (it could ask about pilot "1"
-  and offer someone else's flight).
-- **The STAR is read again:** with a SID in the plan, the STAR was missing on the map and from the crossing restrictions.
-- **Safer:** an error in the tablet's code no longer closes X-Plane. It is written to Log.txt, and the page it happened on is
-  closed ("Page Closed").
+- **Choose the volume's output (Windows):** Settings > Media has a new **Computer Volume Output** choice: Windows Default, or any
+  speaker, headset or virtual device. With Voicemeeter or another mixer, choose the speakers or headset your sound comes out of, and
+  the PC slider in Media works again.
+- **Players and radio apps found on every output:** the Media slider and the radio's lowering or pausing of your music now work when
+  the player or the voice app (xPilot, TrackAudio...) plays through a headset or another output than Windows' default.
+- **Documents shows your files again:** the XPTablet button showed nothing. Fixed.
+- **Read documents across the page:** an arrow at the top of the Documents list folds it away; the arrow at the left brings it back.
+- **Documents:** the AviTab button is gone. AviTab's charts, if you have the folder, are listed under All.

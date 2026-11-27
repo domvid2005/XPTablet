@@ -199,6 +199,13 @@ of their own and come back to it as they were left. The planning icon switches b
   stacks put back (ErrorRecoveryStoreState), the page closed, a "Page Closed" note.
 - Tests: SimBrief answers in SimBrief's own format and odd ones (error, cut short, wrong types, 3000 fixes, 300 deep).
 
+## 1.0.2
+- Windows media: the computer volume's output chosen in Settings, Media (any active render endpoint, by its ID; unplugged: the
+  default until it is back; switching gives the one before its volume back); players' and radio apps' sessions found on every
+  output, not only the default (Voicemeeter, headsets).
+- Documents: the files' folder labels and the page's filter spelled the same (kDocsFolderXPTablet; "XPTablet docs" vs "XPTablet
+  Docs" showed nothing); the AviTab button removed (its charts under All); the list folds away (docs_list_hidden).
+
 ## Emulator
 - emulator/: the real plugin built against a stand-in X-Plane (every XPLM call it makes), a simulated aircraft, traffic, time and
   weather, and a control panel; a desktop app (GLFW) for Windows/macOS/Linux and a screen-less Linux one for scripted tests and CI.

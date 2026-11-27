@@ -1,4 +1,4 @@
-# XPTablet 1.0.1 – a cockpit tablet for X-Plane 12
+# XPTablet 1.0.2 – a cockpit tablet for X-Plane 12
 
 **XPTablet is a free tablet for your cockpit, by Alpine Aviation.** It appears on the tablet of any aircraft that was built for AviTab, with no change to the aircraft, and in a floating window (also in VR) on every other aircraft. On it: a moving map with live traffic, airports and frequencies, your SimBrief flight plan and briefing, weather, jetways and pushback, checklists, charts and web apps, your music, and the whole tablet on your phone or iPad.
 
@@ -19,12 +19,12 @@ Free. Windows, macOS and Linux. X-Plane 12.
 - **Weather:** X-Plane's own weather at the aircraft (wind, visibility, clouds, winds aloft) and decoded METARs for any airport. With WXPlane installed, WXPlane's page appears here.
 - **Aircraft:** connect openSAM jetways door by door, call BetterPushback or X-Plane's own tug, and on ToLiss aircraft work the cabin lights and slides. Top views for many aircraft types.
 - **Checklists:** normal, abnormal and emergency checklists for airliners, turboprops and light aircraft. Add your own as a text file per aircraft type.
-- **Documents:** your PDFs and pictures, the aircraft's own documents and AviTab's charts folder.
+- **Documents:** your PDFs and pictures (and AviTab's charts folder), with a list that folds away to read across the page.
 - **App Store:** add only what you use. Charts (ChartFox, Navigraph, SkyVector, ForeFlight), SimBrief, D-ATIS, VATSIM Radar, Flightradar24, Discord, Spotify, YouTube and YouTube Music, Apple Music, SoundCloud, plus XPTablet's own Timers, Logbook, ACARS and Games.
 - **Browser:** tabs, bookmarks, history, zoom and an on-screen keyboard, with touch scrolling.
 - **ACARS:** Hoppie's ACARS with CPDLC, pre-departure clearances and telex (a free Hoppie logon code).
 - **Logbook, Timers, Notes, Navaids:** every flight logged by itself (times, route, landing rate, fuel); a stopwatch, hold timer, ETA and top of descent; a clearance form, ATIS form and scratchpad; and a search for any VOR, NDB, ILS, DME or fix.
-- **Media:** what is playing on your computer, with its cover and controls. It can lower or pause your music while the radio receives or transmits.
+- **Media:** what is playing on your computer, with its cover and controls. It can lower or pause your music while the radio receives or transmits. On Windows, choose which sound output the volume controls (Voicemeeter users: your speakers or headset).
 - **Local Connect:** the same tablet on a phone or iPad on your Wi-Fi, worked by touch. Details below.
 - **Themes:** seven color themes, three custom ones (your own colors or background picture), seasonal and holiday themes, and an option to color the built-in app icons to match.
 - **Games:** 2048, Knots and Crosses, and six aviation games of its own: Contrail, Taxi Rush, Sky Patrol, Hangar Climb, Cockpit 21 and Cargo Load.

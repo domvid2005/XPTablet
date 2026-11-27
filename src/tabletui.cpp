@@ -6322,12 +6322,12 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     if (!hideList) {
     if (iconButton("##docref", ImVec2(12, top), ImVec2(48, top + 30), true)) act.docsList = true;   // look again
     reloadIcon(dl, ImVec2(30, top + 15), kInk);
-    {   // which folders: all of them, XPTablet's docs folder, or AviTab's charts
+    {   // which folders: all of them, or XPTablet's docs folder (AviTab's charts: under All, no button of their own since 1.0.2)
         struct Flt { const char* id; const char* name; const char* folder; float x0, x1; };
-        const Flt flts[] = {{"##docall", "All", "", 54, 98}, {"##docxpt", "XPTablet", kDocsFolderXPTablet, 102, 182}, {"##docavi", "AviTab", kDocsFolderAviTab, 186, 258}};
+        const Flt flts[] = {{"##docall", "All", "", 54, 98}, {"##docxpt", "XPTablet", kDocsFolderXPTablet, 102, 182}};
         for (const Flt& fl : flts)
             if (pill(dl, f, fl.id, fl.name, ImVec2(fl.x0, top), ImVec2(fl.x1, top + 30), g_docFilter == fl.folder, true) && g_docFilter != fl.folder) { g_docFilter = fl.folder; g_docListScroll = 0; }
-        if (!g_docFilter.empty() && g_docFilter != kDocsFolderXPTablet && g_docFilter != kDocsFolderAviTab) g_docFilter.clear();
+        if (!g_docFilter.empty() && g_docFilter != kDocsFolderXPTablet) g_docFilter.clear();
     }
     const ImVec2 la(12, top + 40), lb(12 + lw, h - 12);
     card(dl, la, lb, f, nullptr);
