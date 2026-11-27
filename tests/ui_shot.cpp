@@ -883,6 +883,19 @@ int main(int argc, char** argv) {
                     ta.map.onGround = true; ta.map.aglFt = 0;
                     if (trafficThreat(ta.map, ta.map.traffic[0]) != 0) { std::printf("FAIL: no TCAS on the ground\n"); ++failures; }
                 }
+                {   // a distance limit: an airliner head-on at our level, closing at 900 kt, is not coloured 10 nm out (TCAS's time test alone
+                    // would make it a TA), is a TA at 5 nm, and not an RA until within 3 nm
+                    SimState far = ra;
+                    far.map.aglFt = 15000; far.map.altFt = 15000; far.map.gsKt = 450; far.map.hdgTrue = 0;
+                    far.map.traffic = {{41.70 + 10.0 / 60.0, -86.30, 15000, 180, 450, 0, false, "FAR900", "B738"}};
+                    if (trafficThreat(far.map, far.map.traffic[0]) != 0) { std::printf("FAIL: traffic 10 nm out coloured (%d)\n", trafficThreat(far.map, far.map.traffic[0])); ++failures; }
+                    far.map.traffic[0].lat = 41.70 + 5.0 / 60.0;
+                    if (trafficThreat(far.map, far.map.traffic[0]) != 1) { std::printf("FAIL: traffic 5 nm out closing fast not a TA (%d)\n", trafficThreat(far.map, far.map.traffic[0])); ++failures; }
+                    far.map.traffic[0].lat = 41.70 + 3.5 / 60.0;
+                    if (trafficThreat(far.map, far.map.traffic[0]) == 2) { std::printf("FAIL: an RA beyond 3 nm\n"); ++failures; }
+                    far.map.traffic[0].lat = 41.70 + 2.5 / 60.0;
+                    if (trafficThreat(far.map, far.map.traffic[0]) != 2) { std::printf("FAIL: no RA at 2.5 nm head-on (%d)\n", trafficThreat(far.map, far.map.traffic[0])); ++failures; }
+                }
                 {   // a runway collision: we are on runway 27 and traffic is 2 nm out on final for it; then we are on short final and it is on the runway
                     SimState rc = mp;
                     rc.map.lat = 41.70; rc.map.lon = -86.32; rc.map.onGround = true; rc.map.aglFt = 0; rc.map.altFt = 800; rc.map.gsKt = 0; rc.map.hdgTrue = 270;
@@ -1368,7 +1381,7 @@ int main(int argc, char** argv) {
             }
         }
         {   // Notes: a clearance typed in; the scratchpad with handwriting
-            notesFromText("craft0=KORD\ncraft1=PORTAGE ONE, then as filed\ncraft2=5000, expect FL350 10 min after\ncraft3=125.25\ncraft4=4521\n"
+            notesFromText("craft0=KORD\ncraft1=ALPINE TWO, then as filed\ncraft2=5000, expect FL350 10 min after\ncraft3=125.25\ncraft4=4521\n"
                           "stroke=0 100,200 150,260 200,200 250,260 300,200\nstroke=1 400,500 420,520 460,560 520,600 600,620\nscratch=RWY 27 HOLD SHORT B\n");
             shot(t, APP_NOTES, "notes_clearance");
             // the Scratchpad tab (third pill)

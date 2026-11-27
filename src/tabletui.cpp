@@ -3911,9 +3911,13 @@ int tcasLevel(const MapState& m, const MapState::Traffic& t) {   // 0 none, 1 TA
     else if (m.altFt < 20000) { tauS = 30; dmod = 0.80f; zthr = 600; taTau = 45; }
     else if (m.altFt < 42000) { tauS = 35; dmod = 1.10f; zthr = 700; taTau = 48; }
     else { tauS = 35; dmod = 1.10f; zthr = 800; taTau = 48; }
+    // a hard limit on distance as well: TCAS's time-based test alone would light up fast traffic still far off (two airliners closing
+    // at 900 kt are inside 48 s at 12 nm), so nothing beyond kTaMaxNm is coloured, and nothing beyond kRaMaxNm is an RA
+    constexpr double kTaMaxNm = 6.0, kRaMaxNm = 3.0;
+    if (g.range > kTaMaxNm) return 0;
     const double tau = g.closing > 0 ? g.range / g.closing * 3600.0 : 1e9;
     const auto vertWithin = [&](double z, double tt) { return std::fabs(g.dz) < z || (g.vClose > 0 && std::fabs(g.dz) / g.vClose * 60.0 < tt); };
-    if ((g.range < dmod || tau < tauS) && vertWithin(zthr, tauS)) return 2;
+    if (g.range <= kRaMaxNm && (g.range < dmod || tau < tauS) && vertWithin(zthr, tauS)) return 2;
     if ((g.range < 2.0 || tau < taTau) && vertWithin(850, taTau)) return 1;
     return 0;
 }

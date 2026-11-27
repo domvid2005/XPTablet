@@ -185,7 +185,7 @@ of their own and come back to it as they were left. The planning icon switches b
 ## 1.0 (first release)
 - Everything above, plus since 0.9.1: Dispatch tabs (Briefing, Summary, Navlog, Weather, NOTAMs, ATC Flight Plan) with tap-to-find in
   the briefing PDF; Discord web app; Select Parking on the map's stands, departure and arrival gates highlighted; one tap opens a map
-  card; xPilot's Messages, Nearby ATC, Notifications and Aircraft Labels; Theme-Colored Apps; custom theme Reset; Local Connect
+  card; traffic is coloured only within 6 nm (an RA only within 3 nm), not from TCAS's time test alone; xPilot's Messages, Nearby ATC, Notifications and Aircraft Labels; Theme-Colored Apps; custom theme Reset; Local Connect
   refresh rate, full-screen button and the tablet's theme on the device's page; the media volume put back when X-Plane closes.
 - Fixes: a crash when a Local Connect device connected before the tablet was first drawn; the Settings sidebar no longer flickers;
   aircraft that look for AviTab by its plugin signature (Aerobask DA42) switch tablet pages; WXPlane 5.1.9's own icon kept off the
