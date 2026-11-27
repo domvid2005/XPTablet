@@ -94,9 +94,12 @@ jobs:
           VERSION: ${{ steps.build.outputs.version }}
           SHA: ${{ steps.build.outputs.sha }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY" --jq '"token sees: push=\(.permissions.push // "?")"' || true
+          # the tag first, pushed with git (the releases API may refuse to make a tag itself), then the release on it
+          if ! git ls-remote --exit-code origin "refs/tags/v$VERSION" >/dev/null; then
+            git tag "v$VERSION" "$SHA" && git push origin "v$VERSION"
+          fi
           cp docs/RELEASE_NOTES.md notes.md 2>/dev/null || echo "XPTablet $VERSION" > notes.md
-          gh release create "v$VERSION" "XPTablet-$VERSION.zip" --target "$SHA" --title "XPTablet $VERSION" --notes-file notes.md
+          gh release create "v$VERSION" "XPTablet-$VERSION.zip" --verify-tag --title "XPTablet $VERSION" --notes-file notes.md
       - name: Summary
         if: ${{ always() && steps.build.outputs.version != '' }}
         env:
