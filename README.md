@@ -11,7 +11,7 @@ in its window only; remove AviTab from `Resources/plugins` to let XPTablet take 
 
 ## Status
 
-Version 0.9.1, a pre-release build. In it: the tablet in AviTab's place on aircraft built for AviTab (and in a floating window
+Version 1.0, the first release. In it: the tablet in AviTab's place on aircraft built for AviTab (and in a floating window
 on the others), the home screen and App Store, the moving map with VATSIM traffic and airspaces, airports, charts and documents,
 SimBrief flight plans and the Dispatch briefing, weather (WXPlane's own page when it is installed), checklists, notes, a logbook,
 ground services and pushback, the browser and web apps, media controls, and Local Connect.
@@ -21,7 +21,11 @@ Aerobask DA42) switch between their own tablet pages and this one.
 
 ## Install
 
-Copy the `XPTablet` folder into `X-Plane 12/Resources/plugins/`.
+Download `XPTablet` from the [releases page](https://github.com/domvid2005/XPTablet/releases), or install and update it with the
+SkunkCrafts Updater. Copy the `XPTablet` folder into `X-Plane 12/Resources/plugins/`.
+
+The user manual (how to use each app, with pictures) is `assets/docs/XPTablet_User_Manual.pdf`; it ships in the plugin's `docs`
+folder and opens in the tablet's Documents app. The forum description is `docs/forum-description.md`.
 
 ## Local Connect
 

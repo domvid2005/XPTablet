@@ -1,4 +1,4 @@
-# XPTablet 0.9.1 – a cockpit tablet for X-Plane 12
+# XPTablet 1.0 – a cockpit tablet for X-Plane 12
 
 **XPTablet is a free tablet for your cockpit, by Alpine Aviation.** It appears on the tablet of any aircraft that was built for AviTab, with no change to the aircraft, and in a floating window (also in VR) on every other aircraft. On it: a moving map with live traffic, airports and frequencies, your SimBrief flight plan and briefing, weather, jetways and pushback, checklists, charts and web apps, your music, and the whole tablet on your phone or iPad.
 
@@ -34,6 +34,10 @@ Free. Windows, macOS and Linux. X-Plane 12.
 1. Unzip, and copy the `XPTablet` folder into `X-Plane 12/Resources/plugins/`.
 2. Start X-Plane. On an aircraft with an AviTab tablet, XPTablet is on it. On any other, open it from Plugins > XPTablet.
 
+**Updates:** XPTablet works with the SkunkCrafts Updater, which installs it and keeps it up to date. The tablet also tells you when a new version is out.
+
+**User manual:** a full manual with pictures comes with the plugin, in `XPTablet/docs`, and opens in the tablet's own Documents app.
+
 **If AviTab is installed:** the two cannot share the cockpit tablet. XPTablet leaves the cockpit tablet to AviTab and runs in its window only. To put XPTablet on the cockpit tablet, move the `AviTab` folder out of `Resources/plugins`.
 
 ## Local Connect
@@ -50,7 +54,7 @@ How it is kept safe: it is off until you switch it on, it answers only on your h
 - **Optional, and used when installed:** openSAM (jetways), BetterPushback, xPilot, WXPlane, a SimBrief ID, a Hoppie logon code, and Navigraph's AIRAC in Custom Data.
 - **Accounts:** your SimBrief ID and Hoppie code are kept only in XPTablet's settings on your computer.
 - **Your files:** documents go in `Output/XPTablet/Documents`, your own checklists in `Output/XPTablet/Checklists`.
-- **This is 0.9.1, a pre-release build.** Please report what you find, with X-Plane's `Log.txt`.
+- **Found a problem?** Please report it here with X-Plane's `Log.txt`, and `Output/XPTablet/crash-last.txt` if there is one.
 - For flight simulation only. Never for real-world navigation.
 
 ## Pictures
