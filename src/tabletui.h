@@ -91,6 +91,7 @@ struct Settings {
     std::string simbriefUser;     // SimBrief user name or pilot ID (the Flight Plan page and the route on the map)
     std::string hoppieCode;       // the user's Hoppie ACARS logon code (Settings, Accounts): the ACARS app
     bool mapProcedures = true;    // the plan's SID, STAR and approach on the map
+    bool themedIcons = false;     // the tablet's own apps (no brand logo) in the theme's colours
     bool autoDim = false;         // the screen dims itself as the daylight goes (WXPlane's curve); the brightness slider rests
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
     bool mediaEnabled = true;     // the Music app and the music controls in the pull-down (not on macOS)

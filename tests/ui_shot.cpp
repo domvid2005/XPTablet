@@ -1008,6 +1008,12 @@ int main(int argc, char** argv) {
             tap(st, 80, 154);   // Display
             settings().autoDim = true;
             shot(st, APP_SETTINGS, "settings_display");
+            {   // Theme-Colored Apps: the home screen's own apps in the theme's colours (brand logos as they are)
+                settings().themedIcons = true;
+                shot(st, APP_HOME, "home_themed_icons");
+                settings().themedIcons = false;
+                openApp(APP_SETTINGS);
+            }
             {   // the seasonal themes: each on its own dates (2026: Presidents' Feb 16, Easter Apr 5, Memorial May 25, Labor Sep 7,
                 // Thanksgiving Nov 26); all of them offered in the emulator
                 struct D { int k, y, m, d; bool on; };

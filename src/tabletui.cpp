@@ -226,7 +226,12 @@ void cellUv(int cell, ImVec2& uv0, ImVec2& uv1) {
     uv1 = ImVec2((cell % 4 + 1 - in) / 4.0f, (cell / 4 + 1 - in) / (float)rows);
 }
 
-ImU32 appColor(int app) { return (app == APP_WEATHER && g_wx) ? IM_COL32(22, 24, 29, 255) : kApps[app].color; }
+ImU32 themedAppColor(int app);
+ImU32 appColor(int app) {
+    if (app == APP_WEATHER && g_wx) return IM_COL32(22, 24, 29, 255);   // (WXPlane's own logo)
+    if (g_settings.themedIcons && app >= 0 && app < APP_COUNT) return themedAppColor(app);
+    return kApps[app].color;
+}
 int appIcon(int app) {
     switch (app) {
     case APP_LIVEMAP: return ICON_VOLANTA;
@@ -369,6 +374,15 @@ ImTextureID g_bgTex = 0;
 int g_bgW = 0, g_bgH = 0;
 std::string g_bgPic;
 int themeIndex() { return std::max(0, std::min(kThemes - 1, g_settings.wallpaper)); }
+// Display's Theme-Colored Apps: the tablet's own apps in the theme's accent, a little lighter or darker app to app so they stay apart
+ImU32 accentCol(int a);
+ImU32 themedAppColor(int app) {
+    const ImU32 c = accentCol(255);
+    static const float k[5] = {1.0f, 0.82f, 0.92f, 0.72f, 0.87f};
+    const float m = k[app % 5];
+    auto ch = [&](int shift) { return (int)std::lround(((c >> shift) & 255) * m); };
+    return IM_COL32(ch(IM_COL32_R_SHIFT), ch(IM_COL32_G_SHIFT), ch(IM_COL32_B_SHIFT), 255);
+}
 ImU32 rgbCol(int rgb, float k = 1.0f) {   // 0xRRGGBB, darkened by k
     auto c = [&](int sh) { return (int)std::lround(((rgb >> sh) & 255) * k); };
     return IM_COL32(c(16), c(8), c(0), 255);
@@ -8891,6 +8905,10 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
                     if (arrow("##seasnext", cx + half + 28, 1, seasPage + 1 < seasPages)) ++seasPage;
                 }
             }
+            {   // the tablet's own app icons in the theme's colours (those with a brand's logo keep it)
+                const float ty = seas.empty() ? ry + 14 : ry + 30 + th + (seasPages > 1 ? 98.0f : 56.0f);
+                toggle("##themedicons", rx, ty, colW, "Theme-Colored Apps", g_settings.themedIcons, true);
+            }
         }
         return;
     }
@@ -9749,11 +9767,13 @@ void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         textAt(dl, f.small, 28, top + 100, kMuted, "This xPilot version's window commands aren't known to the tablet yet: use xPilot's own windows.");
         return;
     }
-    const float y0 = top + 90, gap = 12, cols = 3, tw = std::floor((w - 24 - gap * (cols - 1)) / cols);
-    const int rows = ((int)xp.size() + 2) / 3;
+    // its buttons in one row (four of them), more in rows of four
+    const int ncol = std::max(1, std::min(4, (int)xp.size()));
+    const float y0 = top + 90, gap = 12, cols = (float)ncol, tw = std::floor((w - 24 - gap * (cols - 1)) / cols);
+    const int rows = ((int)xp.size() + ncol - 1) / ncol;
     const float th = std::min(150.0f, std::floor((h - 12 - y0 - gap * (rows - 1)) / std::max(1, rows)));
     for (size_t i = 0; i < xp.size(); ++i) {
-        const ImVec2 a(12 + (i % 3) * (tw + gap), y0 + (i / 3) * (th + gap)), b(a.x + tw, a.y + th);
+        const ImVec2 a(12 + (i % ncol) * (tw + gap), y0 + (i / ncol) * (th + gap)), b(a.x + tw, a.y + th);
         char id[64]; std::snprintf(id, sizeof id, "##xp_%s", xp[i]->cmd);
         ImGui::SetCursorScreenPos(a);
         const bool can = xp[i]->cmd[0] != 0;   // (no message window in this xPilot: greyed, it says why)
@@ -9771,7 +9791,7 @@ void xpilotPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         dl->AddRect(a2, b2, mixCol(IM_COL32(255, 255, 255, (int)(30 + 50 * e.hot)), IM_COL32(90, 230, 140, 230), l), 22.0f, 0, 1.2f + 0.6f * l);
         dl->AddText(f.title, fontPx(f.title), ImVec2(a2.x + 18, a2.y + 18), can ? kInk : kMuted, xp[i]->label);
         dl->AddText(f.small, fontPx(f.small), ImVec2(a2.x + 18, a2.y + 54), lit ? IM_COL32(200, 245, 215, 255) : kMuted, xp[i]->what, nullptr, tw - 36);
-        if (lit) textAt(dl, f.small, b2.x - 46, a2.y + 20, IM_COL32(120, 240, 160, 255), "On");
+        if (lit) textAt(dl, f.small, b2.x - 36, b2.y - 30, IM_COL32(120, 240, 160, 255), "On");   // (bottom right: the name has the width)
         if (hit) { act.xpilotCmd = xp[i]->cmd; g_xpOn[xp[i]->cmd] = !lit; }
     }
 }
@@ -10879,6 +10899,7 @@ std::string settingsToText() {
     out += buf;
     std::snprintf(buf, sizeof buf, "map_navaids=%d\nmap_waypoints=%d\nmap_route=%d\nmap_procedures=%d\nstatus_local_time=%d\nauto_dim=%d\n", g_settings.mapNavaids ? 1 : 0, g_settings.mapWaypoints ? 1 : 0,
                   g_settings.mapRoute ? 1 : 0, g_settings.mapProcedures ? 1 : 0, g_settings.statusLocalTime ? 1 : 0, g_settings.autoDim ? 1 : 0);
+    out += std::string("themed_icons=") + (g_settings.themedIcons ? "1" : "0") + "\n";
     out += buf;
     std::snprintf(buf, sizeof buf, "duck_rx=%.2f\nduck_tx=%.2f\nnotify_volume=%.2f\n", (double)g_settings.duckRx, (double)g_settings.duckTx, (double)g_settings.notifyVolume);
     out += buf;
@@ -11058,6 +11079,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "hoppie_code") g_settings.hoppieCode = val;
         else if (key == "status_local_time") g_settings.statusLocalTime = v != 0;
         else if (key == "auto_dim") g_settings.autoDim = v != 0;
+        else if (key == "themed_icons") g_settings.themedIcons = v != 0;
         else if (key == "favorite_slots") g_settings.favoriteSlots = std::max(0, std::min(kMaxFavorites, v));
         else if (key == "brightness") g_settings.brightness = std::max(0.1f, std::min(1.0f, (float)std::atof(val.c_str())));
         else if (key == "show_charts") g_settings.showCharts = v != 0;
