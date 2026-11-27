@@ -1,20 +1,27 @@
 # Releases a finished build to SkunkCrafts Updater users: the bundle that build.yml made for a commit on main becomes the updater's
-# depot on the "release" branch (tools/skunkcrafts_release.sh). Only started by hand:
-#   gh workflow run skunkcrafts-release.yml -f version=0.9.2              (dry run: the depot is built and checked, kept as an artifact)
-#   gh workflow run skunkcrafts-release.yml -f version=0.9.2 -f publish=true
+# depot on the "release" branch (tools/skunkcrafts_release.sh). Started by hand, from GitHub: Actions > SkunkCrafts release >
+# Run workflow (see docs/RELEASING.md). From a terminal:
+#   gh workflow run skunkcrafts-release.yml                          (dry run: the depot is built and checked, nothing is published)
+#   gh workflow run skunkcrafts-release.yml -f publish=true          (publish the version in src/version.h)
 name: SkunkCrafts release
+run-name: "SkunkCrafts release ${{ inputs.version || '(src/version.h)' }}${{ inputs.github_only && ' - GitHub release only' || (inputs.publish && ' - publish' || ' - dry run') }}"
 on:
   workflow_dispatch:
     inputs:
+      publish:
+        description: "Publish to SkunkCrafts Updater users (unticked: a dry run that only checks)"
+        type: boolean
+        default: false
       version:
-        description: "Version to release (must be XPT_VERSION in src/version.h at that commit, and new)"
-        required: true
-      commit:
-        description: "Commit on main (empty: the newest)"
+        description: "Version (leave empty: the one in src/version.h)"
         required: false
         default: ""
-      publish:
-        description: "Push it to the release branch (off: dry run)"
+      commit:
+        description: "Commit on main (leave empty: the newest)"
+        required: false
+        default: ""
+      github_only:
+        description: "Only make the GitHub release (for a version already on SkunkCrafts)"
         type: boolean
         default: false
 permissions:
@@ -27,17 +34,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { ref: main, fetch-depth: 0 }
-      - name: Find the commit's passed build
+      - name: Find the commit, its version and its passed build
         id: build
         env:
           GH_TOKEN: ${{ github.token }}
           COMMIT: ${{ inputs.commit }}
+          WANT: ${{ inputs.version }}
+          GITHUB_ONLY: ${{ inputs.github_only }}
         run: |
           SHA=$(git rev-parse "${COMMIT:-origin/main}")
+          HAVE=$(git show "$SHA:src/version.h" | sed -n 's/^#define XPT_VERSION "\(.*\)"/\1/p')
+          VER="${WANT:-$HAVE}"
+          if [ "$VER" != "$HAVE" ]; then
+            echo "::error::src/version.h at ${SHA:0:7} says $HAVE, not $VER. Change the version in src/version.h, push, and run this again."; exit 1
+          fi
+          OLD=$(git show origin/release:XPTablet/skunkcrafts_updater.cfg 2>/dev/null | sed -n 's/^version|//p' || true)
+          if [ "$OLD" = "$VER" ] && [ "$GITHUB_ONLY" != "true" ]; then
+            echo "::error::Version $VER is already released. Change the version in src/version.h (for example to the next number), push, and run this again."; exit 1
+          fi
           RUN=$(gh run list --commit "$SHA" --workflow build.yml --json databaseId,conclusion,status \
                 -q '[.[] | select(.status=="completed" and .conclusion=="success")][0].databaseId')
-          [ -n "$RUN" ] || { echo "no passed build for $SHA"; exit 1; }
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"; echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          if [ -z "$RUN" ]; then
+            echo "::error::The build of ${SHA:0:7} has not passed (yet). Wait for its build-plugin run to finish green, then run this again."; exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"; echo "run=$RUN" >> "$GITHUB_OUTPUT"; echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "Releasing XPTablet $VER from ${SHA:0:7} (build $RUN); the release branch had ${OLD:-nothing}."
       - uses: actions/download-artifact@v4
         with:
           name: XPTablet
@@ -45,8 +66,9 @@ jobs:
           run-id: ${{ steps.build.outputs.run }}
           github-token: ${{ github.token }}
       - name: Build the depot (and publish it)
+        if: ${{ !inputs.github_only }}
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.build.outputs.version }}
           SHA: ${{ steps.build.outputs.sha }}
           RUN: ${{ steps.build.outputs.run }}
           PUBLISH: ${{ inputs.publish }}
@@ -57,15 +79,49 @@ jobs:
           ARGS=()
           [ "$PUBLISH" = "true" ] && ARGS+=(--publish)
           bash tools/skunkcrafts_release.sh "$VERSION" "$SHA" --bundle bundle/XPTablet --run "$RUN" "${ARGS[@]}"
-      - name: GitHub release (the bundle as a zip, with docs/RELEASE_NOTES.md)
-        if: ${{ inputs.publish }}
+      - name: Zip the download
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+        run: (cd bundle && zip -qr "../XPTablet-$VERSION.zip" XPTablet)
+      # The same files as a GitHub release (a tag and a zip). Allowed to fail: SkunkCrafts users already have the update by now, and
+      # the zip is kept with this run (XPTablet-<version>-zip, below) to attach by hand if GitHub refuses the release.
+      - name: GitHub release (the zip, with docs/RELEASE_NOTES.md)
+        id: ghrel
+        if: ${{ inputs.publish || inputs.github_only }}
+        continue-on-error: ${{ !inputs.github_only }}
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.build.outputs.version }}
           SHA: ${{ steps.build.outputs.sha }}
         run: |
-          (cd bundle && zip -qr "../XPTablet-$VERSION.zip" XPTablet)
+          gh api "repos/$GITHUB_REPOSITORY" --jq '"token sees: push=\(.permissions.push // "?")"' || true
           cp docs/RELEASE_NOTES.md notes.md 2>/dev/null || echo "XPTablet $VERSION" > notes.md
           gh release create "v$VERSION" "XPTablet-$VERSION.zip" --target "$SHA" --title "XPTablet $VERSION" --notes-file notes.md
+      - name: Summary
+        if: ${{ always() && steps.build.outputs.version != '' }}
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          SHA: ${{ steps.build.outputs.sha }}
+          PUBLISH: ${{ inputs.publish }}
+          GHREL: ${{ steps.ghrel.outcome }}
+        run: |
+          {
+            if [ "${{ inputs.github_only }}" = "true" ]; then
+              echo "## GitHub release v$VERSION: $GHREL"
+            elif [ "$PUBLISH" = "true" ] && [ "${{ job.status }}" = "success" ]; then
+              echo "## XPTablet $VERSION is published"
+              echo "SkunkCrafts Updater users get it now (commit ${SHA:0:7})."
+              if [ "$GHREL" = "success" ]; then echo "GitHub release: v$VERSION, with XPTablet-$VERSION.zip."
+              else echo "GitHub release: not made (GitHub refused it). Download **XPTablet-$VERSION-zip** below and attach it to a release by hand."; fi
+            elif [ "$PUBLISH" = "true" ]; then
+              echo "## XPTablet $VERSION was not published"; echo "See the red step above."
+            else
+              echo "## Dry run of XPTablet $VERSION: everything checks out"
+              echo "Nothing was published. Run it again with **Publish** ticked."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
+        with: { name: "XPTablet-${{ steps.build.outputs.version }}-zip", path: "XPTablet-${{ steps.build.outputs.version }}.zip" }
+      - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.github_only }}
         with: { name: XPTablet-skunkcrafts-depot, path: depot }
