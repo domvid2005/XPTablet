@@ -1,0 +1,47 @@
+XPTablet Freeware License
+=========================
+
+Copyright (c) 2026 Alpine Aviation. All rights reserved.
+
+XPTablet (the plugin, its source code, artwork, icons drawn for it, documentation and the browser emulator) is owned by
+Alpine Aviation. It is freeware: you may have it at no cost, under the terms below.
+
+1. What you may do
+   a. Download, install and use XPTablet for free, for personal, private flight simulation, on as many of your own computers
+      as you like.
+   b. Read and study the source code where Alpine Aviation publishes it (for example on GitHub), and build it for your own
+      use.
+   c. Make changes for your own private use.
+   d. Suggest changes back to Alpine Aviation (for example a pull request on GitHub). By sending a change, you agree that
+      Alpine Aviation may use it in XPTablet under this license or any other.
+   e. Show XPTablet in screenshots, videos and streams, including ones that earn money.
+   f. Aircraft developers may tell their users to install XPTablet, and may make their aircraft work with it (for example
+      its tablet position), without asking. They may not ship XPTablet inside their aircraft without written permission.
+
+2. What you may not do without written permission from Alpine Aviation
+   a. Sell XPTablet, or charge for it or for access to it, alone or as part of anything else.
+   b. Re-upload or share copies of XPTablet anywhere other than the places Alpine Aviation publishes it. Link to those
+      places instead.
+   c. Publish or share a changed version of XPTablet, or a program made from its source code.
+   d. Remove or change this license, the copyright notices or the credits in XPTablet.
+   e. Use the XPTablet or Alpine Aviation names or logos in a way that suggests Alpine Aviation made or approves something
+      it did not.
+
+3. Donations
+   Donations to Alpine Aviation are voluntary. They do not buy XPTablet, a license, features or support.
+
+4. Other people's software and data
+   XPTablet includes or uses software, fonts and data made by others. Those parts are not owned by Alpine Aviation and keep
+   their own licenses, listed in LICENSES.txt (for example the GPL checklists and aircraft top views, which you may share
+   under the GPL). Nothing in this license limits your rights under those licenses. Online services XPTablet connects to
+   (map tiles, VATSIM, SimBrief, Hoppie's ACARS and others) have their own terms, which you agree to with them when
+   you use them.
+
+5. No warranty
+   XPTablet is provided "as is", without warranty of any kind, express or implied, including fitness for a particular
+   purpose. It is for flight simulation only and must never be used for real-world navigation or flight. In no event shall
+   Alpine Aviation be liable for any claim, damages or other liability arising from the use of XPTablet.
+
+6. Ending
+   This license ends automatically if you break it. Alpine Aviation may publish new versions of this license; each copy of
+   XPTablet is covered by the license that came with it.
