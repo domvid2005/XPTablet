@@ -178,6 +178,7 @@ unsigned g_texChanges = 0;           // counts the pictures given to the graphic
 double g_lastDeviceDown = -1, g_lastSimDown = -1;   // when a device, and the sim's own mouse, last pressed on the tablet
 double g_remotePointerUntil = -1;    // a device's pointer has the tablet until then (the sim's own pointer waits)
 bool g_captureClicks = true;   // AviTab.json's panel/disable_capture_window turns this off (the aircraft sends AviTab/click_left itself)
+bool g_tookAviTabSig = false;   // XPTablet runs under AviTab's plugin signature (AviTab not installed)
 bool g_ownsAviTab = false;     // we registered the avitab/* datarefs and AviTab/* commands (AviTab itself is not running)
 bool g_aviTabRunning = false;
 
@@ -3391,7 +3392,23 @@ float flightLoop(float dt, float, int, void*) {
 
 PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
     std::strcpy(outName, "XPTablet");
-    std::strcpy(outSig, "com.alpineaviation.xptablet");
+    // With AviTab not installed, XPTablet answers to AviTab's plugin signature too: some aircraft look for AviTab by it and, not
+    // finding it, never switch it off for their own tablet pages (the Aerobask DA42: its other tabs could not be reached, 2026-11-26;
+    // it never touches avitab/panel_enabled without it). AviTab loads before us (plugin folders load in name order); its folder
+    // is looked for too, in case. Other plugins tell XPTablet by its xptablet/ datarefs (WXPlane does).
+    {
+        const bool aviTabThere = XPLMFindPluginBySignature(kAviTabSignature) != XPLM_NO_PLUGIN_ID || XPLMFindDataRef("avitab/panel_enabled") != nullptr;
+        bool aviTabFolder = false;
+        {
+            char sys[2048] = "";
+            XPLMGetSystemPath(sys);
+            std::error_code ec;
+            for (const char* name : {"AviTab", "avitab", "Avitab", "AVITAB"})
+                aviTabFolder = aviTabFolder || std::filesystem::exists(std::filesystem::u8path(std::string(sys) + "Resources/plugins/" + name), ec);
+        }
+        g_tookAviTabSig = !aviTabThere && !aviTabFolder;
+        std::strcpy(outSig, g_tookAviTabSig ? kAviTabSignature : "com.alpineaviation.xptablet");
+    }
     std::strcpy(outDesc, "XPTablet " XPT_VERSION " by Alpine Aviation - the cockpit tablet");
     XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
     {   // a crash's record (Windows): written as it happens; the last session's, if any, put in the log now
@@ -3421,14 +3438,17 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc) {
     g_drBus = XPLMFindDataRef("sim/cockpit2/electrical/bus_volts");
 
     // AviTab's interface is taken over only when AviTab itself is not there (it loads before us: plugin folders load in name order)
-    g_aviTabRunning = XPLMFindPluginBySignature(kAviTabSignature) != XPLM_NO_PLUGIN_ID || XPLMFindDataRef("avitab/panel_enabled") != nullptr;
+    {   // (ourselves, under AviTab's signature, not counted)
+        const XPLMPluginID av = XPLMFindPluginBySignature(kAviTabSignature);
+        g_aviTabRunning = (av != XPLM_NO_PLUGIN_ID && av != XPLMGetMyID()) || XPLMFindDataRef("avitab/panel_enabled") != nullptr;
+    }
     g_ownsAviTab = !g_aviTabRunning;
     registerDatarefs("xptablet");
     registerCommands("XPTablet");
     if (g_ownsAviTab) {
         registerDatarefs("avitab");
         registerCommands("AviTab");
-        logMsg(XPT_VERSION ": AviTab is not installed, XPTablet takes the cockpit tablet");
+        logMsg(XPT_VERSION ": AviTab is not installed, XPTablet takes the cockpit tablet%s", g_tookAviTabSig ? " (and answers to AviTab's plugin signature, for aircraft that look for it)" : "");
     } else {
         logMsg(XPT_VERSION ": AviTab is installed and keeps the cockpit tablet. XPTablet runs in its window only; remove AviTab to replace it.");
     }
