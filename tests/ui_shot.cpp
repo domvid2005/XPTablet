@@ -576,6 +576,69 @@ int main(int argc, char** argv) {
             }
             g_testPlan = p; g_testProcs = pr;   // (pictured on the map with the map tests, below)
         }
+        {   // the procedures changed in flight (ATC gives another runway or STAR, 2026-11-28): the choices from the CIFP, the plan changed,
+            // the map's route spliced from the new SID to where the route goes on and into the new STAR; SimBrief's back with Reset
+            struct Fx { const char* id; double lat, lon; };
+            static const Fx fixes[] = {{"KSBN", 41.7087, -86.3173}, {"KORD", 41.9786, -87.9048}, {"SBN", 41.62, -86.36}, {"ZEGEN", 41.74, -86.52}, {"GIJ", 41.7685, -86.3186},
+                {"PMM", 42.4644, -86.1059}, {"OBK", 42.2206, -87.952}, {"WATSN", 42.05, -87.7}, {"VEECK", 42.03, -87.48}, {"FYTTE", 42.1, -87.6}, {"DEGEE", 41.9893, -87.602},
+                {"KURKK", 41.9876, -87.713}, {"ROWLS", 41.9866, -87.772}, {"PAITN", 42.02, -88.40}, {"SPRTN", 41.99, -88.20}, {"BUNNY", 41.98, -88.06}};
+            const std::string sbn = "RWY:RW27,      ,      ,00799, ,ISBN,1,   ;N41421140,W086181290,0000;\nRWY:RW09,      ,      ,00799, ,     , ,   ;N41421140,W086200000,0000;\n"
+                "SID:010,1,SBN2,RW09,,,,,VA\nSID:015,1,SBN2,RW09,ROWLS,K5,P,C,TF\nSID:010,1,SBN2,RW27,,,,,VA\nSID:020,1,SBN2,RW27,ZEGEN,K5,P,C,TF\nSID:030,2,SBN2,ALL,SBN,K5,D,,TF\nSID:040,3,SBN2,GIJ,GIJ,K5,D,,TF\nSID:050,3,SBN2,PMM,PMM,K5,D,,TF\n"
+                "SID:010,1,ZEGN1,RW27,ZEGEN,K5,P,C,TF\nSID:020,2,ZEGN1,ALL,GIJ,K5,D,,TF\n";
+            const std::string ord = "RWY:RW28C,      ,      ,00668, ,IORD,1,   ;N41591350,W087515750,0000;\nRWY:RW10L,      ,      ,00668, ,IOHQ,1,   ;N41590000,W087560000,0000;\n"
+                "STAR:010,4,WATSN4,OBK,OBK,K5,D,,IF\nSTAR:020,4,WATSN4,OBK,WATSN,K5,P,C,TF\nSTAR:030,5,WATSN4,ALL,FYTTE,K5,P,C,TF\nSTAR:040,6,WATSN4,RW28C,VEECK,K5,P,C,TF\n"
+                "STAR:010,5,PAITN2,ALL,PAITN,K5,P,C,IF\nSTAR:020,6,PAITN2,RW10L,SPRTN,K5,P,C,TF\n"
+                "APPCH:005,A,R28C,VEECK,VEECK,K5,P,C,IF\nAPPCH:006,R,R28C,,KURKK,K5,P,C,IF\nAPPCH:007,R,R28C,,RW28C,K5,P,G,TF\nAPPCH:010,A,I28C,VEECK,VEECK,K5,P,C,IF\nAPPCH:020,I,I28C,,DEGEE,K5,P,C,IF\nAPPCH:030,I,I28C,,KURKK,K5,P,C,TF\nAPPCH:040,I,I28C,,RW28C,K5,P,G,TF\nAPPCH:050,I,I28C,,ROWLS,K5,P,C,CA\n"
+                "APPCH:010,I,I10L,,BUNNY,K5,P,C,IF\nAPPCH:020,I,I10L,,RW10L,K5,P,G,TF\n";
+            auto cifp = [&](const std::string& icao) -> std::string { return icao == "KSBN" ? sbn : icao == "KORD" ? ord : std::string(); };
+            auto fix = [&](const std::string& id, double, double, double& la, double& lo) { for (const Fx& f : fixes) if (id == f.id) { la = f.lat; lo = f.lon; return true; } return false; };
+            const AirportProcs dep = readAirportProcs("KSBN", sbn), arr = readAirportProcs("KORD", ord);
+            auto names = [](const std::vector<std::string>& v) { std::string r; for (const auto& x : v) r += (r.empty() ? "" : ",") + x; return r; };
+            if (names(dep.runways) != "09,27" || dep.sids.size() != 2 || dep.sids[0].id != "SBN2" || names(dep.sids[0].runways) != "09,27" || names(dep.sids[0].transitions) != "GIJ,PMM" || names(dep.sids[1].runways) != "27")
+                { std::printf("FAIL: KSBN's choices: %s, %d SIDs\n", names(dep.runways).c_str(), (int)dep.sids.size()); ++failures; }
+            if (names(arr.runways) != "10L,28C" || arr.stars.size() != 2 || arr.approaches.size() != 3 || arr.stars[0].id != "PAITN2" || arr.serves(arr.stars[0], "28C") || !arr.serves(arr.stars[0], "10L") || !arr.serves(arr.stars[1], "28C"))
+                { std::printf("FAIL: KORD's choices: %s, %d STARs, %d approaches\n", names(arr.runways).c_str(), (int)arr.stars.size(), (int)arr.approaches.size()); ++failures; }
+            if (approachName("I28C") != "ILS 28C" || approachName("R28CY") != "RNAV 28C Y" || approachName("R28C-Z") != "RNAV 28C Z" || approachName("") != "Auto" || !approachFor("I28C", "28C") || approachFor("I27L", "27") || approachFor("I10L", "28C"))
+                { std::printf("FAIL: approach names (%s %s)\n", approachName("R28CY").c_str(), approachName("R28C-Z").c_str()); ++failures; }
+            FlightPlan p; p.loaded = true; p.origin = "KSBN"; p.originRunway = "27"; p.sid = "SBN2"; p.dest = "KORD"; p.destRunway = "28C"; p.star = "WATSN4";
+            p.ofpOriginRunway = "27"; p.ofpSid = "SBN2"; p.ofpDestRunway = "28C"; p.ofpStar = "WATSN4";
+            const struct { const char* id; int proc; } legs[] = {{"KSBN", 0}, {"ZEGEN", 1}, {"SBN", 1}, {"GIJ", 1}, {"PMM", 0}, {"OBK", 0}, {"WATSN", 2}, {"FYTTE", 2}, {"VEECK", 2}, {"KORD", 0}};
+            for (const auto& lg : legs) for (const Fx& f : fixes) if (!std::strcmp(f.id, lg.id)) { FlightPlan::Leg l; l.ident = lg.id; l.lat = f.lat; l.lon = f.lon; l.proc = lg.proc; p.legs.push_back(l); }
+            auto route = [&](const FlightPlan& q) { MapState m; routeWithProcedures(q, buildProcedures(q, cifp, fix), m); std::string r; for (const auto& x : m.route) r += (r.empty() ? "" : " ") + x.ident; return r; };
+            const std::string asPlanned = route(p);
+            if (p.proceduresChanged() || asPlanned != "KSBN ZEGEN SBN GIJ PMM OBK WATSN FYTTE VEECK KORD") { std::printf("FAIL: SimBrief's route kept: %s\n", asPlanned.c_str()); ++failures; }
+            FlightPlan q = p;
+            applyProcEdit(q, Actions::PE_DEP_RWY, "09", dep, arr);   // (SBN2 serves 09 too: kept)
+            if (q.sid != "SBN2" || !q.proceduresChanged() || route(q) != "KSBN RW09 ROWLS SBN GIJ PMM OBK WATSN FYTTE VEECK DEGEE KURKK RW28C KORD") { std::printf("FAIL: runway 09: %s / %s\n", q.sid.c_str(), route(q).c_str()); ++failures; }
+            applyProcEdit(q, Actions::PE_SID_TRANS, "PMM", dep, arr);   // (the SID ends at PMM, where the route goes on: once)
+            if (route(q) != "KSBN RW09 ROWLS SBN PMM OBK WATSN FYTTE VEECK DEGEE KURKK RW28C KORD") { std::printf("FAIL: the PMM transition: %s\n", route(q).c_str()); ++failures; }
+            applyProcEdit(q, Actions::PE_ARR_RWY, "10L", dep, arr);   // (WATSN4 is not for 10L: no STAR until one is chosen)
+            if (!q.star.empty() || route(q) != "KSBN RW09 ROWLS SBN PMM OBK BUNNY RW10L KORD") { std::printf("FAIL: runway 10L: %s / %s\n", q.star.c_str(), route(q).c_str()); ++failures; }
+            applyProcEdit(q, Actions::PE_STAR, "PAITN2", dep, arr);
+            if (route(q) != "KSBN RW09 ROWLS SBN PMM OBK PAITN SPRTN BUNNY RW10L KORD") { std::printf("FAIL: PAITN2: %s\n", route(q).c_str()); ++failures; }
+            {   // the arrival runway back to 28C with the RNAV chosen
+                FlightPlan r = p; applyProcEdit(r, Actions::PE_APPROACH, "R28C", dep, arr);
+                const auto pr = buildProcedures(r, cifp, fix);
+                if (pr.size() != 3 || pr[2].name != "RNAV 28C" || route(r) != "KSBN RW27 ZEGEN SBN GIJ PMM OBK WATSN FYTTE VEECK KURKK RW28C KORD") { std::printf("FAIL: the RNAV 28C chosen: %s\n", route(r).c_str()); ++failures; }
+            }
+            {   // a diversion in flight (SimBrief's new plan): direct from the aircraft to the STAR's first leg, no SID; to the airport without a STAR
+                FlightPlan d = p; divertFrom(d, true, 42.3, -86.4);
+                if (!d.sid.empty() || d.legs.size() != 5 || d.legs[0].ident != "PPOS" || d.legs[1].ident != "WATSN" || d.legs[1].legNm.empty() || route(d) != "PPOS WATSN FYTTE VEECK KORD")
+                    { std::printf("FAIL: diverted direct to the STAR: %s (%d legs)\n", route(d).c_str(), (int)d.legs.size()); ++failures; }
+                FlightPlan n = p; for (auto& l : n.legs) l.proc = 0; n.star.clear(); n.ofpStar.clear(); divertFrom(n, true, 42.3, -86.4);
+                if (n.legs.size() != 2 || n.legs[1].ident != "KORD") { std::printf("FAIL: diverted direct to the airport (%d legs)\n", (int)n.legs.size()); ++failures; }
+                // to the alternate: direct, its runway SimBrief's, its STAR chosen then (and the map's route through it)
+                FlightPlan a = p; a.alternate = "KORD"; a.alternateName = "Chicago O'Hare Intl"; a.alternateRunway = "10L"; a.alternateLat = 41.9786; a.alternateLon = -87.9048;
+                a.dest = "KMKE"; a.destRunway = "19R"; a.ofpDestRunway = "19R"; a.star = "GOPAC4"; a.ofpStar = "GOPAC4";
+                if (!divertToAlternate(a, true, 41.8, -86.9) || a.dest != "KORD" || a.destRunway != "10L" || !a.star.empty() || !a.alternate.empty() || a.legs.size() != 2 || a.proceduresChanged() || route(a) != "PPOS KORD" || a.distanceNm.empty())
+                    { std::printf("FAIL: diverted to the alternate: %s %s %s (%d legs)\n", a.dest.c_str(), a.destRunway.c_str(), route(a).c_str(), (int)a.legs.size()); ++failures; }
+                applyProcEdit(a, Actions::PE_STAR, "PAITN2", dep, arr);
+                if (route(a) != "PPOS PAITN SPRTN BUNNY RW10L KORD") { std::printf("FAIL: the alternate's STAR: %s\n", route(a).c_str()); ++failures; }
+                FlightPlan none = p; if (divertToAlternate(none, true, 41.8, -86.9)) { std::printf("FAIL: no alternate, no diversion to it\n"); ++failures; }
+            }
+            applyProcEdit(q, Actions::PE_RESET, "", dep, arr);
+            if (q.proceduresChanged() || q.originRunway != "27" || q.star != "WATSN4" || route(q) != asPlanned) { std::printf("FAIL: back to SimBrief's: %s\n", route(q).c_str()); ++failures; }
+        }
         {   // the logbook: a flight found by itself (block out, takeoff, a landing, block in), saved and read back; the Timers page
             logbookFromText(std::string()); const auto keepInst = settings().installed; settings().installed.push_back("timers"); settings().installed.push_back("logbook");
             auto run = [&](SimState u, float secs) { for (float tt = 0; tt < secs; tt += 0.25f) { u.map.utc += 0; io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.25f; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
@@ -992,6 +1055,7 @@ int main(int argc, char** argv) {
             FlightPlan& p = fp.plan;
             p.loaded = true; p.callsign = "AAL1234"; p.aircraft = "A321"; p.registration = "N123AA"; p.units = "lbs"; p.importedAt = "05:12Z";
             p.origin = "KSBN"; p.originName = "South Bend Intl"; p.originRunway = "27"; p.dest = "KORD"; p.destName = "Chicago O'Hare Intl"; p.destRunway = "28C"; p.alternate = "KMDW";
+            p.ofpOriginRunway = "27"; p.ofpDestRunway = "28C"; p.ofpStar = "WATSN4";
             p.route = "GIJ DCT PMM DCT OBK"; p.sid = ""; p.star = "WATSN4"; p.cruise = "FL240"; p.distanceNm = "92"; p.ete = "38 min"; p.costIndex = "30"; p.avgWind = "head 22 kt";
             p.blockFuel = "9800"; p.tripFuel = "4200"; p.reserveFuel = "2900"; p.altnFuel = "1600"; p.taxiFuel = "600"; p.extraFuel = "500"; p.zfw = "141200"; p.tow = "150400"; p.ldw = "146200";
             p.pdfUrl = "https://www.simbrief.com/ofp/flightplans/KSBNKORD.pdf";
@@ -1016,6 +1080,63 @@ int main(int argc, char** argv) {
                 { FlightPlan::Leg w; w.trkMag = 355; w.hdgMag = 5; if (navlogCorrection(w) != "R10") { std::printf("FAIL: a correction across north (%s)\n", navlogCorrection(w).c_str()); ++failures; } }
                 openApp(APP_ROUTES); tapFp(675, 148);
                 if (settings().navlogHeadings) { std::printf("FAIL: the navlog's Times bubble\n"); ++failures; }
+            }
+            {   // Change SID / STAR: the window opened from the Route card, a runway, a SID, a transition and an approach chosen, Done
+                SimState pp = fp;
+                pp.depProcs.icao = "KSBN"; pp.depProcs.runways = {"09", "27"};
+                pp.depProcs.sids = {{"SBN2", {"09", "27"}, {"GIJ", "PMM"}}, {"ZEGN1", {"27"}, {}}, {"WAKKO3", {"09"}, {}}, {"OXI4", {}, {"OXI", "VWV"}}};
+                pp.arrProcs.icao = "KORD"; pp.arrProcs.runways = {"04R", "09L", "10C", "10L", "27R", "28C", "28R"};
+                for (const char* id : {"WATSN4", "PAITN2", "BENKY4", "FYTTE7", "TRTLL6", "VEECK5", "SHAIN2", "ERNNY7", "HALIE3", "MZV4", "KUBBS2", "SAYGE1", "JVL5", "DENNT2"})
+                    pp.arrProcs.stars.push_back({id, {}, std::string(id) == "WATSN4" ? std::vector<std::string>{"OBK", "BAE", "GRB"} : std::vector<std::string>{}});
+                pp.arrProcs.approaches = {{"I28C", {"28C"}, {}}, {"R28C", {"28C"}, {}}, {"R28CY", {"28C"}, {}}, {"I10L", {"10L"}, {}}};
+                std::vector<std::pair<int, std::string>> got;
+                auto tapPp = [&](float cx, float cy) { for (int k = 0; k < 6; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(cx, cy); io.AddMouseButtonEvent(0, k == 2 || k == 3);
+                    ImGui::NewFrame(); Actions act; build(fonts, pp, 800, kLogicalH, act); ImGui::Render();
+                    if (act.procEdit != Actions::PE_NONE) { got.push_back({act.procEdit, act.procValue}); applyProcEdit(pp.plan, act.procEdit, act.procValue, pp.depProcs, pp.arrProcs); } } };
+                openApp(APP_ROUTES); tapPp(250, 148);   // Change SID / STAR
+                for (int k = 0; k < 10; ++k) tapPp(-100, -100);
+                shot(pp, APP_ROUTES, "flightplan_procedures");
+                tapPp(365, 170);   // the departure's runway: 27 is the last (nothing), then back to 09
+                tapPp(261, 170);
+                tapPp(326, 223);   // the second SID for 09: WAKKO3 (None, SBN2, WAKKO3, OXI4)
+                tapPp(210, 223);   // SBN2 after all
+                tapPp(365, 356);   // its transition: GIJ
+                tapPp(731, 390);   // the approach: ILS 28C
+                tapPp(731, 390);   // RNAV 28C
+                for (int k = 0; k < 6; ++k) tapPp(-100, -100);
+                shot(pp, APP_ROUTES, "flightplan_procedures_changed");
+                tapPp(712, 439); tapPp(-100, -100);   // Done: the Route card with them
+                shot(pp, APP_ROUTES, "flightplan_procedures_page");
+                tapPp(250, 148); for (int k = 0; k < 10; ++k) tapPp(-100, -100);
+                std::string seq; for (const auto& g : got) seq += std::to_string(g.first) + ":" + g.second + " ";
+                if (seq != "1:09 2:WAKKO3 2:SBN2 3:GIJ 7:I28C 7:R28C " || pp.plan.originRunway != "09" || pp.plan.sid != "SBN2" || pp.plan.sidTrans != "GIJ" || pp.plan.approach != "R28C")
+                    { std::printf("FAIL: the procedures window's choices: %s\n", seq.c_str()); ++failures; }
+                tapPp(590, 439);   // Use SimBrief's
+                if (pp.plan.proceduresChanged() || pp.plan.originRunway != "27") { std::printf("FAIL: the procedures window's Use SimBrief's\n"); ++failures; }
+                tapPp(712, 439);   // Done
+                tapPp(-100, -100);
+                pp.plan.destRunway = "10L"; pp.plan.star.clear();   // (a runway whose STAR was cleared: the list for it)
+                openApp(APP_ROUTES); tapPp(250, 148); for (int k = 0; k < 10; ++k) tapPp(-100, -100);
+                shot(pp, APP_ROUTES, "flightplan_procedures_10l");
+                tapPp(712, 439);
+                if (got.size() != 7 || got.back().first != Actions::PE_RESET) { std::printf("FAIL: Done closed the window (%d edits)\n", (int)got.size()); ++failures; }
+            }
+            {   // Divert with an alternate: its choices; the alternate taken direct opens Runways And Procedures for it
+                SimState dv = fp;
+                bool alt = false, sb = false;
+                auto tapDv = [&](float cx, float cy) { for (int k = 0; k < 6; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(cx, cy); io.AddMouseButtonEvent(0, k == 2 || k == 3);
+                    ImGui::NewFrame(); Actions act; build(fonts, dv, 800, kLogicalH, act); ImGui::Render(); alt = alt || act.planDivertAlt; sb = sb || act.planDivert; } };
+                openApp(APP_ROUTES); tapDv(545, 98); tapDv(-100, -100);
+                shot(dv, APP_ROUTES, "flightplan_divert_menu");
+                tapDv(30, 400);   // (outside: closed, nothing taken)
+                tapDv(545, 98); tapDv(400, 168);
+                if (!alt || sb) { std::printf("FAIL: Divert's alternate (%d %d)\n", alt, sb); ++failures; }
+                divertToAlternate(dv.plan, true, 41.85, -87.2); dv.planOriginal = fp.plan;
+                dv.arrProcs.icao = "KMDW"; dv.arrProcs.runways = {"04R", "13C", "22L", "31C"}; dv.arrProcs.stars = {{"BENKY4", {}, {}}, {"FISSK3", {}, {"FWA"}}, {"MOTIF2", {}, {}}};
+                for (int k = 0; k < 10; ++k) tapDv(-100, -100);
+                shot(dv, APP_ROUTES, "flightplan_divert_procedures");
+                tapDv(712, 439); tapDv(-100, -100);   // Done
+                shot(dv, APP_ROUTES, "flightplan_diverted");
             }
             {   // on the ground at the origin: "Welcome to" it, the figures at the left
                 SimState wf = fp; wf.map.havePos = true; wf.map.onGround = true;

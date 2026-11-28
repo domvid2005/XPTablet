@@ -982,7 +982,7 @@ void simbriefFetch(const std::string& user, bool quiet = false) {
 
 // The plan's route for the map: the departure, its fixes, the destination
 void planToRoute() {
-    xpt::planToRoute(g_sim.plan, g_sim.map);
+    xpt::routeWithProcedures(g_sim.plan, g_sim.map.procedures, g_sim.map);   // (SimBrief's legs, or with the procedures changed)
 }
 
 // ---- Hoppie's ACARS: one worker sends what the tablet asks to and polls every minute while ACARS is on ------------------------
@@ -1115,18 +1115,24 @@ void acarsStop() {
 // The plan's SID, STAR and approach for the map: built again when the plan (or its runways) changes, from the CIFP and the nav data
 void proceduresStep() {
     const xpt::FlightPlan& p = g_sim.plan;
-    const std::string key = p.loaded ? p.ofpId + "|" + p.origin + p.originRunway + p.sid + "|" + p.dest + p.destRunway + p.star + "|" + std::to_string(p.legs.size()) : std::string();
+    static const std::string root = [] { char sys[2048] = ""; XPLMGetSystemPath(sys); return std::string(sys); }();
+    auto cifp = [&](const std::string& icao) {
+        std::string t;
+        if (icao.empty()) return t;
+        if (!readFile(root + "Custom Data/CIFP/" + icao + ".dat", t)) readFile(root + "Resources/default data/CIFP/" + icao + ".dat", t);
+        return t;
+    };
+    {   // the two airports' runways and procedures (for the Flight Plan page's Procedures): read again when an airport changes
+        const std::string o = p.loaded ? p.origin : std::string(), d = p.loaded ? p.dest : std::string();
+        if (g_sim.depProcs.icao != o) g_sim.depProcs = o.empty() ? xpt::AirportProcs() : xpt::readAirportProcs(o, cifp(o));
+        if (g_sim.arrProcs.icao != d) g_sim.arrProcs = d.empty() ? xpt::AirportProcs() : xpt::readAirportProcs(d, cifp(d));
+    }
+    const std::string key = p.loaded ? p.ofpId + "|" + p.origin + p.originRunway + p.sid + "." + p.sidTrans + "|" + p.dest + p.destRunway + p.star + "." + p.starTrans + "." + p.approach +
+                                           "|" + std::to_string(p.legs.size()) + (p.legs.empty() ? "" : p.legs.front().ident) : std::string();
     static std::string built = "\x01";
     if (key == built) return;
     built = key;
-    char sys[2048] = "";
-    XPLMGetSystemPath(sys);
-    const std::string root = sys;
-    g_sim.map.procedures = xpt::buildProcedures(p, [&](const std::string& icao) {
-        std::string t;
-        if (!readFile(root + "Custom Data/CIFP/" + icao + ".dat", t)) readFile(root + "Resources/default data/CIFP/" + icao + ".dat", t);
-        return t;
-    }, [](const std::string& id, double nLat, double nLon, double& la, double& lo) {
+    g_sim.map.procedures = xpt::buildProcedures(p, cifp, [](const std::string& id, double nLat, double nLon, double& la, double& lo) {
         const bool hinted = nLat != 0 || nLon != 0;   // (not "near": a macro in the Windows headers)
         float fla = (float)nLat, flo = (float)nLon;
         const XPLMNavType types = id.size() == 4 && !hinted ? xplm_Nav_Airport : (XPLMNavType)(xplm_Nav_Fix | xplm_Nav_VOR | xplm_Nav_NDB | xplm_Nav_DME | xplm_Nav_Airport);
@@ -1139,12 +1145,31 @@ void proceduresStep() {
         return true;
     });
     if (p.loaded) logMsg("map: %d procedure line(s) for %s %s / %s %s", (int)g_sim.map.procedures.size(), p.sid.c_str(), p.originRunway.c_str(), p.star.c_str(), p.destRunway.c_str());
+    planToRoute();   // (the route with them)
 }
 
 void planStep(const xpt::Actions& act) {
     static bool divertPending = false;   // the plan being fetched is a diversion
     if (act.planImport && !xpt::settings().simbriefUser.empty() && !g_sim.plan.busy) { divertPending = false; simbriefFetch(xpt::settings().simbriefUser); }
     if (act.planDivert && g_sim.plan.loaded && !xpt::settings().simbriefUser.empty() && !g_sim.plan.busy) { divertPending = true; simbriefFetch(xpt::settings().simbriefUser); }
+    if (act.planDivertAlt && g_sim.plan.loaded && !g_sim.plan.alternate.empty()) {   // to the alternate, direct: the plan before kept for Undo
+        xpt::FlightPlan before = g_sim.plan;
+        xpt::FlightPlan& np = g_sim.plan;
+        if (np.alternateLat == 0 && np.alternateLon == 0) {   // (a plan saved before the alternate's position was read: X-Plane's)
+            float la = 0, lo = 0;
+            const XPLMNavRef r = XPLMFindNavAid(nullptr, np.alternate.c_str(), nullptr, nullptr, nullptr, xplm_Nav_Airport);
+            if (r != XPLM_NAV_NOT_FOUND) { XPLMGetNavAidInfo(r, nullptr, &la, &lo, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr); np.alternateLat = la; np.alternateLon = lo; }
+        }
+        const xpt::MapState& m = g_sim.map;
+        if (xpt::divertToAlternate(np, m.havePos, m.lat, m.lon)) {
+            if (!g_sim.planOriginal.loaded) g_sim.planOriginal = before;
+            const xpt::FlightPlan& orig = g_sim.planOriginal;
+            np.divertKey = !orig.divertKey.empty() ? orig.divertKey : !orig.ofpId.empty() ? orig.ofpId : orig.origin + ">" + orig.dest + "@" + orig.importedAt;
+            np.status = "Diverted to " + np.dest;
+            planToRoute();
+            logMsg("plan: diverted to the alternate %s", np.dest.c_str());
+        }
+    }
     if (act.planUndoDivert && g_sim.planOriginal.loaded) {   // the plan before the diversion again (the breadcrumbs carry on)
         g_sim.plan = g_sim.planOriginal;
         g_sim.planOriginal = xpt::FlightPlan();
@@ -1177,25 +1202,17 @@ void planStep(const xpt::Actions& act) {
             const xpt::FlightPlan& orig = g_sim.planOriginal;
             g_sim.plan.divertKey = !orig.divertKey.empty() ? orig.divertKey : !orig.ofpId.empty() ? orig.ofpId : orig.origin + ">" + orig.dest + "@" + orig.importedAt;
             const xpt::MapState& m = g_sim.map;
-            auto& legs = g_sim.plan.legs;
-            if (m.havePos && !m.onGround && legs.size() >= 2) {   // airborne: the new route picks up where the aircraft is
-                auto nm = [](double a1, double o1, double a2, double o2) { const double dy = (a2 - a1) * 60.0, dx = (o2 - o1) * 60.0 * std::cos(a1 * 3.14159265 / 180.0); return std::sqrt(dx * dx + dy * dy); };
-                size_t best = 1; double bestDetour = 1e18;
-                for (size_t i = 1; i < legs.size(); ++i) {
-                    const double d = nm(m.lat, m.lon, legs[i - 1].lat, legs[i - 1].lon) + nm(m.lat, m.lon, legs[i].lat, legs[i].lon) - nm(legs[i - 1].lat, legs[i - 1].lon, legs[i].lat, legs[i].lon);
-                    if (d < bestDetour) { bestDetour = d; best = i; }
-                }
-                xpt::FlightPlan::Leg here;
-                here.ident = "PPOS"; here.lat = m.lat; here.lon = m.lon; here.type = "ppos";
-                std::vector<xpt::FlightPlan::Leg> nl;
-                nl.push_back(here);
-                nl.insert(nl.end(), legs.begin() + (long)best, legs.end());
-                legs.swap(nl);
-            }
+            // airborne: direct from where the aircraft is to the new destination's STAR (SimBrief's), or to the airport without one
+            if (m.havePos && !m.onGround && g_sim.plan.legs.size() >= 2) xpt::divertFrom(g_sim.plan, true, m.lat, m.lon);
             g_sim.plan.status = "Diverted to " + g_sim.plan.dest;
         }
         if (took && !before.divertKey.empty() == false && !divertPending && g_sim.plan.divertKey.empty()) g_sim.planOriginal = xpt::FlightPlan();   // (a new flight: no diversion to undo)
         if (took) planToRoute();
+    }
+    if (act.procEdit != xpt::Actions::PE_NONE && g_sim.plan.loaded) {   // a runway, SID or STAR changed on the Flight Plan page (the map follows in proceduresStep)
+        xpt::applyProcEdit(g_sim.plan, act.procEdit, act.procValue, g_sim.depProcs, g_sim.arrProcs);
+        logMsg("plan: procedures now %s %s.%s / %s %s.%s %s", g_sim.plan.originRunway.c_str(), g_sim.plan.sid.c_str(), g_sim.plan.sidTrans.c_str(),
+               g_sim.plan.destRunway.c_str(), g_sim.plan.star.c_str(), g_sim.plan.starTrans.c_str(), g_sim.plan.approach.c_str());
     }
     if (act.planClear) {   // (a fetch on its way is left to finish: X-Plane does not wait for it)
         g_sbPending = SbPending();

@@ -304,6 +304,8 @@ struct FlightPlan {
     std::string status;           // what happened ("Imported 18:42Z", "No plan for that name"...)
     std::string callsign, aircraft, registration, units;   // units: lbs or kgs
     std::string origin, originName, originRunway, dest, destName, destRunway, alternate, alternateName;
+    std::string alternateRunway;  // SimBrief's planned runway there
+    double alternateLat = 0, alternateLon = 0;   // 0, 0 not given
     std::string route, cruise, distanceNm, ete, costIndex, avgWind, sid, star;
     std::string blockFuel, tripFuel, reserveFuel, altnFuel, taxiFuel, extraFuel, zfw, tow, ldw;
     std::string oew, paxCount, paxWeight, bags, bagWeight, freight, payload, maxZfw, maxTow, maxLdw;   // the load, from SimBrief's weights
@@ -320,10 +322,27 @@ struct FlightPlan {
                  // the leg to this fix, as SimBrief planned it (-1: not given): its track and the heading that holds it in the wind,
                  // magnetic, degrees; the wind (from, true degrees, and knots, averaged over the leg); true airspeed and groundspeed
                  int trkMag = -1, hdgMag = -1, windDir = -1, windKt = -1, tasKt = -1, gsKt = -1;
+                 int proc = 0;        // SimBrief's SID (1) or STAR (2) leg; 0 the route between
     };
     std::vector<Leg> legs;
+    // the procedures as flown, changed on the Flight Plan page (a runway or SID changed by ATC): SimBrief's own kept to go back to.
+    // sidTrans / starTrans: a transition chosen ("" the one on the route); approach: a CIFP approach ("I28C"; "" the best for the runway)
+    std::string sidTrans, starTrans, approach;
+    std::string ofpOriginRunway, ofpSid, ofpDestRunway, ofpStar;   // as SimBrief planned them
+    bool proceduresChanged() const { return originRunway != ofpOriginRunway || sid != ofpSid || destRunway != ofpDestRunway || star != ofpStar || !sidTrans.empty() || !starTrans.empty() || !approach.empty(); }
     std::string divertKey;        // a diversion: the plan it replaced (its breadcrumbs go on), "" when none
 };
+
+// An airport's procedures, from X-Plane's CIFP (Custom Data first): what the Flight Plan page offers when a runway or SID changes
+struct AirportProcs {
+    std::string icao;             // "" not read
+    std::vector<std::string> runways;   // "27", "09L"
+    struct Proc { std::string id; std::vector<std::string> runways; std::vector<std::string> transitions; };   // runways empty: every runway
+    std::vector<Proc> sids, stars, approaches;   // approaches: one runway each ("I28C", "R28CY")
+    bool serves(const Proc& p, const std::string& rwy) const;
+};
+std::string approachName(const std::string& id);   // "I28C" -> "ILS 28C", "R28CY" -> "RNAV 28C Y"
+bool approachFor(const std::string& id, const std::string& rwy);   // "I28C", "R28C-Z" for 28C; "I27" but not "I27L" for 27
 
 // The Airports page: one airport, read from X-Plane's scenery (apt.dat) and OurAirports.
 struct AirportInfo {
@@ -427,6 +446,7 @@ struct SimState {
     std::string checklistSource;  // where it came from
     FlightPlan plan;
     FlightPlan planOriginal;      // the plan a diversion replaced (Undo Divert brings it back); loaded false when none
+    AirportProcs depProcs, arrProcs;   // the plan's departure's and destination's procedures (for changing them)
     float autoDimLevel = 1.0f;    // what auto dim makes of the brightness now (from the sun)
     std::vector<std::pair<std::string, std::string>> dataInfo;   // Settings, Data: where the tablet's data comes from, and how it is
     bool mac = false;             // macOS: no media controls (no Music app, no Media settings)
@@ -509,6 +529,11 @@ struct Actions {
     bool planClear = false;       // forget it
     bool planDivert = false;      // a diversion: SimBrief's latest plan, taken from where the aircraft is (Undo goes back)
     bool planUndoDivert = false;
+    bool planDivertAlt = false;   // a diversion to the plan's alternate (no new SimBrief plan): direct from where the aircraft is
+    // a procedure changed on the Flight Plan page (procValue: the runway, procedure or transition; "" none / auto)
+    enum { PE_NONE, PE_DEP_RWY, PE_SID, PE_SID_TRANS, PE_ARR_RWY, PE_STAR, PE_STAR_TRANS, PE_APPROACH, PE_RESET };
+    int procEdit = PE_NONE;
+    std::string procValue;
     bool clearTileCache = false;  // delete the map tiles kept on disk
     bool resetBrowserData = false;   // the browser's profile (logins, cookies, history, cache): stopped, deleted, started afresh
     std::string docOpen;

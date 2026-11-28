@@ -21,6 +21,19 @@ int addCrossings(FlightPlan& p, const std::function<std::string(const std::strin
 // The plan's SID (its runway's transition, the common part, the route's transition), STAR (the other way about) and an approach to
 // the destination's runway (ILS first, else RNAV, else any; its final part, to the runway) as lines for the map. resolveFix finds a
 // fix's position near a point (false: not found); the runways' thresholds come from the CIFP's RWY records.
+// An airport's runways, SIDs, STARs and approaches from its CIFP text (the Flight Plan page's choices)
+AirportProcs readAirportProcs(const std::string& icao, const std::string& cifp);
+// A change on the Flight Plan page put into the plan: a runway that the SID (or STAR) does not serve leaves it unset to choose again
+void applyProcEdit(FlightPlan& p, int what, const std::string& value, const AirportProcs& dep, const AirportProcs& arr);
+// A diversion taken in flight: the route direct from where the aircraft is (PPOS) to the new destination's STAR (SimBrief's, its
+// first leg) or to the airport when there is none; no SID. havePos false: the plan as it is.
+void divertFrom(FlightPlan& p, bool havePos, double lat, double lon);
+// The plan diverted to its alternate (no new SimBrief plan): the alternate the destination, its runway SimBrief's, no STAR yet (chosen
+// on the Flight Plan page), direct from the aircraft (from the departure when there is no position); false when it has no alternate
+bool divertToAlternate(FlightPlan& p, bool havePos, double lat, double lon);
+// The map's route with the procedures as flown: SimBrief's legs while nothing was changed; else the departure, the new SID, the
+// route between (from where the SID ends to where the STAR starts), the new STAR and approach, the destination
+void routeWithProcedures(const FlightPlan& p, const std::vector<MapState::Procedure>& procs, MapState& m);
 std::vector<MapState::Procedure> buildProcedures(const FlightPlan& p, const std::function<std::string(const std::string&)>& cifpText,
     const std::function<bool(const std::string& id, double nearLat, double nearLon, double& lat, double& lon)>& resolveFix);
 

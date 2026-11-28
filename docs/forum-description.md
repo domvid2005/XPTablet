@@ -1,4 +1,4 @@
-# XPTablet 1.1.1 – a cockpit tablet for X-Plane 12
+# XPTablet 1.1.2 – a cockpit tablet for X-Plane 12
 
 **XPTablet is a free tablet for your cockpit, by Alpine Aviation.** It appears on the tablet of any aircraft that was built for AviTab, with no change to the aircraft, and in a floating window (also in VR) on every other aircraft. On it: a moving map with live traffic, airports and frequencies, your SimBrief flight plan and briefing, weather, jetways and pushback, checklists, charts and web apps, your music, and the whole tablet on your phone or iPad.
 
@@ -11,10 +11,10 @@ Free. Windows, macOS and Linux. X-Plane 12.
 - **Moving map:** street map, satellite or no map, north up or heading up. Navaids, fixes, airports, time zones and the day/night line.
 - **Live traffic:** X-Plane's and VATSIM's aircraft with trails and routes. Tap one for its altitude, speed, route and pilot. TCAS-style alerts can send a notification.
 - **Airports down to the gate:** runways, taxiways and stands from X-Plane's airport data and your own scenery. Tap a stand for its size and airlines, and select your parking. Departure and arrival gates are highlighted.
-- **Route and procedures:** your SimBrief route on the map with its SID, STAR and approach.
+- **Route and procedures:** your SimBrief route on the map with its SID, STAR and approach. ATC gave you something else? Change the runways, SID, STAR, transitions and approach on the Flight Plan page and the map follows.
 - **VATSIM:** airspaces and who is online, controller details and ATIS, a notification when ATC comes online at your departure or destination, and buttons for xPilot's windows (messages, nearby ATC, notifications, aircraft labels).
 - **Airports:** search any airport by code or name: runways, elevation, local time, radio frequencies, CTAF and live VATSIM ATC. Tap the headset beside a frequency to put it in COM1 standby.
-- **Flight Plan:** import your latest SimBrief flight with your SimBrief Pilot ID: route, fuel and weights, navlog (times, or track, heading, wind correction and wind) and progress along the route. A new plan can load by itself.
+- **Flight Plan:** import your latest SimBrief flight with your SimBrief Pilot ID: route, fuel and weights, navlog (times, or track, heading, wind correction and wind) and progress along the route. A new plan can load by itself. Divert to your alternate direct from where you are, or to SimBrief's latest plan, and undo it to go back.
 - **Dispatch:** the SimBrief briefing by section: Briefing, Summary, Navlog, Weather, NOTAMs and ATC Flight Plan.
 - **Weather:** X-Plane's own weather at the aircraft (wind, visibility, clouds, winds aloft) and decoded METARs for any airport. With WXPlane installed, WXPlane's page appears here.
 - **GSE:** connect openSAM jetways door by door, and call BetterPushback or X-Plane's own tug, with what is still in the way listed. Top views for many aircraft types.

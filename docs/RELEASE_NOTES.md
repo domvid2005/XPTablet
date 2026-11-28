@@ -1,3 +1,23 @@
+# XPTablet 1.1.2
+
+A small update to 1.1.1 for XPTablet, the free cockpit tablet for X-Plane 12 by Alpine Aviation.
+
+**Install:** download `XPTablet-1.1.2.zip` below, unzip it, and copy the `XPTablet` folder into `X-Plane 12/Resources/plugins/`,
+replacing the old one. SkunkCrafts Updater users get it automatically.
+
+## Changes
+
+- **Change SID / STAR:** for when ATC gives you something other than your SimBrief plan (asked for by a pilot on IVAO). On the
+  Flight Plan page, the Route card's Change SID / STAR opens Runways And Procedures: choose the departure and arrival runways, the SID
+  and STAR (only the ones for that runway are listed), their transitions and the approach, all from X-Plane's navigation data. The
+  map's route and its SID, STAR and approach lines change to match; Use SimBrief's puts the plan back. The navlog, fuel and times
+  stay as SimBrief planned them.
+- **Better diversions:** Divert now offers your alternate, direct from where you are, with no new SimBrief plan needed; its runways
+  and STARs open to choose from. Diverting to SimBrief's latest plan in flight now goes direct from where you are to the new
+  destination's STAR (or the airport) instead of joining the new route part way. Undo Divert still goes back to the plan before.
+
+---
+
 # XPTablet 1.1.1
 
 A small update to 1.1.0 for XPTablet, the free cockpit tablet for X-Plane 12 by Alpine Aviation.

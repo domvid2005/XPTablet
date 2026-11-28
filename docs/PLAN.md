@@ -235,6 +235,15 @@ of their own and come back to it as they were left. The planning icon switches b
 - Documents: the files' folder labels and the page's filter spelled the same (kDocsFolderXPTablet; "XPTablet docs" vs "XPTablet
   Docs" showed nothing); the AviTab button removed (its charts under All); the list folds away (docs_list_hidden).
 
+## 1.1.2
+- Runways And Procedures (an IVAO pilot's ask, 2026-11-28): the Flight Plan's Route card opens it. The departure's and arrival's
+  runways, SIDs, STARs, transitions and approaches read from the CIFP (readAirportProcs); a change (Actions::procEdit) goes into the
+  plan (applyProcEdit; SimBrief's kept in ofp*), the map's lines are built again and the route spliced: departure, new SID, SimBrief's
+  legs between (from where the SID ends to where the STAR starts; legs' proc flags from is_sid_star), new STAR, approach, destination
+  (routeWithProcedures). The navlog stays SimBrief's.
+- Diversions: to the alternate, direct, with no new SimBrief plan (divertToAlternate; its runway and STAR chosen in the window, which
+  opens); SimBrief's diversion in flight goes direct to its STAR's first leg, or the airport (divertFrom), no SID. Undo as before.
+
 ## Emulator
 - emulator/: the real plugin built against a stand-in X-Plane (every XPLM call it makes), a simulated aircraft, traffic, time and
   weather, and a control panel; a desktop app (GLFW) for Windows/macOS/Linux and a screen-less Linux one for scripted tests and CI.

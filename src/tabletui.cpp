@@ -7015,6 +7015,11 @@ void trackGates(const SimState& s) {
 std::string g_gateEdit;   // a gate being typed (the departure's, or the arrival's)
 int g_gateEditing = 0;    // 1 departure, 2 arrival
 double g_previewT0 = 0;   // when the plan preview window appeared (it grows in)
+bool g_divertMenu = false;   // Divert's choices: the alternate, direct, or SimBrief's latest plan
+ImVec2 g_divertAt;           // (under the Divert button)
+bool g_procOpen = false;   // the Runways And Procedures window (a runway or SID changed by ATC)
+double g_procT0 = 0;
+float g_procScroll[2] = {0, 0};   // its SID and STAR lists
 float rowStep = 21;   // the Flight Plan rows' spacing (the fuel and weights card closes it up)
 void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const FlightPlan& p = s.plan;
@@ -7034,8 +7039,12 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     if (button("##fpimport", p.busy ? "Importing..." : "Import From SimBrief", true, (haveId || waiting) && !p.busy)) { act.planReview = waiting; act.planImport = haveId; }
     if (button("##fpclear", "Clear", false, p.loaded)) act.planClear = true;
     // a diversion: SimBrief's latest plan (made for the new destination), from where the aircraft is; Undo goes back to the plan before
-    if (s.planOriginal.loaded) { if (button("##fpundo", "Undo Divert", true, true)) act.planUndoDivert = true; }
-    else if (button("##fpdivert", "Divert", false, p.loaded && haveId && !p.busy)) act.planDivert = true;
+    if (s.planOriginal.loaded) { g_divertMenu = false; if (button("##fpundo", "Undo Divert", true, true)) act.planUndoDivert = true; }
+    else if (button("##fpdivert", "Divert", g_divertMenu, p.loaded && (haveId || !p.alternate.empty()) && !p.busy)) {
+        // with an alternate: a choice of it (direct, at once) or SimBrief's latest plan; without one, SimBrief's as before
+        if (p.alternate.empty()) act.planDivert = true;
+        else { g_divertMenu = !g_divertMenu; g_divertAt = ImVec2(bx + 6, top + 38); }
+    }
     if (button("##fppdf", "Briefing PDF", false, p.loaded && !p.pdfUrl.empty())) { openDispatch(true); return; }
     if (button("##fpmap", "Show On Map", false, p.loaded && !p.legs.empty())) {
         double la = 0, lo = 0;
@@ -7071,6 +7080,13 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     // the route
     const float c1 = 12, w1 = 300;
     card(dl, ImVec2(c1, y0), ImVec2(c1 + w1, bot), f, "ROUTE");
+    {   // the runways, SID and STAR as flown (ATC changed them): the map's route and lines follow
+        const char* lbl = "Change SID / STAR";
+        const float bw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, lbl).x + 26;
+        if (pill(dl, f, "##fpproc", lbl, ImVec2(c1 + w1 - 10 - bw, y0 + 6), ImVec2(c1 + w1 - 10, y0 + 30), p.proceduresChanged(), true)) {
+            g_procOpen = true; g_procT0 = ImGui::GetTime(); g_procScroll[0] = g_procScroll[1] = 0;
+        }
+    }
     float y = y0 + 32;
     auto row = [&](float x0, float x1, const char* k, const std::string& v) {
         if (v.empty()) return;
@@ -7079,11 +7095,14 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         y += rowStep;
     };
     {
-        const std::string dep = p.originRunway.empty() ? p.originName : p.originName + "  rwy " + p.originRunway;
-        const std::string arr = p.destRunway.empty() ? p.destName : p.destName + "  rwy " + p.destRunway;
+        const std::string dn = p.originName.empty() ? p.origin : p.originName, an = p.destName.empty() ? p.dest : p.destName;
+        const std::string dep = p.originRunway.empty() ? dn : dn + "  rwy " + p.originRunway;
+        const std::string arr = p.destRunway.empty() ? an : an + "  rwy " + p.destRunway;
         dl->AddText(f.small, fontPx(f.small), ImVec2(c1 + 14, y), kMuted, ("From " + dep).c_str(), nullptr, w1 - 28); y += 18;
         dl->AddText(f.small, fontPx(f.small), ImVec2(c1 + 14, y), kMuted, ("To " + arr).c_str(), nullptr, w1 - 28); y += 24;
-        const std::string route = (p.sid.empty() ? "" : p.sid + " ") + p.route + (p.star.empty() ? "" : " " + p.star);
+        const std::string route = (p.sid.empty() ? "" : p.sid + (p.sidTrans.empty() ? "" : "." + p.sidTrans) + " ") + p.route +
+                                  (p.star.empty() ? "" : " " + (p.starTrans.empty() ? "" : p.starTrans + ".") + p.star) +
+                                  (p.approach.empty() ? "" : " " + approachName(p.approach));
         const ImVec2 rs = f.mono->CalcTextSizeA(fontPx(f.mono), 1e9f, w1 - 28, route.c_str());
         const float rh = std::min(rs.y, 5 * fontPx(f.mono) * 1.2f);
         dl->PushClipRect(ImVec2(c1 + 10, y), ImVec2(c1 + w1 - 10, y + rh + 2), true);
@@ -7321,7 +7340,200 @@ void planPreview(ImDrawList* dl, const Fonts& f, const FlightPlan& p, float w, f
     if (pill(dl, f, "##pvdismiss", "Dismiss", ImVec2(x0, by), ImVec2(x0 + bw, by + 34), false, true)) act.planDismiss = true;
     if (pill(dl, f, "##pvimport", "Import", ImVec2(x1 - bw, by), ImVec2(x1, by + 34), true, true)) act.planAccept = true;
 }
+}   // namespace (anonymous)
+// (the procedures' names and runways: here, as every build that reads them links the tablet)
+std::string approachName(const std::string& id) {
+    if (id.empty()) return "Auto";
+    const char k = id[0];
+    const char* kind = k == 'I' ? "ILS" : k == 'R' ? "RNAV" : k == 'L' ? "LOC" : k == 'D' ? "VOR" : k == 'S' ? "VOR" : k == 'N' ? "NDB" :
+                       k == 'H' ? "RNP" : k == 'P' ? "GPS" : k == 'X' ? "LDA" : k == 'B' ? "LOC BC" : k == 'Q' ? "NDB" : k == 'V' ? "VOR" : "APP";
+    std::string rest = id.substr(1), rwy, suffix;
+    size_t i = 0;
+    while (i < rest.size() && rest[i] >= '0' && rest[i] <= '9') rwy += rest[i++];
+    if (i < rest.size() && (rest[i] == 'L' || rest[i] == 'R' || rest[i] == 'C') && rwy.size() == 2) rwy += rest[i++];
+    for (; i < rest.size(); ++i) if (rest[i] != '-') suffix += rest[i];
+    return std::string(kind) + " " + (rwy.empty() ? rest : rwy) + (suffix.empty() ? "" : " " + suffix);
+}
+bool approachFor(const std::string& proc, const std::string& rwyId) {
+    if (rwyId.empty() || proc.size() < 1 + rwyId.size() || proc.compare(1, rwyId.size(), rwyId) != 0) return false;
+    if (proc.size() == 1 + rwyId.size()) return true;
+    const char n = proc[1 + rwyId.size()];
+    if (n >= '0' && n <= '9') return false;
+    const bool lettered = !rwyId.empty() && !(rwyId.back() >= '0' && rwyId.back() <= '9');
+    return lettered || !(n == 'L' || n == 'R' || n == 'C');
+}
+bool AirportProcs::serves(const Proc& pr, const std::string& rwy) const {
+    if (pr.runways.empty() || rwy.empty()) return true;
+    for (const std::string& r : pr.runways) {   // ("28" serves 28L and 28R; "28L" only 28L)
+        if (r == rwy) return true;
+        std::string digits = rwy; while (!digits.empty() && !(digits.back() >= '0' && digits.back() <= '9')) digits.pop_back();
+        if (r == digits && digits != rwy) return true;
+    }
+    return false;
+}
+namespace {
+// Runways And Procedures: the departure's and the arrival's runway, SID or STAR, its transition, and the approach, from X-Plane's
+// CIFP. Asked for by a pilot on IVAO (2026-11-28): ATC gives another runway or STAR, and the map should show the route as flown.
+void proceduresWindow(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const FlightPlan& p = s.plan;
+    if (!p.loaded) { g_procOpen = false; return; }
+    const float t = smooth01((float)(ImGui::GetTime() - g_procT0) / 0.2f);
+    dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(120 * t)));
+    ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
+    ImGui::SetNextItemAllowOverlap();
+    if (ImGui::InvisibleButton("##procback", ImVec2(w, h - kStatusH))) { g_procOpen = false; return; }   // (a tap outside closes it)
+    const float below = kStatusH + kHeaderH;   // (under the page's title)
+    const float pw = std::min(760.0f, w - 24), ph = std::min(392.0f, h - below - 12);
+    const float sc = 0.94f + 0.06f * t;
+    const ImVec2 c(w * 0.5f, below + (h - below) * 0.5f);
+    const ImVec2 a(std::floor(c.x - pw * 0.5f * sc), std::floor(c.y - ph * 0.5f * sc)), b(std::floor(c.x + pw * 0.5f * sc), std::floor(c.y + ph * 0.5f * sc));
+    ImGui::SetCursorScreenPos(a);
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("##procwin", ImVec2(b.x - a.x, b.y - a.y));   // (a tap on the window itself does not close it)
+    dl->AddRectFilled(a, b, themeDark((int)(240 * t)), 20.0f);
+    glass(dl, a, b, 20.0f, t);
+    const float x0 = a.x + 22, x1 = b.x - 22;
+    textAt(dl, f.bold, x0, a.y + 16, kInk, "Runways And Procedures");
+    textRight(dl, f.small, x1, a.y + 19, kMuted, "From X-Plane's navigation data. The map's route follows them.");
+    const float top = a.y + 52, listRows = 4, rowH = 32;
+    const float mid = std::floor((x0 + x1) * 0.5f);
+    dl->AddLine(ImVec2(mid, top), ImVec2(mid, b.y - 62), IM_COL32(255, 255, 255, 22));
+    auto column = [&](int side, float cx0, float cx1) {
+        const AirportProcs& ap = side ? s.arrProcs : s.depProcs;
+        const std::string& icao = side ? p.dest : p.origin;
+        const std::string& rwy = side ? p.destRunway : p.originRunway;
+        const std::string& proc = side ? p.star : p.sid;
+        const std::string& trans = side ? p.starTrans : p.sidTrans;
+        const std::string& ofpRwy = side ? p.ofpDestRunway : p.ofpOriginRunway;
+        const std::string& ofpProc = side ? p.ofpStar : p.ofpSid;
+        const char* kind = side ? "STAR" : "SID";
+        float y = top;
+        textAt(dl, f.small, cx0, y, kMuted, ((side ? "ARRIVAL  " : "DEPARTURE  ") + icao).c_str());
+        if (rwy != ofpRwy || proc != ofpProc || !trans.empty() || (side && !p.approach.empty()))
+            textRight(dl, f.small, cx1, y, IM_COL32(255, 196, 90, 255), ("SimBrief: " + (ofpProc.empty() ? std::string("no ") + kind : ofpProc) + (ofpRwy.empty() ? "" : ", RW" + ofpRwy)).c_str());
+        y += 24;
+        if (!side && !p.legs.empty() && p.legs.front().type == "ppos") {   // (diverted in flight: the route is from where the aircraft was)
+            dl->AddText(f.small, fontPx(f.small), ImVec2(cx0, y + 6), kMuted, "Diverted in flight: the route goes direct from where the aircraft was.", nullptr, cx1 - cx0);
+            return;
+        }
+        if (ap.icao != icao || (ap.runways.empty() && ap.sids.empty() && ap.stars.empty())) {
+            dl->AddText(f.small, fontPx(f.small), ImVec2(cx0, y + 6), kMuted, ("No procedures for " + icao + " in X-Plane's navigation data.").c_str(), nullptr, cx1 - cx0);
+            return;
+        }
+        // the runway
+        int ri = -1;
+        for (size_t i = 0; i < ap.runways.size(); ++i) if (ap.runways[i] == rwy) ri = (int)i;
+        const int n = (int)ap.runways.size();
+        const int d = menuStepper(dl, f, side ? "##prarw" : "##prdrw", ImVec2(cx0 - 8, y), cx1 - cx0 + 8, "Runway", rwy.empty() ? "None" : rwy.c_str(), n > 0 && ri != 0, n > 0 && ri + 1 != n);
+        if (d && n > 0) { act.procEdit = side ? Actions::PE_ARR_RWY : Actions::PE_DEP_RWY; act.procValue = ap.runways[ri < 0 ? (d > 0 ? 0 : n - 1) : ri + d]; }
+        y += 34;
+        // the SIDs (STARs) for the runway: None first; SimBrief's own marked with a dot
+        const std::vector<AirportProcs::Proc>& all = side ? ap.stars : ap.sids;
+        std::vector<const AirportProcs::Proc*> list;
+        for (const auto& pr : all) if (ap.serves(pr, rwy)) list.push_back(&pr);
+        textAt(dl, f.small, cx0, y, kMuted, side ? "STAR" : "SID");
+        if (list.empty()) textRight(dl, f.small, cx1, y, kMuted, (std::string("No ") + kind + " for runway " + (rwy.empty() ? "?" : rwy)).c_str());
+        y += 20;
+        const int cols = 3;
+        const float gap = 6, cw = std::floor((cx1 - cx0 - gap * (cols - 1)) / cols);
+        const ImVec2 la(cx0, y), lb(cx1, y + listRows * rowH - gap);
+        const int items = (int)list.size() + 1;
+        const float content = std::ceil(items / (float)cols) * rowH - gap;
+        float& sc0 = g_procScroll[side];
+        touchScroll(sc0, la, lb);
+        if (ImGui::IsMouseHoveringRect(la, lb)) sc0 -= ImGui::GetIO().MouseWheel * 30.0f;
+        sc0 = std::max(0.0f, std::min(sc0, std::max(0.0f, content - (lb.y - la.y))));
+        const bool inList = ImGui::IsMouseHoveringRect(la, lb);
+        dl->PushClipRect(la, ImVec2(lb.x + 1, lb.y), true);
+        for (int i = 0; i < items; ++i) {
+            const float ix = cx0 + (i % cols) * (cw + gap), iy = y + (i / cols) * rowH - sc0;
+            if (iy + rowH < la.y || iy > lb.y) continue;
+            const std::string id = i == 0 ? std::string() : list[i - 1]->id;
+            char bid[40];
+            std::snprintf(bid, sizeof bid, "##pr%d_%d", side, i);
+            if (pill(dl, f, bid, i == 0 ? "None" : id.c_str(), ImVec2(ix, iy), ImVec2(ix + cw, iy + rowH - gap), id == proc, true) && inList && id != proc) {
+                act.procEdit = side ? Actions::PE_STAR : Actions::PE_SID; act.procValue = id;
+            }
+            if (i > 0 && id == ofpProc) dl->AddCircleFilled(ImVec2(ix + cw - 9, iy + 8), 2.5f, IM_COL32(255, 196, 90, 255));   // (SimBrief's)
+        }
+        dl->PopClipRect();
+        if (content > lb.y - la.y) sc0 = scrollBar(dl, side ? "##prsbar1" : "##prsbar0", cx1 + 5, la.y, lb.y, sc0, content, lb.y - la.y);
+        y = lb.y + 10;
+        // its transition: the one on the route ("Auto") or one chosen
+        const AirportProcs::Proc* cur = nullptr;
+        for (const auto& pr : all) if (pr.id == proc) cur = &pr;
+        std::vector<std::string> tr{std::string()};
+        if (cur) tr.insert(tr.end(), cur->transitions.begin(), cur->transitions.end());
+        int ti = 0;
+        for (size_t i = 0; i < tr.size(); ++i) if (tr[i] == trans) ti = (int)i;
+        const int dt = menuStepper(dl, f, side ? "##prat" : "##prdt", ImVec2(cx0 - 8, y), cx1 - cx0 + 8, "Transition", trans.empty() ? "Auto" : trans.c_str(), ti > 0, ti + 1 < (int)tr.size());
+        if (dt) { act.procEdit = side ? Actions::PE_STAR_TRANS : Actions::PE_SID_TRANS; act.procValue = tr[ti + dt]; }
+        y += 34;
+        if (side) {   // the approach: the best for the runway ("Auto": ILS, then RNAV, then LOC) or one chosen
+            std::vector<std::string> apps{std::string()};
+            for (const auto& pr : ap.approaches) if (approachFor(pr.id, rwy)) apps.push_back(pr.id);
+            int ai = 0;
+            for (size_t i = 0; i < apps.size(); ++i) if (apps[i] == p.approach) ai = (int)i;
+            const std::string an = p.approach.empty() ? "Auto" : approachName(p.approach);
+            const int da = menuStepper(dl, f, "##prapp", ImVec2(cx0 - 8, y), cx1 - cx0 + 8, "Approach", an.c_str(), ai > 0, ai + 1 < (int)apps.size());
+            if (da) { act.procEdit = Actions::PE_APPROACH; act.procValue = apps[ai + da]; }
+        }
+    };
+    column(0, x0, mid - 18);
+    column(1, mid + 18, x1 - 10);
+    // the foot: the navlog stays SimBrief's; back to SimBrief's procedures; done
+    const float fy = b.y - 50;
+    dl->AddText(f.small, fontPx(f.small), ImVec2(x0, fy + 2), kMuted, "The navlog, fuel and times stay as SimBrief planned them.", nullptr, x1 - x0 - 300);
+    if (pill(dl, f, "##procdone", "Done", ImVec2(x1 - 90, fy), ImVec2(x1, fy + 32), true, true)) g_procOpen = false;
+    if (pill(dl, f, "##procreset", "Use SimBrief's", ImVec2(x1 - 90 - 8 - 140, fy), ImVec2(x1 - 98, fy + 32), false, p.proceduresChanged())) {
+        act.procEdit = Actions::PE_RESET; act.procValue.clear();
+    }
+}
+
+// Divert's choices, under its button: the plan's alternate, direct from where the aircraft is (its runway and STAR chosen then), or
+// SimBrief's latest plan (one made for the new destination). Undo Divert goes back to the plan before either.
+void divertMenu(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const FlightPlan& p = s.plan;
+    if (!p.loaded || p.alternate.empty() || s.planOriginal.loaded) { g_divertMenu = false; return; }
+    const float mw = 300, mh = 132;
+    const ImVec2 a(std::max(12.0f, std::min(g_divertAt.x + 40 - mw, w - 12 - mw)), g_divertAt.y), b(a.x + mw, a.y + mh);
+    ImGui::SetCursorScreenPos(ImVec2(0, kStatusH));
+    ImGui::SetNextItemAllowOverlap();
+    if (ImGui::InvisibleButton("##dvback", ImVec2(w, h - kStatusH)) && !ImRect(a, b).Contains(ImGui::GetIO().MousePos)) { g_divertMenu = false; return; }
+    dl->AddRectFilled(ImVec2(a.x + 2, a.y + 4), ImVec2(b.x + 2, b.y + 4), IM_COL32(0, 0, 0, 80), 14.0f);
+    dl->AddRectFilled(a, b, themeTone(14, 26, 48, 250), 14.0f);
+    dl->AddRect(a, b, IM_COL32(255, 255, 255, 40), 14.0f);
+    textAt(dl, f.small, a.x + 14, a.y + 10, kMuted, "Divert to");
+    const std::string altLabel = "Alternate " + p.alternate + ", Direct";
+    if (pill(dl, f, "##dvalt", altLabel.c_str(), ImVec2(a.x + 12, a.y + 32), ImVec2(b.x - 12, a.y + 64), true, true)) {
+        act.planDivertAlt = true; g_divertMenu = false;
+        g_procOpen = true; g_procT0 = ImGui::GetTime(); g_procScroll[0] = g_procScroll[1] = 0;   // (its runway and STAR, to choose)
+    }
+    const bool haveId = !g_settings.simbriefUser.empty();
+    if (pill(dl, f, "##dvsb", "SimBrief's Latest Plan", ImVec2(a.x + 12, a.y + 72), ImVec2(b.x - 12, a.y + 104), false, haveId && !p.busy)) { act.planDivert = true; g_divertMenu = false; }
+    textAt(dl, f.small, a.x + 14, a.y + 110, kMuted, haveId ? "Undo Divert goes back to this plan." : "SimBrief's needs your Pilot ID in Settings.");
+}
+
 void flightPlanPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    if (!s.plan.loaded) g_procOpen = false;
+    if (g_divertMenu && !g_procOpen && !(s.planPreview.loaded && s.planPreviewOpen)) {   // the page under the menu takes no press
+        ImGuiIO& io = ImGui::GetIO();
+        const ImVec2 mp = io.MousePos; const bool down = io.MouseDown[0], clicked = io.MouseClicked[0], released = io.MouseReleased[0]; const float wh = io.MouseWheel;
+        io.MousePos = ImVec2(-FLT_MAX, -FLT_MAX); io.MouseDown[0] = io.MouseClicked[0] = io.MouseReleased[0] = false; io.MouseWheel = 0;
+        flightPlanBody(dl, f, s, w, h, act);
+        io.MousePos = mp; io.MouseDown[0] = down; io.MouseClicked[0] = clicked; io.MouseReleased[0] = released; io.MouseWheel = wh;
+        divertMenu(dl, f, s, w, h, act);
+        return;
+    }
+    if (g_procOpen && !(s.planPreview.loaded && s.planPreviewOpen)) {   // the page under the window takes no press
+        ImGuiIO& io = ImGui::GetIO();
+        const ImVec2 mp = io.MousePos; const bool down = io.MouseDown[0], clicked = io.MouseClicked[0], released = io.MouseReleased[0]; const float wh = io.MouseWheel;
+        io.MousePos = ImVec2(-FLT_MAX, -FLT_MAX); io.MouseDown[0] = io.MouseClicked[0] = io.MouseReleased[0] = false; io.MouseWheel = 0;
+        flightPlanBody(dl, f, s, w, h, act);
+        io.MousePos = mp; io.MouseDown[0] = down; io.MouseClicked[0] = clicked; io.MouseReleased[0] = released; io.MouseWheel = wh;
+        proceduresWindow(dl, f, s, w, h, act);
+        return;
+    }
     const bool preview = s.planPreview.loaded && s.planPreviewOpen;
     static bool shown = false;
     if (preview && !shown) g_previewT0 = ImGui::GetTime();

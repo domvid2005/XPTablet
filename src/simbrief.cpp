@@ -60,7 +60,8 @@ FlightPlan parseSimbrief(const std::string& body) {
         const wx::Json* fix = nav ? nav->get("fix") : nullptr;
         p.origin = str(org, "icao_code"); p.originName = str(org, "name"); p.originRunway = str(org, "plan_rwy");
         p.dest = str(dst, "icao_code"); p.destName = str(dst, "name"); p.destRunway = str(dst, "plan_rwy");
-        p.alternate = str(alt, "icao_code"); p.alternateName = str(alt, "name");
+        p.alternate = str(alt, "icao_code"); p.alternateName = str(alt, "name"); p.alternateRunway = str(alt, "plan_rwy");
+        p.alternateLat = num(alt, "pos_lat"); p.alternateLon = num(alt, "pos_long");
         p.callsign = str(atc, "callsign");
         if (p.callsign.empty()) p.callsign = str(gen, "icao_airline") + str(gen, "flight_number");
         p.aircraft = str(acf, "icaocode"); if (p.aircraft.empty()) p.aircraft = str(acf, "icao_code");
@@ -181,6 +182,7 @@ FlightPlan parseSimbrief(const std::string& body) {
             if (str(&f, "is_sid_star") == "1" && !l.airway.empty()) {
                 if (p.sid.empty() && p.star.empty() && p.legs.size() < 8) p.sid = l.airway;
                 else if (l.airway != p.sid) p.star = l.airway;
+                l.proc = l.airway == p.sid ? 1 : 2;
             }
             if (l.ident == "TOC" || l.ident == "TOD") return;
             p.legs.push_back(l);
@@ -192,6 +194,7 @@ FlightPlan parseSimbrief(const std::string& body) {
             p.status = "SimBrief: " + (fe ? str(fe, "status") : std::string("no plan"));
         } else {
             p.loaded = true;
+            p.ofpOriginRunway = p.originRunway; p.ofpSid = p.sid; p.ofpDestRunway = p.destRunway; p.ofpStar = p.star;   // (to go back to)
             const std::time_t now = std::time(nullptr);
             std::tm tm{};
 #if defined(_WIN32)
@@ -393,14 +396,15 @@ std::vector<MapState::Procedure> buildProcedures(const FlightPlan& p, const std:
         return pts;
     };
     // split a SID or STAR into its runway part, its common part and the route's transition
-    auto parts = [&](const std::vector<ProcRec>& recs, const std::string& proc, const std::string& rwyId,
+    // (the route's transition: the one chosen on the Flight Plan page, else one named on the route)
+    auto parts = [&](const std::vector<ProcRec>& recs, const std::string& proc, const std::string& rwyId, const std::string& chosen,
                      std::vector<const ProcRec*>& rwy, std::vector<const ProcRec*>& common, std::vector<const ProcRec*>& enr) {
         std::string rwTrans, enTrans;
         for (const ProcRec& r : recs) {
             if (r.proc != proc) continue;
             if (r.trans.compare(0, 2, "RW") == 0) { if (forRunway(r.trans, rwyId) && (rwTrans.empty() || rwTrans == r.trans)) { rwTrans = r.trans; rwy.push_back(&r); } }
             else if (r.trans.empty() || r.trans == "ALL") common.push_back(&r);
-            else if (onRoute.count(r.trans) && (enTrans.empty() || enTrans == r.trans)) { enTrans = r.trans; enr.push_back(&r); }
+            else if ((chosen.empty() ? onRoute.count(r.trans) > 0 : r.trans == chosen) && (enTrans.empty() || enTrans == r.trans)) { enTrans = r.trans; enr.push_back(&r); }
         }
     };
     // the departure
@@ -409,7 +413,7 @@ std::vector<MapState::Procedure> buildProcedures(const FlightPlan& p, const std:
         const auto rw = runwayEnds(text);
         const std::vector<ProcRec> recs = procRecs(text, "SID:");
         std::vector<const ProcRec*> rwy, common, enr;
-        parts(recs, p.sid, p.originRunway, rwy, common, enr);
+        parts(recs, p.sid, p.originRunway, p.sidTrans, rwy, common, enr);
         double la = 0, lo = 0;
         if (!(rwy.empty() && common.empty() && enr.empty()) && anchor(p.origin, la, lo)) {
             std::vector<const ProcRec*> all = rwy; all.insert(all.end(), common.begin(), common.end()); all.insert(all.end(), enr.begin(), enr.end());
@@ -431,7 +435,7 @@ std::vector<MapState::Procedure> buildProcedures(const FlightPlan& p, const std:
         if (!p.star.empty() && haveApt) {
             const std::vector<ProcRec> recs = procRecs(text, "STAR:");
             std::vector<const ProcRec*> rwy, common, enr;
-            parts(recs, p.star, p.destRunway, rwy, common, enr);
+            parts(recs, p.star, p.destRunway, p.starTrans, rwy, common, enr);
             std::vector<const ProcRec*> all = enr; all.insert(all.end(), common.begin(), common.end()); all.insert(all.end(), rwy.begin(), rwy.end());
             double sLa = la, sLo = lo;
             if (!all.empty()) for (const FlightPlan::Leg& l : p.legs) if (l.ident == all.front()->fix && (l.lat != 0 || l.lon != 0)) { sLa = l.lat; sLo = l.lon; }
@@ -450,7 +454,9 @@ std::vector<MapState::Procedure> buildProcedures(const FlightPlan& p, const std:
                 return lettered || !(n == 'L' || n == 'R' || n == 'C');
             };
             std::string pick;
+            if (!p.approach.empty()) for (const ProcRec& r : recs) if (r.proc == p.approach && fits(r.proc)) { pick = r.proc; break; }   // (the one chosen)
             for (const char pref : {'I', 'R', 'L', '\0'}) {
+                if (!pick.empty()) break;
                 for (const ProcRec& r : recs) if (fits(r.proc) && (pref == 0 || r.proc[0] == pref)) { pick = r.proc; break; }
                 if (!pick.empty()) break;
             }
@@ -461,15 +467,151 @@ std::vector<MapState::Procedure> buildProcedures(const FlightPlan& p, const std:
                     fin.push_back(&r);
                     if (r.fix.compare(0, 2, "RW") == 0) break;      // to the runway (the missed approach after it, left out)
                 }
-                const char k = pick[0];
                 MapState::Procedure pr; pr.kind = 2;
-                pr.name = std::string(k == 'I' ? "ILS " : k == 'R' ? "RNAV " : k == 'L' ? "LOC " : k == 'D' ? "VOR " : k == 'N' ? "NDB " : "APP ") + rwyId;
+                pr.name = approachName(pick);
                 pr.pts = line(fin, rw, lLa, lLo, la, lo);
                 if (pr.pts.size() >= 2) out.push_back(pr);
             }
         }
     }
     return out;
+}
+
+// ---- the procedures as flown: the Flight Plan page's choices, from the CIFP --------------------------------------------------------
+AirportProcs readAirportProcs(const std::string& icao, const std::string& cifp) {
+    AirportProcs a;
+    a.icao = icao;
+    for (const auto& kv : runwayEnds(cifp)) a.runways.push_back(kv.first.substr(2));
+    auto add = [&](std::vector<AirportProcs::Proc>& list, const char* head) {
+        std::map<std::string, size_t> at;
+        for (const ProcRec& r : procRecs(cifp, head)) {
+            if (r.proc.empty()) continue;
+            auto it = at.find(r.proc);
+            if (it == at.end()) { it = at.emplace(r.proc, list.size()).first; list.push_back({r.proc, {}, {}}); }
+            AirportProcs::Proc& pr = list[it->second];
+            if (r.trans.size() > 2 && r.trans.compare(0, 2, "RW") == 0) {   // its runways ("RW09B": both of 09L and 09R)
+                std::string rw = r.trans.substr(2);
+                std::vector<std::string> add;
+                if (!rw.empty() && rw.back() == 'B') { rw.pop_back(); for (const std::string& x : a.runways) if (x.compare(0, rw.size(), rw) == 0 && x.size() == rw.size() + 1) add.push_back(x); }
+                else add.push_back(rw);
+                for (const std::string& x : add) if (std::find(pr.runways.begin(), pr.runways.end(), x) == pr.runways.end()) pr.runways.push_back(x);
+            } else if (!r.trans.empty() && r.trans != "ALL" && std::find(pr.transitions.begin(), pr.transitions.end(), r.trans) == pr.transitions.end())
+                pr.transitions.push_back(r.trans);
+        }
+        for (auto& pr : list) { std::sort(pr.runways.begin(), pr.runways.end()); std::sort(pr.transitions.begin(), pr.transitions.end()); }
+        std::sort(list.begin(), list.end(), [](const AirportProcs::Proc& x, const AirportProcs::Proc& y) { return x.id < y.id; });
+    };
+    add(a.sids, "SID:");
+    add(a.stars, "STAR:");
+    {   // approaches: each for one runway (from its name: a letter, the runway, then a letter or dash for one of several)
+        std::map<std::string, AirportProcs::Proc> seen;
+        for (const ProcRec& r : procRecs(cifp, "APPCH:")) {
+            if (r.proc.size() < 3 || seen.count(r.proc)) continue;
+            AirportProcs::Proc pr; pr.id = r.proc;
+            std::string rw; size_t i = 1;
+            while (i < r.proc.size() && r.proc[i] >= '0' && r.proc[i] <= '9') rw += r.proc[i++];
+            if (i < r.proc.size() && (r.proc[i] == 'L' || r.proc[i] == 'R' || r.proc[i] == 'C') && rw.size() == 2) {
+                const std::string withSide = rw + r.proc[i];
+                if (std::find(a.runways.begin(), a.runways.end(), withSide) != a.runways.end()) rw = withSide;
+            }
+            if (!rw.empty()) pr.runways.push_back(rw);
+            seen[r.proc] = pr;
+        }
+        for (auto& kv : seen) a.approaches.push_back(kv.second);
+    }
+    return a;
+}
+void applyProcEdit(FlightPlan& p, int what, const std::string& value, const AirportProcs& dep, const AirportProcs& arr) {
+    auto find = [](const std::vector<AirportProcs::Proc>& l, const std::string& id) -> const AirportProcs::Proc* { for (const auto& x : l) if (x.id == id) return &x; return nullptr; };
+    switch (what) {
+    case Actions::PE_DEP_RWY: {
+        p.originRunway = value;
+        const AirportProcs::Proc* s = find(dep.sids, p.sid);
+        if (s && !dep.serves(*s, value)) { p.sid.clear(); p.sidTrans.clear(); }   // (that SID is not for this runway: choose again)
+        break;
+    }
+    case Actions::PE_SID: p.sid = value; p.sidTrans.clear(); break;
+    case Actions::PE_SID_TRANS: p.sidTrans = value; break;
+    case Actions::PE_ARR_RWY: {
+        p.destRunway = value;
+        const AirportProcs::Proc* s = find(arr.stars, p.star);
+        if (s && !arr.serves(*s, value)) { p.star.clear(); p.starTrans.clear(); }
+        p.approach.clear();   // (the best approach for the new runway, until one is chosen)
+        break;
+    }
+    case Actions::PE_STAR: p.star = value; p.starTrans.clear(); break;
+    case Actions::PE_STAR_TRANS: p.starTrans = value; break;
+    case Actions::PE_APPROACH: p.approach = value; break;
+    case Actions::PE_RESET:
+        p.originRunway = p.ofpOriginRunway; p.sid = p.ofpSid; p.destRunway = p.ofpDestRunway; p.star = p.ofpStar;
+        p.sidTrans.clear(); p.starTrans.clear(); p.approach.clear();
+        break;
+    default: break;
+    }
+}
+void divertFrom(FlightPlan& p, bool havePos, double lat, double lon) {
+    if (!havePos || p.legs.empty()) return;
+    FlightPlan::Leg here;
+    here.ident = "PPOS"; here.lat = lat; here.lon = lon; here.type = "ppos";
+    size_t from = p.legs.size() - 1;   // (the airport)
+    for (size_t i = 1; i < p.legs.size(); ++i) if (p.legs[i].proc == 2) { from = i; break; }   // (the STAR's first leg)
+    std::vector<FlightPlan::Leg> nl;
+    nl.push_back(here);
+    nl.insert(nl.end(), p.legs.begin() + (long)from, p.legs.end());
+    auto nm = [](double a1, double o1, double a2, double o2) { const double dy = (a2 - a1) * 60.0, dx = (o2 - o1) * 60.0 * std::cos(a1 * 3.14159265 / 180.0); return std::sqrt(dx * dx + dy * dy); };
+    if (nl.size() >= 2 && (nl[1].lat != 0 || nl[1].lon != 0)) nl[1].legNm = std::to_string((int)std::lround(nm(lat, lon, nl[1].lat, nl[1].lon)));   // (direct to it)
+    p.legs.swap(nl);
+    p.sid.clear(); p.ofpSid.clear(); p.sidTrans.clear();   // (flown already)
+}
+bool divertToAlternate(FlightPlan& p, bool havePos, double lat, double lon) {
+    if (!p.loaded || p.alternate.empty()) return false;
+    FlightPlan::Leg o = p.legs.empty() ? FlightPlan::Leg() : p.legs.front();
+    FlightPlan::Leg a;
+    a.ident = p.alternate; a.lat = p.alternateLat; a.lon = p.alternateLon; a.type = "apt";
+    p.dest = p.alternate; p.destName = p.alternateName;
+    p.destRunway = p.ofpDestRunway = p.alternateRunway;
+    p.star.clear(); p.ofpStar.clear(); p.starTrans.clear(); p.approach.clear();
+    p.alternate.clear(); p.alternateName.clear(); p.alternateRunway.clear(); p.alternateLat = p.alternateLon = 0;
+    p.legs.clear();
+    p.legs.push_back(o);
+    p.legs.push_back(a);
+    p.route = "DCT";
+    p.ete.clear(); p.distanceNm.clear();
+    if (havePos) divertFrom(p, true, lat, lon);
+    else if (o.lat != 0 || a.lat != 0) {
+        const double dy = (a.lat - o.lat) * 60.0, dx = (a.lon - o.lon) * 60.0 * std::cos(o.lat * 3.14159265 / 180.0);
+        p.legs[1].legNm = std::to_string((int)std::lround(std::sqrt(dx * dx + dy * dy)));
+    }
+    if (p.legs.size() >= 2 && (p.legs[1].lat != 0 || p.legs[1].lon != 0)) p.distanceNm = p.legs[1].legNm;
+    return true;
+}
+void routeWithProcedures(const FlightPlan& p, const std::vector<MapState::Procedure>& procs, MapState& m) {
+    planToRoute(p, m);
+    if (!p.loaded || !p.proceduresChanged() || p.legs.size() < 2) return;
+    const MapState::Procedure* sid = nullptr; const MapState::Procedure* star = nullptr; const MapState::Procedure* app = nullptr;
+    for (const auto& pr : procs) { if (pr.kind == 0 && !sid) sid = &pr; else if (pr.kind == 1 && !star) star = &pr; else if (pr.kind == 2 && !app) app = &pr; }
+    // the route between: SimBrief's legs that are neither its SID's nor its STAR's (nor the two airports)
+    std::vector<const FlightPlan::Leg*> mid;
+    for (size_t i = 1; i + 1 < p.legs.size(); ++i) if (p.legs[i].proc == 0 && (p.legs[i].lat != 0 || p.legs[i].lon != 0)) mid.push_back(&p.legs[i]);
+    size_t from = 0, to = mid.size();
+    if (sid && !sid->pts.empty()) for (size_t i = 0; i < mid.size(); ++i) if (mid[i]->ident == sid->pts.back().ident) from = i + 1;   // (on from where the SID ends)
+    if (star && !star->pts.empty()) for (size_t i = from; i < mid.size(); ++i) if (mid[i]->ident == star->pts.front().ident) { to = i; break; }   // (to where the STAR starts)
+    std::vector<MapState::RoutePoint> r;
+    auto add = [&](double la, double lo, const std::string& id) { if (r.empty() || r.back().ident != id) r.push_back({la, lo, id}); };
+    const FlightPlan::Leg& o = p.legs.front();
+    if (o.lat != 0 || o.lon != 0) add(o.lat, o.lon, o.ident);
+    if (sid) for (const auto& q : sid->pts) add(q.lat, q.lon, q.ident);
+    for (size_t i = from; i < to; ++i) add(mid[i]->lat, mid[i]->lon, mid[i]->ident);
+    if (star) for (const auto& q : star->pts) add(q.lat, q.lon, q.ident);
+    if (app) for (const auto& q : app->pts) add(q.lat, q.lon, q.ident);
+    const FlightPlan::Leg& d = p.legs.back();
+    if (d.lat != 0 || d.lon != 0) add(d.lat, d.lon, d.ident);
+    m.route = r;
+    std::string what;
+    if (p.originRunway != p.ofpOriginRunway || p.sid != p.ofpSid || !p.sidTrans.empty()) what += (p.sid.empty() ? std::string("no SID") : p.sid) + (p.originRunway.empty() ? "" : " RW" + p.originRunway);
+    if (p.destRunway != p.ofpDestRunway || p.star != p.ofpStar || !p.starTrans.empty() || !p.approach.empty())
+        what += (what.empty() ? "" : ", ") + (p.star.empty() ? std::string("no STAR") : p.star) + (p.destRunway.empty() ? "" : " RW" + p.destRunway);
+    m.routeStatus = p.origin + " to " + p.dest + " (changed: " + what + ")";
 }
 
 } // namespace xpt
