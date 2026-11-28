@@ -79,6 +79,7 @@ bool writePng(const Canvas&, const std::string&) { return true; }   // no zlib h
 static xpt::FlightPlan g_testPlan; static std::vector<xpt::MapState::Procedure> g_testProcs;
 static int installedApps() { int n = 0; for (int a = 0; a < APP_COUNT; ++a) n += appInstalled(a) && appVisible(a) ? 1 : 0; return n; }
 int main(int argc, char** argv) {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);   // (unbuffered: a crash in CI still shows every line printed before it)
     const std::string out = argc > 1 ? argv[1] : ".";
     const float scale = argc > 2 ? (float)std::atof(argv[2]) : 2.0f;
     ImGui::CreateContext();
