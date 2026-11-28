@@ -443,6 +443,10 @@ int main(int argc, char** argv) {
             SimState nx = t; nx.xgse = false;
             shot(nx, APP_GROUND, "ground_generic");
             if (embedArea().active || std::string(appName(APP_GROUND)) != "GSE") { std::printf("FAIL: without XGSE the GSE page is XPTablet's own\n"); ++failures; }
+            {   // the colours XGSE is sent (xgse_embed.h): the accent and the bottom of the background, 0xRRGGBB, never both 0
+                unsigned ac = 0, sky = 0; themeColors(ac, sky);
+                if ((ac >> 24) != 0 || (sky >> 24) != 0 || (ac == 0 && sky == 0)) { std::printf("FAIL: the theme's colours for XGSE (%06X %06X)\n", ac, sky); ++failures; }
+            }
             SimState wx = s; shot(wx, APP_WEATHER, "weather_owner");
             if (embedArea().active && embedArea().owner != 0) { std::printf("FAIL: the Weather page's area is WXPlane's\n"); ++failures; }
         }

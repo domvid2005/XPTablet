@@ -546,8 +546,7 @@ bool browserBarsHidden();
 int localRefreshRate();   // Local Connect's pictures a second: the tablet's frame rate (Settings, Performance), 15 to 60
 int tabletFrameCap();     // the tablet's most frames a second (Settings, Performance); 0 every frame
 std::string localThemeJson();   // the tablet's theme colours as JSON (Local Connect's page follows them)
-unsigned themeAccentRGBA();       // the theme's accent colour, 0xRRGGBBAA (for XGSE)
-unsigned themeBackgroundRGBA();   // the theme's page background, 0xRRGGBBAA
+void themeColors(unsigned& accentRgb, unsigned& skyRgb);   // for XGSE (xgse_embed.h): the accent, and the bottom of the background, 0xRRGGBB
 // The pointer (the sim's mouse, a finger, a paired device): queued, and fed to Dear ImGui a step a frame, so that a press always
 // finds the pointer on its spot the frame before (call pumpPointer before NewFrame)
 void queuePointer(float x, float y, int down);   // down: -1 a move, 1 pressed, 0 released

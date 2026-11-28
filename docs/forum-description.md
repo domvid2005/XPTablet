@@ -1,4 +1,4 @@
-# XPTablet 1.1.0 – a cockpit tablet for X-Plane 12
+# XPTablet 1.1.1 – a cockpit tablet for X-Plane 12
 
 **XPTablet is a free tablet for your cockpit, by Alpine Aviation.** It appears on the tablet of any aircraft that was built for AviTab, with no change to the aircraft, and in a floating window (also in VR) on every other aircraft. On it: a moving map with live traffic, airports and frequencies, your SimBrief flight plan and briefing, weather, jetways and pushback, checklists, charts and web apps, your music, and the whole tablet on your phone or iPad.
 
@@ -28,7 +28,7 @@ Free. Windows, macOS and Linux. X-Plane 12.
 - **Media:** what is playing on your computer, with its cover and controls. It can lower or pause your music while the radio receives or transmits. On Windows, choose which sound output the volume controls (Voicemeeter users: your speakers or headset).
 - **Local Connect:** the same tablet on a phone or iPad on your Wi-Fi, worked by touch. Details below.
 - **Performance:** choose the tablet's frame rate, close web pages you are not using, and a reduced memory mode. Web pages pause by themselves while not on screen.
-- **Themes:** seven color themes, three custom ones (your own colors or background picture), seasonal and holiday themes, and an option to color the built-in app icons to match.
+- **Themes:** seven color themes, three custom ones (your own colors, picked on a color ring and triangle, or a background picture), seasonal and holiday themes, and an option to color the built-in app icons to match.
 - **Games:** 2048, Knots and Crosses, and six aviation games of its own: Contrail, Taxi Rush, Sky Patrol, Hangar Climb, Cockpit 21 and Cargo Load.
 
 ## Install

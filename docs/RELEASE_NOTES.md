@@ -1,3 +1,22 @@
+# XPTablet 1.1.1
+
+A small update to 1.1.0 for XPTablet, the free cockpit tablet for X-Plane 12 by Alpine Aviation.
+
+**Install:** download `XPTablet-1.1.1.zip` below, unzip it, and copy the `XPTablet` folder into `X-Plane 12/Resources/plugins/`,
+replacing the old one. SkunkCrafts Updater users get it automatically.
+
+## Changes
+
+- **New color pickers for Custom themes:** each color now has a ring of hues with a triangle inside: drag the ring for the hue and
+  the triangle for how strong and how bright it is. Under each are eight ready colors and the hex code. Backgrounds can now be
+  light colors too.
+- **Ready for XGSE:** the GSE page's link to Alpine Aviation's upcoming XGSE plugin now matches XGSE exactly, with the tablet's
+  colors and your SimBrief flight's airline for the ground equipment's livery. While XGSE runs, it works the jetways, and the
+  tablet's own jetway automation steps aside (the Cabin app stays the tablet's). Local Connect devices also see what WXPlane and
+  XGSE draw on their pages.
+
+---
+
 # XPTablet 1.1.0
 
 A feature release for XPTablet, the free cockpit tablet for X-Plane 12 by Alpine Aviation.

@@ -94,8 +94,9 @@ PaxDoorModeArray has 4 values, CargoDoorModeArray 3 (forward, aft, bulk), both w
 - **Cabin** (an App Store app, category "Aircraft Management", a lightbulb icon): the ToLiss cabin lights (Auto, On, Off, the 10 %
   slider), the slides (Arm, Disarm, Auto) and Cabin Ready, moved out of the Aircraft page. Its icon and page are greyed outside a
   ToLiss. Installed once for everyone (a settings file without `cabin_offered` gets it), as its controls were on the Aircraft page.
-- **XGSE** takes the GSE page over the way WXPlane takes Weather: src/xgse_embed.h (signature com.alpineaviation.xgse, message
-  0x01475345, XgseEmbedRequest with the theme's accent and background). Detected at start and every 256 frames; the icon and title
+- **XGSE** takes the GSE page over the way WXPlane takes Weather: src/xgse_embed.h, XGSE's own file copied as is (signature
+  com.alpineaviation.xgse, message 0x01475345; accentRgb, skyRgb, the SimBrief airline and callsign; layout checked at compile time).
+  While XGSE runs (installed and enabled) the tablet's jetway automation stands down; slides and cabin lights stay the Cabin app's. Detected at start and every 256 frames; the icon and title
   become XGSE; while XGSE does not answer (`handled` 0), XPTablet's own GSE page stays.
 - The floating window keeps its place and size between sessions (settings key `window=x,y,w,h`, from the screen's bottom-left; kept
   on screen and shrunk to fit a smaller one).

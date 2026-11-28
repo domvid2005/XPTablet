@@ -74,6 +74,9 @@
 #include "version.h"
 #include "wxplane_embed.h"
 #include "xgse_embed.h"
+// (XGSE reads this message as laid out in its own copy of the file: the two must match, field for field)
+static_assert(offsetof(XgseEmbedRequest, handled) == 44 && offsetof(XgseEmbedRequest, accentRgb) == 48 && offsetof(XgseEmbedRequest, planCallsign) == 64 && sizeof(XgseEmbedRequest) == 80,
+              "xgse_embed.h must match XGSE's");
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -2245,8 +2248,13 @@ void drawXgse(float left, float top, float sx, float sy, float pixelsPerUnit, fl
     rq.wheel = e.wheel;
     rq.brightness = brightness;
     rq.frame = XPLMGetCycleNumber();
-    rq.accentRGBA = xpt::themeAccentRGBA();
-    rq.backgroundRGBA = xpt::themeBackgroundRGBA();
+    xpt::themeColors(rq.accentRgb, rq.skyRgb);   // (the page in the tablet's colours)
+    {   // the SimBrief flight, for the ground equipment's livery: its callsign, and the airline from it ("DAL1234": DAL)
+        const std::string cs = g_sim.plan.loaded ? g_sim.plan.callsign : std::string();
+        std::snprintf(rq.planCallsign, sizeof rq.planCallsign, "%s", cs.c_str());
+        if (cs.size() >= 4 && std::isalpha((unsigned char)cs[0]) && std::isalpha((unsigned char)cs[1]) && std::isalpha((unsigned char)cs[2]) && std::isdigit((unsigned char)cs[3]))
+            std::snprintf(rq.planAirline, sizeof rq.planAirline, "%s", cs.substr(0, 3).c_str());
+    }
     gl.MatrixMode(GL_MODELVIEW);
     gl.PushMatrix();
     gl.Translatef(left + e.x * sx, top - e.y * sy, 0.0f);
@@ -3142,16 +3150,20 @@ int jetwayToggleSeen(XPLMCommandRef, XPLMCommandPhase phase, void*) {
     }
     return 1;   // (it goes on: openSAM keeps its count)
 }
+bool g_jetwayWatching = false;   // X-Plane's jetway command is watched (not while XGSE works the jetways)
 void jetwayWatchStep() {
-    static bool watching = false, beaconWas = false;
-    if (!watching) if (XPLMCommandRef c = XPLMFindCommand("sim/ground_ops/jetway")) { XPLMRegisterCommandHandler(c, Safe<jetwayToggleSeen, 1>::call, 1, nullptr); watching = true; }
+    static bool beaconWas = false;
+    if (!g_jetwayWatching) if (XPLMCommandRef c = XPLMFindCommand("sim/ground_ops/jetway")) { XPLMRegisterCommandHandler(c, Safe<jetwayToggleSeen, 1>::call, 1, nullptr); g_jetwayWatching = true; }
     const double now = XPLMGetElapsedTime();
     const bool beacon = g_sim.ground.beacon;
     if (beaconWas && !beacon) g_beaconOffAt = now;
     beaconWas = beacon;
     if (g_redockAt >= 0 && now >= g_redockAt) { g_redockAt = -1; if (g_sim.ground.openSam) once("openSAM/dock_jwy"); }
 }
-void jetwayWatchStop() { if (XPLMCommandRef c = XPLMFindCommand("sim/ground_ops/jetway")) XPLMUnregisterCommandHandler(c, Safe<jetwayToggleSeen, 1>::call, 1, nullptr); }
+void jetwayWatchStop() {
+    if (g_jetwayWatching) if (XPLMCommandRef c = XPLMFindCommand("sim/ground_ops/jetway")) XPLMUnregisterCommandHandler(c, Safe<jetwayToggleSeen, 1>::call, 1, nullptr);
+    g_jetwayWatching = false;
+}
 void toggleInt(XPLMDataRef ref) { if (ref) XPLMSetDatai(ref, XPLMGetDatai(ref) ? 0 : 1); }
 
 // What was pressed on the Ground page.
@@ -3404,6 +3416,7 @@ bool captureTablet(std::vector<unsigned char>& out, int& W, int& H) {
         glm.ClearColor(0, 0, 0, 1);
         glm.Clear(kColorBufferBit);
         drawBatches(g_batches, 0.0f, (float)H, g_mirrorScale, g_mirrorScale);   // (as it is drawn in the sim, at full brightness)
+        drawEmbedded(0.0f, (float)H, g_mirrorScale, g_mirrorScale, 1.0f, 1.0f);    // and what WXPlane or XGSE draws on its page
         out.resize((size_t)W * H * 4);
         gl.PixelStorei(kPackRowLength, 0);
         gl.PixelStorei(kPackAlignment, 1);
@@ -3570,8 +3583,11 @@ void localConnectStep() {
 float flightLoop(float dt, float, int, void*) {
     xpt::crashlog::In crashIn_("the flight loop");
     backspaceStep();   // (Backspace held: deleting on)
+    // XGSE (installed and enabled) works the jetways and the doors that follow them (xgse_embed.h): the tablet's own jetway automation
+    // stands down then, so the two never both press openSAM's controls. The cabin's lights and slides stay the tablet's (its Cabin app).
+    const bool xgseOn = g_sim.xgse;
     xpt::crashlog::here("the flight loop: jetwayWatchStep");
-    jetwayWatchStep();   // (openSAM's beacon-off press undoing the tablet's docking)
+    if (!xgseOn) jetwayWatchStep();   // (openSAM's beacon-off press undoing the tablet's docking)
     xpt::crashlog::here("the flight loop: tabletPagesWatchStep");
     tabletPagesWatchStep();   // (an aircraft's own tablet pages: how it switches them, in the log)
     {   // a thread stopped on an exception (caught): told in the log, from here (the main thread)
@@ -3581,13 +3597,13 @@ float flightLoop(float dt, float, int, void*) {
     }
     xpt::crashlog::here("the flight loop: findSimRefs");
     findSimRefs();
-    if ((XPLMGetCycleNumber() & 7) == 0) { readSimState(); g_sim.ground.slidesAuto = g_slidesAuto; followJetways(); slidesAutoStep(); readMapState(); }
+    if ((XPLMGetCycleNumber() & 7) == 0) { readSimState(); g_sim.ground.slidesAuto = g_slidesAuto; if (!xgseOn) followJetways(); slidesAutoStep(); readMapState(); }
     xpt::crashlog::here("the flight loop: slidesHoldStep");
     slidesHoldStep();
     xpt::crashlog::here("the flight loop: cabinAutoStep");
     cabinAutoStep();
     xpt::crashlog::here("the flight loop: jetwayUndockStep");
-    jetwayUndockStep();
+    if (!xgseOn) jetwayUndockStep();
     {   // the METAR search's answer
         xpt::MetarAnswer a;
         if (xpt::metarPoll(a)) { g_sim.metar.busy = false; g_sim.metar.icao = a.icao; g_sim.metar.raw = a.raw; g_sim.metar.error = a.error; }
@@ -3639,8 +3655,14 @@ float flightLoop(float dt, float, int, void*) {
     }
     if ((XPLMGetCycleNumber() & 255) == 0) {   // they may load after us
         g_sim.wxPlane = XPLMFindPluginBySignature(kWxPlaneSignature) != XPLM_NO_PLUGIN_ID;
-    g_sim.xgse = XPLMFindPluginBySignature(kXgseSignature) != XPLM_NO_PLUGIN_ID;
-        g_sim.xgse = XPLMFindPluginBySignature(kXgseSignature) != XPLM_NO_PLUGIN_ID;
+    { const XPLMPluginID xg = XPLMFindPluginBySignature(kXgseSignature); g_sim.xgse = xg != XPLM_NO_PLUGIN_ID && XPLMIsPluginEnabled(xg); }
+        const XPLMPluginID xg = XPLMFindPluginBySignature(kXgseSignature);
+        const bool on = xg != XPLM_NO_PLUGIN_ID && XPLMIsPluginEnabled(xg);
+        if (on != g_sim.xgse) {
+            g_sim.xgse = on; g_sim.xgseEmbed = 0;
+            logMsg(on ? "XGSE is running: the GSE page is XGSE's, and XGSE works the jetways" : "XGSE is not running: the GSE page is the tablet's own");
+            if (on) jetwayWatchStop();
+        }
     }
     xpt::crashlog::here("the flight loop: updateCaptureWindow");
     updateCaptureWindow();

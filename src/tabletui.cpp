@@ -11053,10 +11053,13 @@ int currentApp() { return g_app; }
 bool browserBarsHidden() { return g_barsHidden; }
 int tabletFrameCap() { const int v = g_settings.tabletFps; return v <= 0 ? 0 : std::max(15, std::min(60, v)); }
 int localRefreshRate() { const int c = tabletFrameCap(); return c <= 0 ? 60 : c; }
-unsigned themeAccentRGBA() { const ImU32 c = accentCol(255);
-    return ((c >> IM_COL32_R_SHIFT) & 255) << 24 | ((c >> IM_COL32_G_SHIFT) & 255) << 16 | ((c >> IM_COL32_B_SHIFT) & 255) << 8 | 255u; }
-unsigned themeBackgroundRGBA() { const ImU32 c = themeTone(14, 18, 26, 255);
-    return ((c >> IM_COL32_R_SHIFT) & 255) << 24 | ((c >> IM_COL32_G_SHIFT) & 255) << 16 | ((c >> IM_COL32_B_SHIFT) & 255) << 8 | 255u; }
+void themeColors(unsigned& accentRgb, unsigned& skyRgb) {
+    const Accent c = themeAccent();
+    accentRgb = ((unsigned)c.r << 16) | ((unsigned)c.g << 8) | (unsigned)c.b;
+    const ImU32 bot = themeBackdrop(g_settings.wallpaper).bot;
+    skyRgb = (((bot >> IM_COL32_R_SHIFT) & 255) << 16) | (((bot >> IM_COL32_G_SHIFT) & 255) << 8) | ((bot >> IM_COL32_B_SHIFT) & 255);
+    if (accentRgb == 0 && skyRgb == 0) skyRgb = 1;   // (0 and 0 would mean "no colours": a black theme stays black)
+}
 std::string localThemeJson() {   // the theme's colours, for Local Connect's page (its connecting and pairing screens)
     const Backdrop bd = themeBackdrop(g_settings.wallpaper);
     auto hex = [](ImU32 c) { char b[8]; std::snprintf(b, sizeof b, "#%02x%02x%02x", (unsigned)((c >> IM_COL32_R_SHIFT) & 255), (unsigned)((c >> IM_COL32_G_SHIFT) & 255), (unsigned)((c >> IM_COL32_B_SHIFT) & 255)); return std::string(b); };
