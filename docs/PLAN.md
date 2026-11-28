@@ -86,6 +86,20 @@ the ToLiss shows them itself with the doors, as chosen on its own EFB (only thei
 XPTablet writes what it finds to Log.txt once per ToLiss aircraft ("[XPTablet] ToLiss: ..."). Confirmed in the A320 (2026-11-17):
 PaxDoorModeArray has 4 values, CargoDoorModeArray 3 (forward, aft, bulk), both writable; the door and de-ice names are commands.
 
+### GSE, Cabin and XGSE (next release, after 1.0.2; not pushed until XGSE is released)
+
+- The Aircraft app is now **GSE** (its settings id stays "ground"): the aircraft with its door jetway bubbles takes two thirds of the
+  screen, the jetway status sits in that card's top-right corner, and a Pushback card always fills the last third (BetterPushback:
+  Plan Route, the tug, Start and Stop; X-Plane's tug: Left, Straight, Right, Stop).
+- **Cabin** (an App Store app, category "Aircraft Management", a lightbulb icon): the ToLiss cabin lights (Auto, On, Off, the 10 %
+  slider), the slides (Arm, Disarm, Auto) and Cabin Ready, moved out of the Aircraft page. Its icon and page are greyed outside a
+  ToLiss. Installed once for everyone (a settings file without `cabin_offered` gets it), as its controls were on the Aircraft page.
+- **XGSE** takes the GSE page over the way WXPlane takes Weather: src/xgse_embed.h (signature com.alpineaviation.xgse, message
+  0x01475345, XgseEmbedRequest with the theme's accent and background). Detected at start and every 256 frames; the icon and title
+  become XGSE; while XGSE does not answer (`handled` 0), XPTablet's own GSE page stays.
+- The floating window keeps its place and size between sessions (settings key `window=x,y,w,h`, from the screen's bottom-left; kept
+  on screen and shrunk to fit a smaller one).
+
 ## Browser engine
 
 X-Plane 12 ships Chromium Embedded Framework itself (Resources/dlls/64/cef; 12.4.4 has CEF 117.1.4+ga26f38b, Chromium 117.0.5938.92).

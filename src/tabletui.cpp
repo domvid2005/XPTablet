@@ -98,7 +98,7 @@ const AppDef kApps[APP_COUNT] = {
     {"map", "Map", IM_COL32(46, 170, 96, 255), nullptr},                  {"airports", "Airports", IM_COL32(86, 180, 250, 255), nullptr},
     {"charts", "ChartFox", IM_COL32(236, 152, 50, 255), "https://chartfox.org"},            {"documents", "Documents", IM_COL32(186, 152, 108, 255), nullptr},
     {"routes", "Flight Plan", IM_COL32(150, 96, 250, 255), nullptr},            {"weather", "Weather", IM_COL32(0, 196, 200, 255), nullptr},
-    {"ground", "Aircraft", IM_COL32(246, 190, 48, 255), nullptr},            {"checklists", "Checklists", IM_COL32(214, 64, 160, 255), nullptr},
+    {"ground", "GSE", IM_COL32(246, 190, 48, 255), nullptr},            {"checklists", "Checklists", IM_COL32(214, 64, 160, 255), nullptr},   // (GSE: jetways and pushback, XGSE's page when installed; its id stays "ground" for saved home screens)
     {"performance", "Performance", IM_COL32(22, 100, 66, 255), nullptr},  {"traffic", "Traffic", IM_COL32(255, 124, 104, 255), nullptr},
     {"notes", "Notes", IM_COL32(255, 138, 40, 255), nullptr},
     {"simbrief", "SimBrief", IM_COL32(196, 58, 66, 255), "https://dispatch.simbrief.com"},
@@ -128,11 +128,14 @@ const AppDef kApps[APP_COUNT] = {
     {"xpilot", "xPilot", IM_COL32(30, 44, 70, 255), nullptr},   // xPilot's own windows: a page of the VATSIM app (not in the App Store, never on the home screen)
     {"fr24", "Flightradar24", IM_COL32(16, 16, 18, 255), "https://www.flightradar24.com"},   // real-world traffic, live
     {"discord", "Discord", IM_COL32(88, 101, 242, 255), "https://discord.com/app"},   // Discord's blurple
+    {"cabin", "Cabin", IM_COL32(234, 150, 30, 255), nullptr},   // the ToLiss cabin: a lightbulb on warm amber
 };
 enum { ICON_VOLANTA = APP_COUNT, ICON_VATSIM, ICON_SKYVECTOR };   // pictures of their own (the other web apps borrow one)
 
 bool g_localLive = false;      // a device is showing the tablet through Local Connect: Spotify's web player won't play there (greyed)
 bool g_wx = false;             // WXPlane is installed (told by the host each frame): the Weather icon and page are WXPlane's
+bool g_xgse = false;           // XGSE is installed (told each frame): the GSE icon and page are XGSE's
+bool g_tolissNow = false;      // the aircraft is a ToLiss (told each frame): the Cabin app works, else it is greyed
 ImTextureID g_wxLogo = 0;
 Settings g_settings;
 // the App Store's apps: on the home screen only once installed (the others were always there, their Settings switches too)
@@ -1206,7 +1209,19 @@ void drawTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, boo
         if (label) textCentered(dl, f.small, c.x, c.y + tile * 0.5f + 6, IM_COL32(236, 241, 250, 255), appName(app));
         return;
     }
-    dl->AddRectFilled(a, b, shade(appColor(app), shadeK), tile * 0.24f * scale);
+    if (app == APP_GROUND && g_xgse) {   // XGSE's tile (until its logo comes): its name on a dark tile, GSE in the theme's colour
+        dl->AddRectFilled(a, b, shade(IM_COL32(22, 26, 34, 255), shadeK), tile * 0.24f * scale);
+        const float fs = fontPx(f.title) * scale * tile / 64.0f;
+        const char* x = "X"; const char* gse = "GSE";
+        const float wx = f.title->CalcTextSizeA(fs, 1e9f, 0, x).x, wg = f.title->CalcTextSizeA(fs, 1e9f, 0, gse).x;
+        const float x0 = c.x - (wx + wg) * 0.5f, y0 = c.y - fs * 0.5f;
+        dl->AddText(f.title, fs, ImVec2(x0, y0), IM_COL32(255, 255, 255, 255), x);
+        dl->AddText(f.title, fs, ImVec2(x0 + wx, y0), shade(accentLite(255), shadeK), gse);
+        if (label) textCentered(dl, f.small, c.x, c.y + tile * 0.5f + 6, IM_COL32(236, 241, 250, 255), appName(app));
+        return;
+    }
+    const bool cabinOff = app == APP_CABIN && !g_tolissNow;   // (greyed: the cabin's controls are a ToLiss's)
+    dl->AddRectFilled(a, b, shade(cabinOff ? IM_COL32(112, 116, 124, 255) : appColor(app), shadeK * (cabinOff ? 0.8f : 1.0f)), tile * 0.24f * scale);
     if (app == APP_WEATHER && g_wx && g_wxLogo) {   // WXPlane's own logo, WX above PLANE, on its dark tile
         const float r = tile * 0.46f * scale;
         dl->AddImage(g_wxLogo, ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r));
@@ -1246,6 +1261,24 @@ void drawTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, boo
             dl->AddRectFilled(ImVec2(c.x + r * 0.46f, c.y - r * 0.02f), ImVec2(c.x + r * 0.82f, c.y + r * 0.58f), wcol, r * 0.14f);
             dl->PathArcTo(ImVec2(c.x - r * 0.2f, c.y + r * 0.46f), r * 0.44f, 3.14159f * 0.15f, 3.14159f * 0.9f, 16); dl->PathStroke(wcol, 0, std::max(1.5f, r * 0.11f));
             dl->AddCircleFilled(ImVec2(c.x + r * 0.18f, c.y + r * 0.86f), r * 0.13f, wcol, 0);
+        } else if (app == APP_CABIN) {   // a lightbulb: its glass, the neck, the screw base's rings, a filament inside; rays while lit
+            const ImU32 lc = cabinOff ? IM_COL32(205, 208, 214, 255) : wcol, cut = shade(cabinOff ? IM_COL32(112, 116, 124, 255) : appColor(app), shadeK * (cabinOff ? 0.8f : 1.0f));
+            auto P = [&](float x, float y) { return ImVec2(c.x + x * r, c.y + y * r); };
+            const ImVec2 g0 = P(0, -0.2f);   // the glass's centre
+            dl->AddCircleFilled(g0, r * 0.62f, lc, 0);
+            const ImVec2 neck[4] = {P(-0.44f, 0.12f), P(0.44f, 0.12f), P(0.28f, 0.5f), P(-0.28f, 0.5f)};
+            dl->AddConvexPolyFilled(neck, 4, lc);
+            for (int i = 0; i < 2; ++i) dl->AddRectFilled(P(-0.3f, 0.56f + i * 0.17f), P(0.3f, 0.67f + i * 0.17f), lc, r * 0.05f);   // the base's two rings
+            dl->AddRectFilled(P(-0.15f, 0.9f), P(0.15f, 0.98f), lc, r * 0.04f);   // and its tip
+            const float t = std::max(1.5f, r * 0.1f);   // the filament: two posts and a zig-zag, in the tile's colour
+            dl->AddLine(P(-0.16f, 0.46f), P(-0.16f, -0.12f), cut, t);
+            dl->AddLine(P(0.16f, 0.46f), P(0.16f, -0.12f), cut, t);
+            const ImVec2 zz[5] = {P(-0.16f, -0.12f), P(-0.08f, -0.3f), P(0, -0.12f), P(0.08f, -0.3f), P(0.16f, -0.12f)};
+            dl->AddPolyline(zz, 5, cut, 0, t);
+            if (!cabinOff) for (int i = 0; i < 5; ++i) {   // the light: short rays round the glass's top
+                const float an = 3.14159f * (1.1f + i * 0.2f);
+                dl->AddLine(ImVec2(g0.x + std::cos(an) * r * 0.8f, g0.y + std::sin(an) * r * 0.8f), ImVec2(g0.x + std::cos(an) * r * 1.02f, g0.y + std::sin(an) * r * 1.02f), lc, std::max(1.5f, r * 0.09f));
+            }
         } else if (app == APP_GAMES) {   // a game pad
             dl->AddRectFilled(ImVec2(c.x - r * 0.86f, c.y - r * 0.40f), ImVec2(c.x + r * 0.86f, c.y + r * 0.46f), wcol, r * 0.40f);
             const ImU32 k = shade(appColor(app), shadeK);
@@ -7083,10 +7116,56 @@ float paxDoorAt(const std::string& icao, int pair, int pairs) {
 }
 const float kCargoAt[3] = {0.245f, 0.665f, 0.745f};
 
+// text wrapped to a width, each line from x (wrapLeft) or ending at x (wrapRight); returns the height used
+float wrapLines(ImDrawList* dl, ImFont* font, float x, float y, float width, ImU32 col, const char* text, bool right) {
+    const float fs = fontPx(font), lh = fs;
+    const char* p = text; const char* end = text + std::strlen(text);
+    float yy = y;
+    while (p < end) {
+        const char* brk = font->CalcWordWrapPositionA(fs / font->FontSize, p, end, width);
+        if (brk == p) brk = p + 1;
+        const float lw = font->CalcTextSizeA(fs, 1e9f, 0, p, brk).x;
+        dl->AddText(font, fs, ImVec2(right ? x - lw : x, yy), col, p, brk);
+        yy += lh;
+        p = brk;
+        while (p < end && (*p == ' ' || *p == '\n')) ++p;
+    }
+    return yy - y;
+}
+float wrapLeft(ImDrawList* dl, ImFont* font, float x, float y, float width, ImU32 col, const char* text) { return wrapLines(dl, font, x, y, width, col, text, false); }
+float wrapRight(ImDrawList* dl, ImFont* font, float x, float y, float width, ImU32 col, const char* text) { return wrapLines(dl, font, x, y, width, col, text, true); }
+
+void ownGroundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act);
+// GSE: XGSE's own screen when XGSE is installed (it draws itself into the page, as WXPlane does on Weather: xgse_embed.h), otherwise
+// XPTablet's own: the jetways and pushback. XGSE is asked every frame; while the installed XGSE does not draw (or not yet), the page
+// is XPTablet's, and the moment it draws it takes the page over.
 void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const float top = kStatusH + kHeaderH;
+    if (!s.xgse) { ownGroundPage(dl, f, s, w, h, act); return; }
+    g_embed.owner = 1;
+    if (s.xgseEmbed == -1) {
+        ownGroundPage(dl, f, s, w, h, act);
+        g_embed.active = true;   // asked, but given no pointer: XPTablet's page keeps it
+        g_embed.x = 0; g_embed.y = top; g_embed.w = w; g_embed.h = h - top;
+        return;
+    }
+    dl->AddRectFilled(ImVec2(0, top), ImVec2(w, h), themeTone(14, 18, 26, 255));
+    if (s.xgseEmbed != 1) textCentered(dl, f.body, w * 0.5f, top + (h - top) * 0.42f, themeText(190, 200, 220, 0.2f), "Opening XGSE...");
+    ImGui::SetCursorScreenPos(ImVec2(0, top));
+    ImGui::InvisibleButton("##xgse", ImVec2(w, h - top));   // the pointer here belongs to XGSE
+    const ImGuiIO& io = ImGui::GetIO();
+    g_embed.active = true;
+    g_embed.x = 0; g_embed.y = top; g_embed.w = w; g_embed.h = h - top;
+    const bool over = ImGui::IsItemHovered() || ImGui::IsItemActive();
+    g_embed.mx = over ? io.MousePos.x : -1e9f;
+    g_embed.my = over ? io.MousePos.y - top : -1e9f;
+    g_embed.down = ImGui::IsItemActive();
+    g_embed.wheel = ImGui::IsItemHovered() ? io.MouseWheel : 0.0f;
+}
+void ownGroundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const GroundState& g = s.ground;
     const float top = kStatusH + kHeaderH + 10, bot = h - 12;
-    const float leftW = std::floor(w * 0.44f);
+    const float leftW = std::floor(w * 2.0f / 3.0f) - 12 - 5;   // the aircraft: two thirds of the screen (pushback the last third)
     const bool gnd = g.onGround;
     const PlaneSpec& spec = planeSpec(s.acfIcao);
     float shLen = 0, shSpan = 0;
@@ -7100,7 +7179,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     std::snprintf(b, sizeof b, "%s", s.acfIcao.empty() ? "AIRCRAFT" : s.acfIcao.c_str());
     textAt(dl, f.small, a.x + 14, a.y + 10, kMuted, b);
     std::snprintf(b, sizeof b, "%.1f m long  \xC2\xB7  %.1f m span", acLen, acSpan);
-    textRight(dl, f.small, e.x - 14, a.y + 10, kMuted, b);
+    textAt(dl, f.small, a.x + 14 + f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, s.acfIcao.empty() ? "AIRCRAFT" : s.acfIcao.c_str()).x + 12, a.y + 10, IM_COL32(255, 255, 255, 90), b);
     // ToLiss: the doors a jetway can reach, each with its block on the fuselage and a Connect / Disconnect bubble beside it.
     // When the jetway is docked, the door opens; when it leaves, the door closes (the plugin does that, see doGround).
     // the doors with a jetway bubble, as the plugin found them (a ToLiss's; openSAM's count otherwise); only airliners, 24 m or longer
@@ -7109,8 +7188,10 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
     bool anyDocked = false;
     for (int k = 0; k < jwDoors && k < 3; ++k) anyDocked = anyDocked || g.jwDocked[k];   // each door's own (openSAM's or X-Plane's)
     const float boxTop = a.y + 34, boxBot = e.y - (doors && jwDoors > 1 ? 30 : 14);
-    const float px = std::min((boxBot - boxTop) / acLen, (leftW - (doors ? 150 : 40)) / acSpan);   // room at the left for the bubbles
-    const ImVec2 nose((a.x + e.x) * 0.5f + (doors ? 30.0f : 0.0f), std::floor((boxTop + boxBot - acLen * px) * 0.5f));
+    // the nose: left of the jetway status (the card's top-right corner), the bubbles' room at the left; the wings may pass under the status
+    const float noseX = doors ? std::floor(a.x + leftW - 14 - 196 - 30) : std::floor((a.x + e.x) * 0.5f);
+    const float px = std::min({(boxBot - boxTop) / acLen, 2.0f * (noseX - a.x - (doors ? 24.0f : 12.0f)) / acSpan, 2.0f * (e.x - 12 - noseX) / acSpan});
+    const ImVec2 nose(noseX, std::floor((boxTop + boxBot - acLen * px) * 0.5f));
     // the drawing, resized to the type's length and span (kx, ky: from the drawing's metres to the type's)
     const float kx = shape ? acSpan / shape->span : 1.0f, ky = shape ? acLen / shape->len : 1.0f;
     // white in every theme, with neutral grey lines (no blue that reads as tinted next to a warm theme)
@@ -7223,128 +7304,6 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
         if (jwDoors > 1) textCentered(dl, f.small, (a.x + e.x) * 0.5f, e.y - 24, kMuted, chooser ? "Connect: choose the door's jetway. Each door opens on its own." : g.openSam && g.jwReach >= 1 && reachN < jwDoors ? "openSAM leaves 2L without a jetway: it would cross 1L's." : "Each door connects on its own; the jetways leave with the last door.");
     }
 
-    // ---- the right side: the cabin (top two thirds) and whether a jetway can connect (bottom third); the Pushback panel over both
-    static bool pbOpen = false;
-    // (the cabin's controls are left out while the panel covers them: a greyed control would still keep the panel's from the finger)
-    const float rx = e.x + 10, rw = w - 12 - rx;
-    const float split = top + std::floor((bot - top) * 2.0f / 3.0f);
-    card(dl, ImVec2(rx, top), ImVec2(rx + rw, split - 5), f, "CABIN");
-    const float pushSq = bot - (split + 5);   // the Pushback card beside it: a square
-    card(dl, ImVec2(rx, split + 5), ImVec2(rx + rw - pushSq - 10, bot), f, "JETWAY STATUS");
-    card(dl, ImVec2(rx + rw - pushSq, split + 5), ImVec2(rx + rw, bot), f, nullptr);
-    const float cx0 = rx + 16, cx1 = rx + rw - 16;
-    if (pbOpen) {}
-    else if (!g.toliss) {
-        // not a ToLiss: the same rows, each with a greyed "Not Available" bubble
-        float y = top + 38;
-        const char* rowsNA[3] = {"Cabin Lights", "Slides", "Cabin Ready"};
-        for (int i = 0; i < 3; ++i) {
-            textAt(dl, f.bold, cx0, y + 4, kMuted, rowsNA[i]);
-            char id[16]; std::snprintf(id, sizeof id, "##cabna%d", i);
-            pill(dl, f, id, "Not Available", ImVec2(cx1 - 180, y), ImVec2(cx1, y + 30), false, false);
-            y += 48;
-        }
-    } else {
-        float y = top + 38;
-        // the lights: On and Off beside the name (On lit while they are on, Off while off; On comes back to the level they had),
-        // and a slider in steps of 10 % under them
-        textAt(dl, f.bold, cx0, y + 4, kInk, "Cabin Lights");
-        char lv[16];
-        const int pct = g.cabinLight < 0 ? -1 : (int)std::lround(g.cabinLight * 100);
-        static int lastOn = 100;   // the level they were last on at
-        if (pct > 0) lastOn = pct;
-        if (pct < 0) std::snprintf(lv, sizeof lv, "-");
-        else if (pct == 0) std::snprintf(lv, sizeof lv, "Off");
-        else std::snprintf(lv, sizeof lv, "%d%%", pct);
-        textAt(dl, f.bold, cx0 + 112, y + 4, pct > 0 ? kInk : kMuted, lv);
-        textAt(dl, f.small, cx0, y + 26, kMuted, "Keep ToLiss Cabin Light Controls To Auto");
-        if (g.cabinLight >= 0) {
-            const float bw = 64;
-            // Auto: XPTablet dims and brightens them with the daylight, as the tablet's own auto dim (100 % by day, 0 % at full night);
-            // On, Off or the slider take it off Auto
-            const bool autoOn = g_settings.cabinAuto;
-            if (pill(dl, f, "##clon", "On", ImVec2(cx1 - 2 * bw - 8, y), ImVec2(cx1 - bw - 8, y + 30), pct > 0 && !autoOn, true) && (pct <= 0 || autoOn)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = pct > 0 ? pct : lastOn; g_settings.cabinAuto = false; g_settingsChanged = true; }
-            if (pill(dl, f, "##cloff", "Off", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), pct == 0 && !autoOn, true) && (pct != 0 || autoOn)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = 0; g_settings.cabinAuto = false; g_settingsChanged = true; }
-            if (pill(dl, f, "##clauto", "Auto", ImVec2(cx1 - 3 * bw - 16, y), ImVec2(cx1 - 2 * bw - 16, y + 30), autoOn, true)) { g_settings.cabinAuto = !g_settings.cabinAuto; g_settingsChanged = true; }
-        }
-        y += 50;
-        if (g.cabinLight >= 0) {
-            // the track, its fill, ticks at every 10 % and the handle; pressing or dragging on it sets the level, in 10 % clicks
-            const float tx0 = cx0 + 10, tx1 = cx1 - 10, ty = y + 14;
-            ImGui::SetCursorScreenPos(ImVec2(cx0, y));
-            ImGui::BeginDisabled(g_settings.cabinAuto);   // (on Auto the daylight sets them: the slider is greyed)
-            ImGui::InvisibleButton("##cablight", ImVec2(cx1 - cx0, 28));
-            ImGui::EndDisabled();
-            const float greyK = openness("##cabgrey", g_settings.cabinAuto);
-            static float knob = -1;   // where the knob is drawn (0..1): it glides to the level, and follows the finger
-            const float dt = ImGui::GetIO().DeltaTime;
-            float target = std::max(0, pct) / 100.0f;
-            if (ImGui::IsItemActive()) {
-                const float t = std::max(0.0f, std::min(1.0f, (ImGui::GetIO().MousePos.x - tx0) / (tx1 - tx0)));
-                const int want = (int)std::lround(t * 10) * 10;
-                target = want / 100.0f;
-                if (want != pct) { act.ground = GA_CABIN_LIGHT; act.groundIndex = want; g_settings.cabinAuto = false; g_settingsChanged = true; }
-                if (knob < 0) knob = t;
-                knob += (t - knob) * (1.0f - std::exp(-dt * 30.0f));
-            } else {
-                if (knob < 0) knob = target;
-                knob += (target - knob) * (1.0f - std::exp(-dt * 16.0f));
-            }
-            const float hx = tx0 + (tx1 - tx0) * knob;
-            // on Auto only the bar and the knob go grey (eased), not the area round them
-            auto greyed = [&](int r, int g2, int b2, int al) { const float k = greyK; const int gr = 120;
-                return IM_COL32((int)(r + (gr - r) * k), (int)(g2 + (gr + 6 - g2) * k), (int)(b2 + (gr + 18 - b2) * k), al); };
-            const ImU32 fillCol = greyed(255, 214, 120, 255), knobCol = greyed(245, 248, 255, 255);
-            dl->AddRectFilled(ImVec2(tx0, ty - 3), ImVec2(tx1, ty + 3), IM_COL32(255, 255, 255, (int)(40 - 14 * greyK)), 3.0f);
-            dl->AddRectFilled(ImVec2(tx0, ty - 3), ImVec2(hx, ty + 3), fillCol, 3.0f);
-            for (int i = 0; i <= 10; ++i) {
-                const float x = tx0 + (tx1 - tx0) * i / 10.0f;
-                dl->AddLine(ImVec2(x, ty + 7), ImVec2(x, ty + (i % 5 == 0 ? 13 : 10)), IM_COL32(255, 255, 255, 90), 1.0f);
-            }
-            dl->AddCircleFilled(ImVec2(hx, ty), 10.0f, knobCol, 0);
-            dl->AddCircle(ImVec2(hx, ty), 10.0f, fillCol, 0, 2.0f);
-            y += 32;
-        } else {
-            textAt(dl, f.small, cx0, y, kMuted, "This aircraft does not offer its cabin lights.");
-            y += 34;
-        }
-        dl->AddLine(ImVec2(cx0, y - 6), ImVec2(cx1, y - 6), IM_COL32(255, 255, 255, 18));
-        // the slides
-        textAt(dl, f.bold, cx0, y + 4, kInk, "Slides");
-        if (g.slides >= 0) {
-            const std::string st = std::string(g.slides == 1 ? "Armed" : "Disarmed") + (g.slidesAuto ? " (auto)" : "");
-            textRight(dl, f.bold, cx1, y + 4, g.slides == 1 ? kWarn : kMuted, st.c_str());
-        }
-        y += 32;
-        // Arm, Disarm, or Auto: the aircraft's own rule (ToLiss arms them once the beacon is on and the doors are shut, disarms parked)
-        const float bw = std::floor((cx1 - cx0 - 16) / 3.0f);
-        // Arm and Disarm hold them so; with Auto, ToLiss arms and disarms them itself: Arm and Disarm are greyed then, the one that
-        // matches what ToLiss has done still lit (a press on either holds it so again, out of Auto)
-        const ImVec2 armA(cx0, y), armB(cx0 + bw, y + 30), disA(cx0 + bw + 8, y), disB(cx0 + 2 * bw + 8, y + 30);
-        if (pill(dl, f, "##arm", "Arm", armA, armB, g.slides == 1, true)) act.ground = GA_SLIDES_ARM;
-        if (pill(dl, f, "##disarm", "Disarm", disA, disB, g.slides == 0, true)) act.ground = GA_SLIDES_DISARM;
-        {
-            const float gk = openness("##slgrey", g.slidesAuto);   // (greyed in and out smoothly)
-            if (gk > 0.01f) {
-                dl->AddRectFilled(armA, armB, IM_COL32(14, 18, 28, (int)(150 * gk)), 15.0f);
-                dl->AddRectFilled(disA, disB, IM_COL32(14, 18, 28, (int)(150 * gk)), 15.0f);
-            }
-        }
-        if (pill(dl, f, "##sauto", "Auto", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), g.slidesAuto, true)) act.ground = GA_SLIDES_AUTO;
-        y += 42;
-        // Cabin Ready: tells the aircraft the cabin is secure (the CABIN READY memo); greyed once given, until after takeoff or landing
-        // always the same colour (only lighter while hovered): ToLiss keeps the memo once given, so there is nothing to show undone
-        const ImVec2 ra(cx0, y), rb(cx1, std::min(split - 14, y + 44));
-        {
-            ImGui::SetCursorScreenPos(ra);
-            const bool hit = ImGui::InvisibleButton("##cabready", ImVec2(rb.x - ra.x, rb.y - ra.y));
-            const Ease ez = eased("##cabready", false, ImGui::IsItemHovered(), ImGui::IsItemActive());
-            const float in = ez.down * 1.2f;
-            dl->AddRectFilled(ImVec2(ra.x + in, ra.y + in), ImVec2(rb.x - in, rb.y - in), mixCol(accentCol(255), accentLite(255), ez.hot), 14.0f);
-            textCentered(dl, f.bold, (ra.x + rb.x) * 0.5f, std::floor((ra.y + rb.y) * 0.5f - fontPx(f.bold) * 0.5f), onAccent(), "Cabin Ready");
-            if (hit) act.ground = GA_CABIN_READY;
-        }
-    }
     {   // the jetway status: Good, or what keeps a jetway from connecting
         std::vector<std::string> why;
         if (!g.onGround) why.push_back("Not On The Ground");
@@ -7365,54 +7324,46 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             if (g.jetway == 0) why.push_back("No Jetway At This Stand");
             else if (g.jetway == -1 && !anyDocked) why.push_back("Jetway Moving, Or None Within Reach");
         }
-        float y = split + 5 + 32;
+        // in the aircraft card's top-right corner, beside the nose (nothing of the aircraft is that wide that far forward)
+        const float sx1 = e.x - 14, sw = 196, sx0 = sx1 - sw, cx0 = sx0;
+        textRight(dl, f.small, sx1, a.y + 10, kMuted, !doors ? "JETWAYS" : g.openSam ? "JETWAYS  \xC2\xB7  OPENSAM" : "JETWAYS  \xC2\xB7  X-PLANE");
+        float y = a.y + 30;
+        const float yMax = a.y + 30 + 150;   // (as many reasons as fit, under its title)
+        (void)cx0;
         if (!doors) {
-            textAt(dl, f.title, cx0, y, kMuted, "Not Available");
-            textAt(dl, f.small, cx0, y + 30, kMuted, "This Aircraft Does Not Use Jetways");
+            textRight(dl, f.title, sx1, y, kMuted, "Not Available");
+            textRight(dl, f.small, sx1, y + 30, kMuted, "This Aircraft Does Not Use Jetways");
         } else if (samTitle) {   // the error first; what else is in the way under it, as room allows
-            textAt(dl, f.title, cx0, y, IM_COL32(255, 96, 90, 255), samTitle);
-            textAt(dl, f.small, cx0, y + 30, kMuted, fitText(f.small, samHint, rx + rw - pushSq - 10 - cx0).c_str());
-            y += 54;
+            textRight(dl, f.title, sx1, y, IM_COL32(255, 96, 90, 255), samTitle);
+            y += 30;
+            y += wrapRight(dl, f.small, sx1, y, sw, kMuted, samHint) + 8;
             for (const std::string& t : why) {
-                if (y > bot - 22) break;
-                dl->AddCircleFilled(ImVec2(cx0 + 4, y + fontPx(f.body) * 0.5f + 1), 3.5f, kWarn, 0);
-                textAt(dl, f.body, cx0 + 16, y, kInk, t.c_str());
-                y += 22;
+                if (y > yMax) break;
+                const float tw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, t.c_str()).x;
+                dl->AddCircleFilled(ImVec2(sx1 - tw - 10, y + fontPx(f.small) * 0.5f + 1), 3.0f, kWarn, 0);
+                textRight(dl, f.small, sx1, y, kInk, t.c_str());
+                y += 19;
             }
         } else if (why.empty()) {
-            textAt(dl, f.title, cx0, y, kGood, anyDocked ? "Good  \xC2\xB7  Connected" : "Good");
-            textAt(dl, f.small, cx0, y + 30, kMuted, g.openSam ? "openSAM Jetways" : "X-Plane's Own Jetways");
+            textRight(dl, f.title, sx1, y, kGood, anyDocked ? "Good  \xC2\xB7  Connected" : "Good");
+            textRight(dl, f.small, sx1, y + 30, kMuted, g.openSam ? "openSAM Jetways" : "X-Plane's Own Jetways");
         } else {
             for (const std::string& t : why) {
-                if (y > bot - 22) break;
-                dl->AddCircleFilled(ImVec2(cx0 + 4, y + fontPx(f.body) * 0.5f + 1), 3.5f, kWarn, 0);
-                textAt(dl, f.body, cx0 + 16, y, kInk, t.c_str());
-                y += 22;
+                if (y > yMax) break;
+                const float tw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, t.c_str()).x;
+                dl->AddCircleFilled(ImVec2(sx1 - tw - 10, y + fontPx(f.small) * 0.5f + 1), 3.0f, kWarn, 0);
+                textRight(dl, f.small, sx1, y, kInk, t.c_str());
+                y += 19;
             }
         }
     }
-    // ---- pushback: a bubble under the aircraft's size, its panel growing out of it: BetterPushback's planner, tug, Start and Stop
-    // when it is installed, X-Plane's own tug (left, straight, right, stop) otherwise; and what is still in the way of pushing
+    // ---- pushback: the right third of the screen. BetterPushback's planner, tug, Start and Stop when it is installed, X-Plane's own
+    // tug (left, straight, right, stop) otherwise; and what is still in the way of pushing
     {
         const bool bp = g.pushSource == 1;
-        // the button: a square in its own card beside the jetway status, "Push" over "Back" (lit while it is open or pushing)
-        const float sq = pushSq, ins = 14;
-        const ImVec2 pa(rx + rw - sq + ins, split + 5 + ins), pb(rx + rw - ins, bot - ins);
-        {
-            ImGui::SetCursorScreenPos(pa);
-            if (ImGui::InvisibleButton("##pushbtn", ImVec2(pb.x - pa.x, pb.y - pa.y))) pbOpen = !pbOpen;   // (open: it closes the panel)
-            const bool lit = pbOpen || g.bpStarted;   // (open, or pushing: lit in the theme's colour; pressed again, it closes)
-            const Ease ez = eased("##pushbtn", lit, ImGui::IsItemHovered(), ImGui::IsItemActive());
-            const float in = ez.down * 1.5f;
-            const ImU32 off = mixCol(IM_COL32(255, 255, 255, 22), IM_COL32(255, 255, 255, 40), ez.hot);
-            const ImU32 base = mixCol(off, mixCol(accentCol(255), accentLite(255), ez.hot), ez.on);
-            dl->AddRectFilled(ImVec2(pa.x + in, pa.y + in), ImVec2(pb.x - in, pb.y - in), base, 16.0f);
-            const float cx = (pa.x + pb.x) * 0.5f, cy = (pa.y + pb.y) * 0.5f, lh = fontPx(f.title);
-            const ImU32 tc = mixCol(kInk, onAccent(), ez.on);   // (readable on a light theme colour too)
-            textCentered(dl, f.title, cx, std::floor(cy - lh), tc, "Push"); textCentered(dl, f.title, cx, std::floor(cy), tc, "Back");
-        }
-        const float t = openness("##pushopen", pbOpen);
-        if (t > 0.01f) {   // the panel: over the cabin's card; Push Back (lit while it is open) puts it away
+        const float rx = e.x + 10;
+        const ImVec2 qa(rx, top), qb(w - 12, bot);
+        card(dl, qa, qb, f, nullptr);
             std::vector<std::string> checks;   // what is in the way
             if (!gnd) checks.push_back("Not On The Ground");
             // a jetway still on the aircraft (openSAM's or X-Plane's): no tug is called and no push starts until it is off
@@ -7427,14 +7378,6 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
             // BetterPushback's tug stops (and calls out) while the landing lights or the taxi light are on
             if (g.landingLights) checks.push_back(bp ? "Landing lights off: the tug will not push" : "Turn the landing lights off");
             if (g.taxiLight) checks.push_back(bp ? "Taxi light off: the tug will not push" : "Turn the taxi light off");
-            const ImVec2 qa(rx, top), qb(rx + rw, split - 5);   // over the cabin's card (the jetway status and Push Back stay)
-            const int v0 = dl->VtxBuffer.Size;
-            ImGui::BeginDisabled(!pbOpen);
-            ImGui::SetCursorScreenPos(qa);
-            ImGui::SetNextItemAllowOverlap();
-            ImGui::InvisibleButton("##pushbg", ImVec2(qb.x - qa.x, qb.y - qa.y));   // (the cabin under it takes no presses)
-            dl->AddRectFilled(qa, qb, themeTone(12, 22, 40, 255), 16.0f);
-            dl->AddRect(qa, qb, IM_COL32(255, 255, 255, 40), 16.0f, 0, 1.0f);
             const float x0 = qa.x + 16, x1 = qb.x - 16;
             textAt(dl, f.small, x0, qa.y + 12, kMuted, "PUSHBACK");
             textRight(dl, f.small, x1, qa.y + 12, kMuted, bp ? "BetterPushback" : "X-Plane's Tug");
@@ -7458,44 +7401,181 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
                               : g.bpConnected ? "Tug Connected"
                               : handSignals ? "Tug Disconnected: Hand Signals" : "Tug Not Connected";
             const ImU32 stateCol = lightsStop || disconnecting || connecting ? kWarn : g.bpConnected ? kGood : kInk;
-            textAt(dl, f.bold, x0, y, stateCol, state);
-            y += 28;
+            y += wrapLeft(dl, f.bold, x0, y, x1 - x0, stateCol, state) + 10;
             // the buttons, at the bottom (the list above them, as much as fits: the rest counted)
-            const float rowH = 36, by1 = qb.y - 12 - rowH, by0 = by1 - rowH - 4;
+            const float rowH = 36;
+            const int rows = bp ? 3 : 2;
+            const float by0 = qb.y - 12 - rows * rowH;   // the first row's top
             if (checks.empty()) { dl->AddCircleFilled(ImVec2(x0 + 4, y + 9), 4.0f, kGood, 0); textAt(dl, f.body, x0 + 16, y, kGood, "Ready To Push"); y += 24; }
             for (size_t i = 0; i < checks.size(); ++i) {
-                if (y + 24 > by0 - 4 && i + 1 < checks.size()) {
+                const float th = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, x1 - x0 - 16, checks[i].c_str()).y;
+                if (y + th + 22 > by0 - 4 && i + 1 < checks.size()) {
                     char more[32]; std::snprintf(more, sizeof more, "and %d more", (int)(checks.size() - i));
                     textAt(dl, f.small, x0 + 16, y + 2, kWarn, more);
                     break;
                 }
-                dl->AddCircleFilled(ImVec2(x0 + 4, y + 9), 4.0f, kWarn, 0);
-                textAt(dl, f.body, x0 + 16, y, kInk, checks[i].c_str());
-                y += 24;
+                dl->AddCircleFilled(ImVec2(x0 + 4, y + fontPx(f.small) * 0.5f + 1), 3.5f, kWarn, 0);
+                y += wrapLeft(dl, f.small, x0 + 16, y, x1 - x0 - 16, kInk, checks[i].c_str()) + 6;
             }
             const float hwB = std::floor((x1 - x0 - 8) * 0.5f);
+            auto row = [&](int r) { return by0 + r * rowH; };
             if (bp) {
                 // the tug: connected (or on its way, or waiting at the aircraft disconnected) it can be disconnected; else connected
                 const bool tugOn = g.bpConnected;
                 const char* tugLbl = tugOn ? "Disconnect The Tug" : g.bpStarted ? "Reconnect The Tug" : "Connect The Tug";
                 const bool tugBusy = connecting || disconnecting;   // (on its way, or leaving: wait for it)
-                if (pill(dl, f, "##bpplan", "Plan Route", ImVec2(x0, by0), ImVec2(x0 + hwB, by0 + rowH - 6), false, gnd && !g.bpStarted)) act.ground = GA_BP_PLAN;
-                if (pill(dl, f, "##bpconn", tugLbl, ImVec2(x1 - hwB, by0), ImVec2(x1, by0 + rowH - 6), tugOn && !tugBusy, gnd && !tugBusy && (tugOn || !jwOn))) {
+                if (pill(dl, f, "##bpplan", "Plan Route", ImVec2(x0, row(0)), ImVec2(x1, row(0) + rowH - 6), false, gnd && !g.bpStarted)) act.ground = GA_BP_PLAN;
+                if (pill(dl, f, "##bpconn", tugLbl, ImVec2(x0, row(1)), ImVec2(x1, row(1) + rowH - 6), tugOn && !tugBusy, gnd && !tugBusy && (tugOn || !jwOn))) {
                     act.ground = tugOn ? GA_BP_DISCONNECT : g.bpStarted ? GA_BP_RECONNECT : GA_BP_CONNECT;
                     if (tugOn) { discAsked = nowT; if (g.bpStarted) handSignals = true; } else { connAsked = nowT; handSignals = false; }
                 }
-                if (pill(dl, f, "##bpstart", "Start", ImVec2(x0, by1), ImVec2(x0 + hwB, by1 + rowH - 6), g.bpStarted, gnd && !g.bpStarted && !jwOn)) { act.ground = GA_BP_START; if (!g.bpConnected) connAsked = nowT; handSignals = false; }
-                if (pill(dl, f, "##bpstop", "Stop", ImVec2(x1 - hwB, by1), ImVec2(x1, by1 + rowH - 6), false, g.bpStarted)) { act.ground = GA_BP_STOP; if (g.bpConnected) discAsked = nowT; }
+                if (pill(dl, f, "##bpstart", "Start", ImVec2(x0, row(2)), ImVec2(x0 + hwB, row(2) + rowH - 6), g.bpStarted, gnd && !g.bpStarted && !jwOn)) { act.ground = GA_BP_START; if (!g.bpConnected) connAsked = nowT; handSignals = false; }
+                if (pill(dl, f, "##bpstop", "Stop", ImVec2(x1 - hwB, row(2)), ImVec2(x1, row(2) + rowH - 6), false, g.bpStarted)) { act.ground = GA_BP_STOP; if (g.bpConnected) discAsked = nowT; }
             } else {
-                const float tw = std::floor((x1 - x0 - 16) / 3.0f);
-                if (pill(dl, f, "##pbl", "Left", ImVec2(x0, by0), ImVec2(x0 + tw, by0 + rowH - 6), false, gnd && !jwOn)) act.ground = GA_PUSH_LEFT;
-                if (pill(dl, f, "##pbs", "Straight", ImVec2(x0 + tw + 8, by0), ImVec2(x0 + 2 * tw + 8, by0 + rowH - 6), false, gnd && !jwOn)) act.ground = GA_PUSH_STRAIGHT;
-                if (pill(dl, f, "##pbr", "Right", ImVec2(x1 - tw, by0), ImVec2(x1, by0 + rowH - 6), false, gnd && !jwOn)) act.ground = GA_PUSH_RIGHT;
-                if (pill(dl, f, "##pbstop", "Stop", ImVec2(x0, by1), ImVec2(x1, by1 + rowH - 6), false, gnd)) act.ground = GA_PUSH_STOP;
+                const float tw = std::floor((x1 - x0 - 12) / 3.0f);
+                if (pill(dl, f, "##pbl", "Left", ImVec2(x0, row(0)), ImVec2(x0 + tw, row(0) + rowH - 6), false, gnd && !jwOn)) act.ground = GA_PUSH_LEFT;
+                if (pill(dl, f, "##pbs", "Straight", ImVec2(x0 + tw + 6, row(0)), ImVec2(x1 - tw - 6, row(0) + rowH - 6), false, gnd && !jwOn)) act.ground = GA_PUSH_STRAIGHT;
+                if (pill(dl, f, "##pbr", "Right", ImVec2(x1 - tw, row(0)), ImVec2(x1, row(0) + rowH - 6), false, gnd && !jwOn)) act.ground = GA_PUSH_RIGHT;
+                if (pill(dl, f, "##pbstop", "Stop", ImVec2(x0, row(1)), ImVec2(x1, row(1) + rowH - 6), false, gnd)) act.ground = GA_PUSH_STOP;
             }
-            ImGui::EndDisabled();
-            popIn(dl, v0, ImVec2((pa.x + pb.x) * 0.5f, (pa.y + pb.y) * 0.5f), t);
+    }
+}
+
+// ---- Cabin: a ToLiss's cabin, its lights, its slides and Cabin Ready (an App Store app, under Aircraft Management). In any other
+// aircraft the page is greyed, as its icon is: the controls are ToLiss's own.
+void cabinPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    const GroundState& g = s.ground;
+    const float top = kStatusH + kHeaderH + 10, bot = h - 12, midX = std::floor(w * 0.5f);
+    const float cardBot = top + 196;
+    card(dl, ImVec2(12, top), ImVec2(midX - 5, cardBot), f, "CABIN LIGHTS");
+    card(dl, ImVec2(midX + 5, top), ImVec2(w - 12, cardBot), f, "SLIDES");
+    card(dl, ImVec2(12, cardBot + 10), ImVec2(w - 12, bot), f, "CABIN READY");
+    if (!g.toliss) {   // the same cards, greyed: each control a "Not Available" bubble, and why
+        const char* names[2] = {"Cabin Lights", "Slides"};
+        for (int i = 0; i < 2; ++i) {
+            const float cx0 = (i ? midX + 5 : 12) + 16, cx1 = (i ? w - 12 : midX - 5) - 16, y = top + 38;
+            textAt(dl, f.bold, cx0, y + 4, kMuted, names[i]);
+            char id[16]; std::snprintf(id, sizeof id, "##cabna%d", i);
+            pill(dl, f, id, "Not Available", ImVec2(cx1 - 160, y), ImVec2(cx1, y + 30), false, false);
+            for (int k = 0; k < 2; ++k) dl->AddRectFilled(ImVec2(cx0, y + 56 + k * 44), ImVec2(cx1, y + 86 + k * 44), IM_COL32(255, 255, 255, 12), 15.0f);
         }
+        const float y = cardBot + 10 + 38;
+        dl->AddRectFilled(ImVec2(28, y), ImVec2(w - 28, y + 48), IM_COL32(255, 255, 255, 18), 14.0f);
+        textCentered(dl, f.bold, w * 0.5f, std::floor(y + 24 - fontPx(f.bold) * 0.5f), kMuted, "Cabin Ready");
+        textCentered(dl, f.small, w * 0.5f, y + 62, kMuted, "The cabin controls work in ToLiss aircraft.");
+        return;
+    }
+    {   // the lights
+        const float cx0 = 28, cx1 = midX - 21;
+        float y = top + 38;
+            // the lights: On and Off beside the name (On lit while they are on, Off while off; On comes back to the level they had),
+            // and a slider in steps of 10 % under them
+            textAt(dl, f.bold, cx0, y + 4, kInk, "Cabin Lights");
+            char lv[16];
+            const int pct = g.cabinLight < 0 ? -1 : (int)std::lround(g.cabinLight * 100);
+            static int lastOn = 100;   // the level they were last on at
+            if (pct > 0) lastOn = pct;
+            if (pct < 0) std::snprintf(lv, sizeof lv, "-");
+            else if (pct == 0) std::snprintf(lv, sizeof lv, "Off");
+            else std::snprintf(lv, sizeof lv, "%d%%", pct);
+            textAt(dl, f.bold, cx0 + 112, y + 4, pct > 0 ? kInk : kMuted, lv);
+            textAt(dl, f.small, cx0, y + 40, kMuted, "Keep ToLiss Cabin Light Controls To Auto");   // (under the buttons, clear of them)
+            if (g.cabinLight >= 0) {
+                const float bw = 64;
+                // Auto: XPTablet dims and brightens them with the daylight, as the tablet's own auto dim (100 % by day, 0 % at full night);
+                // On, Off or the slider take it off Auto
+                const bool autoOn = g_settings.cabinAuto;
+                if (pill(dl, f, "##clon", "On", ImVec2(cx1 - 2 * bw - 8, y), ImVec2(cx1 - bw - 8, y + 30), pct > 0 && !autoOn, true) && (pct <= 0 || autoOn)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = pct > 0 ? pct : lastOn; g_settings.cabinAuto = false; g_settingsChanged = true; }
+                if (pill(dl, f, "##cloff", "Off", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), pct == 0 && !autoOn, true) && (pct != 0 || autoOn)) { act.ground = GA_CABIN_LIGHT; act.groundIndex = 0; g_settings.cabinAuto = false; g_settingsChanged = true; }
+                if (pill(dl, f, "##clauto", "Auto", ImVec2(cx1 - 3 * bw - 16, y), ImVec2(cx1 - 2 * bw - 16, y + 30), autoOn, true)) { g_settings.cabinAuto = !g_settings.cabinAuto; g_settingsChanged = true; }
+            }
+            y += 66;
+            if (g.cabinLight >= 0) {
+                // the track, its fill, ticks at every 10 % and the handle; pressing or dragging on it sets the level, in 10 % clicks
+                const float tx0 = cx0 + 10, tx1 = cx1 - 10, ty = y + 14;
+                ImGui::SetCursorScreenPos(ImVec2(cx0, y));
+                ImGui::BeginDisabled(g_settings.cabinAuto);   // (on Auto the daylight sets them: the slider is greyed)
+                ImGui::InvisibleButton("##cablight", ImVec2(cx1 - cx0, 28));
+                ImGui::EndDisabled();
+                const float greyK = openness("##cabgrey", g_settings.cabinAuto);
+                static float knob = -1;   // where the knob is drawn (0..1): it glides to the level, and follows the finger
+                const float dt = ImGui::GetIO().DeltaTime;
+                float target = std::max(0, pct) / 100.0f;
+                if (ImGui::IsItemActive()) {
+                    const float t = std::max(0.0f, std::min(1.0f, (ImGui::GetIO().MousePos.x - tx0) / (tx1 - tx0)));
+                    const int want = (int)std::lround(t * 10) * 10;
+                    target = want / 100.0f;
+                    if (want != pct) { act.ground = GA_CABIN_LIGHT; act.groundIndex = want; g_settings.cabinAuto = false; g_settingsChanged = true; }
+                    if (knob < 0) knob = t;
+                    knob += (t - knob) * (1.0f - std::exp(-dt * 30.0f));
+                } else {
+                    if (knob < 0) knob = target;
+                    knob += (target - knob) * (1.0f - std::exp(-dt * 16.0f));
+                }
+                const float hx = tx0 + (tx1 - tx0) * knob;
+                // on Auto only the bar and the knob go grey (eased), not the area round them
+                auto greyed = [&](int r, int g2, int b2, int al) { const float k = greyK; const int gr = 120;
+                    return IM_COL32((int)(r + (gr - r) * k), (int)(g2 + (gr + 6 - g2) * k), (int)(b2 + (gr + 18 - b2) * k), al); };
+                const ImU32 fillCol = greyed(255, 214, 120, 255), knobCol = greyed(245, 248, 255, 255);
+                dl->AddRectFilled(ImVec2(tx0, ty - 3), ImVec2(tx1, ty + 3), IM_COL32(255, 255, 255, (int)(40 - 14 * greyK)), 3.0f);
+                dl->AddRectFilled(ImVec2(tx0, ty - 3), ImVec2(hx, ty + 3), fillCol, 3.0f);
+                for (int i = 0; i <= 10; ++i) {
+                    const float x = tx0 + (tx1 - tx0) * i / 10.0f;
+                    dl->AddLine(ImVec2(x, ty + 7), ImVec2(x, ty + (i % 5 == 0 ? 13 : 10)), IM_COL32(255, 255, 255, 90), 1.0f);
+                }
+                dl->AddCircleFilled(ImVec2(hx, ty), 10.0f, knobCol, 0);
+                dl->AddCircle(ImVec2(hx, ty), 10.0f, fillCol, 0, 2.0f);
+                y += 32;
+            } else {
+                textAt(dl, f.small, cx0, y, kMuted, "This aircraft does not offer its cabin lights.");
+                y += 34;
+            }
+        textAt(dl, f.small, cx0, y + 2, kMuted, "Auto follows the daylight: full by day, off at full night.");
+    }
+    {   // the slides
+        const float cx0 = midX + 21, cx1 = w - 28;
+        float y = top + 38;
+            // the slides
+            textAt(dl, f.bold, cx0, y + 4, kInk, "Slides");
+            if (g.slides >= 0) {
+                const std::string st = std::string(g.slides == 1 ? "Armed" : "Disarmed") + (g.slidesAuto ? " (auto)" : "");
+                textRight(dl, f.bold, cx1, y + 4, g.slides == 1 ? kWarn : kMuted, st.c_str());
+            }
+            y += 32;
+            // Arm, Disarm, or Auto: the aircraft's own rule (ToLiss arms them once the beacon is on and the doors are shut, disarms parked)
+            const float bw = std::floor((cx1 - cx0 - 16) / 3.0f);
+            // Arm and Disarm hold them so; with Auto, ToLiss arms and disarms them itself: Arm and Disarm are greyed then, the one that
+            // matches what ToLiss has done still lit (a press on either holds it so again, out of Auto)
+            const ImVec2 armA(cx0, y), armB(cx0 + bw, y + 30), disA(cx0 + bw + 8, y), disB(cx0 + 2 * bw + 8, y + 30);
+            if (pill(dl, f, "##arm", "Arm", armA, armB, g.slides == 1, true)) act.ground = GA_SLIDES_ARM;
+            if (pill(dl, f, "##disarm", "Disarm", disA, disB, g.slides == 0, true)) act.ground = GA_SLIDES_DISARM;
+            {
+                const float gk = openness("##slgrey", g.slidesAuto);   // (greyed in and out smoothly)
+                if (gk > 0.01f) {
+                    dl->AddRectFilled(armA, armB, IM_COL32(14, 18, 28, (int)(150 * gk)), 15.0f);
+                    dl->AddRectFilled(disA, disB, IM_COL32(14, 18, 28, (int)(150 * gk)), 15.0f);
+                }
+            }
+            if (pill(dl, f, "##sauto", "Auto", ImVec2(cx1 - bw, y), ImVec2(cx1, y + 30), g.slidesAuto, true)) act.ground = GA_SLIDES_AUTO;
+        textAt(dl, f.small, cx0, y + 42, kMuted, "Auto: ToLiss arms them once the beacon is on and the doors");
+        textAt(dl, f.small, cx0, y + 58, kMuted, "are shut, and disarms them when parked.");
+    }
+    {   // Cabin Ready
+        const float cx0 = 28, cx1 = w - 28;
+        float y = cardBot + 10 + 38;
+        // Cabin Ready: tells the aircraft the cabin is secure (the CABIN READY memo); greyed once given, until after takeoff or landing
+        // always the same colour (only lighter while hovered): ToLiss keeps the memo once given, so there is nothing to show undone
+        const ImVec2 ra(cx0, y), rb(cx1, y + 48);
+        {
+            ImGui::SetCursorScreenPos(ra);
+            const bool hit = ImGui::InvisibleButton("##cabready", ImVec2(rb.x - ra.x, rb.y - ra.y));
+            const Ease ez = eased("##cabready", false, ImGui::IsItemHovered(), ImGui::IsItemActive());
+            const float in = ez.down * 1.2f;
+            dl->AddRectFilled(ImVec2(ra.x + in, ra.y + in), ImVec2(rb.x - in, rb.y - in), mixCol(accentCol(255), accentLite(255), ez.hot), 14.0f);
+            textCentered(dl, f.bold, (ra.x + rb.x) * 0.5f, std::floor((ra.y + rb.y) * 0.5f - fontPx(f.bold) * 0.5f), onAccent(), "Cabin Ready");
+            if (hit) act.ground = GA_CABIN_READY;
+        }
+        textCentered(dl, f.small, w * 0.5f, y + 62, kMuted, "Tells the aircraft the cabin is secure: the CABIN READY memo.");
     }
 }
 
@@ -7504,6 +7584,7 @@ void groundPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, floa
 void weatherPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const float top = kStatusH + kHeaderH;
     const ImVec2 c(w * 0.5f, top + (h - top) * 0.42f);
+    g_embed.owner = 0;
     if (!s.wxPlane) { simWeatherPage(dl, f, s, w, h, act, false); return; }
     // WXPlane is asked to draw here every frame, whatever its version: nothing is checked beforehand. While the installed WXPlane
     // does not draw on the tablet (one from before it could), the page is the built-in weather, and WXPlane is still asked every
@@ -9287,6 +9368,8 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act) {
         }
     }
     g_ownPerformance = s.toliss;
+    g_tolissNow = s.toliss;
+    g_xgse = s.xgse;
     if (g_app == APP_PERFORMANCE && g_ownPerformance) g_app = APP_HOME;
     g_px = std::max(1.0f, s.pixelScale);
     g_embed = EmbedArea();
@@ -9701,7 +9784,7 @@ float g_storeScroll = 0;
 double g_storeFadeT0 = -10;   // the search changed: what it finds fades in
 std::string g_storeSearch;   // the App Store's search (an app's name or what it does, in every category)
 void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
-    struct Item { int app; int cat; const char* what; };   // cat: 1 charts, 2 planning, 3 networks, 4 music and video, 5 games
+    struct Item { int app; int cat; const char* what; };   // cat: 1 charts, 2 planning, 3 networks, 4 music and video, 5 games, 6 aircraft
     static const Item items[] = {
         {APP_FOREFLIGHT, 1, "ForeFlight's charts and maps on the web"},
         {APP_CHARTS, 1, "ChartFox: free charts for most of the world"},
@@ -9722,16 +9805,17 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
         {APP_SOUNDCLOUD, 4, "SoundCloud"},
         {APP_YOUTUBE, 4, "YouTube"},
         {APP_GAMES, 5, "2048, Knots and Crosses, and six aviation games of its own"},
+        {APP_CABIN, 6, "A ToLiss's cabin: its lights, the slides and Cabin Ready"},
     };
     const float top = kStatusH + kHeaderH + 10;
     {   // the categories
-        static const char* cats[6] = {"All", "Charts", "Flight Planning", "Networks", "Music & Video", "Games"};
+        static const char* cats[7] = {"All", "Charts", "Flight Planning", "Networks", "Music & Video", "Games", "Aircraft Management"};
         float x = 16;
-        for (int c = 0; c < 6; ++c) {
-            const float bw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, cats[c]).x + 32;
+        for (int c = 0; c < 7; ++c) {
+            const float bw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, cats[c]).x + 22;
             char id[16]; std::snprintf(id, sizeof id, "##scat%d", c);
             if (pill(dl, f, id, cats[c], ImVec2(x, top), ImVec2(x + bw, top + 30), g_storeCat == c, true) && g_storeCat != c) { g_storeCat = c; g_storeScroll = 0; }
-            x += bw + 8;
+            x += bw + 6;
         }
         static std::string was;
         textField(dl, f, "##storesearch", g_storeSearch, ImVec2(std::max(x + 8, w - 230), top), ImVec2(w - 16, top + 30), "Search Apps", false);
@@ -10581,6 +10665,7 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
         else if (app == APP_DOCUMENTS) documentsPage(dl, f, s, w, h, act);
         else if (app == APP_WEATHER) weatherPage(dl, f, s, w, h, act);
         else if (app == APP_GROUND) groundPage(dl, f, s, w, h, act);
+        else if (app == APP_CABIN) cabinPage(dl, f, s, w, h, act);
         else if (app == APP_MUSIC) musicPage(dl, f, s, w, h, act);
         else if (app == APP_DISPATCH) dispatchPage(dl, f, s, w, h, act);
         else if (app == APP_APPSTORE) storePage(dl, f, w, h, act);
@@ -10598,6 +10683,10 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
 int currentApp() { return g_app; }
 bool browserBarsHidden() { return g_barsHidden; }
 int localRefreshRate() { return std::max(15, std::min(60, g_settings.localRate)); }
+unsigned themeAccentRGBA() { const ImU32 c = accentCol(255);
+    return ((c >> IM_COL32_R_SHIFT) & 255) << 24 | ((c >> IM_COL32_G_SHIFT) & 255) << 16 | ((c >> IM_COL32_B_SHIFT) & 255) << 8 | 255u; }
+unsigned themeBackgroundRGBA() { const ImU32 c = themeTone(14, 18, 26, 255);
+    return ((c >> IM_COL32_R_SHIFT) & 255) << 24 | ((c >> IM_COL32_G_SHIFT) & 255) << 16 | ((c >> IM_COL32_B_SHIFT) & 255) << 8 | 255u; }
 std::string localThemeJson() {   // the theme's colours, for Local Connect's page (its connecting and pairing screens)
     const Backdrop bd = themeBackdrop(g_settings.wallpaper);
     auto hex = [](ImU32 c) { char b[8]; std::snprintf(b, sizeof b, "#%02x%02x%02x", (unsigned)((c >> IM_COL32_R_SHIFT) & 255), (unsigned)((c >> IM_COL32_G_SHIFT) & 255), (unsigned)((c >> IM_COL32_B_SHIFT) & 255)); return std::string(b); };
@@ -10766,6 +10855,7 @@ bool webTyping() { return g_app == APP_BROWSER && g_kbd && g_kbdTarget == 0; }  
 
 const char* appName(int app) {
     if (app == APP_WEATHER && g_wx) return "WXPlane";
+    if (app == APP_GROUND && g_xgse) return "XGSE";
     return (app >= 0 && app < APP_COUNT) ? kApps[app].name : "Home";
 }
 
@@ -10993,6 +11083,8 @@ std::string settingsToText() {
         out += "wallpaper_base=" + std::to_string(g_settings.wallpaperBase) + "\nseasonal_told=" + g_settings.seasonalTold + "\n";
         { std::string v = g_settings.hoppieCode; for (char& c : v) if (c == '\n' || c == '\r') c = ' '; out += "hoppie_code=" + v + "\n"; }
         out += std::string("docs_list_hidden=") + (g_settings.docsListHidden ? "1" : "0") + "\n";
+        out += "cabin_offered=1\n";
+        if (g_settings.winW > 0) out += "window=" + std::to_string(g_settings.winX) + "," + std::to_string(g_settings.winY) + "," + std::to_string(g_settings.winW) + "," + std::to_string(g_settings.winH) + "\n";
         { std::string v = g_settings.mediaOutput; for (char& c : v) if (c == '\n' || c == '\r') c = ' '; out += "media_output=" + v + "\n"; }
     }
     out += std::string("map_airspaces=") + (g_settings.mapAirspaces ? "1" : "0") + "\n";
@@ -11062,6 +11154,7 @@ std::string settingsToText() {
 }
 
 void settingsFromText(const std::string& text) {
+    bool cabinSeen = false;   // (a file from before the Cabin app: it comes installed, its controls were on the Aircraft page)
     int oldChart = 0, oldLive = 0, oldPlan = 0;
     bool newStyle = false;
     auto parseList = [](const std::string& val, std::vector<int>& v) {
@@ -11149,6 +11242,11 @@ void settingsFromText(const std::string& text) {
         else if (key == "media_duck") g_settings.mediaDuck = std::max(0, std::min(2, v));
         else if (key == "media_output") g_settings.mediaOutput = val;
         else if (key == "docs_list_hidden") g_settings.docsListHidden = v != 0;
+        else if (key == "cabin_offered") cabinSeen = true;
+        else if (key == "window") {
+            int x = 0, y = 0, ww = 0, hh = 0;
+            if (std::sscanf(val.c_str(), "%d,%d,%d,%d", &x, &y, &ww, &hh) == 4 && ww >= 100 && hh >= 60 && ww <= 10000 && hh <= 10000) { g_settings.winX = x; g_settings.winY = y; g_settings.winW = ww; g_settings.winH = hh; }
+        }
         else if (key == "duck_rx") g_settings.duckRx = std::max(0.0f, std::min(1.0f, (float)std::atof(val.c_str())));
         else if (key == "duck_tx") g_settings.duckTx = std::max(0.0f, std::min(1.0f, (float)std::atof(val.c_str())));
         else if (key == "notify_volume") g_settings.notifyVolume = std::max(0.0f, std::min(1.0f, (float)std::atof(val.c_str())));
@@ -11205,6 +11303,10 @@ void settingsFromText(const std::string& text) {
         if (oldChart == 1) { g_settings.showNavigraph = g_settings.showCharts; g_settings.showCharts = false; }
         if (oldLive == 1) { g_settings.showVatsim = g_settings.showLive; g_settings.showLive = false; }
         if (oldPlan == 1) { g_settings.showSkyvector = g_settings.showForeflight; g_settings.showForeflight = false; }
+    }
+    if (!cabinSeen) {
+        auto& v = g_settings.installed;
+        if (std::find(v.begin(), v.end(), std::string("cabin")) == v.end()) v.push_back("cabin");
     }
     normalizeLayout();
 }

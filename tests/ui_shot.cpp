@@ -177,6 +177,8 @@ int main(int argc, char** argv) {
     {
         settings().showNavigraph = true; settings().showCharts = false; settings().showVatsim = true; settings().showForeflight = false;
         settings().favorites = {APP_WEATHER, APP_MAP}; settings().order = {APP_SETTINGS, -1, APP_NOTES};   // a free place between two icons
+        settings().homePages = 4;   // (room for every app: full pages fill their gaps)
+        settings().winX = 140; settings().winY = 60; settings().winW = 1040; settings().winH = 624;   // the floating window, kept
         const std::string txt = settingsToText();
         settings() = Settings();
         settingsFromText(txt);
@@ -185,6 +187,9 @@ int main(int argc, char** argv) {
         int placed = 0;
         for (int a : st.order) placed += a >= 0 ? 1 : 0;
         if (st.favorites != std::vector<int>({APP_WEATHER, APP_MAP}) || st.order[0] != APP_SETTINGS || st.order[1] != -1 || st.order[2] != APP_NOTES || placed != installedApps() - 2) { std::printf("FAIL: layout round trip\n"); ++failures; }
+        if (st.winX != 140 || st.winY != 60 || st.winW != 1040 || st.winH != 624) { std::printf("FAIL: the floating window's place and size round trip\n"); ++failures; }
+        { Settings keep = settings(); settings() = Settings(); settingsFromText("window=1,2,3,4\n"); if (settings().winW != 0) { std::printf("FAIL: a window too small to keep is ignored\n"); ++failures; } settings() = keep; }
+        settings().homePages = 1;   // (back to the pages the apps need)
         openApp(APP_NAVIGRAPH);
         if (currentApp() != APP_BROWSER || browserChrome() || std::string(browserUrl()).find("navigraph") == std::string::npos) { std::printf("FAIL: the Navigraph icon\n"); ++failures; }
         openApp(APP_HOME); openApp(APP_VATSIM);
@@ -401,6 +406,15 @@ int main(int argc, char** argv) {
         shot(t, APP_GROUND, "ground_generic");
         // the App Store, Games, VATSIM's page; the home screen with widgets, a folder and a second page
         shot(t, APP_APPSTORE, "appstore");
+        {   // Aircraft Management: the Cabin app
+            auto tp = [&](float x, float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
+                ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); } };
+            openApp(APP_APPSTORE);
+            tp(487, 99);
+            for (int k = 0; k < 10; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); }
+            shot(t, APP_APPSTORE, "appstore_aircraft");
+            openApp(APP_APPSTORE); tp(33, 99);   // (back to All)
+        }
         {   // its search: typed, the apps that match (from every category)
             auto tp = [&](float x, float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
                 ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); } };
@@ -415,6 +429,21 @@ int main(int argc, char** argv) {
             }
             shot(t, APP_APPSTORE, "appstore_search");
             tabletKey(13, false); tp(774, 99);   // (put away, then cleared)
+        }
+        {   // XGSE installed: the GSE icon and page are XGSE's; it draws there (owner 1), or XPTablet's page stays while it does not
+            SimState x = t; x.xgse = true; x.xgseEmbed = 0;
+            shot(x, APP_GROUND, "gse_xgse_opening");
+            if (!embedArea().active || embedArea().owner != 1) { std::printf("FAIL: the GSE page hands its area to XGSE\n"); ++failures; }
+            if (std::string(appName(APP_GROUND)) != "XGSE") { std::printf("FAIL: with XGSE the icon is XGSE\n"); ++failures; }
+            shot(x, APP_HOME, "home_xgse");
+            x.xgseEmbed = -1;
+            shot(x, APP_GROUND, "gse_xgse_old");
+            if (!embedArea().active || embedArea().owner != 1 || embedArea().mx > -1e8f) { std::printf("FAIL: an XGSE that does not draw: XPTablet's GSE page, no pointer to XGSE\n"); ++failures; }
+            SimState nx = t; nx.xgse = false;
+            shot(nx, APP_GROUND, "ground_generic");
+            if (embedArea().active || std::string(appName(APP_GROUND)) != "GSE") { std::printf("FAIL: without XGSE the GSE page is XPTablet's own\n"); ++failures; }
+            SimState wx = s; shot(wx, APP_WEATHER, "weather_owner");
+            if (embedArea().active && embedArea().owner != 0) { std::printf("FAIL: the Weather page's area is WXPlane's\n"); ++failures; }
         }
         { const int keep = settings().wallpaper;
           settings().wallpaper = 5; shot(t, APP_HOME, "home_noir"); shot(t, APP_SETTINGS, "settings_noir");
@@ -940,6 +969,7 @@ int main(int argc, char** argv) {
             Settings keep = settings();
             settings().showNavigraph = settings().showVatsim = settings().showSkyvector = settings().showForeflight = settings().showLive = true;
             shot(t, APP_HOME, "home_all_apps");
+            { SimState tl = t; tl.toliss = true; tl.ground.toliss = true; shot(tl, APP_HOME, "home_all_apps_toliss"); }   // (Cabin lit)
             settings() = keep;
         }
         SimState g_previewState;
@@ -1668,6 +1698,7 @@ int main(int argc, char** argv) {
                 ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); if (act.ground != GA_NONE || act.planAccept || act.planDismiss || act.planImport || act.planClear) got = act; }
             return got;
         };
+        auto settle_ = [&](const SimState& st2) { for (int k = 0; k < 10; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, st2, 800, kLogicalH, act); ImGui::Render(); } };
         openApp(APP_GROUND);
         // a ToLiss: the jetway is a bubble beside door 1L, at the card's left edge
         float jy = -1;
@@ -1688,14 +1719,14 @@ int main(int argc, char** argv) {
               for (int k = 0; k < 8; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, g3, 800, kLogicalH, act); ImGui::Render(); }
               const Actions m = press(g3, 220, yy + 18);
               if (m.ground == GA_JETWAY_DOOR) { cy = yy; if (m.groundIndex != 0) { std::printf("FAIL: 1L's menu connects 1L (%d)\n", m.groundIndex); ++failures; } }
-              else press(g3, 700, 450);
+              else press(g3, 470, 440);
           }
           if (cy < 0) { std::printf("FAIL: no jetway menu with two openSAM jetways\n"); ++failures; }
           else {
               press(g3, 78, cy);
               for (int k = 0; k < 8; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, g3, 800, kLogicalH, act); ImGui::Render(); }
               shot(g3, APP_GROUND, "ground_jetway_menu");
-              press(g3, 700, 450);
+              press(g3, 470, 440);
           }
           // openSAM gave only 1L a jetway (2L's would cross): 2L's Connect is grey, 1L's connects straight away
           { SimState g5 = g3; g5.ground.jwReach = 1;
@@ -1711,54 +1742,82 @@ int main(int argc, char** argv) {
             shot(g6, APP_GROUND, "ground_jetway_menu_busy");
             const Actions m = press(g6, 220, cy + 18 + 34);
             if (m.ground == GA_JETWAY_DOOR) { std::printf("FAIL: the jetway at 2L is pressable in 1L's menu\n"); ++failures; }
-            press(g6, 700, 450); openApp(APP_GROUND); }
-          {   // Pushback: its bubble opens the panel; X-Plane's tug, then BetterPushback's
-              SimState p1 = g3; p1.ground.chocks = true; p1.ground.parkBrake = true; p1.ground.extPower = true;
+            press(g6, 470, 440); openApp(APP_GROUND); }
+          {   // Pushback: its card in the right third of the screen, always there; X-Plane's tug, then BetterPushback's
               auto settle = [&](const SimState& st2) { for (int k = 0; k < 10; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, st2, 800, kLogicalH, act); ImGui::Render(); } };
-              press(p1, 735, 405); settle(p1);   // (Push Back: the square beside the jetway status)
-              bool stop = false;
-              for (float yy = 170; yy < 470 && !stop; yy += 6) { const Actions q = press(p1, 580, yy); if (q.ground == GA_PUSH_STOP) stop = true; }
-              if (!stop) { std::printf("FAIL: the Pushback panel's Stop (X-Plane's tug)\n"); ++failures; }
+              auto findAct = [&](const SimState& st2, int want, float x0 = 548, float x1 = 784) {   // (anywhere in the pushback card)
+                  for (float yy = 90; yy < 470; yy += 8) for (float xx = x0; xx <= x1; xx += 24) { const Actions q = press(st2, xx, yy); if (q.ground == want) return true; }
+                  return false;
+              };
+              SimState p1 = g3; p1.ground.chocks = true; p1.ground.parkBrake = true; p1.ground.extPower = true;
+              settle(p1);
+              if (!findAct(p1, GA_PUSH_STOP)) { std::printf("FAIL: the Pushback card's Stop (X-Plane's tug)\n"); ++failures; }
+              if (!findAct(p1, GA_PUSH_LEFT) || !findAct(p1, GA_PUSH_STRAIGHT) || !findAct(p1, GA_PUSH_RIGHT)) { std::printf("FAIL: the Pushback card's Left, Straight, Right\n"); ++failures; }
+              if (findAct(p1, GA_PUSH_STOP, 16, 520)) { std::printf("FAIL: pushback reaches into the aircraft's two thirds\n"); ++failures; }
               settle(p1);
               shot(p1, APP_GROUND, "ground_pushback_xp");
               SimState p2 = g3; p2.ground.pushSource = 1; p2.ground.bpConnected = true; p2.ground.parkBrake = true; p2.ground.taxiLight = true;
-              settle(p2);   // (the panel stays open from X-Plane's tug above)
-              bool start = false;
-              for (float yy = 170; yy < 470 && !start; yy += 6) { const Actions q = press(p2, 480, yy); if (q.ground == GA_BP_START) start = true; }
-              if (!start) { std::printf("FAIL: the Pushback panel's Start (BetterPushback)\n"); ++failures; }
               settle(p2);
               shot(p2, APP_GROUND, "ground_pushback_bp");
-              {   // its tug: connected, its button disconnects it
-                  bool disc = false;
-                  for (float yy = 170; yy < 470 && !disc; yy += 6) { const Actions q = press(p2, 700, yy); if (q.ground == GA_BP_DISCONNECT) disc = true; }
-                  if (!disc) { std::printf("FAIL: the Pushback panel's Disconnect the tug (BetterPushback)\n"); ++failures; }
-                  settle(p2);
+              // (Disconnect first: a scan for Start passes over the tug's row, and its press would leave the tug "disconnecting")
+              if (!findAct(p2, GA_BP_DISCONNECT)) { std::printf("FAIL: the Pushback card's Disconnect The Tug (BetterPushback)\n"); ++failures; }
+              if (!findAct(p2, GA_BP_START)) { std::printf("FAIL: the Pushback card's Start (BetterPushback)\n"); ++failures; }
+              settle(p2);
+              {   // not connected, not pushing: Plan Route and Connect The Tug
+                  SimState p4 = g3; p4.ground.pushSource = 1;
+                  if (!findAct(p4, GA_BP_PLAN)) { std::printf("FAIL: the Pushback card's Plan Route\n"); ++failures; }
+                  if (!findAct(p4, GA_BP_CONNECT)) { std::printf("FAIL: the Pushback card's Connect The Tug\n"); ++failures; }
+                  settle(p4);
+                  SimState p5 = p4; p5.ground.bpStarted = true; p5.ground.bpConnected = true;
+                  if (!findAct(p5, GA_BP_STOP)) { std::printf("FAIL: the Pushback card's Stop (BetterPushback)\n"); ++failures; }
+                  settle(p5);
               }
-              {   // Push Back again (red, "Close") puts the panel away (the cabin back)
-                  press(p2, 735, 405); settle(p2);
+              {   // the cabin's controls are the Cabin app's now: none left on the GSE page
                   bool cabin = false;
-                  for (float yy = 100; yy < 340 && !cabin; yy += 6) { const Actions q = press(p2, 700, yy); if (q.ground == GA_SLIDES_AUTO) cabin = true; }
-                  if (!cabin) { std::printf("FAIL: Push Back (Close) puts the panel away\n"); ++failures; }
+                  for (float yy = 90; yy < 470 && !cabin; yy += 8) for (float xx = 20; xx < 790 && !cabin; xx += 24) {
+                      const Actions q = press(p2, xx, yy);
+                      cabin = q.ground == GA_SLIDES_AUTO || q.ground == GA_SLIDES_ARM || q.ground == GA_CABIN_READY || q.ground == GA_CABIN_LIGHT;
+                  }
+                  if (cabin) { std::printf("FAIL: a cabin control is still on the GSE page\n"); ++failures; }
+                  settle(p2);
               }
           }
           {   // a jetway docked: listed, and BetterPushback's Start and tug greyed (no action from them)
               SimState pj = g3; pj.ground.pushSource = 1; pj.ground.jwDocked[0] = true;
-              press(pj, 735, 405);
-              for (int k = 0; k < 10; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, pj, 800, kLogicalH, act); ImGui::Render(); }
+              settle_(pj);
               bool acted = false;
-              for (float yy = 200; yy < 330; yy += 6) { const Actions q = press(pj, 480, yy); const Actions q2 = press(pj, 700, yy); if (q.ground == GA_BP_START || q2.ground == GA_BP_CONNECT) acted = true; }
+              for (float yy = 90; yy < 470 && !acted; yy += 8) for (float xx = 548; xx <= 784; xx += 24) { const Actions q = press(pj, xx, yy); if (q.ground == GA_BP_START || q.ground == GA_BP_CONNECT) acted = true; }
               if (acted) { std::printf("FAIL: BetterPushback starts with a jetway connected\n"); ++failures; }
+              settle_(pj);
               shot(pj, APP_GROUND, "ground_pushback_jetway");
-              press(pj, 735, 405);
           }
           {   // the tug on its way (a push started, not connected yet): yellow "Tug Connecting"
               SimState p3 = g3; p3.ground.pushSource = 1; p3.ground.bpStarted = true; p3.ground.bpConnected = false;
-              press(p3, 735, 405);
-              for (int k = 0; k < 10; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, p3, 800, kLogicalH, act); ImGui::Render(); }
+              settle_(p3);
               shot(p3, APP_GROUND, "ground_pushback_connecting");
-              press(p3, 735, 405);
           }
-          { SimState g4 = g3; g4.ground.slidesAuto = true; g4.ground.slides = 1; settings().cabinAuto = true; shot(g4, APP_GROUND, "ground_slides_auto"); settings().cabinAuto = false; }
+          {   // the Cabin app: a ToLiss's lights, slides and Cabin Ready; greyed (its icon and its page) in any other aircraft
+              SimState c1 = g3; c1.ground.cabinLight = 0.6f; c1.ground.slides = 0;
+              openApp(APP_CABIN);
+              settle_(c1);
+              bool arm = false, ready = false, autoS = false, light = false;
+              for (float yy = 90; yy < 470; yy += 8) for (float xx = 20; xx < 790; xx += 20) {
+                  const Actions q = press(c1, xx, yy);
+                  arm = arm || q.ground == GA_SLIDES_ARM; ready = ready || q.ground == GA_CABIN_READY; autoS = autoS || q.ground == GA_SLIDES_AUTO;
+                  light = light || q.ground == GA_CABIN_LIGHT;
+              }
+              settings().cabinAuto = false;
+              if (!arm || !ready || !autoS || !light) { std::printf("FAIL: the Cabin page's controls (arm %d, ready %d, auto %d, light %d)\n", arm, ready, autoS, light); ++failures; }
+              shot(c1, APP_CABIN, "cabin_toliss");
+              { SimState c2 = c1; c2.ground.slidesAuto = true; c2.ground.slides = 1; settings().cabinAuto = true; shot(c2, APP_CABIN, "cabin_auto"); settings().cabinAuto = false; }
+              SimState c3 = c1; c3.toliss = false; c3.ground.toliss = false; c3.ground.cabinLight = -1; c3.ground.slides = -1;
+              openApp(APP_CABIN);
+              bool any = false;
+              for (float yy = 90; yy < 470 && !any; yy += 8) for (float xx = 20; xx < 790 && !any; xx += 20) { const Actions q = press(c3, xx, yy); any = q.ground != GA_NONE; }
+              if (any) { std::printf("FAIL: the Cabin page works outside a ToLiss\n"); ++failures; }
+              shot(c3, APP_CABIN, "cabin_not_toliss");
+              openApp(APP_GROUND);
+          }
           openApp(APP_GROUND); }
         // not a ToLiss: an airliner still gets the 1L bubble (X-Plane's own jetways, or openSAM's)
         {   // SAM jetways and openSAM not running: the scenery read (a pack's sam.xml, its apt.dat), and the Ground page's error
@@ -1912,16 +1971,19 @@ int main(int argc, char** argv) {
             openApp(APP_GROUND);
         }
         // the cabin lights: the slider sets the level in steps of 10 %; with them off, On brings back the level they last had
-        { bool slid = false, on = false, arm = false;
+        { bool slid = false, on = false, arm = false;   // (the Cabin app's page now)
           SimState off = g; off.ground.cabinLight = 0;
+          openApp(APP_CABIN);
+          settings().cabinAuto = false;
           for (float yy = 90; yy < 330 && !(slid && on && arm); yy += 3) {
-              const Actions q = press(g, 660, yy);
+              const Actions q = press(g, 200, yy);
               if (q.ground == GA_CABIN_LIGHT && q.groundIndex % 10 == 0 && q.groundIndex > 0 && q.groundIndex < 100) slid = true;
-              const Actions o = press(off, 668, yy);
+              const Actions o = press(off, 275, yy);
               if (o.ground == GA_CABIN_LIGHT && o.groundIndex > 0) on = true;
-              const Actions o2 = press(g, 450, yy);
+              const Actions o2 = press(g, 460, yy);
               if (o2.ground == GA_SLIDES_ARM) arm = true;
           }
+          openApp(APP_GROUND);
           if (!slid) { std::printf("FAIL: the cabin light slider\n"); ++failures; }
           if (!on) { std::printf("FAIL: the cabin light On button\n"); ++failures; }
           if (!arm) { std::printf("FAIL: the slides Arm button\n"); ++failures; } }

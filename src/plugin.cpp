@@ -73,6 +73,7 @@
 #include "tabrender.h"
 #include "version.h"
 #include "wxplane_embed.h"
+#include "xgse_embed.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -187,6 +188,7 @@ bool loadGl() {
 // ---- state ---------------------------------------------------------------------------------------------------------------------
 const char* kAviTabSignature = "org.solhost.folko.avitab";
 const char* kWxPlaneSignature = WXPLANE_SIGNATURE;
+const char* kXgseSignature = XGSE_SIGNATURE;
 
 // The cockpit tablet's area on the panel texture, and its switches. These are what the avitab/panel_* datarefs read and write.
 int g_panelLeft = 0, g_panelBottom = 0, g_panelWidth = 0, g_panelHeight = 0;
@@ -2104,12 +2106,41 @@ void drawBatches(const std::vector<xpt::Batch>& batches, float left, float top, 
     if (cull) gl.Enable(GL_CULL_FACE);
 }
 
+// The GSE page with XGSE installed: XGSE draws its own screen there, as WXPlane does on Weather (xgse_embed.h, the same matrix).
+void drawXgse(float left, float top, float sx, float sy, float pixelsPerUnit, float brightness) {
+    const xpt::EmbedArea& e = xpt::embedArea();
+    const XPLMPluginID xg = XPLMFindPluginBySignature(kXgseSignature);
+    if (xg == XPLM_NO_PLUGIN_ID || !XPLMIsPluginEnabled(xg)) { g_sim.xgse = false; return; }
+    XgseEmbedRequest rq;
+    std::memset(&rq, 0, sizeof rq);
+    rq.structSize = (int)sizeof rq;
+    rq.version = 1;
+    rq.widthPx = e.w * sx; rq.heightPx = e.h * sy;
+    rq.pixelsPerUnit = pixelsPerUnit;
+    rq.mouseX = e.mx < -1e8f ? -1e9f : e.mx * sx;
+    rq.mouseY = e.my < -1e8f ? -1e9f : e.my * sy;
+    rq.mouseDown = e.down ? 1 : 0;
+    rq.wheel = e.wheel;
+    rq.brightness = brightness;
+    rq.frame = XPLMGetCycleNumber();
+    rq.accentRGBA = xpt::themeAccentRGBA();
+    rq.backgroundRGBA = xpt::themeBackgroundRGBA();
+    gl.MatrixMode(GL_MODELVIEW);
+    gl.PushMatrix();
+    gl.Translatef(left + e.x * sx, top - e.y * sy, 0.0f);
+    gl.Scalef(1.0f, -1.0f, 1.0f);
+    XPLMSendMessageToPlugin(xg, XGSE_MSG_EMBED, &rq);
+    gl.PopMatrix();
+    g_sim.xgseEmbed = rq.handled ? 1 : -1;   // an XGSE that does not (yet) draw on the tablet: XPTablet's own GSE page stays
+}
+
 // The Weather page with WXPlane installed: WXPlane draws its own screen into the page's area. It is asked from inside our drawing,
 // with the matrix set so the area's top-left corner is the origin, y runs down and one unit is one pixel of this surface
 // (wxplane_embed.h). left/top: where the tablet's own top-left corner is; sx/sy: surface units per layout unit.
 void drawEmbedded(float left, float top, float sx, float sy, float pixelsPerUnit, float brightness) {
     const xpt::EmbedArea& e = xpt::embedArea();
     if (!e.active) return;
+    if (e.owner == 1) { drawXgse(left, top, sx, sy, pixelsPerUnit, brightness); return; }
     const XPLMPluginID wx = XPLMFindPluginBySignature(kWxPlaneSignature);
     if (wx == XPLM_NO_PLUGIN_ID || !XPLMIsPluginEnabled(wx)) { g_sim.wxPlane = false; return; }
     WxEmbedRequest rq;
@@ -2422,6 +2453,18 @@ void placeWindowForVr() {
     XPLMSetWindowPositioningMode(g_win, vr ? xplm_WindowVR : xplm_WindowPositionFree, -1);
 }
 
+// The floating window's place and size, kept in the settings while it is on the screen (not popped out, not in VR), so it opens
+// the same next time, after the sim or the plugins reload.
+void rememberWindow() {
+    if (!g_win || !XPLMGetWindowIsVisible(g_win) || XPLMWindowIsPoppedOut(g_win) || XPLMWindowIsInVR(g_win)) return;
+    int sl = 0, st = 0, sr = 0, sb = 0, l = 0, t = 0, r = 0, b = 0;
+    XPLMGetScreenBoundsGlobal(&sl, &st, &sr, &sb);
+    XPLMGetWindowGeometry(g_win, &l, &t, &r, &b);
+    if (r - l < 100 || t - b < 60) return;
+    xpt::Settings& s = xpt::settings();
+    s.winX = l - sl; s.winY = b - sb; s.winW = r - l; s.winH = t - b;   // (saved with the other settings when it changes)
+}
+
 void toggleWindow() {
     if (!g_win) {
         int sl = 0, st = 0, sr = 0, sb = 0;
@@ -2430,6 +2473,12 @@ void toggleWindow() {
         std::memset(&p, 0, sizeof p);
         p.structSize = sizeof p;
         p.left = sl + 80; p.bottom = sb + 120; p.right = p.left + 800; p.top = p.bottom + 480;
+        if (const xpt::Settings& ks = xpt::settings(); ks.winW > 0) {   // as it was last time, kept on this screen (a smaller one shrinks it)
+            const int sw = std::max(400, sr - sl), sh = std::max(240, st - sb);
+            const int ww = std::max(400, std::min(ks.winW, sw)), wh = std::max(240, std::min(ks.winH, sh));
+            p.left = sl + std::max(0, std::min(ks.winX, sw - ww)); p.bottom = sb + std::max(0, std::min(ks.winY, sh - wh));
+            p.right = p.left + ww; p.top = p.bottom + wh;
+        }
         p.visible = 1;
         p.drawWindowFunc = Safe<winDraw, 0>::call;
         p.handleMouseClickFunc = Safe<winClick, 1>::call;
@@ -3441,6 +3490,7 @@ float flightLoop(float dt, float, int, void*) {
     xpt::crashlog::here("the flight loop: localConnectStep");
     localConnectStep();
     if (xpt::takeSettingsChanged()) saveSettings();
+    rememberWindow();
     saveSettingsIfChanged(sec);
     xpt::crashlog::here("the flight loop: chimeStep");
     chimeStep();
@@ -3468,7 +3518,11 @@ float flightLoop(float dt, float, int, void*) {
         if (XPLMDataRef r = XPLMFindDataRef("AirbusFBW/EngineTypeIndex")) k = (XPLMGetDataRefTypes(r) & xplmType_Int) ? XPLMGetDatai(r) : (int)XPLMGetDataf(r);
         if (k != lastToLissEng) { const bool first = lastToLissEng == -100; lastToLissEng = k; if (!first) loadChecklist(); }
     }
-    if ((XPLMGetCycleNumber() & 255) == 0) g_sim.wxPlane = XPLMFindPluginBySignature(kWxPlaneSignature) != XPLM_NO_PLUGIN_ID;   // it may load after us
+    if ((XPLMGetCycleNumber() & 255) == 0) {   // they may load after us
+        g_sim.wxPlane = XPLMFindPluginBySignature(kWxPlaneSignature) != XPLM_NO_PLUGIN_ID;
+    g_sim.xgse = XPLMFindPluginBySignature(kXgseSignature) != XPLM_NO_PLUGIN_ID;
+        g_sim.xgse = XPLMFindPluginBySignature(kXgseSignature) != XPLM_NO_PLUGIN_ID;
+    }
     xpt::crashlog::here("the flight loop: updateCaptureWindow");
     updateCaptureWindow();
     return -1.0f;   // every frame
@@ -3599,6 +3653,7 @@ PLUGIN_API void XPluginDisable(void) {
 #if defined(XPT_LOCAL_CONNECT)
     if (g_localRunning) { xpt::mirror::stop(); xpt::localserver::stop(); g_localRunning = false; }   // (started again by the flight loop when the setting is on)
 #endif
+    rememberWindow();
     if (xpt::settingsToText() != g_savedSettings) saveSettings();   // nothing changed is lost when the sim or the plugins reload
     XPLMUnregisterKeySniffer(Safe<keySniffer, 1>::call, 1, nullptr);
     XPLMUnregisterDrawCallback(Safe<drawPanel, 1>::call, xplm_Phase_Gauges, 0, nullptr);

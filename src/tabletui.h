@@ -23,6 +23,7 @@ enum App { APP_HOME = -1, APP_MAP, APP_AIRPORTS, APP_CHARTS, APP_DOCUMENTS, APP_
            // the App Store and what it offers (web apps, installed or not), and Games
            APP_APPSTORE, APP_GAMES, APP_DATIS, APP_SPOTIFY, APP_YTMUSIC, APP_APPLEMUSIC, APP_SOUNDCLOUD, APP_YOUTUBE, APP_VATSIMHUB, APP_NATTRAK, APP_IVAO,
            APP_TIMERS, APP_LOGBOOK, APP_ACARS, APP_XPILOT, APP_FR24, APP_DISCORD,   // (App Store apps of XPTablet's own)
+           APP_CABIN,   // the ToLiss cabin (lights, slides, Cabin Ready): an App Store app, under Aircraft Management
            APP_COUNT };
 
 constexpr int kMaxFavorites = 7;   // the favorites bar holds up to 7 places (icons, or the 1 x 1 and 7 x 1 widgets); its size is chosen in Settings, 0 removes it
@@ -33,7 +34,7 @@ struct Settings {
     // (ForeFlight, SkyVector), flight planning (SimBrief)
     bool showCharts = true, showNavigraph = false, showLive = false, showVatsim = false, showForeflight = true, showSkyvector = false, showSimbrief = true;
     std::vector<int> order;       // the home screen's icons, in the order the user arranged them
-    std::vector<std::string> installed = {"datis", "games"};   // the App Store's apps on the home screen (their ids)
+    std::vector<std::string> installed = {"datis", "games", "cabin"};   // the App Store's apps on the home screen (their ids)
     struct Folder { std::string name; std::vector<int> apps; };
     std::vector<Folder> folders;  // the home screen's folders (in order as kFolder0 + their index)
     int homePages = 1;            // the home screen's pages
@@ -96,6 +97,7 @@ struct Settings {
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
     bool mediaEnabled = true;     // the Music app and the music controls in the pull-down (not on macOS)
     int mediaDuck = 0;            // while the radios receive: 0 leave the music alone, 1 lower it (duckRx / duckTx), 2 pause it (and play it again after)
+    int winX = 0, winY = 0, winW = 0, winH = 0;   // the floating window: its place (from the screen's bottom-left) and size; winW 0 not yet kept
     bool docsListHidden = false;  // Documents: the file list folded away (the document across the page)
     std::string mediaOutput;      // Windows: the sound output the computer volume (the PC slider) controls; "" Windows' default
     float duckRx = 0.5f;          // lowered: the media's volume while receiving, 0..1
@@ -385,6 +387,8 @@ struct SimState {
     bool aviTabRunning = false;   // AviTab is installed and active: the cockpit tablet stays AviTab's
     bool wxPlane = false;         // WXPlane is installed
     int wxEmbed = 0;              // WXPlane drew itself on the Weather page: 1 yes, -1 asked but it did not, 0 not asked yet
+    bool xgse = false;            // XGSE is installed: the GSE page is XGSE's (xgse_embed.h)
+    int xgseEmbed = 0;            // XGSE drew itself on the GSE page: 1 yes, -1 asked but it did not, 0 not asked yet
     bool toliss = false;          // a ToLiss aircraft: its own tablet does the performance calculations, so ours is left out
     float brightness = 1.0f;      // what the aircraft sets for its tablet (avitab/brightness)
     float pixelScale = 1.0f;      // screen pixels per layout unit
@@ -511,6 +515,7 @@ void build(const Fonts& f, const SimState& s, float w, float h, Actions& act);  
 // The part of the screen another plugin draws (WXPlane on the Weather page), and the pointer in it. In layout units.
 struct EmbedArea {
     bool active = false;
+    int owner = 0;                  // who draws there: 0 WXPlane (the Weather page), 1 XGSE (the GSE page)
     float x = 0, y = 0, w = 0, h = 0;
     float mx = -1e9f, my = -1e9f;   // the pointer, from the area's top-left corner; far outside when not over it
     bool down = false;
@@ -529,7 +534,9 @@ std::string checklistFor(const std::string& text, const std::string& icao, const
 int currentApp();
 bool browserBarsHidden();
 int localRefreshRate();   // Local Connect's pictures a second (Settings, Local Connect)
-std::string localThemeJson();   // the tablet's theme colours as JSON (Local Connect's page follows them)
+std::string localThemeJson();
+unsigned themeAccentRGBA();       // the theme's accent colour, 0xRRGGBBAA (for XGSE)
+unsigned themeBackgroundRGBA();   // the theme's page background, 0xRRGGBBAA   // the tablet's theme colours as JSON (Local Connect's page follows them)
 // The pointer (the sim's mouse, a finger, a paired device): queued, and fed to Dear ImGui a step a frame, so that a press always
 // finds the pointer on its spot the frame before (call pumpPointer before NewFrame)
 void queuePointer(float x, float y, int down);   // down: -1 a move, 1 pressed, 0 released
