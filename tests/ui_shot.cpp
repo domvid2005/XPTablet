@@ -969,7 +969,16 @@ int main(int argc, char** argv) {
             Settings keep = settings();
             settings().showNavigraph = settings().showVatsim = settings().showSkyvector = settings().showForeflight = settings().showLive = true;
             shot(t, APP_HOME, "home_all_apps");
-            { SimState tl = t; tl.toliss = true; tl.ground.toliss = true; shot(tl, APP_HOME, "home_all_apps_toliss"); }   // (Cabin lit)
+            { SimState tl = t; tl.toliss = true; tl.ground.toliss = true; shot(tl, APP_HOME, "home_all_apps_toliss");   // (Cabin lit)
+              // the Cabin icon (third row, second place): greyed outside a ToLiss, it takes no press; in a ToLiss it opens
+              auto tapAt = [&](const SimState& st2, float x, float y) { const bool downs[8] = {false, false, true, true, false, false, false, false};
+                  for (bool d : downs) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, d);
+                      ImGui::NewFrame(); Actions act; build(fonts, st2, 800, kLogicalH, act); ImGui::Render(); } };
+              openApp(APP_HOME); tapAt(t, 192, 275);
+              if (currentApp() != APP_HOME) { std::printf("FAIL: the greyed Cabin icon opened (%d)\n", currentApp()); ++failures; }
+              openApp(APP_HOME); tapAt(tl, 192, 275);
+              if (currentApp() != APP_CABIN) { std::printf("FAIL: the Cabin icon in a ToLiss (%d)\n", currentApp()); ++failures; }
+              openApp(APP_HOME); }
             settings() = keep;
         }
         SimState g_previewState;

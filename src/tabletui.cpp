@@ -136,6 +136,7 @@ bool g_localLive = false;      // a device is showing the tablet through Local C
 bool g_wx = false;             // WXPlane is installed (told by the host each frame): the Weather icon and page are WXPlane's
 bool g_xgse = false;           // XGSE is installed (told each frame): the GSE icon and page are XGSE's
 bool g_tolissNow = false;      // the aircraft is a ToLiss (told each frame): the Cabin app works, else it is greyed
+bool appLocked(int app) { return app == APP_CABIN && !g_tolissNow; }   // greyed: its icon takes no press (it can still be arranged)
 ImTextureID g_wxLogo = 0;
 Settings g_settings;
 // the App Store's apps: on the home screen only once installed (the others were always there, their Settings switches too)
@@ -1317,6 +1318,7 @@ Ease eased(const char* id, bool on, bool hot, bool down);
 void hoverTile(ImDrawList* dl, const Fonts& f, int app, ImVec2 c, float tile, bool over, bool held) {
     char id[24];
     std::snprintf(id, sizeof id, "##hov%d", app);
+    if (appLocked(app) && !g_editMode) over = held = false;   // (greyed: no lift, no press)
     const Ease ez = eased(id, false, over && !held, held);
     const float scale = 1.0f + 0.05f * ez.hot - 0.06f * ez.down;
     drawTile(dl, f, app, c, tile, true, scale, 1.0f + 0.12f * ez.hot - 0.14f * ez.down);
@@ -1977,7 +1979,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
         } else if (!g_dragging && !g_editEnteredNow && moved < 10) {
             if (e >= 0 && !g_editMode) {
                 for (const Hit& ht : hits) if (ht.e == e && m.x >= ht.a.x && m.x < ht.b.x && m.y >= ht.a.y && m.y < ht.b.y) {
-                    if (isApp(e)) openApp(e);
+                    if (isApp(e)) { if (!appLocked(e)) openApp(e); }   // (a greyed icon: nothing)
                     else if (isFolder(e)) { g_openFolder = e - kFolder0; g_folderT0 = now; }
                     else if (isWidget(e)) {   // a widget opens what it shows
                         static const int to[W_COUNT] = {APP_WEATHER, APP_ROUTES, APP_MUSIC, -1, APP_LIVEMAP};
@@ -2135,7 +2137,7 @@ void home(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, A
                 ImGui::SetCursorScreenPos(ImVec2(bc.x - 13, bc.y - 13));
                 char bid[24]; std::snprintf(bid, sizeof bid, "##fout%d", i);
                 if (ImGui::InvisibleButton(bid, ImVec2(26, 26))) takeOut = i;
-            } else if (hit) { const int app = fo.apps[i]; g_openFolder = -1; openApp(app); break; }
+            } else if (hit && !appLocked(fo.apps[i])) { const int app = fo.apps[i]; g_openFolder = -1; openApp(app); break; }
         }
         if (n == 0) textCentered(dl, f.small, c.x, a.y + 80, kMuted, g_editMode ? "Drag apps onto the folder to add them" : "Empty: hold an icon, then drag apps onto the folder");
         if (takeOut >= 0) {   // back onto the home screen
