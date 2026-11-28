@@ -1,17 +1,33 @@
-# XPTablet 1.0.2
+# XPTablet 1.1.0
 
-A fix release for XPTablet, the free cockpit tablet for X-Plane 12 by Alpine Aviation.
+A feature release for XPTablet, the free cockpit tablet for X-Plane 12 by Alpine Aviation.
 
-**Install:** download `XPTablet-1.0.2.zip` below, unzip it, and copy the `XPTablet` folder into `X-Plane 12/Resources/plugins/`,
+**Install:** download `XPTablet-1.1.0.zip` below, unzip it, and copy the `XPTablet` folder into `X-Plane 12/Resources/plugins/`,
 replacing the old one. SkunkCrafts Updater users get it automatically.
 
-## Changes
+## New
 
-- **Choose the volume's output (Windows):** Settings > Media has a new **Computer Volume Output** choice: Windows Default, or any
-  speaker, headset or virtual device. With Voicemeeter or another mixer, choose the speakers or headset your sound comes out of, and
-  the PC slider in Media works again.
-- **Players and radio apps found on every output:** the Media slider and the radio's lowering or pausing of your music now work when
-  the player or the voice app (xPilot, TrackAudio...) plays through a headset or another output than Windows' default.
-- **Documents shows your files again:** the XPTablet button showed nothing. Fixed.
-- **Read documents across the page:** an arrow at the top of the Documents list folds it away; the arrow at the left brings it back.
-- **Documents:** the AviTab button is gone. AviTab's charts, if you have the folder, are listed under All.
+- **GSE (was Aircraft):** a redesigned ground page. The aircraft is drawn larger with its jetway bubbles by the doors and the jetway
+  status beside the nose, and pushback (BetterPushback or X-Plane's tug) always sits in the right third, with what is still in the
+  way listed above its buttons.
+- **Cabin:** a new app in the App Store, under the new **Aircraft Management** category, with a lightbulb icon. It has the ToLiss
+  cabin lights (Auto, On, Off and a dimmer), the slides (Arm, Disarm, Auto) and Cabin Ready. Outside a ToLiss its icon is greyed and
+  does nothing. Existing users get it installed once, since these controls used to be on the Aircraft page.
+- **Performance settings:** a new Settings page.
+  - **Tablet Frame Rate:** 15, 20, 30, 60 or Max (default 30). Lower leaves more of the computer to X-Plane. Local Connect devices
+    get the same rate (its own Refresh Rate slider is gone).
+  - **Close Unused Web Pages:** Never, or after 5, 15 or 30 minutes unseen (not while something plays). The Browser's tabs open
+    again, and sites stay signed in.
+  - **Reduced Memory Use:** fewer map tiles kept, and the map's navaids, fixes and airways put away after 5 minutes without the Map.
+- **The floating window remembers its place and size** after the sim or the plugins reload.
+
+## Faster, lighter
+
+- Web pages are paused while they are not on screen: no more drawing in the background (music keeps playing).
+- The map's navaids, fixes and airways load when the Map is first opened, not as soon as you are on the ground.
+- Less work each frame when the screen is dimmed.
+
+## Ready for XGSE
+
+- Alpine Aviation's upcoming XGSE ground services plugin will take over the GSE page with its own screen when it is installed, the
+  way WXPlane takes over Weather. Until then, nothing changes.

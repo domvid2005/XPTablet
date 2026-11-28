@@ -11,7 +11,7 @@ in its window only; remove AviTab from `Resources/plugins` to let XPTablet take 
 
 ## Status
 
-Version 1.0.2. In it: the tablet in AviTab's place on aircraft built for AviTab (and in a floating window
+Version 1.1.0. In it: the tablet in AviTab's place on aircraft built for AviTab (and in a floating window
 on the others), the home screen and App Store, the moving map with VATSIM traffic and airspaces, airports, charts and documents,
 SimBrief flight plans and the Dispatch briefing, weather (WXPlane's own page when it is installed), checklists, notes, a logbook,
 ground services and pushback, the browser and web apps, media controls, and Local Connect.

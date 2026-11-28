@@ -1,4 +1,4 @@
-# XPTablet 1.0.2 – a cockpit tablet for X-Plane 12
+# XPTablet 1.1.0 – a cockpit tablet for X-Plane 12
 
 **XPTablet is a free tablet for your cockpit, by Alpine Aviation.** It appears on the tablet of any aircraft that was built for AviTab, with no change to the aircraft, and in a floating window (also in VR) on every other aircraft. On it: a moving map with live traffic, airports and frequencies, your SimBrief flight plan and briefing, weather, jetways and pushback, checklists, charts and web apps, your music, and the whole tablet on your phone or iPad.
 
@@ -17,15 +17,17 @@ Free. Windows, macOS and Linux. X-Plane 12.
 - **Flight Plan:** import your latest SimBrief flight with your SimBrief Pilot ID: route, fuel and weights, navlog and progress along the route. A new plan can load by itself.
 - **Dispatch:** the SimBrief briefing by section: Briefing, Summary, Navlog, Weather, NOTAMs and ATC Flight Plan.
 - **Weather:** X-Plane's own weather at the aircraft (wind, visibility, clouds, winds aloft) and decoded METARs for any airport. With WXPlane installed, WXPlane's page appears here.
-- **Aircraft:** connect openSAM jetways door by door, call BetterPushback or X-Plane's own tug, and on ToLiss aircraft work the cabin lights and slides. Top views for many aircraft types.
+- **GSE:** connect openSAM jetways door by door, and call BetterPushback or X-Plane's own tug, with what is still in the way listed. Top views for many aircraft types.
+- **Cabin (ToLiss):** the cabin lights with a dimmer, the slides and Cabin Ready, in an app of its own (App Store, Aircraft Management).
 - **Checklists:** normal, abnormal and emergency checklists for airliners, turboprops and light aircraft. Add your own as a text file per aircraft type.
 - **Documents:** your PDFs and pictures (and AviTab's charts folder), with a list that folds away to read across the page.
-- **App Store:** add only what you use. Charts (ChartFox, Navigraph, SkyVector, ForeFlight), SimBrief, D-ATIS, VATSIM Radar, Flightradar24, Discord, Spotify, YouTube and YouTube Music, Apple Music, SoundCloud, plus XPTablet's own Timers, Logbook, ACARS and Games.
+- **App Store:** add only what you use. Charts (ChartFox, Navigraph, SkyVector, ForeFlight), SimBrief, D-ATIS, VATSIM Radar, Flightradar24, Discord, Spotify, YouTube and YouTube Music, Apple Music, SoundCloud, plus XPTablet's own Timers, Logbook, ACARS, Games and Cabin.
 - **Browser:** tabs, bookmarks, history, zoom and an on-screen keyboard, with touch scrolling.
 - **ACARS:** Hoppie's ACARS with CPDLC, pre-departure clearances and telex (a free Hoppie logon code).
 - **Logbook, Timers, Notes, Navaids:** every flight logged by itself (times, route, landing rate, fuel); a stopwatch, hold timer, ETA and top of descent; a clearance form, ATIS form and scratchpad; and a search for any VOR, NDB, ILS, DME or fix.
 - **Media:** what is playing on your computer, with its cover and controls. It can lower or pause your music while the radio receives or transmits. On Windows, choose which sound output the volume controls (Voicemeeter users: your speakers or headset).
 - **Local Connect:** the same tablet on a phone or iPad on your Wi-Fi, worked by touch. Details below.
+- **Performance:** choose the tablet's frame rate, close web pages you are not using, and a reduced memory mode. Web pages pause by themselves while not on screen.
 - **Themes:** seven color themes, three custom ones (your own colors or background picture), seasonal and holiday themes, and an option to color the built-in app icons to match.
 - **Games:** 2048, Knots and Crosses, and six aviation games of its own: Contrail, Taxi Rush, Sky Patrol, Hangar Climb, Cockpit 21 and Cargo Load.
 
@@ -67,7 +69,7 @@ How it is kept safe: it is off until you switch it on, it answers only on your h
 6. `06_XPTablet_Airports.png` – Airports and frequencies
 7. `07_XPTablet_Flight_Plan_And_Dispatch.png` – SimBrief flight plan and Dispatch
 8. `08_XPTablet_Weather.png` – Weather and METAR search
-9. `09_XPTablet_Aircraft_And_Ground.png` – Jetways, cabin and pushback
+9. `09_XPTablet_GSE_And_Cabin.png` – GSE (jetways and pushback) and Cabin
 10. `10_XPTablet_Checklists.png` – Checklists
 11. `11_XPTablet_Pilot_Tools.png` – ACARS, Logbook, Timers, Notes, Navaids, xPilot
 12. `12_XPTablet_App_Store.png` – App Store

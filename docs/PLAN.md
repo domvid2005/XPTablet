@@ -86,7 +86,7 @@ the ToLiss shows them itself with the doors, as chosen on its own EFB (only thei
 XPTablet writes what it finds to Log.txt once per ToLiss aircraft ("[XPTablet] ToLiss: ..."). Confirmed in the A320 (2026-11-17):
 PaxDoorModeArray has 4 values, CargoDoorModeArray 3 (forward, aft, bulk), both writable; the door and de-ice names are commands.
 
-### GSE, Cabin and XGSE (next release, after 1.0.2; not pushed until XGSE is released)
+### GSE, Cabin and XGSE (1.1.0)
 
 - The Aircraft app is now **GSE** (its settings id stays "ground"): the aircraft with its door jetway bubbles takes two thirds of the
   screen, the jetway status sits in that card's top-right corner, and a Pushback card always fills the last third (BetterPushback:
@@ -100,7 +100,7 @@ PaxDoorModeArray has 4 values, CargoDoorModeArray 3 (forward, aft, bulk), both w
 - The floating window keeps its place and size between sessions (settings key `window=x,y,w,h`, from the screen's bottom-left; kept
   on screen and shrunk to fit a smaller one).
 
-### Performance (Settings, Performance)
+### Performance (Settings, Performance; 1.1.0)
 
 - **Tablet Frame Rate** 15 / 20 / 30 / 60 / Max (default 30; key `tablet_fps`, 0 Max): the tablet builds its picture at most that
   often, kept to the rate on average whatever X-Plane's own frame rate; between, the last picture is drawn again. Local Connect's
