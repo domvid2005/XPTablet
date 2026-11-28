@@ -1346,18 +1346,31 @@ int main(int argc, char** argv) {
                     ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); }
                 io.AddMouseButtonEvent(0, false);
                 shot(sb, APP_SETTINGS, "settings_custom_theme");
-                {   // its wheels can be dragged (the background's colour changes); a press beside the card does not close it
+                {   // its pickers: the triangle dragged (the background's strength and brightness), the ring (the accent's hue), a ready
+                    // colour pressed; a press beside the card does not close it
                     const int before = settings().customs[0].bg;
-                    for (int k = 0; k < 6; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(472.0f + k * 8, 182); io.AddMouseButtonEvent(0, k < 5);
-                        ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); }
-                    if (settings().customs[0].bg == before) { std::printf("FAIL: the background wheel can be dragged\n"); ++failures; }
+                    auto drag = [&](float x0, float y0, float dxs, float dys) { for (int k = 0; k < 6; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(x0 + k * dxs, y0 + k * dys); io.AddMouseButtonEvent(0, k < 5);
+                        ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); } };
+                    drag(448, 175, 6, 0);   // (the background's triangle, round its middle)
+                    if (settings().customs[0].bg == before) { std::printf("FAIL: the background's triangle can be dragged\n"); ++failures; }
+                    {   // the accent's ring, from the right round to the bottom: its hue turns, its strength and brightness stay
+                        const int acBefore = settings().customs[0].accent;
+                        float h0, s0, v0, h1, s1, v1;
+                        auto hsv = [](int c, float& h, float& s2, float& v) { ImGui::ColorConvertRGBtoHSV(((c >> 16) & 255) / 255.0f, ((c >> 8) & 255) / 255.0f, (c & 255) / 255.0f, h, s2, v); };
+                        hsv(acBefore, h0, s0, v0);
+                        drag(650 + 55, 169, -3, 9);
+                        hsv(settings().customs[0].accent, h1, s1, v1);
+                        if (settings().customs[0].accent == acBefore || std::fabs(s1 - s0) > 0.03f || std::fabs(v1 - v0) > 0.03f) { std::printf("FAIL: the accent's ring turns its hue only (%06X -> %06X)\n", acBefore, settings().customs[0].accent); ++failures; }
+                    }
+                    tap(sb, 640, 258);   // the accent's red
+                    if (settings().customs[0].accent != 0xE52B2B) { std::printf("FAIL: a ready colour under the accent picker (%06X)\n", settings().customs[0].accent); ++failures; }
                     tap(sb, 20, 300);
                     tap(sb, 20, 300);
                     for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); }
                     shot(sb, APP_SETTINGS, "settings_custom_theme_dragged");
                 }
                 {   // the accent's hex box: tapped, a code typed sets the colour; a bright one makes the text on it dark
-                    tap(sb, 660, 284);
+                    tap(sb, 660, 288);
                     for (char ch : std::string("ffe070")) tabletKey(ch, true);
                     for (int k = 0; k < 20; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 60.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, sb, 800, kLogicalH, act); ImGui::Render(); }
                     if (!tabletTyping()) { std::printf("FAIL: the hex box takes typing (its keyboard comes up)\n"); ++failures; }
@@ -1373,7 +1386,7 @@ int main(int argc, char** argv) {
                     tabletKey(13, false);
                 }
                 if (settings().wallpaper != 7) { std::printf("FAIL: holding Custom 1 chooses it (%d)\n", settings().wallpaper); ++failures; }
-                tap(sb, 690, 83);   // Done
+                tap(sb, 710, 68);   // Done
                 settings().wallpaper = keepWp;
             }
             settings().autoDim = false;

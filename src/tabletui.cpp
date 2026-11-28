@@ -8583,35 +8583,103 @@ void drawPullDown(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
 // ---- a Custom theme's editor: its background and accent on colour wheels, a picture (from plugins/XPTablet/backgrounds), and a preview
 int g_customEdit = -1;   // the Custom being edited (0-2), -1 none
 double g_customEditT0 = -10;
-bool colorWheel(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 c, float r, int& rgb, float value, const char* label) {
-    const int v0 = dl->VtxBuffer.Size;
-    dl->AddCircleFilled(c, r, IM_COL32(255, 255, 255, 255), 64);
-    for (int i = v0; i < dl->VtxBuffer.Size; ++i) {   // each point: the hue round it, the colour's strength out from the middle
-        ImDrawVert& vx = dl->VtxBuffer[i];
-        const float dx = vx.pos.x - c.x, dy = vx.pos.y - c.y;
-        const float hue = std::fmod(std::atan2(dy, dx) / (2 * 3.14159265f) + 1.0f, 1.0f), sat = std::min(1.0f, std::sqrt(dx * dx + dy * dy) / r);
-        float cr, cg, cbl; ImGui::ColorConvertHSVtoRGB(hue, sat, value, cr, cg, cbl);
-        vx.col = (vx.col & IM_COL32_A_MASK) | IM_COL32((int)(cr * 255), (int)(cg * 255), (int)(cbl * 255), 0);
-    }
-    dl->AddCircle(c, r, IM_COL32(255, 255, 255, 70), 64, 1.0f);
+// A colour picker as XGSE has it: a ring of hues, and in it a triangle with that hue at one corner, white at the next and black at the
+// last (a press in the triangle sets how strong and how bright, on the ring the hue). The triangle turns with the hue.
+bool colorWheel(ImDrawList* dl, const Fonts& f, const char* id, ImVec2 c, float r, int& rgb, const char* label) {
+    static std::map<std::string, float> hueOf;   // each picker's hue, kept for greys (which have none: the triangle stays put)
+    static std::map<std::string, int> dragWhat;  // what the press took: 1 the ring, 2 the triangle
+    const float pi = 3.14159265f, ri = r * 0.76f, tr = ri - 3.0f;
+    float h0, s0, v0;
+    ImGui::ColorConvertRGBtoHSV(((rgb >> 16) & 255) / 255.0f, ((rgb >> 8) & 255) / 255.0f, (rgb & 255) / 255.0f, h0, s0, v0);
+    float& hue = hueOf.emplace(id, h0).first->second;
     ImGui::SetCursorScreenPos(ImVec2(c.x - r, c.y - r));
     ImGui::InvisibleButton(id, ImVec2(r * 2, r * 2));
-    bool changed = false;
-    if (ImGui::IsItemActive()) {
-        const ImVec2 mp = ImGui::GetIO().MousePos;
-        const float dx = mp.x - c.x, dy = mp.y - c.y;
-        const float hue = std::fmod(std::atan2(dy, dx) / (2 * 3.14159265f) + 1.0f, 1.0f), sat = std::min(1.0f, std::sqrt(dx * dx + dy * dy) / r);
-        float cr, cg, cbl; ImGui::ColorConvertHSVtoRGB(hue, sat, value, cr, cg, cbl);
-        const int nv = ((int)(cr * 255) << 16) | ((int)(cg * 255) << 8) | (int)(cbl * 255);
-        if (nv != rgb) { rgb = nv; changed = true; }
+    const bool active = ImGui::IsItemActive();
+    if (!active && s0 > 0.02f && v0 > 0.02f) hue = h0;   // (following the colour, as a hex code or a swatch sets it)
+    const ImVec2 white = ImGui::GetFontTexUvWhitePixel();
+    // the ring: a band of hues, a slice at a time, each corner its own hue
+    {
+        const int n = 96;
+        dl->PrimReserve(n * 6, n * 4);
+        const ImDrawIdx base = (ImDrawIdx)dl->_VtxCurrentIdx;
+        for (int i = 0; i < n; ++i) {
+            for (int k = 0; k < 2; ++k) {
+                const float t = (i + k) / (float)n, an = t * 2 * pi;
+                float cr, cg, cb; ImGui::ColorConvertHSVtoRGB(std::fmod(t, 1.0f), 1, 1, cr, cg, cb);
+                const ImU32 col = IM_COL32((int)(cr * 255), (int)(cg * 255), (int)(cb * 255), 255);
+                dl->PrimWriteVtx(ImVec2(c.x + std::cos(an) * r, c.y + std::sin(an) * r), white, col);
+                dl->PrimWriteVtx(ImVec2(c.x + std::cos(an) * ri, c.y + std::sin(an) * ri), white, col);
+            }
+            const ImDrawIdx q = (ImDrawIdx)(base + i * 4);
+            dl->PrimWriteIdx(q); dl->PrimWriteIdx(q + 1); dl->PrimWriteIdx(q + 2);
+            dl->PrimWriteIdx(q + 1); dl->PrimWriteIdx(q + 3); dl->PrimWriteIdx(q + 2);
+        }
     }
-    float hh, ss, vv;
-    ImGui::ColorConvertRGBtoHSV(((rgb >> 16) & 255) / 255.0f, ((rgb >> 8) & 255) / 255.0f, (rgb & 255) / 255.0f, hh, ss, vv);
-    const ImVec2 k(c.x + std::cos(hh * 2 * 3.14159265f) * ss * r, c.y + std::sin(hh * 2 * 3.14159265f) * ss * r);
-    dl->AddCircleFilled(k, 6.0f, rgbCol(rgb), 16);
-    dl->AddCircle(k, 6.0f, IM_COL32(0, 0, 0, 200), 16, 2.5f);
-    dl->AddCircle(k, 6.0f, IM_COL32(255, 255, 255, 255), 16, 1.5f);
+    dl->AddCircle(c, r, IM_COL32(0, 0, 0, 60), 96, 1.0f);
+    dl->AddCircle(c, ri, IM_COL32(0, 0, 0, 60), 96, 1.0f);
+    // the triangle: the hue's corner towards the hue on the ring, white and black a third of a turn either side
+    const float ha = hue * 2 * pi;
+    const ImVec2 H(c.x + std::cos(ha) * tr, c.y + std::sin(ha) * tr), W(c.x + std::cos(ha - 2 * pi / 3) * tr, c.y + std::sin(ha - 2 * pi / 3) * tr),
+                 B(c.x + std::cos(ha + 2 * pi / 3) * tr, c.y + std::sin(ha + 2 * pi / 3) * tr);
+    {
+        float cr, cg, cb; ImGui::ColorConvertHSVtoRGB(hue, 1, 1, cr, cg, cb);
+        dl->PrimReserve(3, 3);
+        const ImDrawIdx base = (ImDrawIdx)dl->_VtxCurrentIdx;
+        dl->PrimWriteVtx(H, white, IM_COL32((int)(cr * 255), (int)(cg * 255), (int)(cb * 255), 255));
+        dl->PrimWriteVtx(W, white, IM_COL32(255, 255, 255, 255));
+        dl->PrimWriteVtx(B, white, IM_COL32(0, 0, 0, 255));
+        dl->PrimWriteIdx(base); dl->PrimWriteIdx(base + 1); dl->PrimWriteIdx(base + 2);
+    }
+    // a press: on the ring it turns the hue, in the triangle it sets strength and brightness (it keeps to what it took first)
+    bool changed = false;
+    const ImVec2 mp = ImGui::GetIO().MousePos;
+    const float dx = mp.x - c.x, dy = mp.y - c.y, dist = std::sqrt(dx * dx + dy * dy);
+    if (ImGui::IsItemActivated()) dragWhat[id] = dist >= ri - 2 ? 1 : 2;
+    float hs = s0, hv = v0;
+    if (active && dragWhat[id] == 1) hue = std::fmod(std::atan2(dy, dx) / (2 * pi) + 1.0f, 1.0f);
+    if (active && dragWhat[id] == 2) {   // where the pointer is, as weights of the three corners (held inside the triangle)
+        auto cross = [](ImVec2 p, ImVec2 q, ImVec2 o) { return (p.x - o.x) * (q.y - o.y) - (q.x - o.x) * (p.y - o.y); };
+        const float area = cross(W, B, H);
+        float wh = cross(W, B, mp) / area, ww = cross(B, H, mp) / area, wb = cross(H, W, mp) / area;
+        wh = std::max(0.0f, wh); ww = std::max(0.0f, ww); wb = std::max(0.0f, wb);
+        const float sum = std::max(1e-6f, wh + ww + wb);
+        wh /= sum; ww /= sum; wb /= sum;
+        hv = 1.0f - wb;
+        hs = hv > 1e-4f ? wh / hv : 0.0f;
+    }
+    if (active) {
+        float cr, cg, cb; ImGui::ColorConvertHSVtoRGB(hue, std::min(1.0f, hs), std::min(1.0f, hv), cr, cg, cb);
+        const int nv = ((int)std::lround(cr * 255) << 16) | ((int)std::lround(cg * 255) << 8) | (int)std::lround(cb * 255);
+        if (nv != rgb) { rgb = nv; changed = true; }
+        hs = std::min(1.0f, hs); hv = std::min(1.0f, hv);
+    }
+    // the markers: the hue on the ring, the colour in the triangle
+    {
+        float cr, cg, cb; ImGui::ColorConvertHSVtoRGB(hue, 1, 1, cr, cg, cb);
+        const ImVec2 k(c.x + std::cos(ha) * (r + ri) * 0.5f, c.y + std::sin(ha) * (r + ri) * 0.5f);
+        dl->AddCircleFilled(k, (r - ri) * 0.5f + 1.5f, IM_COL32((int)(cr * 255), (int)(cg * 255), (int)(cb * 255), 255), 20);
+        dl->AddCircle(k, (r - ri) * 0.5f + 1.5f, IM_COL32(255, 255, 255, 255), 20, 2.0f);
+        const ImVec2 p(B.x + hv * ((1 - hs) * W.x + hs * H.x - B.x), B.y + hv * ((1 - hs) * W.y + hs * H.y - B.y));
+        dl->AddCircleFilled(p, 5.0f, rgbCol(rgb), 16);
+        dl->AddCircle(p, 5.0f, IM_COL32(0, 0, 0, 160), 16, 2.5f);
+        dl->AddCircle(p, 5.0f, IM_COL32(255, 255, 255, 255), 16, 1.5f);
+    }
     textCentered(dl, f.small, c.x, c.y + r + 6, kMuted, label);
+    return changed;
+}
+// a row of ready colours under a picker: a press takes one (lit while it is the colour)
+bool colorSwatches(ImDrawList* dl, const char* id, float cx, float y, const int (&cols)[8], int& rgb) {
+    const float sw = 15, gap = 5, x0 = std::floor(cx - (8 * sw + 7 * gap) * 0.5f);
+    bool changed = false;
+    for (int i = 0; i < 8; ++i) {
+        const ImVec2 a(x0 + i * (sw + gap), y), b(a.x + sw, y + sw);
+        char bid[40]; std::snprintf(bid, sizeof bid, "%s%d", id, i);
+        ImGui::SetCursorScreenPos(ImVec2(a.x - 2, a.y - 2));
+        if (ImGui::InvisibleButton(bid, ImVec2(sw + 4, sw + 4)) && rgb != cols[i]) { rgb = cols[i]; changed = true; }
+        const bool hot = ImGui::IsItemHovered();
+        dl->AddRectFilled(a, b, rgbCol(cols[i]), 4.0f);
+        dl->AddRect(a, b, rgb == cols[i] ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 255, 255, hot ? 150 : 60), 4.0f, 0, rgb == cols[i] ? 2.0f : 1.0f);
+    }
     return changed;
 }
 std::string g_bgMatched[3];     // each Custom theme's picture whose colours were last taken ("\x01": take them again when it shows)
@@ -8621,11 +8689,12 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
     Settings::CustomTheme& ct = g_settings.customs[g_customEdit];
     const bool hexTyping = g_kbd && g_kbdTarget == 2 && (g_typeInto == &g_hexBuf[0] || g_typeInto == &g_hexBuf[1]);
     // typing a hex code: the card moves up just far enough for the colour bubbles to clear the keys (its top stays on the screen)
-    const float liftNeed = (kStatusH + h) * 0.5f - 200.0f + 62 + 124 + 74 + 8 - (h - kKbdH);
-    const float lift = std::max(0.0f, std::min(liftNeed, (kStatusH + h) * 0.5f - 200.0f - 6.0f)) * openness("##ctlift", hexTyping);
+    const float pw = 740, ph = 430, wr = 62;   // (the card; the pickers' radius)
+    const float liftNeed = (kStatusH + h) * 0.5f - ph * 0.5f + 56 + wr * 2 + 84 + 4 - (h - kKbdH);
+    const float lift = std::max(0.0f, std::min(liftNeed, (kStatusH + h) * 0.5f - ph * 0.5f - 6.0f)) * openness("##ctlift", hexTyping);
     const float e0 = std::min(1.0f, (float)(ImGui::GetTime() - g_customEditT0) / 0.22f), e = 1 - (1 - e0) * (1 - e0) * (1 - e0);
     dl->AddRectFilled(ImVec2(0, kStatusH), ImVec2(w, h), IM_COL32(0, 0, 0, (int)(150 * e)));
-    const float pw = 700, ph = 400, sc = 0.9f + 0.1f * e;
+    const float sc = 0.9f + 0.1f * e;
     const ImVec2 c(w * 0.5f, (kStatusH + h) * 0.5f - lift);
     const ImVec2 a(c.x - pw * 0.5f * sc, c.y - ph * 0.5f * sc), b(c.x + pw * 0.5f * sc, c.y + ph * 0.5f * sc);
     dl->AddRectFilled(a, b, themeTone(14, 26, 50, (int)(240 * e)), 22.0f);
@@ -8644,7 +8713,7 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
         g_settingsChanged = true;
     }
     // the preview: the home screen in small, with this theme (its picture too), its accent on a button and a switch
-    const ImVec2 pa(a.x + 20, a.y + 62);
+    const ImVec2 pa(a.x + 20, a.y + 56);
     const float pvw = 300, pvh = 180;
     const int keepTheme = g_settings.wallpaper;
     g_settings.wallpaper = 7 + g_customEdit;
@@ -8670,15 +8739,21 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
     dl->AddRect(pa, ImVec2(pa.x + pvw, pa.y + pvh), IM_COL32(255, 255, 255, 60), 10.0f, 0, 1.0f);
     g_settings.wallpaper = keepTheme;
     textCentered(dl, f.small, pa.x + pvw * 0.5f, pa.y + pvh + 8, kMuted, "Preview");
-    // the wheels
-    const float wr = 62, bgCx = pa.x + pvw + 40 + wr, acCx = pa.x + pvw + 82 + wr * 3;
-    for (float cx : {bgCx, acCx}) {   // each in a bubble of its own: the wheel, its name and its hex code
-        const ImVec2 ba(cx - 78, pa.y - 6), bb(cx + 78, pa.y + wr * 2 + 74);
+    // the pickers, each in a bubble of its own: the hue ring and its triangle, its name, ready colours, and its hex code
+    const float bgCx = pa.x + pvw + 24 + 88, acCx = bgCx + 176 + 12;
+    for (float cx : {bgCx, acCx}) {
+        const ImVec2 ba(cx - 88, pa.y - 6), bb(cx + 88, pa.y + wr * 2 + 94);
         dl->AddRectFilled(ba, bb, IM_COL32(255, 255, 255, 12), 18.0f);
         dl->AddRect(ba, bb, IM_COL32(255, 255, 255, 34), 18.0f, 0, 1.0f);
     }
-    if (colorWheel(dl, f, "##ctbg", ImVec2(bgCx, pa.y + wr + 4), wr, ct.bg, 0.45f, "Background")) g_settingsChanged = true;
-    if (colorWheel(dl, f, "##ctac", ImVec2(acCx, pa.y + wr + 4), wr, ct.accent, 1.0f, "Accent")) g_settingsChanged = true;
+    if (colorWheel(dl, f, "##ctbg", ImVec2(bgCx, pa.y + wr + 6), wr, ct.bg, "Background")) g_settingsChanged = true;
+    if (colorWheel(dl, f, "##ctac", ImVec2(acCx, pa.y + wr + 6), wr, ct.accent, "Accent")) g_settingsChanged = true;
+    {   // ready colours: dark ones for the background, bright ones (and white and black) for the accent
+        static const int bgs[8] = {0x55585E, 0x101114, 0x1E3A7A, 0x731313, 0x6B5A10, 0x115F35, 0x4A5260, 0x6B3E10};
+        static const int acs[8] = {0xF2F2F2, 0x141414, 0x2B4C9B, 0xE52B2B, 0xFFC21A, 0x17904A, 0x8A9099, 0xFF7F1F};
+        if (colorSwatches(dl, "##ctsbg", bgCx, pa.y + wr * 2 + 32, bgs, ct.bg)) { g_settingsChanged = true; g_hexShown[0] = -1; }
+        if (colorSwatches(dl, "##ctsac", acCx, pa.y + wr * 2 + 32, acs, ct.accent)) { g_settingsChanged = true; g_hexShown[1] = -1; }
+    }
     // under each wheel, its colour as a hex code: it follows the wheel, and a code typed in (6 digits) sets the colour
     auto hexBox = [&](int k, const char* id, int& rgb, float cx) {
         std::string& v = g_hexBuf[k];
@@ -8693,7 +8768,7 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
             v = clean;
             if (v.size() == 6) { const int nv = (int)std::strtol(v.c_str(), nullptr, 16); if (nv != rgb) { rgb = nv; g_settingsChanged = true; } g_hexShown[k] = rgb; }
         }
-        const ImVec2 a0(cx - 68, pa.y + wr * 2 + 30), a1(cx + 68, pa.y + wr * 2 + 60);
+        const ImVec2 a0(cx - 70, pa.y + wr * 2 + 54), a1(cx + 70, pa.y + wr * 2 + 84);
         dl->AddRectFilled(ImVec2(a0.x, a0.y + 6), ImVec2(a0.x + 18, a0.y + 24), rgbCol(rgb), 4.0f);   // (a swatch of it)
         dl->AddRect(ImVec2(a0.x, a0.y + 6), ImVec2(a0.x + 18, a0.y + 24), IM_COL32(255, 255, 255, 80), 4.0f);
         textAt(dl, f.body, a0.x + 24, std::floor((a0.y + a1.y) * 0.5f - fontPx(f.body) * 0.5f), kMuted, "#");
@@ -8703,7 +8778,7 @@ void customThemeEditor(ImDrawList* dl, const Fonts& f, const SimState& s, float 
     hexBox(0, "##cthexbg", ct.bg, bgCx);
     hexBox(1, "##cthexac", ct.accent, acCx);
     // the picture: none, or one from the backgrounds folder (put there from your computer)
-    float py = pa.y + pvh + 34;
+    float py = pa.y + wr * 2 + 120;
     textAt(dl, f.bold, a.x + 20, py, kInk, "Picture");
     float px = a.x + 122;
     auto pick = [&](const char* id, const std::string& label, const std::string& file) {
