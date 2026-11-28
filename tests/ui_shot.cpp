@@ -429,7 +429,7 @@ int main(int argc, char** argv) {
                 Canvas cv((int)(800 * scale), (int)(kLogicalH * scale)); raster(cv, b, tex, tw, th, scale); writePng(cv, out + "/tablet_appstore_search_typing.png");
             }
             shot(t, APP_APPSTORE, "appstore_search");
-            tabletKey(13, false); tp(774, 99);   // (put away, then cleared)
+            tabletKey(13, false); tp(770, 99);   // (put away, then cleared: its x, beside the field)
         }
         {   // XGSE installed: the GSE icon and page are XGSE's; it draws there (owner 1), or XPTablet's page stays while it does not
             SimState x = t; x.xgse = true; x.xgseEmbed = 0;
@@ -995,7 +995,24 @@ int main(int argc, char** argv) {
             for (int i = 0; i < 6; ++i) { FlightPlan::Leg l; l.ident = ids[i]; l.airway = i == 4 ? "WATSN4" : ""; l.alt = i == 0 || i == 5 ? "" : "FL240"; l.legNm = std::to_string(10 + i * 7); l.totalTime = "0:" + std::to_string(10 + i * 5); fp.plan.legs.push_back(l); }
             settings().simbriefUser = "alpineaviation";
             for (auto& l : fp.plan.legs) if (l.ident == "WATSN") l.cross = "between 10000 and 12000, 250 kt";   // (a made-up one: how it shows)
+            {   // the legs' tracks, headings and winds (the first, the departure, has none)
+                const int trk[6] = {-1, 262, 271, 248, 239, 225}, hdg[6] = {-1, 255, 266, 241, 236, 225}, wd[6] = {-1, 210, 220, 205, 215, -1}, wk[6] = {-1, 38, 42, 35, 20, -1};
+                for (int i = 0; i < 6; ++i) { auto& l = fp.plan.legs[i]; l.trkMag = trk[i]; l.hdgMag = hdg[i]; l.windDir = wd[i]; l.windKt = wk[i]; l.tasKt = i ? 440 : -1; l.gsKt = i ? 412 - i * 3 : -1; }
+            }
             shot(fp, APP_ROUTES, "flightplan");
+            {   // the navlog's Headings: tapped at the card's top right, track, heading, the wind's correction and the wind
+                if (settings().navlogHeadings) { std::printf("FAIL: the navlog shows times at first\n"); ++failures; }
+                auto tapFp = [&](float cx, float cy) { for (int k = 0; k < 6; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(cx, cy); io.AddMouseButtonEvent(0, k == 2 || k == 3);
+                    ImGui::NewFrame(); Actions act; build(fonts, fp, 800, kLogicalH, act); ImGui::Render(); } };
+                openApp(APP_ROUTES); tapFp(740, 148);
+                if (!settings().navlogHeadings) { std::printf("FAIL: the navlog's Headings bubble\n"); ++failures; }
+                shot(fp, APP_ROUTES, "flightplan_headings");
+                if (navlogCorrection(fp.plan.legs[1]) != "L7" || navlogCorrection(fp.plan.legs[4]) != "L3" || navlogCorrection(fp.plan.legs[5]) != "0" || navlogCorrection(fp.plan.legs[0]) != "-" || navlogWind(fp.plan.legs[2]) != "220/42" || navlogDegrees(fp.plan.legs[1].hdgMag) != "255")
+                    { std::printf("FAIL: the navlog's headings read (%s %s %s %s)\n", navlogCorrection(fp.plan.legs[1]).c_str(), navlogCorrection(fp.plan.legs[4]).c_str(), navlogWind(fp.plan.legs[2]).c_str(), navlogDegrees(fp.plan.legs[1].hdgMag).c_str()); ++failures; }
+                { FlightPlan::Leg w; w.trkMag = 355; w.hdgMag = 5; if (navlogCorrection(w) != "R10") { std::printf("FAIL: a correction across north (%s)\n", navlogCorrection(w).c_str()); ++failures; } }
+                openApp(APP_ROUTES); tapFp(675, 148);
+                if (settings().navlogHeadings) { std::printf("FAIL: the navlog's Times bubble\n"); ++failures; }
+            }
             {   // on the ground at the origin: "Welcome to" it, the figures at the left
                 SimState wf = fp; wf.map.havePos = true; wf.map.onGround = true;
                 wf.map.lat = wf.plan.legs.front().lat + 0.004; wf.map.lon = wf.plan.legs.front().lon; wf.map.hdgTrue = 270;
@@ -1026,6 +1043,13 @@ int main(int argc, char** argv) {
                 const char* names[5] = {"dispatch_summary", "dispatch_navlog", "dispatch_weather", "dispatch_notams", "dispatch_atc"};
                 const float xs[5] = {125, 196, 268, 350, 450};   // (the tabs, left to right)
                 for (int i = 0; i < 5; ++i) { click(xs[i], 28 + 46 + 8 + 38 + 14); shot(dp, APP_DISPATCH, names[i]); }
+                {   // the navlog's Headings, and a plan without SimBrief's detailed navlog
+                    click(xs[1], 28 + 46 + 8 + 38 + 14);
+                    settings().navlogHeadings = true; shot(dp, APP_DISPATCH, "dispatch_navlog_headings");
+                    SimState nh = dp; for (auto& l : nh.plan.legs) l.trkMag = l.hdgMag = l.windDir = l.windKt = l.gsKt = -1;
+                    shot(nh, APP_DISPATCH, "dispatch_navlog_no_headings");
+                    settings().navlogHeadings = false;
+                }
                 {   // a part pressed (the weather tab: KSBN's METAR): the PDF shown, and the part found in it
                     click(268, 28 + 46 + 8 + 38 + 14);
                     click(300, 28 + 46 + 8 + 74 + 44);
@@ -1052,7 +1076,7 @@ int main(int argc, char** argv) {
             // a list, or one object when there is only one; numbers as strings), and the odd ones (an error, cut short, the wrong
             // types, very long, very deep). Each is read, its crossings and procedures found, imported and drawn on every page it reaches.
             auto fixJ = [](const char* id, double la, double lo, const char* awy, const char* alt, int sec, bool proc) {
-                char b[400]; std::snprintf(b, sizeof b, "{\"ident\":\"%s\",\"name\":\"%s\",\"type\":\"wpt\",\"via_airway\":\"%s\",\"altitude_feet\":\"%s\",\"distance\":\"12\",\"time_total\":\"%d\",\"pos_lat\":\"%.6f\",\"pos_long\":\"%.6f\",\"is_sid_star\":\"%d\"}",
+                char b[700]; std::snprintf(b, sizeof b, "{\"ident\":\"%s\",\"name\":\"%s\",\"type\":\"wpt\",\"via_airway\":\"%s\",\"altitude_feet\":\"%s\",\"distance\":\"12\",\"time_total\":\"%d\",\"pos_lat\":\"%.6f\",\"pos_long\":\"%.6f\",\"is_sid_star\":\"%d\"}",
                               id, id, awy, alt, sec, la, lo, proc ? 1 : 0);
                 return std::string(b);
             };
@@ -1103,6 +1127,15 @@ int main(int argc, char** argv) {
                 for (int i = 0; i < n; ++i) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.1f; io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); io.AddMouseButtonEvent(0, false);
                     ImGui::NewFrame(); Actions act; build(fonts, t, 800, kLogicalH, act); ImGui::Render(); }
             };
+            {   // the legs' track, heading and wind: as SimBrief gives them, and the heading worked out when it gives none
+                const std::string fx = R"J({"ident":"AAA","type":"wpt","via_airway":"DCT","altitude_feet":"32000","distance":"40","time_total":"600","pos_lat":"42.0","pos_long":"-87.0","track_true":"90","track_mag":"95","heading_mag":"100","heading_true":"95","wind_dir":"180","wind_spd":"40","true_airspeed":"450","groundspeed":"448"},)J"
+                                       R"J({"ident":"BBB","type":"wpt","via_airway":"DCT","altitude_feet":"32000","distance":"40","time_total":"900","pos_lat":"42.0","pos_long":"-86.0","track_true":"90","track_mag":"95","wind_dir":"360","wind_spd":"40","true_airspeed":"400"},)J"
+                                       R"J({"ident":"CCC","type":"wpt","via_airway":"DCT","altitude_feet":"32000","distance":"40","time_total":"1200","pos_lat":"42.0","pos_long":"-85.0","track_mag":"","wind_dir":"","wind_spd":""})J";
+                const FlightPlan hp = parseSimbrief(head + general + apts + altObj + "\"navlog\":{\"fix\":[" + fx + "]}," + rest);
+                if (hp.legs.size() != 3 || hp.legs[0].trkMag != 95 || hp.legs[0].hdgMag != 100 || hp.legs[0].windDir != 180 || hp.legs[0].windKt != 40 || hp.legs[0].gsKt != 448
+                    || hp.legs[1].hdgMag != 89 || hp.legs[2].trkMag != -1 || hp.legs[2].hdgMag != -1 || hp.legs[2].windDir != -1)
+                    { std::printf("FAIL: SimBrief's tracks, headings and winds read (%zu legs; %d %d; computed %d; empty %d)\n", hp.legs.size(), hp.legs.empty() ? 0 : hp.legs[0].trkMag, hp.legs.empty() ? 0 : hp.legs[0].hdgMag, hp.legs.size() > 1 ? hp.legs[1].hdgMag : 0, hp.legs.size() > 2 ? hp.legs[2].trkMag : 0); ++failures; }
+            }
             for (const Case& c : cases) {
                 FlightPlan p = parseSimbrief(c.body);
                 if (p.loaded != c.loaded) { std::printf("FAIL: SimBrief's answer, %s: %s (%s)\n", c.name, p.loaded ? "read as a plan" : "not read", p.status.c_str()); ++failures; }
@@ -1636,40 +1669,100 @@ int main(int argc, char** argv) {
             tap(533, 97);
             c.acfIcao = "AT76"; c.engineType = 2; shot(c, APP_CHECKLISTS, "checklists_turboprop");
         }
-        {   // Documents: the list
+        {   // Documents: the folders as they are on disk (as AviTab shows its charts), every file in them, and documents open as tabs
             SimState d = t;
-            d.docs.listed = true;
+            d.docs.listed = true; d.docs.gen = 1;
             d.docs.folders = {"E:/X-Plane 12/Output/XPTablet/Documents"};
-            d.docs.files = {{"A320 FCOM.pdf", "/x/A320 FCOM.pdf", kDocsFolderXPTablet, true, 31457280}, {"Normal checklist.pdf", "/x/n.pdf", kDocsFolderXPTablet, true, 204800},
-                            {"KSBN airport diagram.png", "/x/ksbn.png", kDocsFolderXPTablet, false, 880000}, {"KORD 10-9.jpg", "/x/kord.jpg", kDocsFolderAviTab, false, 1200000}};
+            d.docs.files = {{"A320 FCOM.pdf", "/x/A320 FCOM.pdf", kDocsFolderXPTablet, true, 31457280, ""}, {"Normal checklist.pdf", "/x/n.pdf", kDocsFolderXPTablet, true, 204800, "Checklists"},
+                            {"KSBN airport diagram.png", "/x/ksbn.png", kDocsFolderXPTablet, false, 880000, ""}, {"KORD 10-9.jpg", "/x/kord.jpg", kDocsFolderAviTab, false, 1200000, ""},
+                            {"ZBAA 10-9.jpg", "/x/zbaa109.jpg", kDocsFolderAviTab, false, 900000, "ZBAA"}, {"ZBAA SID 01.pdf", "/x/zbaasid.pdf", kDocsFolderAviTab, true, 400000, "ZBAA/SID"}};
+            for (int i = 0; i < 1200; ++i) {   // a country's whole AIP in one folder (2026-11-28: the list stopped part way)
+                char nm[48]; std::snprintf(nm, sizeof nm, "ZSPD-%04d.pdf", i);
+                d.docs.files.push_back({nm, std::string("/aip/") + nm, kDocsFolderAviTab, true, 100000, "China AIP/ZSPD"});
+            }
             shot(d, APP_DOCUMENTS, "documents");
-            {   // the folder filters show their files (2026-11-27: "XPTablet" and "AviTab" showed none, their spelling differed), and the
-                // list folds away and comes back
-                const float dtop = 28 + 46 + 8;
-                auto dtap = [&](float x, float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
-                    ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); } };
-                auto rowAt = [&](float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(150, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
-                    ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); if (!act.docOpen.empty()) return act.docOpen; } return std::string(); };
-                dtap(142, dtop + 15);   // XPTablet
-                // its first file is a PDF (no docOpen: shown here); the third, a picture, opens: the list is there
-                if (rowAt(dtop + 40 + 8 + 24 + 2 * 36 + 17) != "/x/ksbn.png") { std::printf("FAIL: the Documents XPTablet filter shows its files\n"); ++failures; }
-                shot(d, APP_DOCUMENTS, "documents_filter_xptablet");
-                dtap(222, dtop + 15);   // where AviTab's button was: nothing there now (the XPTablet filter stays)
-                if (rowAt(dtop + 40 + 8 + 24 + 2 * 36 + 17) != "/x/ksbn.png") { std::printf("FAIL: Documents has no AviTab button any more\n"); ++failures; }
-                dtap(76, dtop + 15);    // All again
-                if (rowAt(dtop + 40 + 8 + 24 + 3 * 36 + 24 + 17) != "/x/kord.jpg") { std::printf("FAIL: AviTab's charts are listed under All\n"); ++failures; }
-                dtap(12 + 290 - 18, dtop + 15);   // the list folded away
+            const float dtop = 28 + 46 + 8, row0 = dtop + 40 + 42 + 8 + 17;   // (the list's first row's middle, under the search; rows 36 apart)
+            auto dtap = [&](float x, float y) { for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
+                ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); } };
+            auto tapGet = [&](float x, float y) { Actions got; for (int k = 0; k < 4; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(x, y); io.AddMouseButtonEvent(0, k == 1 || k == 2);
+                ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); if (!act.docOpen.empty() || act.webTabClose || act.webTabNew) got = act; } return got; };
+            {   // the top: the two folders; XPTablet Docs: its folder (Checklists), then its files by name
+                dtap(150, row0);   // XPTablet Docs
+                shot(d, APP_DOCUMENTS, "documents_in_folder");
+                if (tapGet(150, row0 + 2 * 36).docOpen != "/x/ksbn.png") { std::printf("FAIL: Documents: a folder's files, after its folders, by name\n"); ++failures; }
+                shot(d, APP_DOCUMENTS, "documents_xptablet");
+                dtap(72, dtop + 15);   // Up
+                dtap(150, row0 + 36);  // AviTab Charts: China AIP, ZBAA, then KORD 10-9
+                if (tapGet(150, row0 + 2 * 36).docOpen != "/x/kord.jpg") { std::printf("FAIL: Documents: AviTab's charts folder\n"); ++failures; }
+                dtap(150, row0 + 36);  // ZBAA: its SID folder, then its chart
+                shot(d, APP_DOCUMENTS, "documents_folder");
+                if (tapGet(150, row0 + 36).docOpen != "/x/zbaa109.jpg") { std::printf("FAIL: Documents: a folder inside a folder\n"); ++failures; }
+                // three pictures open: three tabs; the first pressed shows it again, its x closes it
+                const float tab0 = 24 + 290, tw = std::min(180.0f, std::floor((800 - 12 - tab0 - 2 * 6) / 3.0f));
+                shot(d, APP_DOCUMENTS, "documents_tabs");
+                if (tapGet(tab0 + 40, dtop + 15).docOpen != "/x/ksbn.png") { std::printf("FAIL: Documents: a tab shows its document again\n"); ++failures; }
+                const Actions cl = tapGet(tab0 + tw - 14, dtop + 15);   // its x: closed, the next one shown
+                if (cl.docOpen != "/x/kord.jpg") { std::printf("FAIL: Documents: a tab's x closes it (%s)\n", cl.docOpen.c_str()); ++failures; }
+                dtap(72, dtop + 15); dtap(72, dtop + 15);   // up to the top
+            }
+            {   // all 1,200 charts of one folder are there: scrolled to the end, the last one opens
+                dtap(150, row0 + 36); dtap(150, row0); dtap(150, row0);   // AviTab Charts, China AIP, ZSPD
+                for (int k = 0; k < 60; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(150, 300); io.AddMouseWheelEvent(0, -40); ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); }
+                std::string lastOpen;
+                for (float yy = kLogicalH - 30; yy > kLogicalH - 120 && lastOpen.empty(); yy -= 12) { const Actions q = tapGet(150, yy); if (!q.docOpen.empty()) lastOpen = q.docOpen; }
+                (void)lastOpen;   // (PDFs open in the page, not by docOpen: the row is checked by its tab below)
+                d.browser.status = 1;
+                const Actions pdf = tapGet(150, kLogicalH - 12 - 8 - 17 - 4);
+                if (!pdf.webTabNew || pdf.webTabUrl.find("ZSPD-1199.pdf") == std::string::npos) { std::printf("FAIL: Documents: the last of 1,200 charts in a folder (%s)\n", pdf.webTabUrl.c_str()); ++failures; }
+                shot(d, APP_DOCUMENTS, "documents_many");
+                d.browser.status = 0;
+            }
+            {   // the search: in the folder open and the folders inside it; at the top, everywhere
+                auto typeIn = [&](const char* txt) {
+                    dtap(150, dtop + 40 + 23);   // the search field
+                    for (const char* c = txt; *c; ++c) tabletKey(*c, true);
+                    tabletKey(13, false);
+                    for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f / 30.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); }
+                };
+                // (a PDF's page is asked for once in 3 seconds: time moves on between them)
+                auto later = [&] { for (int k = 0; k < 5; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); } io.DeltaTime = 1.0f / 30.0f; };
+                dtap(72, dtop + 15); dtap(72, dtop + 15); dtap(72, dtop + 15);   // (to the top)
+                d.browser.status = 1;
+                later();
+                typeIn("zspd 0500");
+                shot(d, APP_DOCUMENTS, "documents_search");
+                const Actions one = tapGet(150, row0);
+                if (!one.webTabNew || one.webTabUrl.find("ZSPD-0500.pdf") == std::string::npos) { std::printf("FAIL: Documents' search finds a chart deep in the folders (%s)\n", one.webTabUrl.c_str()); ++failures; }
+                dtap(285, dtop + 40 + 23);   // x: cleared
+                dtap(150, row0);   // XPTablet Docs: a search there finds nothing of AviTab's
+                typeIn("ZBAA");
+                if (tapGet(150, row0).webTabNew) { std::printf("FAIL: Documents' search keeps to the folder open\n"); ++failures; }
+                shot(d, APP_DOCUMENTS, "documents_search_none");
+                dtap(285, dtop + 40 + 23);
+                later();
+                typeIn("checklist");   // a file in a folder inside it (Checklists)
+                const Actions cl = tapGet(150, row0);
+                if (!cl.webTabNew || cl.webTabUrl.find("/x/n.pdf") == std::string::npos) { std::printf("FAIL: Documents' search looks in the folders inside the one open (%s new %d sel %d close %d open %s)\n", cl.webTabUrl.c_str(), cl.webTabNew, cl.webTabSelect, cl.webTabClose, cl.docOpen.c_str()); ++failures; }
+                dtap(72, dtop + 15);   // up: the search cleared with it
+                d.browser.status = 0;
+            }
+            {   // the list folds away and comes back
+                dtap(12 + 290 - 18, dtop + 15);
                 if (!settings().docsListHidden) { std::printf("FAIL: the Documents list does not fold away\n"); ++failures; }
                 shot(d, APP_DOCUMENTS, "documents_list_hidden");
-                dtap(30, dtop + 15);   // and back
+                dtap(30, dtop + 15);
                 if (settings().docsListHidden) { std::printf("FAIL: the Documents list does not come back\n"); ++failures; }
             }
-            // a PDF opens in the page itself (its own browser tab, in the Documents' group), not in the Browser
+            // a PDF opens in the page itself (its own browser tab, in a Documents group of its own), not in the Browser
             d.browser.status = 1;
-            { Actions a2; for (int k = 0; k < 3; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(100, 170); io.AddMouseButtonEvent(0, k == 1); ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); if (act.webTabNew) a2 = act; }
-              for (int k = 0; k < 2; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); if (act.webTabNew) a2 = act; }
-              if (!a2.webTabNew || a2.webTabGroup != 300 || a2.webTabUrl.find("FCOM.pdf#toolbar=0") == std::string::npos || currentApp() != APP_DOCUMENTS) {
-                  std::printf("FAIL: a PDF in Documents opens in its own tab there (%d, group %d, %s, app %d)\n", a2.webTabNew ? 1 : 0, a2.webTabGroup, a2.webTabUrl.c_str(), currentApp()); ++failures; } }
+            openDocuments(kDocsFolderXPTablet);
+            for (int k = 0; k < 5; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 1.0f; io.AddMousePosEvent(-1000, -1000); ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); }
+            io.DeltaTime = 1.0f / 30.0f;
+            { const Actions a2 = tapGet(150, row0 + 36);   // A320 FCOM
+              Actions a3 = a2;
+              for (int k = 0; k < 2 && !a3.webTabNew; ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); ImGui::NewFrame(); Actions act; build(fonts, d, 800, kLogicalH, act); ImGui::Render(); if (act.webTabNew) a3 = act; }
+              if (!a3.webTabNew || a3.webTabGroup < 310 || a3.webTabGroup > 317 || a3.webTabUrl.find("FCOM.pdf#toolbar=0") == std::string::npos || currentApp() != APP_DOCUMENTS) {
+                  std::printf("FAIL: a PDF in Documents opens in its own tab there (%d, group %d, %s, app %d)\n", a3.webTabNew ? 1 : 0, a3.webTabGroup, a3.webTabUrl.c_str(), currentApp()); ++failures; } }
             shot(d, APP_DOCUMENTS, "documents_pdf");
         }
         SimState g = s; g.toliss = true; g.acfIcao = "A20N";

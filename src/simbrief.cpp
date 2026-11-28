@@ -156,6 +156,26 @@ FlightPlan parseSimbrief(const std::string& body) {
             l.legNm = str(&f, "distance");
             l.totalTime = clockOfSec(num(&f, "time_total"));
             l.lat = num(&f, "pos_lat"); l.lon = num(&f, "pos_long");
+            {   // the leg's track, heading and wind (SimBrief's "detailed navlog"): a field missing or empty stays -1
+                auto given = [&](const char* k) { const wx::Json* v = f.get(k); return v && (v->type == wx::Json::Num || (v->type == wx::Json::Str && !v->str.empty())); };
+                auto deg = [&](const char* k) { if (!given(k)) return -1; const int d = (int)std::lround(num(&f, k)); return d < 0 || d > 360 ? -1 : (d == 0 ? 360 : d); };
+                auto kt = [&](const char* k) { if (!given(k)) return -1; const int v = (int)std::lround(num(&f, k)); return v < 0 || v > 999 ? -1 : v; };
+                l.trkMag = deg("track_mag"); l.hdgMag = deg("heading_mag");
+                l.windDir = deg("wind_dir"); l.windKt = kt("wind_spd"); l.tasKt = kt("true_airspeed"); l.gsKt = kt("groundspeed");
+                // no heading given: from the track, the wind and the airspeed (the wind triangle; magnetic from the track's own variation)
+                const int trkTrue = deg("track_true");
+                if (l.hdgMag < 0 && l.trkMag > 0 && trkTrue > 0 && l.windDir > 0 && l.windKt >= 0 && l.tasKt > 50) {
+                    const double r = 3.14159265358979 / 180.0;
+                    const double s = l.windKt * std::sin((l.windDir - trkTrue) * r) / l.tasKt;
+                    if (std::fabs(s) < 0.9) {
+                        const double hdgTrue = trkTrue + std::asin(s) / r;
+                        int hm = (int)std::lround(hdgTrue + (l.trkMag - trkTrue));
+                        while (hm <= 0) hm += 360;
+                        while (hm > 360) hm -= 360;
+                        l.hdgMag = hm;
+                    }
+                }
+            }
             // the SID's and the STAR's legs carry their names as the airway: the first one near the start is the SID, any other the
             // STAR (2026-11-27: with a SID, the STAR was never read, so it was missing on the map and in the crossing restrictions)
             if (str(&f, "is_sid_star") == "1" && !l.airway.empty()) {

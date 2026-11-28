@@ -6292,7 +6292,112 @@ std::string sizeText(long long b) {
     return t;
 }
 float g_docListScroll = 0;
+std::string fitText(ImFont* fnt, const std::string& t, float width);   // (below)
 std::string g_docPdf;      // the PDF shown in the Documents page ("" : a picture, or none)
+// the folder browsed: "" the top (XPTablet Docs, AviTab Charts), else "<top folder>/<folder>/<folder>"; each folder's scroll kept
+std::string g_docDir;
+std::map<std::string, float> g_docDirScroll;
+std::string g_docSearch;   // the Documents search (in the folder browsed and the folders inside it)
+// the documents open, as tabs (at most 8): each PDF its own page in the browser (shown again at once, where it was), pictures kept
+// by the host (a few at a time)
+struct DocTab { std::string path; bool pdf = false; int group = 0; };
+std::vector<DocTab> g_docTabs;
+int g_docActive = -1;
+constexpr int kMaxDocTabs = 8, kGroupDocTab0 = 310;   // (the PDFs' browser groups: 310 to 317)
+void selectDocTab(int i, Actions& act) {
+    if (i < 0 || i >= (int)g_docTabs.size()) return;
+    g_docActive = i;
+    const DocTab& t = g_docTabs[i];
+    if (t.pdf) g_docPdf = t.path;
+    else { g_docPdf.clear(); act.docOpen = t.path; g_docZoom = 1.0f; g_docPan = ImVec2(0, 0); }
+}
+void closeDocTab(int i, const SimState& s, Actions& act) {
+    if (i < 0 || i >= (int)g_docTabs.size()) return;
+    if (g_docTabs[i].pdf) for (const BrowserState::Tab& bt : s.browser.tabs) if (bt.group == g_docTabs[i].group) { act.webTabClose = bt.id; break; }
+    g_docTabs.erase(g_docTabs.begin() + i);
+    if (g_docTabs.empty()) { g_docActive = -1; g_docPdf.clear(); return; }
+    if (g_docActive >= i) g_docActive = std::max(0, g_docActive - 1);
+    selectDocTab(g_docActive, act);
+}
+void openDocTab(const std::string& path, bool pdf, Actions& act) {
+    for (size_t i = 0; i < g_docTabs.size(); ++i) if (g_docTabs[i].path == path) { selectDocTab((int)i, act); return; }
+    if ((int)g_docTabs.size() >= kMaxDocTabs) {   // full: the oldest (not the one shown) goes (its PDF page reused, so nothing to close)
+        const int old = g_docActive == 0 ? 1 : 0;
+        DocTab gone = g_docTabs[old];
+        g_docTabs.erase(g_docTabs.begin() + old);
+        if (g_docActive > old) --g_docActive;
+        if (gone.pdf && pdf) { g_docTabs.push_back({path, true, gone.group}); selectDocTab((int)g_docTabs.size() - 1, act); return; }
+    }
+    DocTab t{path, pdf, 0};
+    if (pdf) for (int g = kGroupDocTab0; g < kGroupDocTab0 + kMaxDocTabs; ++g) {   // a browser group no other open PDF uses
+        bool used = false;
+        for (const DocTab& o : g_docTabs) used = used || (o.pdf && o.group == g);
+        if (!used) { t.group = g; break; }
+    }
+    g_docTabs.push_back(t);
+    selectDocTab((int)g_docTabs.size() - 1, act);
+}
+// the folders and files as a tree, made again only when the listing changes: each folder's folders (sorted) and files (sorted)
+struct DocDir { std::vector<std::string> dirs; std::vector<int> files; int total = 0; };
+const std::map<std::string, DocDir>& docIndex(const DocsState& d) {
+    static std::map<std::string, DocDir> idx;
+    static int gen = -1;
+    static size_t n = (size_t)-1;
+    if (gen == d.gen && n == d.files.size() && !idx.empty()) return idx;
+    gen = d.gen; n = d.files.size();
+    idx.clear();
+    idx[""];
+    auto lower = [](std::string v) { for (char& c : v) c = (char)std::tolower((unsigned char)c); return v; };
+    for (size_t i = 0; i < d.files.size(); ++i) {
+        const DocEntry& e = d.files[i];
+        std::string cur;
+        auto down = [&](const std::string& name) {
+            if (name.empty()) return;
+            auto& v = idx[cur].dirs;
+            if (std::find(v.begin(), v.end(), name) == v.end()) v.push_back(name);
+            cur = cur.empty() ? name : cur + "/" + name;
+            ++idx[cur].total;
+        };
+        down(e.folder.empty() ? std::string("Documents") : e.folder);
+        size_t p0 = 0;
+        while (p0 < e.dir.size()) { size_t sl = e.dir.find('/', p0); if (sl == std::string::npos) sl = e.dir.size(); down(e.dir.substr(p0, sl - p0)); p0 = sl + 1; }
+        idx[cur].files.push_back((int)i);
+    }
+    for (auto& kv : idx) {
+        if (!kv.first.empty()) std::sort(kv.second.dirs.begin(), kv.second.dirs.end(), [&](const std::string& a, const std::string& b) { return lower(a) < lower(b); });
+        std::sort(kv.second.files.begin(), kv.second.files.end(), [&](int a, int b) { return lower(d.files[a].name) < lower(d.files[b].name); });
+    }
+    return idx;
+}
+// What the search finds: the files under the folder (dir: "" all) whose name, or the name of a folder they are in below it, holds
+// every word typed (any case); by folder, then name. Worked out again only when the words, the folder or the listing change.
+const std::vector<int>& docSearch(const DocsState& d, const std::string& dir, const std::string& text) {
+    static std::vector<int> out;
+    static std::string forDir, forText;
+    static int gen = -1;
+    static size_t n = (size_t)-1;
+    if (forDir == dir && forText == text && gen == d.gen && n == d.files.size()) return out;
+    forDir = dir; forText = text; gen = d.gen; n = d.files.size();
+    out.clear();
+    if (text.empty()) return out;
+    auto lower = [](std::string v) { for (char& c : v) c = (char)std::tolower((unsigned char)c); return v; };
+    std::vector<std::string> words;
+    { std::string w; for (char c : lower(text) + " ") { if (c == ' ') { if (!w.empty()) words.push_back(w); w.clear(); } else w += c; } }
+    if (words.empty()) return out;
+    for (size_t i = 0; i < d.files.size(); ++i) {
+        const DocEntry& e = d.files[i];
+        const std::string vp = (e.folder.empty() ? std::string("Documents") : e.folder) + (e.dir.empty() ? "" : "/" + e.dir);
+        if (!dir.empty() && vp != dir && vp.compare(0, dir.size() + 1, dir + "/") != 0) continue;
+        const std::string hay = lower(e.name + " " + (vp.size() > dir.size() ? vp.substr(dir.empty() ? 0 : dir.size() + 1) : std::string()));
+        bool all = true;
+        for (const std::string& w : words) if (hay.find(w) == std::string::npos) { all = false; break; }
+        if (all) out.push_back((int)i);
+    }
+    std::sort(out.begin(), out.end(), [&](int a, int b) {
+        const std::string da = lower(d.files[a].folder + "/" + d.files[a].dir), db = lower(d.files[b].folder + "/" + d.files[b].dir);
+        return da != db ? da < db : lower(d.files[a].name) < lower(d.files[b].name); });
+    return out;
+}
 
 // ---- PDFs: one way for every page that shows one (Documents, Dispatch) -----------------------------------------------------------------
 // The PDF's zoom: - and + are Chromium's PDF viewer's own (Ctrl and the wheel, at the middle of the view), Fit lays it out again
@@ -6340,9 +6445,13 @@ void pdfView(ImDrawList* dl, const Fonts& f, const SimState& s, float x0, float 
     g_webHold = !(tab && b.activeTab == tab && asked[group] == want);
     webView(dl, f, s, x0, y0, w, h, act, true);
 }
-std::string g_docFilter;   // one folder ("XPTablet Docs", "AviTab Charts"), or "" for all
 
+void documentsView(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act);
 void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
+    documentsView(dl, f, s, w, h, act);
+    pageKeyboard(dl, f, w, h, act);   // (the search's keys, over the page)
+}
+void documentsView(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const DocsState& d = s.docs;
     if (!d.listed) act.docsList = true;
     const float top = kStatusH + kHeaderH + 8, lw = 290;
@@ -6357,89 +6466,161 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
     if (!hideList) {
     if (iconButton("##docref", ImVec2(12, top), ImVec2(48, top + 30), true)) act.docsList = true;   // look again
     reloadIcon(dl, ImVec2(30, top + 15), kInk);
-    {   // which folders: all of them, or XPTablet's docs folder (AviTab's charts: under All, no button of their own since 1.0.2)
-        struct Flt { const char* id; const char* name; const char* folder; float x0, x1; };
-        const Flt flts[] = {{"##docall", "All", "", 54, 98}, {"##docxpt", "XPTablet", kDocsFolderXPTablet, 102, 182}};
-        for (const Flt& fl : flts)
-            if (pill(dl, f, fl.id, fl.name, ImVec2(fl.x0, top), ImVec2(fl.x1, top + 30), g_docFilter == fl.folder, true) && g_docFilter != fl.folder) { g_docFilter = fl.folder; g_docListScroll = 0; }
-        if (!g_docFilter.empty() && g_docFilter != kDocsFolderXPTablet) g_docFilter.clear();
+    // the folders as they are on disk, as AviTab shows its charts: XPTablet Docs and AviTab Charts at the top, their folders inside
+    const auto& idx = docIndex(d);
+    if (!idx.count(g_docDir)) g_docDir.clear();   // (a folder gone since: back to the top)
+    auto goTo = [&](const std::string& dir) { g_docDirScroll[g_docDir] = g_docListScroll; g_docDir = dir; g_docSearch.clear(); auto it = g_docDirScroll.find(dir); g_docListScroll = it == g_docDirScroll.end() ? 0.0f : it->second; };
+    {   // Up (to the folder above), and where the list is
+        const bool canUp = !g_docDir.empty();
+        if (iconButton("##docup", ImVec2(54, top), ImVec2(90, top + 30), canUp) && canUp) { const size_t sl = g_docDir.find_last_of('/'); goTo(sl == std::string::npos ? std::string() : g_docDir.substr(0, sl)); }
+        {   // an up arrow: to the folder above (the list's fold-away arrow, at the right, points left)
+            const ImU32 ac = canUp ? kInk : kMuted;
+            const ImVec2 up[3] = {ImVec2(66, top + 18), ImVec2(72, top + 11), ImVec2(78, top + 18)};
+            dl->AddPolyline(up, 3, ac, 0, 2.2f);
+            dl->AddLine(ImVec2(72, top + 11.5f), ImVec2(72, top + 21), ac, 2.2f);
+        }
+        const std::string here = g_docDir.empty() ? std::string("Documents") : g_docDir.substr(g_docDir.find_last_of('/') + 1);
+        textAt(dl, f.bold, 98, std::floor(top + 15 - fontPx(f.bold) * 0.5f), kInk, fitText(f.bold, here, 12 + lw - 40 - 98 - 4).c_str());
     }
-    const ImVec2 la(12, top + 40), lb(12 + lw, h - 12);
-    card(dl, la, lb, f, nullptr);
+    const ImVec2 lc(12, top + 40), lb(12 + lw, h - 12);
+    card(dl, lc, lb, f, nullptr);
     if (d.files.empty()) {
         std::string t = "Put PDFs and pictures (PNG, JPG) in:\n";
         for (const std::string& fo : d.folders) t += "\n" + fo;
-        dl->AddText(f.small, fontPx(f.small), ImVec2(la.x + 14, la.y + 14), kMuted, t.c_str(), nullptr, lw - 28);
+        t += "\n\nFolders inside them are kept: browse them here as in AviTab.";
+        dl->AddText(f.small, fontPx(f.small), ImVec2(lc.x + 14, lc.y + 14), kMuted, t.c_str(), nullptr, lw - 28);
     }
-    // the list, by folder; it scrolls with the wheel or a drag
+    const DocDir& here = idx.at(g_docDir);
+    // the search: the files in this folder and every folder inside it whose name holds the words (folders' names count too)
+    const bool searching = !g_docSearch.empty();
+    const std::vector<int>& found = docSearch(d, g_docDir, g_docSearch);
+    if (!d.files.empty()) {
+        const char* hint = g_docDir.empty() ? "Search All Documents" : "Search This Folder";
+        // (its x beside the field, not on it: the field, under it, took the press)
+        textField(dl, f, "##docsearch", g_docSearch, ImVec2(lc.x + 8, lc.y + 8), ImVec2(searching ? lb.x - 42 : lb.x - 8, lc.y + 38), hint, false);
+        if (searching && pill(dl, f, "##docsclr", "x", ImVec2(lb.x - 38, lc.y + 8), ImVec2(lb.x - 8, lc.y + 38), false, true)) g_docSearch.clear();
+    }
+    static std::string lastSearch;
+    if (lastSearch != g_docSearch) { lastSearch = g_docSearch; g_docListScroll = 0; }
+    const ImVec2 la(lc.x, d.files.empty() ? lc.y : lc.y + 42);   // (the rows under the search)
+    // the list: this folder's folders, then its files (or what the search found); it scrolls with the wheel or a drag
     ImGui::SetCursorScreenPos(la);
     ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##doclist", ImVec2(lb.x - la.x, lb.y - la.y));
-    if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0) g_docListScroll -= ImGui::GetIO().MouseWheel * 40;
+    // the wheel anywhere over the list (over a row too: the row, not the list, is the item under the pointer then)
+    if (ImGui::IsMouseHoveringRect(la, lb) && ImGui::GetIO().MouseWheel != 0) g_docListScroll -= ImGui::GetIO().MouseWheel * 40;
     touchScroll(g_docListScroll, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     g_docListScroll = std::max(0.0f, g_docListScroll);
-    // the list's height first (for the scroll bar, and the rows' width beside it)
-    float contentH = 8;
-    {
-        std::string fo;
-        int n = 0;
-        for (const DocEntry& e : d.files) {
-            if (!g_docFilter.empty() && e.folder != g_docFilter) continue;
-            if (e.folder != fo) { fo = e.folder; contentH += 24; }
-            contentH += 36; ++n;
-        }
-        contentH += 12;
-        if (n == 0 && !d.files.empty()) textAt(dl, f.small, la.x + 14, la.y + 14, kMuted, g_docFilter == kDocsFolderAviTab ? "No charts in AviTab's charts folder." : "No documents in XPTablet's docs folder.");
-    }
+    const size_t nDirs = searching ? 0 : here.dirs.size(), nFiles = searching ? found.size() : here.files.size();
+    const float contentH = 8 + (nDirs + nFiles) * 36.0f + 12;
+    if (searching && found.empty()) textAt(dl, f.small, la.x + 14, la.y + 12, kMuted, ("No documents match \"" + g_docSearch + "\" here").c_str());
     const float shownH = lb.y - la.y;
     const bool scrolls = contentH > shownH + 1;
     g_docListScroll = std::min(g_docListScroll, std::max(0.0f, contentH - shownH));
     const float rowR = scrolls ? lb.x - 16 : lb.x - 6;
     dl->PushClipRect(ImVec2(la.x + 2, la.y + 2), ImVec2(lb.x - 2, lb.y - 2), true);
     float y = la.y + 8 - g_docListScroll;
-    std::string folder;
-    for (size_t i = 0; i < d.files.size(); ++i) {
-        const DocEntry& e = d.files[i];
-        if (!g_docFilter.empty() && e.folder != g_docFilter) continue;
-        if (e.folder != folder) { folder = e.folder; textAt(dl, f.small, la.x + 12, y + 4, kMuted, folder.c_str()); y += 24; }
+    // (only the rows on screen are made: a folder of thousands of charts costs no more than a short one)
+    const int first = std::max(0, (int)std::floor((g_docListScroll - 8) / 36.0f) - 1);
+    const int count = (int)(nDirs + nFiles);
+    const int last = std::min(count, first + (int)(shownH / 36.0f) + 3);
+    y += first * 36.0f;
+    for (int r = first; r < last; ++r, y += 36) {
         char id[32];
-        std::snprintf(id, sizeof id, "##doc%zu", i);
+        std::snprintf(id, sizeof id, "##docr%d", r);
         ImGui::SetCursorScreenPos(ImVec2(la.x + 6, y));
-        if (ImGui::InvisibleButton(id, ImVec2(rowR - la.x - 6, 34)) && y > la.y - 30) {
-            if (e.pdf) g_docPdf = e.path;   // shown here, as a picture is
-            else { g_docPdf.clear(); act.docOpen = e.path; g_docZoom = 1.0f; g_docPan = ImVec2(0, 0); }
+        const bool hit = ImGui::InvisibleButton(id, ImVec2(rowR - la.x - 6, 34)) && y > la.y - 30;
+        const float hk = itemHover();
+        if (r < (int)nDirs) {   // a folder: its name, how many files are in it (all levels), and in it on a press
+            const std::string& nm = here.dirs[r];
+            const std::string full = g_docDir.empty() ? nm : g_docDir + "/" + nm;
+            if (hk > 0.01f) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(rowR, y + 34), IM_COL32(255, 255, 255, (int)(18 * hk)), 8.0f);
+            const ImVec2 ic(la.x + 22, y + 17);
+            dl->AddRectFilled(ImVec2(ic.x - 10, ic.y - 8), ImVec2(ic.x - 2, ic.y - 5), IM_COL32(236, 186, 72, 255), 2.0f);   // its tab
+            dl->AddRectFilled(ImVec2(ic.x - 10, ic.y - 6), ImVec2(ic.x + 10, ic.y + 8), IM_COL32(236, 186, 72, 255), 2.5f);
+            auto it = idx.find(full);
+            const std::string n = it == idx.end() ? std::string() : std::to_string(it->second.total);
+            const float nw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, n.c_str()).x;
+            textAt(dl, f.body, la.x + 38, std::floor(y + 17 - fontPx(f.body) * 0.5f), kInk, fitText(f.body, nm, rowR - 30 - nw - (la.x + 38)).c_str());
+            textRight(dl, f.small, rowR - 22, std::floor(y + 17 - fontPx(f.small) * 0.5f), kMuted, n.c_str());
+            arrow(dl, ImVec2(rowR - 11, y + 17), false, kMuted);
+            if (hit) goTo(full);
+            continue;
         }
-        if (e.path == (g_docPdf.empty() ? d.shownPath : g_docPdf)) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(rowR, y + 34), accentCol(80), 8.0f);
-        else if (const float hk = itemHover(); hk > 0.01f) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(rowR, y + 34), IM_COL32(255, 255, 255, (int)(18 * hk)), 8.0f);
-        // a small page: red for a PDF, blue for a picture
+        const int fi = searching ? found[r] : here.files[r - nDirs];
+        const DocEntry& e = d.files[fi];
+        if (hit) openDocTab(e.path, e.pdf, act);
+        const bool shown = g_docActive >= 0 && g_docActive < (int)g_docTabs.size() && g_docTabs[g_docActive].path == e.path;
+        bool open = false;
+        for (const DocTab& t : g_docTabs) open = open || t.path == e.path;
+        if (shown) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(rowR, y + 34), accentCol(80), 8.0f);
+        else if (hk > 0.01f) dl->AddRectFilled(ImVec2(la.x + 6, y), ImVec2(rowR, y + 34), IM_COL32(255, 255, 255, (int)(18 * hk)), 8.0f);
+        // a small page: red for a PDF, blue for a picture; a dot beside it while it is open in a tab
         const ImVec2 ic(la.x + 22, y + 17);
         dl->AddRectFilled(ImVec2(ic.x - 7, ic.y - 10), ImVec2(ic.x + 7, ic.y + 10), e.pdf ? IM_COL32(220, 70, 70, 255) : IM_COL32(70, 150, 230, 255), 2.0f);
         textCentered(dl, f.small, ic.x, ic.y - fontPx(f.small) * 0.5f, kInk, e.pdf ? "P" : "I");
-        std::string nm = e.name;
-        while (nm.size() > 4 && f.body->CalcTextSizeA(fontPx(f.body), 1e9f, 0, nm.c_str()).x > lw - 110) { nm.resize(nm.size() - 4); nm += "..."; }
-        textAt(dl, f.body, la.x + 38, std::floor(y + 17 - fontPx(f.body) * 0.5f), kInk, nm.c_str());
-        textRight(dl, f.small, rowR - 6, std::floor(y + 17 - fontPx(f.small) * 0.5f), kMuted, sizeText(e.bytes).c_str());
-        y += 36;
+        if (open && !shown) dl->AddCircleFilled(ImVec2(la.x + 10, y + 17), 2.5f, accentLite(255), 0);
+        const std::string sz = sizeText(e.bytes);
+        const float szw = f.small->CalcTextSizeA(fontPx(f.small), 1e9f, 0, sz.c_str()).x;
+        if (searching) {   // found: its name, and the folder it is in (under the one searched) beneath it
+            const std::string vp = (e.folder.empty() ? std::string("Documents") : e.folder) + (e.dir.empty() ? "" : "/" + e.dir);
+            std::string where = vp.size() > g_docDir.size() && !g_docDir.empty() ? vp.substr(g_docDir.size() + 1) : (g_docDir.empty() ? vp : std::string());
+            textAt(dl, f.body, la.x + 38, y + 2, kInk, fitText(f.body, e.name, rowR - 14 - szw - (la.x + 38)).c_str());
+            if (!where.empty()) textAt(dl, f.small, la.x + 38, y + 19, kMuted, fitText(f.small, where, rowR - 14 - (la.x + 38)).c_str());
+        } else textAt(dl, f.body, la.x + 38, std::floor(y + 17 - fontPx(f.body) * 0.5f), kInk, fitText(f.body, e.name, rowR - 14 - szw - (la.x + 38)).c_str());
+        textRight(dl, f.small, rowR - 6, std::floor(y + 17 - fontPx(f.small) * 0.5f), kMuted, sz.c_str());
     }
     dl->PopClipRect();
     if (scrolls) g_docListScroll = scrollBar(dl, "##docbar", lb.x - 8, la.y + 8, lb.y - 8, g_docListScroll, contentH, shownH);
     }
     // the picture: fitted, then the wheel or + / - to zoom and a drag to move
-    const ImVec2 va(hideList ? 56.0f : 24 + lw, top), vb(w - 12, h - 12);
+    ImVec2 va(hideList ? 56.0f : 24 + lw, top);
+    const ImVec2 vb(w - 12, h - 12);
+    if (!g_docTabs.empty()) {   // the documents open, as tabs along the top: a press shows one (kept open: no new load), x closes it
+        const int n = (int)g_docTabs.size();
+        const float tw = std::min(180.0f, std::floor((vb.x - va.x - (n - 1) * 6) / n));
+        int close = -1;
+        for (int i = 0; i < n; ++i) {
+            const float tx = va.x + i * (tw + 6);
+            const bool on = i == g_docActive;
+            char id[24], cid[24]; std::snprintf(id, sizeof id, "##dtab%d", i); std::snprintf(cid, sizeof cid, "##dtabx%d", i);
+            ImGui::SetCursorScreenPos(ImVec2(tx, va.y));
+            if (ImGui::InvisibleButton(id, ImVec2(tw - 26, 30)) && !on) selectDocTab(i, act);
+            const float hk = itemHover();
+            ImGui::SetCursorScreenPos(ImVec2(tx + tw - 26, va.y));
+            if (ImGui::InvisibleButton(cid, ImVec2(26, 30))) close = i;
+            const float hx = itemHover();
+            dl->AddRectFilled(ImVec2(tx, va.y), ImVec2(tx + tw, va.y + 30), on ? accentCol(255) : IM_COL32(255, 255, 255, (int)(20 + 16 * hk)), 15.0f);
+            const ImU32 tc = on ? onAccent() : kInk;
+            const std::string& pth = g_docTabs[i].path;
+            textAt(dl, f.small, tx + 12, std::floor(va.y + 15 - fontPx(f.small) * 0.5f), tc, fitText(f.small, pth.substr(pth.find_last_of("/\\") + 1), tw - 40).c_str());
+            const ImVec2 xc(tx + tw - 14, va.y + 15);
+            if (hx > 0.01f) dl->AddCircleFilled(xc, 9.0f, IM_COL32(255, 255, 255, (int)(40 * hx)), 0);
+            dl->AddLine(ImVec2(xc.x - 3.5f, xc.y - 3.5f), ImVec2(xc.x + 3.5f, xc.y + 3.5f), tc, 1.6f);
+            dl->AddLine(ImVec2(xc.x - 3.5f, xc.y + 3.5f), ImVec2(xc.x + 3.5f, xc.y - 3.5f), tc, 1.6f);
+        }
+        if (close >= 0) closeDocTab(close, s, act);
+        va.y += 36;
+    }
+    if (g_docTabs.empty()) {
+        dl->AddRectFilled(va, vb, themeTone(8, 14, 26, 240), 10.0f);
+        textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kMuted, "Choose a document. Several can be open at once, as tabs.");
+        return;
+    }
     if (!g_docPdf.empty()) {   // a PDF: its name and the zoom along the top, the pages under them
         dl->AddRectFilled(va, vb, themeTone(8, 14, 26, 240), 10.0f);
         std::string nm = g_docPdf.substr(g_docPdf.find_last_of("/\\") + 1);
         while (nm.size() > 4 && f.bold->CalcTextSizeA(fontPx(f.bold), 1e9f, 0, nm.c_str()).x > vb.x - va.x - 170) { nm.resize(nm.size() - 4); nm += "..."; }
         textAt(dl, f.bold, va.x + 14, va.y + 13, kInk, nm.c_str());
         pdfZoomControls(dl, f, s, act, "doc", vb.x - 136, va.y + 6, va.y + 38, ImVec2((vb.x - va.x) * 0.5f, (vb.y - va.y - 44) * 0.5f), s.browser.status == 1 && !g_webHold);
-        pdfView(dl, f, s, va.x, va.y + 44, vb.x - va.x, vb.y - va.y - 44, act, kGroupDocuments, fileUrl(g_docPdf));
+        pdfView(dl, f, s, va.x, va.y + 44, vb.x - va.x, vb.y - va.y - 44, act, g_docTabs[g_docActive].group, fileUrl(g_docPdf));
         return;
     }
     dl->AddRectFilled(va, vb, themeTone(8, 14, 26, 240), 10.0f);
     if (d.shownPath != g_docLast) { g_docLast = d.shownPath; g_docZoom = g_docZoomShown = 1.0f; g_docPan = g_docPanShown = ImVec2(0, 0); }
-    if (d.busy) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kMuted, "Opening..."); return; }
+    if (d.busy || d.shownPath != g_docTabs[g_docActive].path) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kMuted, "Opening..."); return; }
     if (!d.error.empty()) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kWarn, d.error.c_str()); return; }
-    if (!d.tex || d.texW <= 0 || d.texH <= 0) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kMuted, "Choose a document. PDFs open in the browser."); return; }
+    if (!d.tex || d.texW <= 0 || d.texH <= 0) { textCentered(dl, f.body, (va.x + vb.x) * 0.5f, (va.y + vb.y) * 0.5f - 8, kMuted, "Opening..."); return; }
     ImGui::SetCursorScreenPos(va);
     ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##docview", ImVec2(vb.x - va.x, vb.y - va.y));
@@ -6516,6 +6697,26 @@ void documentsPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, f
 std::string fitText(ImFont* fnt, const std::string& t, float width);   // (below)
 bool g_dispatchFromPlan = false;   // opened from the Flight Plan page: a button goes back to it
 void openDispatch(bool fromPlan) { g_dispatchFromPlan = fromPlan; openApp(APP_DISPATCH); }
+
+// The navlogs' Headings view (Flight Plan, Dispatch): a leg's track and heading (magnetic), the correction for the wind between them
+// (R or L, degrees), and the wind (from, true / knots), as SimBrief planned them; "-" where it gave none
+std::string navDeg(int d) { if (d <= 0) return "-"; char b[8]; std::snprintf(b, sizeof b, "%03d", d); return b; }
+std::string navWca(const FlightPlan::Leg& l) {
+    if (l.trkMag <= 0 || l.hdgMag <= 0) return "-";
+    int d = l.hdgMag - l.trkMag;
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    if (d == 0) return "0";
+    char b[8]; std::snprintf(b, sizeof b, "%c%d", d > 0 ? 'R' : 'L', std::abs(d)); return b;
+}
+std::string navWind(const FlightPlan::Leg& l) { if (l.windDir <= 0 || l.windKt < 0) return "-"; char b[16]; std::snprintf(b, sizeof b, "%03d/%d", l.windDir, l.windKt); return b; }
+bool navHasHeadings(const FlightPlan& p) { for (const FlightPlan::Leg& l : p.legs) if (l.trkMag > 0) return true; return false; }
+// Times or Headings: two small bubbles, the one shown lit (kept with the settings, the same in both navlogs)
+void navViewChoice(ImDrawList* dl, const Fonts& f, const char* id, float x, float y, float bw, float bh) {
+    char a[32], b[32]; std::snprintf(a, sizeof a, "%st", id); std::snprintf(b, sizeof b, "%sh", id);
+    if (pill(dl, f, a, "Times", ImVec2(x, y), ImVec2(x + bw, y + bh), !g_settings.navlogHeadings, true) && g_settings.navlogHeadings) { g_settings.navlogHeadings = false; g_settingsChanged = true; }
+    if (pill(dl, f, b, "Headings", ImVec2(x + bw + 4, y), ImVec2(x + 2 * bw + 4, y + bh), g_settings.navlogHeadings, true) && !g_settings.navlogHeadings) { g_settings.navlogHeadings = true; g_settingsChanged = true; }
+}
 void dispatchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float h, Actions& act) {
     const FlightPlan& p = s.plan;
     const float top = kStatusH + kHeaderH + 8;
@@ -6636,19 +6837,37 @@ void dispatchPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         row("Landing", wu(p.ldw) + (p.maxLdw.empty() ? "" : "  (max " + p.maxLdw + ")")); row("Payload", wu(p.payload));
         row("Passengers", p.paxCount); row("Cargo", wu(p.freight));
     } else if (tab == T_NAVLOG) {
+        if (y > ca.y - 40) navViewChoice(dl, f, "##dspnv", lx, y, 84, 26);
+        y += 36;
+        const bool hv = g_settings.navlogHeadings;
+        if (hv && !navHasHeadings(p)) {   // (a plan made without SimBrief's detailed navlog: no tracks or winds in it)
+            textAt(dl, f.small, lx, y, kMuted, "SimBrief gave no headings or winds for this plan (its Detailed Navlog option).");
+            y += 24;
+        }
         static const float cx[5] = {0, 110, 220, 330, 440};
+        static const float hx[6] = {0, 110, 190, 270, 360, 460};
         const char* cols[5] = {"Fix", "Via", "Altitude", "Leg nm", "Time"};
-        for (int c = 0; c < 5; ++c) textAt(dl, f.small, lx + cx[c], y, kMuted, cols[c]);
+        const char* hcols[6] = {"Fix", "Track", "Heading", "Correction", "Wind", "Groundspeed"};
+        if (hv) for (int c = 0; c < 6; ++c) textAt(dl, f.small, lx + hx[c], y, kMuted, hcols[c]);
+        else for (int c = 0; c < 5; ++c) textAt(dl, f.small, lx + cx[c], y, kMuted, cols[c]);
         y += 22;
         for (const FlightPlan::Leg& l : p.legs) {
             tappable(y - 2, y + 20, l.ident);
             if (y > ca.y - 30 && y < cb.y + 10) {
-                textAt(dl, f.bold, lx + cx[0], y, kInk, l.ident.c_str()); textAt(dl, f.small, lx + cx[1], y + 2, kInk, l.airway.c_str());
-                textAt(dl, f.small, lx + cx[2], y + 2, kInk, l.alt.c_str()); textAt(dl, f.small, lx + cx[3], y + 2, kInk, l.legNm.c_str());
-                textAt(dl, f.small, lx + cx[4], y + 2, kInk, l.totalTime.c_str());
+                textAt(dl, f.bold, lx + cx[0], y, kInk, l.ident.c_str());
+                if (hv) {
+                    textAt(dl, f.small, lx + hx[1], y + 2, kInk, navDeg(l.trkMag).c_str()); textAt(dl, f.bold, lx + hx[2], y, kInk, navDeg(l.hdgMag).c_str());
+                    textAt(dl, f.small, lx + hx[3], y + 2, accentLite(255), navWca(l).c_str()); textAt(dl, f.small, lx + hx[4], y + 2, kInk, navWind(l).c_str());
+                    textAt(dl, f.small, lx + hx[5], y + 2, kInk, l.gsKt > 0 ? (std::to_string(l.gsKt) + " kt").c_str() : "-");
+                } else {
+                    textAt(dl, f.small, lx + cx[1], y + 2, kInk, l.airway.c_str());
+                    textAt(dl, f.small, lx + cx[2], y + 2, kInk, l.alt.c_str()); textAt(dl, f.small, lx + cx[3], y + 2, kInk, l.legNm.c_str());
+                    textAt(dl, f.small, lx + cx[4], y + 2, kInk, l.totalTime.c_str());
+                }
             }
             y += 24;
         }
+        if (hv) { textAt(dl, f.small, lx, y + 4, kMuted, "Each row is the leg to that fix: track and heading magnetic, wind from (true) / knots."); y += 28; }
     } else if (tab == T_WEATHER || tab == T_NOTAMS) {
         for (const FlightPlan::Brief& br : tab == T_WEATHER ? p.weather : p.notams) {
             head(br.head);
@@ -6971,10 +7190,20 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
     for (const FlightPlan::Leg& l : p.legs) total += rowH + (l.cross.empty() ? 0 : crossH);
     g_fplScroll = std::max(0.0f, std::min(g_fplScroll, std::max(0.0f, total - (bot - 8 - listTop))));
     const float xs[4] = {c3 + 14, c3 + 14 + w3 * 0.30f, c3 + 14 + w3 * 0.56f, c3 + w3 - 14};
-    textAt(dl, f.small, xs[0], y0 + 30, kMuted, "FIX");
-    textAt(dl, f.small, xs[1], y0 + 30, kMuted, "VIA");
-    textAt(dl, f.small, xs[2], y0 + 30, kMuted, "ALT");
-    textRight(dl, f.small, xs[3], y0 + 30, kMuted, "NM  TIME");
+    // Times (via, altitude, leg and time) or Headings (track, heading, the wind's correction, the wind): bubbles at the card's top right
+    const bool hv = g_settings.navlogHeadings;
+    navViewChoice(dl, f, "##fplnv", c3 + w3 - 14 - 2 * 64 - 4, y0 + 7, 64, 22);
+    const float hxs[5] = {c3 + 14, c3 + 14 + w3 * 0.29f, c3 + 14 + w3 * 0.45f, c3 + 14 + w3 * 0.62f, c3 + w3 - 14};
+    if (hv) {
+        textAt(dl, f.small, hxs[0], y0 + 30, kMuted, "FIX"); textAt(dl, f.small, hxs[1], y0 + 30, kMuted, "TRK");
+        textAt(dl, f.small, hxs[2], y0 + 30, kMuted, "HDG"); textAt(dl, f.small, hxs[3], y0 + 30, kMuted, "WCA");
+        textRight(dl, f.small, hxs[4], y0 + 30, kMuted, "WIND");
+    } else {
+        textAt(dl, f.small, xs[0], y0 + 30, kMuted, "FIX");
+        textAt(dl, f.small, xs[1], y0 + 30, kMuted, "VIA");
+        textAt(dl, f.small, xs[2], y0 + 30, kMuted, "ALT");
+        textRight(dl, f.small, xs[3], y0 + 30, kMuted, "NM  TIME");
+    }
     dl->PushClipRect(ImVec2(c3 + 2, listTop - 2), ImVec2(c3 + w3 - 2, bot - 4), true);
     float at = 0;
     for (size_t i = 0; i < p.legs.size(); ++i) {
@@ -6986,6 +7215,13 @@ void flightPlanBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, 
         if (i % 2) dl->AddRectFilled(ImVec2(c3 + 6, ry - 2), ImVec2(c3 + w3 - 6, ry + hRow - 4), IM_COL32(255, 255, 255, 8), 4.0f);
         if (!l.cross.empty()) textAt(dl, f.small, xs[0] + 10, ry + rowH - 4, accentLite(255), fitText(f.small, l.cross, xs[3] - xs[0] - 10).c_str());
         textAt(dl, f.bold, xs[0], ry, kInk, l.ident.c_str());
+        if (hv) {
+            textAt(dl, f.small, hxs[1], ry + 1, kInk, navDeg(l.trkMag).c_str());
+            textAt(dl, f.bold, hxs[2], ry, kInk, navDeg(l.hdgMag).c_str());
+            textAt(dl, f.small, hxs[3], ry + 1, accentLite(255), navWca(l).c_str());
+            textRight(dl, f.small, hxs[4], ry + 1, kInk, navWind(l).c_str());
+            continue;
+        }
         textAt(dl, f.small, xs[1], ry + 1, kMuted, l.airway.c_str());
         textAt(dl, f.small, xs[2], ry + 1, kInk, l.alt.c_str());
         const std::string tail = l.legNm + "  " + l.totalTime;
@@ -9188,6 +9424,9 @@ bool trafficInRA(const MapState& m, const MapState::Traffic& t) { return tcasRA(
 int trafficThreat(const MapState& m, const MapState::Traffic& t) { return runwayConflict(m, t) ? 3 : tcasLevel(m, t); }
 void mapSelect(int kind, const std::string& key) { g_selKind = kind; g_selKey = key; }
 void openDispatchFromPlan() { openDispatch(true); }
+std::string navlogCorrection(const FlightPlan::Leg& l) { return navWca(l); }
+std::string navlogWind(const FlightPlan::Leg& l) { return navWind(l); }
+std::string navlogDegrees(int d) { return navDeg(d); }
 void setDeviceInput(bool on) { g_deviceInput = on; }   // (outside the file's own namespace: the plugin calls them)
 bool deviceKeysWanted() { return g_deviceInput && g_settings.localPhysicalKeys && g_kbd && !g_kbdKeysShown; }
 bool tabletPoweredOn() { return g_power == POWER_ON && !(g_batt <= 0.0f && !g_charger); }
@@ -9873,8 +10112,8 @@ void storePage(ImDrawList* dl, const Fonts& f, float w, float h, Actions& act) {
             x += bw + 6;
         }
         static std::string was;
-        textField(dl, f, "##storesearch", g_storeSearch, ImVec2(std::max(x + 8, w - 230), top), ImVec2(w - 16, top + 30), "Search Apps", false);
-        if (!g_storeSearch.empty() && pill(dl, f, "##storeclr", "x", ImVec2(w - 46, top + 3), ImVec2(w - 20, top + 27), false, true)) g_storeSearch.clear();
+        textField(dl, f, "##storesearch", g_storeSearch, ImVec2(std::max(x + 8, w - 230), top), ImVec2(g_storeSearch.empty() ? w - 16 : w - 50, top + 30), "Search Apps", false);
+        if (!g_storeSearch.empty() && pill(dl, f, "##storeclr", "x", ImVec2(w - 46, top), ImVec2(w - 16, top + 30), false, true)) g_storeSearch.clear();   // (beside the field: on it, the field took the press)
         if (was != g_storeSearch) { was = g_storeSearch; g_storeScroll = 0; g_storeFadeT0 = ImGui::GetTime(); }
     }
     auto lower = [](std::string v) { for (char& c : v) c = (char)std::tolower((unsigned char)c); return v; };
@@ -11100,7 +11339,7 @@ void mapView(double& lat, double& lon, int& zoom, float& verticalRangeNm) {
     zoom = (int)std::lround(g_mapZoom);
     verticalRangeNm = (float)(g_mapLastH / std::max(1e-9, g_mapLastScale) * g_mapLastMPerMerc / 1852.0);
 }
-void openDocuments(const std::string& folder) { g_docFilter = folder; g_docListScroll = 0; openApp(APP_DOCUMENTS); }
+void openDocuments(const std::string& folder) { g_docDir = folder; g_docListScroll = 0; openApp(APP_DOCUMENTS); }
 
 void showOnMap(double lat, double lon) {
     g_mapGoto = false; g_mapFollow = false; g_mapSeen = true;
@@ -11140,6 +11379,7 @@ std::string settingsToText() {
         { std::string v = g_settings.hoppieCode; for (char& c : v) if (c == '\n' || c == '\r') c = ' '; out += "hoppie_code=" + v + "\n"; }
         out += std::string("docs_list_hidden=") + (g_settings.docsListHidden ? "1" : "0") + "\n";
         out += "cabin_offered=1\n";
+        out += std::string("navlog_headings=") + (g_settings.navlogHeadings ? "1" : "0") + "\n";
         if (g_settings.winW > 0) out += "window=" + std::to_string(g_settings.winX) + "," + std::to_string(g_settings.winY) + "," + std::to_string(g_settings.winW) + "," + std::to_string(g_settings.winH) + "\n";
         { std::string v = g_settings.mediaOutput; for (char& c : v) if (c == '\n' || c == '\r') c = ' '; out += "media_output=" + v + "\n"; }
     }
@@ -11302,6 +11542,7 @@ void settingsFromText(const std::string& text) {
         else if (key == "media_output") g_settings.mediaOutput = val;
         else if (key == "docs_list_hidden") g_settings.docsListHidden = v != 0;
         else if (key == "cabin_offered") cabinSeen = true;
+        else if (key == "navlog_headings") g_settings.navlogHeadings = v != 0;
         else if (key == "window") {
             int x = 0, y = 0, ww = 0, hh = 0;
             if (std::sscanf(val.c_str(), "%d,%d,%d,%d", &x, &y, &ww, &hh) == 4 && ww >= 100 && hh >= 60 && ww <= 10000 && hh <= 10000) { g_settings.winX = x; g_settings.winY = y; g_settings.winW = ww; g_settings.winH = hh; }

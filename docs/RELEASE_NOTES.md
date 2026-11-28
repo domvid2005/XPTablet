@@ -19,6 +19,15 @@ replacing the old one. SkunkCrafts Updater users get it automatically.
   - **Close Unused Web Pages:** Never, or after 5, 15 or 30 minutes unseen (not while something plays). The Browser's tabs open
     again, and sites stay signed in.
   - **Reduced Memory Use:** fewer map tiles kept, and the map's navaids, fixes and airways put away after 5 minutes without the Map.
+- **Headings in the navlog:** Flight Plan's and Dispatch's navlogs have a **Headings** view beside **Times**: each leg's track, the
+  heading to fly in the wind, the wind correction (left or right) and the wind, from your SimBrief plan (Dispatch adds the
+  groundspeed).
+- **Documents with folders and tabs:** Documents now shows your folders as they are on disk, as AviTab does with its charts: XPTablet
+  Docs and AviTab Charts at the top, the folders inside them, then the files. Open several documents at once and switch between them
+  as tabs along the top; a PDF stays open where you left it, and a picture shows again at once. A search box finds files by name
+  in the folder you have open and every folder inside it.
+- **Documents lists every file:** it stopped after 500 files, so a large chart collection (a country's whole AIP) was cut off part
+  way. Every file is listed now, and the list scrolls with the wheel anywhere over it.
 - **The floating window remembers its place and size** after the sim or the plugins reload.
 
 ## Faster, lighter

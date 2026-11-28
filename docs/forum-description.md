@@ -14,13 +14,13 @@ Free. Windows, macOS and Linux. X-Plane 12.
 - **Route and procedures:** your SimBrief route on the map with its SID, STAR and approach.
 - **VATSIM:** airspaces and who is online, controller details and ATIS, a notification when ATC comes online at your departure or destination, and buttons for xPilot's windows (messages, nearby ATC, notifications, aircraft labels).
 - **Airports:** search any airport by code or name: runways, elevation, local time, radio frequencies, CTAF and live VATSIM ATC. Tap the headset beside a frequency to put it in COM1 standby.
-- **Flight Plan:** import your latest SimBrief flight with your SimBrief Pilot ID: route, fuel and weights, navlog and progress along the route. A new plan can load by itself.
+- **Flight Plan:** import your latest SimBrief flight with your SimBrief Pilot ID: route, fuel and weights, navlog (times, or track, heading, wind correction and wind) and progress along the route. A new plan can load by itself.
 - **Dispatch:** the SimBrief briefing by section: Briefing, Summary, Navlog, Weather, NOTAMs and ATC Flight Plan.
 - **Weather:** X-Plane's own weather at the aircraft (wind, visibility, clouds, winds aloft) and decoded METARs for any airport. With WXPlane installed, WXPlane's page appears here.
 - **GSE:** connect openSAM jetways door by door, and call BetterPushback or X-Plane's own tug, with what is still in the way listed. Top views for many aircraft types.
 - **Cabin (ToLiss):** the cabin lights with a dimmer, the slides and Cabin Ready, in an app of its own (App Store, Aircraft Management).
 - **Checklists:** normal, abnormal and emergency checklists for airliners, turboprops and light aircraft. Add your own as a text file per aircraft type.
-- **Documents:** your PDFs and pictures (and AviTab's charts folder), with a list that folds away to read across the page.
+- **Documents:** your PDFs and pictures (and AviTab's charts folder), browsed folder by folder with a search, several open at once as tabs, with a list that folds away to read across the page.
 - **App Store:** add only what you use. Charts (ChartFox, Navigraph, SkyVector, ForeFlight), SimBrief, D-ATIS, VATSIM Radar, Flightradar24, Discord, Spotify, YouTube and YouTube Music, Apple Music, SoundCloud, plus XPTablet's own Timers, Logbook, ACARS, Games and Cabin.
 - **Browser:** tabs, bookmarks, history, zoom and an on-screen keyboard, with touch scrolling.
 - **ACARS:** Hoppie's ACARS with CPDLC, pre-departure clearances and telex (a free Hoppie logon code).

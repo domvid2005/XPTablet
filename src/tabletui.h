@@ -101,6 +101,7 @@ struct Settings {
     int webCloseMin = 0;          // Performance: web pages unseen this many minutes are closed (0 never; not while one plays sound)
     bool lowMemory = false;       // Performance: fewer map tiles kept, the map's navaids and fixes put away when it is unused 5 minutes
     int winX = 0, winY = 0, winW = 0, winH = 0;   // the floating window: its place (from the screen's bottom-left) and size; winW 0 not yet kept
+    bool navlogHeadings = false;  // the navlogs (Flight Plan, Dispatch) show track, heading, wind correction and wind instead of times
     bool docsListHidden = false;  // Documents: the file list folded away (the document across the page)
     std::string mediaOutput;      // Windows: the sound output the computer volume (the PC slider) controls; "" Windows' default
     float duckRx = 0.5f;          // lowered: the media's volume while receiving, 0..1
@@ -316,6 +317,9 @@ struct FlightPlan {
     std::string ofpId;            // SimBrief's request id and generation time: a new plan has a new one
     struct Leg { std::string ident, airway, alt, legNm, totalTime, type; double lat = 0, lon = 0;
                  std::string cross;   // the SID's or STAR's crossing restriction there ("at or above FL220", "... 280 kt"), from X-Plane's CIFP
+                 // the leg to this fix, as SimBrief planned it (-1: not given): its track and the heading that holds it in the wind,
+                 // magnetic, degrees; the wind (from, true degrees, and knots, averaged over the leg); true airspeed and groundspeed
+                 int trkMag = -1, hdgMag = -1, windDir = -1, windKt = -1, tasKt = -1, gsKt = -1;
     };
     std::vector<Leg> legs;
     std::string divertKey;        // a diversion: the plan it replaced (its breadcrumbs go on), "" when none
@@ -337,9 +341,12 @@ struct AirportInfo {
 };
 
 // The Documents page: what is in the folders, and the picture being looked at.
-struct DocEntry { std::string name, path, folder; bool pdf = false; long long bytes = 0; };
+struct DocEntry { std::string name, path, folder; bool pdf = false; long long bytes = 0;
+                  std::string dir; };   // dir: its folder under the top folder (folder), "/" between levels, "" at the top
+
 struct DocsState {
     bool listed = false;
+    int gen = 0;                  // a new listing each time the folders are looked through
     std::vector<DocEntry> files;
     std::vector<std::string> folders;   // the folders looked in (to tell the user where to put files)
     std::string shownPath;        // the picture shown
@@ -603,6 +610,9 @@ bool appVisible(int app);                 // on the home screen (web app icons c
 std::vector<std::pair<int, int>> wrapLines(struct ImFont* font, float px, const std::string& v, float wrapW);   // a typed text's lines (the tests)
 void mapSelect(int kind, const std::string& key);
 void openDispatchFromPlan();
+std::string navlogCorrection(const FlightPlan::Leg& l);   // the navlog's wind correction: "R5", "L3", "0", "-" (none given)
+std::string navlogWind(const FlightPlan::Leg& l);         // "220/42" (from, true / knots), "-"
+std::string navlogDegrees(int d);                         // "095", "-"
 bool tabletPoweredOn();   // the tablet is on (not switched off, not flat): only then does it lower or pause media, or make sounds   // the Dispatch page, as the Flight Plan's Briefing PDF opens it (for the tests)   // opens the map's card for an item (for the tests)
 int touchTestCount();                     // marks in the Settings touch test (for the tests)
 const char* browserUrl();                 // the address the web page shows

@@ -1577,12 +1577,15 @@ bool g_docReady = false;
 std::string g_docPath, g_docError;
 std::vector<uint8_t> g_docPixels;
 int g_docW = 0, g_docH = 0;
-int g_docTex = 0;
+// the pictures open as tabs, kept on the graphics card: going back to one shows it at once (the oldest given back past the limit)
+struct DocPic { int tex = 0, w = 0, h = 0; bool light = false; double used = 0; };
+std::map<std::string, DocPic> g_docPics;
+size_t maxDocPics() { return xpt::settings().lowMemory ? 2 : 6; }
 
 void listDocuments() {
     namespace fs = std::filesystem;
     xpt::DocsState& d = g_sim.docs;
-    d.files.clear(); d.folders.clear(); d.listed = true;
+    d.files.clear(); d.folders.clear(); d.listed = true; ++d.gen;
     char sys[2048] = "";
     XPLMGetSystemPath(sys);
     const std::string root = sys;
@@ -1593,13 +1596,16 @@ void listDocuments() {
     // longer looked in (its manuals filled the list)
     const std::string docs = pluginFolder() + "/docs";
     makeDirs(docs + "/");
-    std::vector<Where> where = {{docs, xpt::kDocsFolderXPTablet, 4}, {mine, xpt::kDocsFolderXPTablet, 4}};   // (the page's filters' own spelling: 2026-11-27, "docs" showed nothing)
-    if (fs::exists(fs::u8path(root + "Resources/plugins/AviTab/charts"))) where.push_back({root + "Resources/plugins/AviTab/charts", xpt::kDocsFolderAviTab, 4});
+    std::vector<Where> where = {{docs, xpt::kDocsFolderXPTablet, 8}, {mine, xpt::kDocsFolderXPTablet, 8}};   // (the page's filters' own spelling: 2026-11-27, "docs" showed nothing)
+    if (fs::exists(fs::u8path(root + "Resources/plugins/AviTab/charts"))) where.push_back({root + "Resources/plugins/AviTab/charts", xpt::kDocsFolderAviTab, 8});
     for (const Where& w : where) {
         d.folders.push_back(w.path);
         std::error_code ec;
         fs::recursive_directory_iterator it(fs::u8path(w.path), fs::directory_options::skip_permission_denied, ec), end;
-        for (; !ec && it != end && d.files.size() < 500; it.increment(ec)) {
+        const fs::path base = fs::u8path(w.path);
+        // every file, in folders up to 8 deep (it stopped at 500 files: 2026-11-28, a country's whole AIP was cut off part way)
+        const size_t before = d.files.size();
+        for (; !ec && it != end && d.files.size() < 50000; it.increment(ec)) {
             if (it.depth() > w.depth) { it.disable_recursion_pending(); continue; }
             if (!it->is_regular_file(ec)) continue;
             std::string ext = it->path().extension().u8string();
@@ -1612,14 +1618,35 @@ void listDocuments() {
             e.folder = w.label;
             e.pdf = pdf;
             e.bytes = (long long)it->file_size(ec);
+            {   // its folder under this top folder, kept for browsing ("/" between levels)
+                const fs::path rel = it->path().parent_path().lexically_relative(base);
+                std::string r = rel.empty() || rel == "." ? std::string() : rel.generic_u8string();
+                if (r == ".") r.clear();
+                e.dir = r;
+            }
             d.files.push_back(e);
         }
+        // (by folder, then name, as a file manager shows them)
+        auto lower = [](std::string v) { for (char& c : v) c = (char)std::tolower((unsigned char)c); return v; };
+        std::sort(d.files.begin() + (long)before, d.files.end(), [&](const xpt::DocEntry& a, const xpt::DocEntry& b) {
+            const std::string da = lower(a.dir), db = lower(b.dir);
+            return da != db ? da < db : lower(a.name) < lower(b.name); });
     }
     logMsg("documents: %d files", (int)d.files.size());
 }
 
 void docsStep(const xpt::Actions& act) {
     if (act.docsList) listDocuments();
+    if (!act.docOpen.empty() && act.docOpen != g_sim.docs.shownPath) {
+        auto kept = g_docPics.find(act.docOpen);
+        if (kept != g_docPics.end()) {   // open in a tab before: shown again at once
+            xpt::DocsState& d = g_sim.docs;
+            kept->second.used = XPLMGetElapsedTime();
+            d.shownPath = act.docOpen; d.busy = false; d.error.clear();
+            d.tex = (ImTextureID)(intptr_t)kept->second.tex; d.texW = kept->second.w; d.texH = kept->second.h; d.light = kept->second.light;
+            return;
+        }
+    }
     if (!act.docOpen.empty() && act.docOpen != g_sim.docs.shownPath) {
         if (g_docThread.joinable()) g_docThread.join();
         g_sim.docs.shownPath = act.docOpen;
@@ -1665,8 +1692,16 @@ void docsStep(const xpt::Actions& act) {
     d.error = g_docError;
     d.tex = 0;
     if (!g_docError.empty() || g_docPixels.empty()) return;
-    if (!g_docTex) XPLMGenerateTextureNumbers(&g_docTex, 1);
-    XPLMBindTexture2d(g_docTex, 0); ++g_texChanges;
+    int docTex = 0;
+    while (g_docPics.size() >= maxDocPics()) {   // the picture looked at longest ago gives its texture back (or its number is used again)
+        auto old = g_docPics.begin();
+        for (auto it = g_docPics.begin(); it != g_docPics.end(); ++it) if (it->second.used < old->second.used) old = it;
+        if (!docTex) docTex = old->second.tex;
+        else if (gl.DeleteTextures) { const unsigned int id = (unsigned int)old->second.tex; gl.DeleteTextures(1, &id); }
+        g_docPics.erase(old);
+    }
+    if (!docTex) XPLMGenerateTextureNumbers(&docTex, 1);
+    XPLMBindTexture2d(docTex, 0); ++g_texChanges;
     // shown smaller than they are (a zoom between levels, a big picture fitted): mipmapped, made by the driver as they upload
         gl.TexParameteri(GL_TEXTURE_2D, 0x8191 /* GL_GENERATE_MIPMAP */, 1);
         gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, 0x2703 /* GL_LINEAR_MIPMAP_LINEAR */);
@@ -1677,13 +1712,14 @@ void docsStep(const xpt::Actions& act) {
     gl.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
     gl.TexImage2D(GL_TEXTURE_2D, 0, (GLint)GL_RGBA, g_docW, g_docH, 0, GL_RGBA, GL_UNSIGNED_BYTE, g_docPixels.data());
     XPLMBindTexture2d(0, 0);
-    d.tex = (ImTextureID)(intptr_t)g_docTex;
+    d.tex = (ImTextureID)(intptr_t)docTex;
     d.texW = g_docW; d.texH = g_docH;
     {   // light or dark: the average brightness over a sample of its pixels
         double sum = 0; size_t n = 0;
         for (size_t i = 0; i + 3 < g_docPixels.size(); i += 4 * 97) { sum += 0.30 * g_docPixels[i] + 0.59 * g_docPixels[i + 1] + 0.11 * g_docPixels[i + 2]; ++n; }
         d.light = n > 0 && sum / n > 150;
     }
+    g_docPics[d.shownPath] = {docTex, g_docW, g_docH, d.light, XPLMGetElapsedTime()};
     std::vector<uint8_t>().swap(g_docPixels);
 }
 
