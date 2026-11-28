@@ -1344,7 +1344,7 @@ int main(int argc, char** argv) {
                 settings().wallpaper = keepWp;
             }
             settings().autoDim = false;
-            tap(st, 80, 364);   // Data
+            tap(st, 80, 380);   // Data
             settings().simbriefUser = "alpineaviation";
             st.plan.status = "Imported KSBN to KORD at 05:12Z"; st.plan.loaded = true;
             shot(st, APP_SETTINGS, "settings_data");
@@ -1354,7 +1354,7 @@ int main(int argc, char** argv) {
                 Settings fresh; settings() = fresh; layoutHome(); const std::string defaults = settingsToText();
                 settings() = keepAll;
                 settings().favoriteSlots = 2; settings().wallpaper = 3; settings().notifyTcas = false; settings().localConnect = true;
-                tap(st, 80, 364);   // Data
+                tap(st, 80, 380);   // Data
                 bool booted = false;
                 for (float yy = 330; yy < 390 && !booted; yy += 4) {
                     tap(st, 713, yy); tap(st, 713, yy);
@@ -1372,7 +1372,7 @@ int main(int argc, char** argv) {
                 for (int k = 0; k < 120 && !(tabletPoweredOn() && currentApp() == APP_HOME && k > 80); ++k) { io.DisplaySize = ImVec2(800, kLogicalH); io.DeltaTime = 0.1f; io.AddMousePosEvent(-1000, -1000);
                     ImGui::NewFrame(); Actions act; build(fonts, st, 800, kLogicalH, act); ImGui::Render(); }   // (the boot it started has finished)
                 io.DeltaTime = 1.0f / 60.0f;
-                openApp(APP_SETTINGS); tap(st, 80, 364);
+                openApp(APP_SETTINGS); tap(st, 80, 380);
             }
             settings().simbriefUser.clear();
             tap(st, 80, 238);   // Media
@@ -1408,7 +1408,7 @@ int main(int argc, char** argv) {
             tap(st, 80, 196);   // Notifications
             shot(st, APP_SETTINGS, "settings_notifications");
             if (settingsTabShown() != 4) { std::printf("FAIL: the Notifications tab of Settings was not opened (%d)\n", settingsTabShown()); ++failures; }
-            tap(st, 80, 322);   // Accounts
+            tap(st, 80, 340);   // Accounts
             shot(st, APP_SETTINGS, "settings_accounts");
             {   // the SimBrief Pilot ID: a number, on a keypad; letters (typed, pasted, from the computer's keys) left out
                 settings().simbriefUser.clear();
@@ -1464,15 +1464,15 @@ int main(int argc, char** argv) {
                 if (currentApp() != APP_HOME || tabletTyping()) { std::printf("FAIL: after a caught error the page is closed and the keys put away\n"); ++failures; }
                 shot(st, APP_HOME, "after_caught_error");   // (frames after it: ImGui carries on as usual)
                 eio.ConfigErrorRecoveryEnableAssert = true;
-                openApp(APP_SETTINGS); tap(st, 80, 322);
+                openApp(APP_SETTINGS); tap(st, 80, 340);
             }
             if (settingsTabShown() != 7) { std::printf("FAIL: the Accounts tab of Settings was not opened (%d)\n", settingsTabShown()); ++failures; }
             {   // where the host cannot serve Local Connect yet (the plugin today), Settings has no page for it: Accounts takes its place
                 SimState nl = st; nl.local.status = -2;
-                tap(nl, 80, 364); tap(nl, 80, 280);
+                tap(nl, 80, 364); tap(nl, 80, 320);   // (Data, then Accounts: the rows 42 apart with one page fewer)
                 if (settingsTabShown() != 7) { std::printf("FAIL: without Local Connect, Accounts is in its place (%d)\n", settingsTabShown()); ++failures; }
                 shot(nl, APP_SETTINGS, "settings_no_local_connect");
-                tap(st, 80, 364);
+                tap(st, 80, 380);
             }
             tap(st, 80, 280);   // Local Connect
             {   // on, an Android phone connected (its battery the tablet's), an iPhone paired before, an iPad asking to pair
@@ -1503,6 +1503,26 @@ int main(int argc, char** argv) {
                 setBattery(100);
                 settings().localConnect = false;
             }
+            tap(st, 80, 305);   // Performance: the tablet's frame rate (Local Connect's too), unused web pages, reduced memory
+            if (settingsTabShown() != 8) { std::printf("FAIL: Settings' Performance page (%d)\n", settingsTabShown()); ++failures; }
+            shot(st, APP_SETTINGS, "settings_performance");
+            if (settings().tabletFps != 30 || localRefreshRate() != 30) { std::printf("FAIL: the tablet draws 30 a second by default, Local Connect too (%d, %d)\n", settings().tabletFps, localRefreshRate()); ++failures; }
+            tap(st, 220, 127);
+            if (tabletFrameCap() != 15 || localRefreshRate() != 15) { std::printf("FAIL: Performance's 15 (%d, %d)\n", tabletFrameCap(), localRefreshRate()); ++failures; }
+            tap(st, 455, 127);
+            if (tabletFrameCap() != 0 || localRefreshRate() != 60) { std::printf("FAIL: Performance's Max: every frame, Local Connect at 60 (%d, %d)\n", tabletFrameCap(), localRefreshRate()); ++failures; }
+            tap(st, 605, 127);
+            if (settings().webCloseMin != 5) { std::printf("FAIL: Performance's web pages closed after 5 minutes (%d)\n", settings().webCloseMin); ++failures; }
+            {   // kept with the settings
+                const std::string txt = settingsToText();
+                if (txt.find("tablet_fps=0\n") == std::string::npos || txt.find("web_close_min=5\n") == std::string::npos || txt.find("local_rate") != std::string::npos) { std::printf("FAIL: Performance's settings saved\n"); ++failures; }
+                const Settings keep = settings();
+                settings() = Settings(); settingsFromText("tablet_fps=7\nweb_close_min=99\nlow_memory=1\nlocal_rate=45\n");
+                if (settings().tabletFps != 15 || settings().webCloseMin != 30 || !settings().lowMemory) { std::printf("FAIL: Performance's settings read back within their limits\n"); ++failures; }
+                settings() = keep;
+            }
+            shot(st, APP_SETTINGS, "settings_performance_set");
+            settings().tabletFps = 30; settings().webCloseMin = 0;
             tap(st, 80, 112);   // back to General
         }
         {   // the status bar's clock: a tap switches Zulu and local time where the aircraft is (EST here)

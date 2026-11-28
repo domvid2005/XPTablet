@@ -66,7 +66,6 @@ struct Settings {
     bool localBattery = true;     // with a device connected that tells its battery: the tablet's battery is that device's
     int arcadeBest[6] = {0, 0, 0, 0, 0, 0};   // the best scores of Contrail, Taxi Rush, Sky Patrol, Hangar Climb, Cockpit 21 (most miles), Cargo Load
     bool physicalKeys = false;    // typing: the computer's own keyboard (a thin bar instead of the on-screen keys)
-    int localRate = 15;               // Local Connect: pictures a second sent to the devices (15 to 60, in fives)
     bool localPhysicalKeys = false;   // typing from a Local Connect device: the device's own keyboard (the bar) instead of the tablet's keys
     bool mapRings = true;         // range rings round the aircraft (a quarter, half and all of the range), as on WXPlane's map
     bool mapIls = true;           // ILS and localizer courses (a layer of their own)
@@ -97,6 +96,10 @@ struct Settings {
     bool statusLocalTime = false; // the status bar's clock: local time where the aircraft is (else Zulu)
     bool mediaEnabled = true;     // the Music app and the music controls in the pull-down (not on macOS)
     int mediaDuck = 0;            // while the radios receive: 0 leave the music alone, 1 lower it (duckRx / duckTx), 2 pause it (and play it again after)
+    int tabletFps = 30;           // Performance: the tablet draws itself this many times a second at most (0: every frame X-Plane draws);
+                                  // Local Connect's devices get the same rate (15 to 60)
+    int webCloseMin = 0;          // Performance: web pages unseen this many minutes are closed (0 never; not while one plays sound)
+    bool lowMemory = false;       // Performance: fewer map tiles kept, the map's navaids and fixes put away when it is unused 5 minutes
     int winX = 0, winY = 0, winW = 0, winH = 0;   // the floating window: its place (from the screen's bottom-left) and size; winW 0 not yet kept
     bool docsListHidden = false;  // Documents: the file list folded away (the document across the page)
     std::string mediaOutput;      // Windows: the sound output the computer volume (the PC slider) controls; "" Windows' default
@@ -533,10 +536,11 @@ std::string checklistFor(const std::string& text, const std::string& icao, const
 
 int currentApp();
 bool browserBarsHidden();
-int localRefreshRate();   // Local Connect's pictures a second (Settings, Local Connect)
-std::string localThemeJson();
+int localRefreshRate();   // Local Connect's pictures a second: the tablet's frame rate (Settings, Performance), 15 to 60
+int tabletFrameCap();     // the tablet's most frames a second (Settings, Performance); 0 every frame
+std::string localThemeJson();   // the tablet's theme colours as JSON (Local Connect's page follows them)
 unsigned themeAccentRGBA();       // the theme's accent colour, 0xRRGGBBAA (for XGSE)
-unsigned themeBackgroundRGBA();   // the theme's page background, 0xRRGGBBAA   // the tablet's theme colours as JSON (Local Connect's page follows them)
+unsigned themeBackgroundRGBA();   // the theme's page background, 0xRRGGBBAA
 // The pointer (the sim's mouse, a finger, a paired device): queued, and fed to Dear ImGui a step a frame, so that a press always
 // finds the pointer on its spot the frame before (call pumpPointer before NewFrame)
 void queuePointer(float x, float y, int down);   // down: -1 a move, 1 pressed, 0 released

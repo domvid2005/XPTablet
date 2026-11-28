@@ -209,9 +209,11 @@ void stop() {
     g_cv.notify_all();
     if (g_thread.joinable()) g_thread.join();
     g_loaded = false;
-    g_navs.clear(); g_fixes.clear(); g_navGrid.clear(); g_fixGrid.clear(); g_byId.clear(); g_airways.clear();
+    // given back, not only emptied (clear() keeps a vector's memory): Reduced Memory Use puts the data away to free it
+    decltype(g_navs)().swap(g_navs); decltype(g_fixes)().swap(g_fixes); decltype(g_navGrid)().swap(g_navGrid);
+    decltype(g_fixGrid)().swap(g_fixGrid); decltype(g_byId)().swap(g_byId); decltype(g_airways)().swap(g_airways);
     std::lock_guard<std::mutex> lk(g_mx);
-    g_outNavs.clear(); g_outFixes.clear();
+    decltype(g_outNavs)().swap(g_outNavs); decltype(g_outFixes)().swap(g_outFixes);
 }
 bool ready() { return g_loaded; }
 bool resolveRoute(double lat, double lon, const std::vector<std::string>& words, std::vector<MapState::RoutePoint>& out) {

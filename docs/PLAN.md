@@ -100,6 +100,20 @@ PaxDoorModeArray has 4 values, CargoDoorModeArray 3 (forward, aft, bulk), both w
 - The floating window keeps its place and size between sessions (settings key `window=x,y,w,h`, from the screen's bottom-left; kept
   on screen and shrunk to fit a smaller one).
 
+### Performance (Settings, Performance)
+
+- **Tablet Frame Rate** 15 / 20 / 30 / 60 / Max (default 30; key `tablet_fps`, 0 Max): the tablet builds its picture at most that
+  often, kept to the rate on average whatever X-Plane's own frame rate; between, the last picture is drawn again. Local Connect's
+  devices get the same rate (its own Refresh Rate slider is gone; Max sends 60 a second).
+- Web pages not on screen are paused: the helper is told (CMD_VISIBLE), Chromium stops drawing the shown tab (its sound plays on),
+  no pictures are taken or copied to the graphics card, and hidden tabs give back their last picture's memory.
+- **Close Unused Web Pages** Never / 5 / 15 / 30 Min (key `web_close_min`): Chromium quits once no page has been on screen that long
+  and nothing plays; the Browser's own tabs open again when it next starts.
+- **Reduced Memory Use** (key `low_memory`): 96 map tiles kept on the graphics card instead of 320; the map's navaids, fixes and
+  airways (and its tile textures) put away after 5 minutes without the Map.
+- Always: the navaids, fixes and airways are read when the Map is first opened (the runway alert needs only the airports index);
+  navdata's stop() frees its memory; the dimmed picture is made once per picture, not every frame.
+
 ## Browser engine
 
 X-Plane 12 ships Chromium Embedded Framework itself (Resources/dlls/64/cef; 12.4.4 has CEF 117.1.4+ga26f38b, Chromium 117.0.5938.92).

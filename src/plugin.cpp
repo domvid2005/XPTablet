@@ -133,6 +133,7 @@ struct GL {
     void(XPT_GL* TexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*) = nullptr;
     void(XPT_GL* TexParameteri)(GLenum, GLenum, GLint) = nullptr;
     void(XPT_GL* TexSubImage2D)(GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const void*) = nullptr;   // the browser's pictures (optional)
+    void(XPT_GL* DeleteTextures)(GLsizei, const unsigned int*) = nullptr;   // map tiles given back (Settings, Performance; optional)
     void(XPT_GL* PixelStorei)(GLenum, GLint) = nullptr;
     void(XPT_GL* EnableClientState)(GLenum) = nullptr;
     void(XPT_GL* VertexPointer)(GLint, GLenum, GLsizei, const void*) = nullptr;
@@ -179,6 +180,7 @@ bool loadGl() {
         ok &= glGet(gl.PopMatrix, "glPopMatrix"); ok &= glGet(gl.Translatef, "glTranslatef"); ok &= glGet(gl.Scalef, "glScalef");
         ok &= glGet(gl.PushClientAttrib, "glPushClientAttrib"); ok &= glGet(gl.PopClientAttrib, "glPopClientAttrib"); ok &= glGet(gl.Color4f, "glColor4f");
         glGet(gl.TexSubImage2D, "glTexSubImage2D");
+        glGet(gl.DeleteTextures, "glDeleteTextures");
         gl.state = ok ? 1 : -1;
         if (!ok) logMsg("OpenGL functions not found, the tablet cannot be drawn");
     }
@@ -210,6 +212,10 @@ int g_fontTex = 0;
 float g_fontScale = 0;
 std::vector<xpt::Batch> g_batches;   // the current frame, clipped, in layout units
 int g_frameCycle = -1;
+unsigned g_batchGen = 0;   // a new picture of the tablet (g_batches) each time it draws itself
+// The picture dimmed (the brightness below full): made once per picture and brightness, not every frame. Two: the cockpit's and the
+// window's brightness differ.
+const std::vector<xpt::Batch>& dimmed(int which, float bright);
 float g_logW = 800.0f;               // the layout's width this frame (its height is always xpt::kLogicalH)
 std::chrono::steady_clock::time_point g_lastFrame{};
 xpt::SimState g_sim;
@@ -604,6 +610,10 @@ int g_webViewW = 0, g_webViewH = 0;
 float g_webViewScale = 0;
 bool g_webTried = false;
 bool g_webShown = false;
+int g_webVisSent = -1;          // what Chromium was last told (CMD_VISIBLE): 1 a web page on screen, 0 none, -1 nothing yet
+double g_webSeenAt = -1;        // when a web page was last on screen (Settings, Performance: unseen pages are closed)
+double g_lastBuildAt = -1;      // when the tablet last drew itself (not drawn: nothing of it is on screen)
+std::vector<std::string> g_webReopen;   // the Browser's own tabs when the pages were closed unused: opened again with the browser
 bool g_wantKeys = false;   // the floating window takes the keyboard (a web page or a text field is shown)
 
 bool fileExists(const std::string& p) { FILE* f = std::fopen(p.c_str(), "rb"); if (f) std::fclose(f); return f != nullptr; }
@@ -664,6 +674,24 @@ void browserStop() {
     g_sim.browser = xpt::BrowserState();
     g_webTexW = g_webTexH = 0;
     g_webTried = false;
+    g_webVisSent = -1;
+}
+// Settings, Performance: the pages closed when none has been on screen for that long (nor plays a sound). The Browser's own tabs are
+// noted, to open again when the browser starts next; the web apps open their own page as they always do.
+void browserIdleStep() {
+    namespace br = xpt::browser;
+    if (!br::started()) return;
+    const double now = XPLMGetElapsedTime();
+    const bool onScreen = g_webShown && g_lastBuildAt >= 0 && now - g_lastBuildAt < 0.5;
+    if (onScreen) g_webSeenAt = now;
+    if (!onScreen && g_webVisSent == 1) { br::push(xptb::CMD_VISIBLE, 0); g_webVisSent = 0; }   // (the tablet put away, its window shut)
+    const int mins = xpt::settings().webCloseMin;
+    if (mins <= 0 || onScreen || br::mediaPlaying() || g_webSeenAt < 0 || now - g_webSeenAt < mins * 60.0) return;
+    g_webReopen.clear();
+    for (const xpt::BrowserState::Tab& t : g_sim.browser.tabs) if (t.group == 0 && !t.url.empty() && t.url.compare(0, 6, "about:") != 0) g_webReopen.push_back(t.url);
+    logMsg("browser: no web page seen for %d minutes, closed (Settings, Performance)", mins);
+    browserStop();
+    g_webSeenAt = -1;
 }
 
 // After each UI build: start the browser when a page wants it, send it what happened, and take its newest picture.
@@ -672,6 +700,11 @@ void browserStep(const xpt::Actions& act) {
     xpt::BrowserState& b = g_sim.browser;
     if (act.webRetry) browserStop();
     if (act.webShown && !br::started() && !g_webTried) browserStart();
+    if (br::started() && g_webVisSent != (act.webShown ? 1 : 0)) { br::push(xptb::CMD_VISIBLE, act.webShown ? 1 : 0); g_webVisSent = act.webShown ? 1 : 0; }
+    if (br::started() && br::state() == 1 && !g_webReopen.empty()) {   // the Browser's tabs, as they were when the pages were closed unused
+        for (const std::string& u : g_webReopen) br::push(xptb::CMD_TAB_NEW, 0, 0, 0, 0, 0, u);
+        g_webReopen.clear();
+    }
     if (!br::started()) return;
     br::heartbeat();
     const int st = br::state();
@@ -741,7 +774,7 @@ void browserStep(const xpt::Actions& act) {
     }
     const uint8_t* px = nullptr;
     int w = 0, h = 0;
-    if (br::frame(px, w, h)) {
+    if (act.webShown && br::frame(px, w, h)) {   // (no page on screen: no picture taken, none copied to the graphics card)
         if (!g_webTex) XPLMGenerateTextureNumbers(&g_webTex, 1);
         XPLMBindTexture2d(g_webTex, 0); ++g_texChanges;
         gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
@@ -766,7 +799,9 @@ void browserStep(const xpt::Actions& act) {
 // ---- the map: tiles as textures, and X-Plane's airports ---------------------------------------------------------------------
 // Tiles are fetched and decoded on threads of their own (src/tiles.cpp); here they become textures, at most kMaxTileTex of them,
 // the least recently drawn given to new tiles. The airport index is built the first time the Map page is shown.
-constexpr size_t kMaxTileTex = 320;
+constexpr size_t kMaxTileTex = 320;      // the map's tiles kept on the graphics card (about 85 MB with their smaller copies)
+constexpr size_t kMaxTileTexLow = 96;    // with Reduced Memory Use (Settings, Performance)
+size_t maxTileTex() { return xpt::settings().lowMemory ? kMaxTileTexLow : kMaxTileTex; }
 struct TileTex { int tex = 0; int used = 0; };
 std::map<xpt::tiles::Key, TileTex> g_tileTex;
 std::vector<xpt::tiles::Key> g_tileWants;
@@ -791,15 +826,32 @@ void mapStart() {
     const std::string root = sys;
     makeDirs(root + "Output/XPTablet/tiles/");
     xpt::tiles::start(root + "Output/XPTablet/tiles");
-    xpt::aptdat::start(root);
-    xpt::navdata::start(root);
+    xpt::aptdat::start(root);   // (the navaids, fixes and airways: once the Map is opened, navStart)
     logMsg("map: tiles cached in Output/XPTablet/tiles; reading X-Plane's airports");
+}
+// X-Plane's navaids, fixes and airways (tens of megabytes): read when the Map is first opened, not at the start; with Reduced Memory
+// Use put away again (with the map's tile textures) once the Map has not been on screen for 5 minutes
+bool g_navStarted = false;
+double g_mapSeenAt = -1;
+void navStart() {
+    if (g_navStarted) return;
+    g_navStarted = true;
+    char sys[2048] = "";
+    XPLMGetSystemPath(sys);
+    xpt::navdata::start(sys);
+}
+void mapPutAway() {
+    if (g_navStarted) { xpt::navdata::stop(); g_navStarted = false; }
+    if (gl.DeleteTextures) for (auto& kv : g_tileTex) { const unsigned int id = (unsigned int)kv.second.tex; gl.DeleteTextures(1, &id); }
+    if (gl.DeleteTextures) g_tileTex.clear();
+    logMsg("map: unused 5 minutes, its navaids, fixes and tiles put away (Reduced Memory Use)");
 }
 void mapStop() {
     if (!g_mapStarted) return;
     xpt::tiles::stop();
     xpt::aptdat::stop();
     xpt::navdata::stop();
+    g_navStarted = false;
     if (g_sbThread.joinable()) g_sbThread.join();
     g_mapStarted = false;
     xpt::ourairports::stop();
@@ -830,6 +882,8 @@ void mapStep(const xpt::Actions& act) {
             xpt::aptdat::get(g_sim.map.airports, pts, g_sim.map.aptIndexing, n);
         }
     }
+    if (act.mapShown) { navStart(); g_mapSeenAt = XPLMGetElapsedTime(); }
+    else if (xpt::settings().lowMemory && (g_navStarted || !g_tileTex.empty()) && g_mapSeenAt >= 0 && XPLMGetElapsedTime() - g_mapSeenAt > 300) { mapPutAway(); g_mapSeenAt = -1; }
     if (act.mapShown) {
         xpt::tiles::want(g_tileWants);
         xpt::aptdat::setView(act.mapLat, act.mapLon, act.mapLayoutNm, act.mapPointNm, act.mapLayouts, act.mapPointMinFt);
@@ -847,7 +901,14 @@ void mapStep(const xpt::Actions& act) {
     for (int k = 0; k < 6 && xpt::tiles::take(t); ++k) {
         if (t.failed || t.w <= 0 || t.h <= 0 || g_tileTex.count(t.key)) continue;
         int tex = 0;
-        if (g_tileTex.size() < kMaxTileTex) {
+        while (g_tileTex.size() > maxTileTex() && gl.DeleteTextures) {   // (Reduced Memory Use just switched on: down to its size)
+            auto old = g_tileTex.begin();
+            for (auto it = g_tileTex.begin(); it != g_tileTex.end(); ++it) if (it->second.used < old->second.used) old = it;
+            const unsigned int id = (unsigned int)old->second.tex;
+            gl.DeleteTextures(1, &id);
+            g_tileTex.erase(old);
+        }
+        if (g_tileTex.size() < maxTileTex()) {
             XPLMGenerateTextureNumbers(&tex, 1);
         } else {   // the texture of the tile drawn longest ago
             auto old = g_tileTex.begin();
@@ -1893,6 +1954,18 @@ void ensureFrame() {
     const int cycle = XPLMGetCycleNumber();
     if (cycle == g_frameCycle) return;
     g_frameCycle = cycle;
+    {   // Settings, Performance: the tablet draws itself at most so many times a second; between, its last picture is shown again
+        // (and Local Connect's devices get no newer one). Kept to the rate on average, whatever X-Plane's own frame rate.
+        static double nextAt = -1;
+        const int cap = xpt::tabletFrameCap();
+        const double now = XPLMGetElapsedTime();
+        if (cap > 0) {
+            const double iv = 1.0 / cap;
+            if (nextAt > 0 && now < nextAt - 0.002) return;   // (2 ms early is on time: X-Plane's frames do not come exactly)
+            nextAt = (nextAt < 0 || now - nextAt > iv) ? now + iv : nextAt + iv;
+        } else nextAt = -1;
+        g_lastBuildAt = now;
+    }
     ImGui::SetCurrentContext(g_ctx);
     const bool winShown = g_win && XPLMGetWindowIsVisible(g_win);
     float ww = 800, wh = 480;
@@ -1964,6 +2037,7 @@ void ensureFrame() {
     xpt::crashlog::here("the tablet's frame: drawing it and acting on its presses");
     ImGui::Render();
     xpt::clipDrawData(ImGui::GetDrawData(), g_batches);
+    ++g_batchGen;
 #if defined(XPT_LOCAL_CONNECT)
     // Local Connect: a device forgotten, a pairing declined
     if (!act.localForget.empty()) xpt::localserver::forget(act.localForget);
@@ -2073,6 +2147,18 @@ void ensureFrame() {
     g_wantKeys = g_webShown || xpt::tabletTyping();
     if (g_wantKeys && g_win && XPLMGetWindowIsVisible(g_win) && cycle - g_winHoverCycle < 2 && !XPLMHasKeyboardFocus(g_win)) XPLMTakeKeyboardFocus(g_win);
     if (!g_wantKeys && g_win && XPLMHasKeyboardFocus(g_win)) XPLMTakeKeyboardFocus(nullptr);
+}
+
+const std::vector<xpt::Batch>& dimmed(int which, float bright) {
+    static std::vector<xpt::Batch> dim[2];
+    static unsigned gen[2] = {~0u, ~0u};
+    static float at[2] = {-1, -1};
+    if (gen[which] != g_batchGen || std::fabs(at[which] - bright) > 1e-4f) {
+        dim[which] = g_batches;   // (into the vectors it had: no new memory once they are big enough)
+        xpt::scaleColors(dim[which], bright);
+        gen[which] = g_batchGen; at[which] = bright;
+    }
+    return dim[which];
 }
 
 // Draws the frame with its top-left corner at (left, top) and sx/sy screen units per layout unit (y up on screen).
@@ -2200,9 +2286,7 @@ int drawPanel(XPLMDrawingPhase, int, void*) {
     ensureFrame();
     const float bright = g_brightness * userBrightness();   // the aircraft's knob times the Settings slider
     if (bright < 0.999f) {
-        std::vector<xpt::Batch> dim = g_batches;
-        xpt::scaleColors(dim, bright);
-        drawBatches(dim, l, b + h, w / g_logW, h / xpt::kLogicalH);
+        drawBatches(dimmed(0, bright), l, b + h, w / g_logW, h / xpt::kLogicalH);
     } else {
         drawBatches(g_batches, l, b + h, w / g_logW, h / xpt::kLogicalH);
     }
@@ -2402,9 +2486,7 @@ void winDraw(XPLMWindowID w, void*) {
     fillRect((float)l, (float)b, (float)r, (float)t, 0, 0, 0);
     const float bright = userBrightness();   // the window has no aircraft knob: the Settings slider alone
     if (bright < 0.999f) {
-        std::vector<xpt::Batch> dim = g_batches;
-        xpt::scaleColors(dim, bright);
-        drawBatches(dim, (float)l + g_winOx, (float)t - g_winOy, g_winScale, g_winScale);
+        drawBatches(dimmed(1, bright), (float)l + g_winOx, (float)t - g_winOy, g_winScale, g_winScale);
     } else {
         drawBatches(g_batches, (float)l + g_winOx, (float)t - g_winOy, g_winScale, g_winScale);
     }
@@ -3491,6 +3573,7 @@ float flightLoop(float dt, float, int, void*) {
     localConnectStep();
     if (xpt::takeSettingsChanged()) saveSettings();
     rememberWindow();
+    browserIdleStep();
     saveSettingsIfChanged(sec);
     xpt::crashlog::here("the flight loop: chimeStep");
     chimeStep();

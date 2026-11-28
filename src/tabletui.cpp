@@ -8571,25 +8571,28 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
         if (!g_mac) tabs.push_back({5, "Media", IM_COL32(250, 45, 85, 255), APP_MUSIC});
         if (s.local.status != -2) tabs.push_back({6, "Local Connect", IM_COL32(24, 150, 170, 255), APP_BROWSER});   // (not shown until the host can serve it)
         else if (g_settingsTab == 6) g_settingsTab = 0;
+        tabs.push_back({8, "Performance", IM_COL32(255, 120, 60, 255), -2});   // (-2: a gauge, drawn here)
         tabs.push_back({7, "Accounts", IM_COL32(150, 96, 250, 255), APP_SETTINGS});
         tabs.push_back({2, "Data", IM_COL32(60, 190, 130, 255), APP_DOCUMENTS});
         if (g_mac && g_settingsTab == 5) g_settingsTab = 0;
         tabs.push_back({3, "Credits", IM_COL32(236, 152, 50, 255), APP_NOTES});
+        // a row each, 42 apart while they fit above the line over Credits (closer together when there are more pages)
+        const float step = std::min(42.0f, std::floor((sBot - 64 - (sTop + 8)) / std::max<size_t>(1, tabs.size() - 1))), rowH = std::min(40.0f, step - 2);
         // the highlight glides to the chosen page (as the setting buttons ease), drawn under the names
         static float selY = -1;
         float wantY = -1;
-        for (size_t t = 0; t < tabs.size(); ++t) if (tabs[t].id == g_settingsTab) wantY = t + 1 == tabs.size() ? sBot - 50 : sTop + 8 + t * 42;
+        for (size_t t = 0; t < tabs.size(); ++t) if (tabs[t].id == g_settingsTab) wantY = t + 1 == tabs.size() ? sBot - 50 : sTop + 8 + t * step;
         if (wantY >= 0) {
             if (selY < 0 || std::fabs(selY - wantY) > 400) selY = wantY;
             selY += (wantY - selY) * (1.0f - std::exp(-ImGui::GetIO().DeltaTime * 16.0f));
             if (std::fabs(selY - wantY) < 0.3f) selY = wantY;
-            dl->AddRectFilled(ImVec2(18, selY), ImVec2(6 + sW, selY + 40), accentCol(110), 10.0f);
+            dl->AddRectFilled(ImVec2(18, selY), ImVec2(6 + sW, selY + (std::fabs(selY - (sBot - 50)) < 0.5f ? 40.0f : rowH)), accentCol(110), 10.0f);
         }
         for (size_t t = 0; t < tabs.size(); ++t) {
             const int i = tabs[t].id;
             const bool last = t + 1 == tabs.size();
-            const float ry = !last ? sTop + 8 + t * 42 : sBot - 50;
-            const ImVec2 a(18, ry), e(6 + sW, ry + 40);
+            const float ry = !last ? sTop + 8 + t * step : sBot - 50;
+            const ImVec2 a(18, ry), e(6 + sW, ry + (last ? 40.0f : rowH));
             char id[16];
             std::snprintf(id, sizeof id, "##set%d", i);
             ImGui::SetCursorScreenPos(a);
@@ -8597,10 +8600,15 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             const bool on = g_settingsTab == i, hot = ImGui::IsItemHovered();
             const Ease ez = eased(id, on, hot && !on, ImGui::IsItemActive());
             if (ez.hot > 0.01f) dl->AddRectFilled(a, e, IM_COL32(255, 255, 255, (int)(18 * ez.hot + 14 * ez.down)), 10.0f);   // hover fades in and out
-            const ImVec2 ic(a.x + 20, a.y + 20);
+            const ImVec2 ic(a.x + 20, std::floor((a.y + e.y) * 0.5f));
             dl->AddRectFilled(ImVec2(ic.x - 12, ic.y - 12), ImVec2(ic.x + 12, ic.y + 12), tabs[t].tint, 6.0f);
-            icon(dl, tabs[t].glyph, ic, 7.0f, IM_COL32(255, 255, 255, 255));
-            textAt(dl, f.body, a.x + 42, std::floor(a.y + 20 - fontPx(f.body) * 0.5f), kInk, tabs[t].name);
+            if (tabs[t].glyph == -2) {   // a gauge: its dial's arc, the needle well over to the right, its hub
+                dl->PathArcTo(ImVec2(ic.x, ic.y + 2.5f), 7.5f, 3.14159f * 0.95f, 3.14159f * 2.05f, 16);
+                dl->PathStroke(IM_COL32(255, 255, 255, 255), 0, 2.0f);
+                dl->AddLine(ImVec2(ic.x, ic.y + 2.5f), ImVec2(ic.x + 4.6f, ic.y - 2.8f), IM_COL32(255, 255, 255, 255), 2.0f);
+                dl->AddCircleFilled(ImVec2(ic.x, ic.y + 2.5f), 2.0f, IM_COL32(255, 255, 255, 255), 0);
+            } else icon(dl, tabs[t].glyph, ic, 7.0f, IM_COL32(255, 255, 255, 255));
+            textAt(dl, f.body, a.x + 42, std::floor(ic.y - fontPx(f.body) * 0.5f), kInk, tabs[t].name);
         }
         dl->AddLine(ImVec2(24, sBot - 58), ImVec2(sW, sBot - 58), IM_COL32(255, 255, 255, 24));
     }
@@ -8717,6 +8725,56 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             ry += 40;
         }
         dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "The chime with each notification, played through X-Plane's sound. At 0% it is silent.", nullptr, w - 18 - rx);
+        return;
+    }
+    if (g_settingsTab == 8) {   // ---- Performance: how often the tablet draws, and what it keeps in memory
+        float y = top;
+        textAt(dl, f.bold, lx, y, kInk, "Tablet Frame Rate");
+        y += 22;
+        {
+            static const int rates[5] = {15, 20, 30, 60, 0};
+            static const char* names[5] = {"15", "20", "30", "60", "Max"};
+            const float bw = std::floor((colW - 4 * 6) / 5.0f);
+            const int cur = tabletFrameCap();
+            for (int i = 0; i < 5; ++i) {
+                char id[16]; std::snprintf(id, sizeof id, "##pfps%d", i);
+                const ImVec2 a(lx + i * (bw + 6), y);
+                if (pill(dl, f, id, names[i], a, ImVec2(i == 4 ? lx + colW : a.x + bw, y + 30), cur == rates[i], true) && cur != rates[i]) { g_settings.tabletFps = rates[i]; g_settingsChanged = true; }
+            }
+        }
+        y += 42;
+        {
+            const char* t = "How many times a second the tablet draws itself. Lower leaves more of the computer to X-Plane; Max draws with every X-Plane frame. Local Connect's devices get the same rate.";
+            dl->AddText(f.small, fontPx(f.small), ImVec2(lx, y), kMuted, t, nullptr, colW);
+            y += f.small->CalcTextSizeA(fontPx(f.small), FLT_MAX, colW, t).y + 14;
+        }
+        {   // what it does now (Dear ImGui's average of the last frames' times: the frames the tablet drew)
+            const float fr = ImGui::GetIO().Framerate;
+            char b[48]; std::snprintf(b, sizeof b, "Drawing Now: %d / s", (int)std::lround(fr));
+            textAt(dl, f.small, lx, y, kMuted, b);
+        }
+        float ry = top;
+        textAt(dl, f.bold, rx, ry, kInk, "Close Unused Web Pages");
+        ry += 22;
+        {
+            static const int mins[4] = {0, 5, 15, 30};
+            static const char* names[4] = {"Never", "5 Min", "15 Min", "30 Min"};
+            const float bw = std::floor((colW - 3 * 6) / 4.0f);
+            for (int i = 0; i < 4; ++i) {
+                char id[16]; std::snprintf(id, sizeof id, "##pweb%d", i);
+                const ImVec2 a(rx + i * (bw + 6), ry);
+                if (pill(dl, f, id, names[i], a, ImVec2(i == 3 ? rx + colW : a.x + bw, ry + 30), g_settings.webCloseMin == mins[i], true) && g_settings.webCloseMin != mins[i]) { g_settings.webCloseMin = mins[i]; g_settingsChanged = true; }
+            }
+        }
+        ry += 42;
+        {
+            const char* t = "Web pages (the Browser, SimBrief, Navigraph, Discord) are paused while not on screen, and closed after this long unseen, unless one is playing sound. The Browser's tabs open again; sites stay signed in.";
+            dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, t, nullptr, colW);
+            ry += f.small->CalcTextSizeA(fontPx(f.small), FLT_MAX, colW, t).y + 16;
+        }
+        toggle("##plowmem", rx, ry, colW, g_settings.lowMemory ? "Reduced Memory Use: On" : "Reduced Memory Use: Off", g_settings.lowMemory, true);
+        ry += 42;
+        dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, "Keeps fewer map tiles, and puts the map's navaids, fixes and airways away when the Map has not been used for 5 minutes.", nullptr, colW);
         return;
     }
     if (g_settingsTab == 7) {   // ---- Accounts: the keys and codes other services give you (kept on this computer, shown as dots)
@@ -8850,15 +8908,10 @@ void settingsBody(ImDrawList* dl, const Fonts& f, const SimState& s, float w, fl
             choice("##chdevkeys", rx, ry, colW, "Typing On The Device", devNames, dk, true);
             if ((dk == 1) != g_settings.localPhysicalKeys) { g_settings.localPhysicalKeys = dk == 1; g_kbdKeysShown = false; }
         }
-        {   // how often the devices get a new picture: smoother, or lighter on the computer and the network
-            textAt(dl, f.bold, rx, ry, kInk, "Refresh Rate");   // (the choice above leaves ry under its buttons)
-            ry += 20;
-            float v = (float)std::max(15, std::min(60, g_settings.localRate));
-            char txt[16]; std::snprintf(txt, sizeof txt, "%d / s", (int)std::lround(v / 5.0f) * 5);
-            if (smoothSlider(dl, f, "##lcrate", ImVec2(rx - 12, ry), ImVec2(rx + colW, ry + 30), v, 15.0f, 60.0f, 9, true, txt)) {
-                const int nv = (int)std::lround(v / 5.0f) * 5;
-                if (nv != g_settings.localRate) { g_settings.localRate = nv; g_settingsChanged = true; }
-            }
+        {   // how often the devices get a new picture: as often as the tablet draws (Settings, Performance)
+            char t[96];
+            std::snprintf(t, sizeof t, "Devices get the tablet's frame rate: %d / s (Settings, Performance).", localRefreshRate());
+            dl->AddText(f.small, fontPx(f.small), ImVec2(rx, ry), kMuted, t, nullptr, colW);
         }
         return;
     }
@@ -10684,7 +10737,8 @@ void drawPage(ImDrawList* dl, const Fonts& f, const SimState& s, float w, float 
 
 int currentApp() { return g_app; }
 bool browserBarsHidden() { return g_barsHidden; }
-int localRefreshRate() { return std::max(15, std::min(60, g_settings.localRate)); }
+int tabletFrameCap() { const int v = g_settings.tabletFps; return v <= 0 ? 0 : std::max(15, std::min(60, v)); }
+int localRefreshRate() { const int c = tabletFrameCap(); return c <= 0 ? 60 : c; }
 unsigned themeAccentRGBA() { const ImU32 c = accentCol(255);
     return ((c >> IM_COL32_R_SHIFT) & 255) << 24 | ((c >> IM_COL32_G_SHIFT) & 255) << 16 | ((c >> IM_COL32_B_SHIFT) & 255) << 8 | 255u; }
 unsigned themeBackgroundRGBA() { const ImU32 c = themeTone(14, 18, 26, 255);
@@ -11093,7 +11147,8 @@ std::string settingsToText() {
     out += std::string("map_dark_auto=") + (g_settings.mapDarkAuto ? "1" : "0") + "\n";
     out += std::string("cabin_auto=") + (g_settings.cabinAuto ? "1" : "0") + "\n";
     { char ab[128]; std::snprintf(ab, sizeof ab, "arcade_best=%d,%d,%d,%d,%d,%d\n", g_settings.arcadeBest[0], g_settings.arcadeBest[1], g_settings.arcadeBest[2], g_settings.arcadeBest[3], g_settings.arcadeBest[4], g_settings.arcadeBest[5]); out += ab; }
-    out += std::string("local_connect=") + (g_settings.localConnect ? "1" : "0") + "\nlocal_battery=" + (g_settings.localBattery ? "1" : "0") + "\nlocal_physical_keys=" + (g_settings.localPhysicalKeys ? "1" : "0") + "\nlocal_rate=" + std::to_string(g_settings.localRate) + "\n";
+    out += std::string("local_connect=") + (g_settings.localConnect ? "1" : "0") + "\nlocal_battery=" + (g_settings.localBattery ? "1" : "0") + "\nlocal_physical_keys=" + (g_settings.localPhysicalKeys ? "1" : "0") + "\n";
+    out += "tablet_fps=" + std::to_string(g_settings.tabletFps) + "\nweb_close_min=" + std::to_string(g_settings.webCloseMin) + "\nlow_memory=" + (g_settings.lowMemory ? "1" : "0") + "\n";
     out += std::string("map_vatsim_atc=") + (g_settings.mapVatsimAtc ? "1" : "0") + "\nvatsim_atc_notes=" + (g_settings.vatsimAtcNotes ? "1" : "0") + "\n";
     for (int i = 0; i < 3; ++i) {   // the Customs: colours, and the picture's file name
         char cb[96]; std::snprintf(cb, sizeof cb, "custom%d_bg=%06X\ncustom%d_accent=%06X\n", i, g_settings.customs[i].bg & 0xFFFFFF, i, g_settings.customs[i].accent & 0xFFFFFF); out += cb;
@@ -11224,7 +11279,9 @@ void settingsFromText(const std::string& text) {
         else if (key == "map_traffic_alt") g_settings.mapTrafficAltFt = std::max(0.0f, std::min(60000.0f, (float)std::atof(val.c_str())));
         else if (key == "physical_keys") g_settings.physicalKeys = v != 0;
         else if (key == "local_physical_keys") g_settings.localPhysicalKeys = v != 0;
-        else if (key == "local_rate") g_settings.localRate = std::max(15, std::min(60, v / 5 * 5));
+        else if (key == "tablet_fps") g_settings.tabletFps = v <= 0 ? 0 : std::max(15, std::min(60, v));
+        else if (key == "web_close_min") g_settings.webCloseMin = v <= 0 ? 0 : std::max(5, std::min(30, v));
+        else if (key == "low_memory") g_settings.lowMemory = v != 0;
         else if (key == "custom_bg") g_settings.customs[0].bg = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;   // (one Custom, before)
         else if (key == "custom_accent") g_settings.customs[0].accent = (int)std::strtol(val.c_str(), nullptr, 16) & 0xFFFFFF;
         else if (key.size() > 8 && key.compare(0, 6, "custom") == 0 && key[6] >= '0' && key[6] <= '2' && key[7] == '_') {

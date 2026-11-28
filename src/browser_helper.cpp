@@ -549,12 +549,20 @@ void hostDo(cef_browser_t* b, void (*fn)(cef_browser_host_t*)) {
     cef_browser_host_t* h = b->get_host(b);
     if (h) { fn(h); unref(h); }
 }
+// A tab put out of sight: Chromium stops drawing it, and its last picture is given back (drawn afresh when it is shown again)
+void hideTab(Tab& t) {
+    hostDo(t.br, [](cef_browser_host_t* h) { h->was_hidden(h, 1); });
+    std::vector<uint8_t>().swap(t.view); std::vector<uint8_t>().swap(t.popup);
+    t.vw = t.vh = 0; t.pw = t.ph = 0;
+}
+bool g_visible = true;   // a web page is on the tablet's screen (CMD_VISIBLE): else even the shown tab is hidden from Chromium
 void showTab(int index) {
     if (index < 0 || index >= (int)g_tabs.size()) return;
-    if (g_active >= 0 && g_active < (int)g_tabs.size() && g_active != index) hostDo(g_tabs[g_active].br, [](cef_browser_host_t* h) { h->was_hidden(h, 1); });
+    if (g_active >= 0 && g_active < (int)g_tabs.size() && g_active != index) hideTab(g_tabs[g_active]);
     g_active = index;
     applyZoom(g_tabs[index]);   // (Chromium keeps a zoom per site: another tab of the same site may have changed it)
-    hostDo(g_tabs[index].br, [](cef_browser_host_t* h) { h->was_hidden(h, 0); h->was_resized(h); h->invalidate(h, PET_VIEW); h->set_focus(h, 1); });
+    if (g_visible) hostDo(g_tabs[index].br, [](cef_browser_host_t* h) { h->was_hidden(h, 0); h->was_resized(h); h->invalidate(h, PET_VIEW); h->set_focus(h, 1); });
+    else hideTab(g_tabs[index]);
     g_dirty = true;
     if (g_shm) g_shm->wantsKeyboard = 0;
     publishInfo();
@@ -708,6 +716,15 @@ void runCommand(const xptb::Cmd& c) {
     case xptb::CMD_MOUSE_UP:
         g_buttonDown = false;
         withHost([](cef_browser_host_t* h, const xptb::Cmd& c) { cef_mouse_event_t m = mouseAt(c); h->send_mouse_click_event(h, &m, MBT_LEFT, 1, 1); }, c);
+        break;
+    case xptb::CMD_VISIBLE:   // the tablet's screen shows a web page, or not: drawn again, or paused (its sound plays on)
+        if ((c.a != 0) != g_visible) {
+            g_visible = c.a != 0;
+            if (g_active >= 0 && g_active < (int)g_tabs.size()) {
+                if (g_visible) { hostDo(g_tabs[g_active].br, [](cef_browser_host_t* h) { h->was_hidden(h, 0); h->was_resized(h); h->invalidate(h, PET_VIEW); }); g_dirty = true; }
+                else hideTab(g_tabs[g_active]);
+            }
+        }
         break;
     case xptb::CMD_FIND:   // the Dispatch app: a part of the briefing pressed, found in its PDF
         withHost([](cef_browser_host_t* h, const xptb::Cmd& c) {

@@ -35,7 +35,8 @@ enum CmdType : int32_t {
     CMD_MEDIA_VOLUME,     // a: 0..100, the volume of the tablet's videos and sounds (every tab: the Browser's and the web apps')
     CMD_EDIT,             // a: 1 copy, 2 cut, 3 paste, 4 select all (in the shown page's focused frame, with the computer's clipboard)
     CMD_TOUCH,            // a, b: where; c: 0 pressed, 1 moved, 2 released, 3 cancelled (a finger: the page scrolls and pans itself, with its fling)
-    CMD_FIND              // text: found in the shown page (a PDF too) and scrolled to, highlighted; empty: the highlight cleared
+    CMD_FIND,             // text: found in the shown page (a PDF too) and scrolled to, highlighted; empty: the highlight cleared
+    CMD_VISIBLE           // a: 1 a web page is on the tablet's screen, 0 none is: Chromium stops drawing (sound plays on), no pictures sent
 };
 // Navigation, pointer and keys always go to the tab shown.
 
